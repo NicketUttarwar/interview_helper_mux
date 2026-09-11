@@ -8,18 +8,14 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs:
-- path: master/selection.json
-  schema: null
-  staging: false
+outputs: []
 inputs:
   hard: []
   soft: []
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers:
-- full_master_ranking
+consumers: []
 remediation:
   strategies:
   - volley_retry

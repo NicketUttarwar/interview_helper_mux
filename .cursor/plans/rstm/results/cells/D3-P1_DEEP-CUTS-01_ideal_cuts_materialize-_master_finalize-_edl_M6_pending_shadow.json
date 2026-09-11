@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-P1|DEEP-CUTS-01|ideal_cuts_materialize->master_finalize->edl|M6_pending_shadow",
+  "status": "PASS",
+  "tier": "D3-P1",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:13Z"
+}

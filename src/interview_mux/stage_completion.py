@@ -12,6 +12,7 @@ from interview_mux.v2.config import DELIVERY_ORDER
 # Non-primary outputs that must exist before a stage is marked done.
 STAGE_SECONDARY_ARTIFACT_PATHS: dict[str, list[str]] = {
     "optimal_questions": ["understanding/interviewer_script.txt"],
+    "junction_snip_qa": ["master/seam_autopsy.json"],
 }
 
 
@@ -56,6 +57,89 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
     return None
 
 
+def _research_is_thin(ctx: RunContext) -> bool:
+    """True when research dossier is mostly skipped_or_thin / incomplete (telemetry).
+
+    Do **not** use this as the Shape refuse predicate — see research_shape_core_thin.
+    """
+    try:
+        from interview_mux.mastering_research import load_dossier
+
+        dossier = load_dossier(ctx)
+    except Exception:
+        dossier = None
+    if not isinstance(dossier, dict):
+        if not ctx.artifact_exists("mastering/research/rollup.json"):
+            return False  # early — no dossier yet (advisory path)
+        return True
+    thin = list(dossier.get("thin_fields") or [])
+    complete = list(dossier.get("complete_fields") or [])
+    total = len(thin) + len(complete)
+    if total == 0:
+        fields = dossier.get("fields") if isinstance(dossier.get("fields"), dict) else {}
+        if not fields:
+            return True
+        thin_n = sum(
+            1
+            for v in fields.values()
+            if isinstance(v, dict) and str(v.get("status") or "") != "complete"
+        )
+        return thin_n >= max(1, len(fields) // 2)
+    return len(thin) >= max(1, (total + 1) // 2)
+
+
+RESEARCH_CONSUMER_STAGES: frozenset[str] = frozenset(
+    {
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
+        "missing_framing",
+        "gap_framing_compose",
+    }
+)
+
+
+def _shape_about_to_bind(ctx: RunContext) -> bool:
+    """True when Shape/gap bind artifacts or stage_done markers already exist (rollup late)."""
+    if ctx.artifact_exists("mastering/shape/agenda.json"):
+        return True
+    if ctx.artifact_exists("mastering/shape/candidates.json"):
+        return True
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        return True
+    for sid in (
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
+    ):
+        if ctx.is_done(sid):
+            return True
+    return False
+
+
+def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
+    """A-01: Shape/gap consumers always late for shape-core thin (flags OFF OK).
+
+    Rollup stays advisory until Shape about-to-bind. Do not refuse on global
+    majority thin (W4–W8 expected thin at Pass1).
+    """
+    try:
+        from interview_mux.mastering_research import research_shape_core_thin
+    except Exception:
+        return None
+    if stage_id == "mastering_research_rollup":
+        if _shape_about_to_bind(ctx) and research_shape_core_thin(ctx):
+            return "research dossier shape-core thin (late refuse — Shape about to bind)"
+        return None
+    if stage_id not in RESEARCH_CONSUMER_STAGES:
+        return None
+    if research_shape_core_thin(ctx):
+        return "research shape-core thin — not ready for Shape/gap consumers"
+    return None
+
+
 def stage_artifact_incompleteness(
     ctx: RunContext,
     stage_id: str,
@@ -71,12 +155,29 @@ def stage_artifact_incompleteness(
             heal_mmaudio_qa_wav_parity(ctx)
         except Exception:
             pass
+    if stage_id == "mix":
+        try:
+            from interview_mux.air_order import mix_wav_fresh_versus_edl
+
+            if ctx.artifact_exists("master/assembly.wav") and not mix_wav_fresh_versus_edl(
+                ctx
+            ):
+                return "master/assembly.wav is stale versus live EDL"
+        except Exception:
+            pass
     for path in stage_required_artifact_paths(stage_id):
         phase = (lifecycle or {}).get(path)
         if phase in ("n_a", "skipped"):
             continue
         if not ctx.artifact_exists(path):
             return f"{path} is pending"
+        # F-04: prefer hollow-seats signal over generic "partial" for air stages.
+        if stage_id in {"air_script_seams", "air_script_compose"} and path.endswith(
+            "mastering_plan.json"
+        ):
+            hollow = _air_script_hollow_seats_incompleteness(ctx)
+            if hollow:
+                return hollow
         # Exists ≠ usable (stale, fingerprint, pending-only seating).
         try:
             from interview_mux.thrash_hardening import artifact_usable
@@ -112,6 +213,10 @@ def stage_artifact_incompleteness(
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:
             return stub
+    # A-01: research thin — early advisory; late/expected consumers refuse seed_complete.
+    thin_reason = _research_thin_late_refuse(ctx, stage_id)
+    if thin_reason:
+        return thin_reason
     try:
         from interview_mux.gap_fill_eligibility import synthetic_vo_incompleteness
 
@@ -216,6 +321,15 @@ def stage_artifact_incompleteness(
 
             if not delivery_sdp_present(ctx):
                 return "sound_design_plan has not written the delivery SDP"
+            # F-03: unpaid invent obligation + empty palettes/cues → incomplete
+            try:
+                from interview_mux.soundscape_policy import invent_obligation_status
+
+                status = invent_obligation_status(ctx)
+                if status.get("unpaid"):
+                    return "sound_design_plan invent obligation unpaid (empty palettes+cues)"
+            except Exception:
+                pass
         except Exception:
             return "sound_design_plan delivery SDP not confirmed"
     if stage_id == "vo_synthesize":
@@ -325,6 +439,47 @@ def stage_artifact_incompleteness(
     return None
 
 
+def _air_script_hollow_seats_incompleteness(ctx: RunContext) -> str | None:
+    """When air is on and live gap VO needs seats, empty seated_line_ids is hollow."""
+    try:
+        from interview_mux.air_script import air_script_enabled, gap_line_air_eligible
+        from interview_mux.mastering_plan_loader import load_plan_raw
+    except Exception:
+        return None
+    if not air_script_enabled():
+        return None
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return None
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return None
+    if not isinstance(gap, dict):
+        return None
+    live_ids = [
+        str(row.get("line_id") or "").strip()
+        for row in (gap.get("interviewer_lines") or [])
+        if isinstance(row, dict) and gap_line_air_eligible(row) and row.get("line_id")
+    ]
+    if not live_ids:
+        return None
+    plan = None
+    try:
+        plan = load_plan_raw(ctx)
+    except Exception:
+        plan = None
+    if not isinstance(plan, dict):
+        return "air_script hollow seats — live VO lines need seats but plan missing"
+    script = plan.get("air_script") if isinstance(plan.get("air_script"), dict) else {}
+    seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+    seated = [str(x) for x in (seats.get("seated_line_ids") or []) if x]
+    if seated:
+        return None
+    return (
+        "air_script hollow seats — live VO lines need seats but seated_line_ids empty"
+    )
+
+
 def vo_synthesize_should_defer_done(ctx: RunContext, stage_id: str) -> str | None:
     """If set, do not mark vo_synthesize done and do not abort the delivery batch.
 
@@ -364,7 +519,7 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "edl_script_hash_stale": "edl",
     "music_incomplete": "mmaudio_sfx",
     "seam_autopsy": "junction_snip_qa",
-    "g1_vo_open": "vo_synthesize",
+    "g1_vo_open": "vo_synthesize",  # synth path; record path via resolve_g1_vo_open_resume
     "voice_reference_pending": "topic_coverage_audit",
     "seed_order": "edl",
     "assembly_seating_stale": "mix",
@@ -472,8 +627,38 @@ def incompleteness_resume_stage(ctx: RunContext, consumer_stage: str) -> str | N
         parsed = parse_resume_stage_from_reason(reason)
         if parsed:
             return parsed
+        reason_l = str(reason).lower()
+        # invalidated_by:<producer> must not yank resume back to a completed
+        # producer (exec_10066: vo_synthesize.json stale → layup thrash while
+        # G1 still needs WAVs). Clear stale and regenerate the consumer.
+        if "invalidated_by:" in reason_l or "stale_meta:invalidated_by:" in reason_l:
+            inv = ""
+            for marker in ("stale_meta:invalidated_by:", "invalidated_by:"):
+                if marker in reason_l:
+                    inv = reason_l.split(marker, 1)[1].split()[0].strip("):,]\"'")
+                    break
+            if inv and inv in _resume_stage_allowlist():
+                # Producer already marked done → regenerate consumer; do not
+                # re-enter a completed invalidator (G1/VO thrash).
+                if ctx.is_done(inv):
+                    try:
+                        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                        rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+                        if rel and ctx.artifact_exists(rel):
+                            doc = ctx.read_json(rel)
+                            if isinstance(doc, dict):
+                                meta = dict(doc.get("_meta") or {})
+                                if meta.get("stale"):
+                                    meta.pop("stale", None)
+                                    meta.pop("stale_reason", None)
+                                    doc["_meta"] = meta
+                                    ctx.write_json(rel, doc, skip_handoff=True)
+                    except Exception:
+                        pass
+                    return sid
         for tok, pin in PRODUCER_PIN_TABLE.items():
-            if tok and tok in str(reason).lower() and pin in _resume_stage_allowlist():
+            if tok and tok in reason_l and pin in _resume_stage_allowlist():
                 return pin
     return None
 

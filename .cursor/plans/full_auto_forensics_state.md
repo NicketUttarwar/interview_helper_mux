@@ -1,40 +1,30 @@
 # Forensics loop state
 
-- **campaign_mode:** fresh_campaign_continue_on_bug
+- **ship:** false
+- **campaign_mode:** stopped_awaiting_user_fresh_run
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_5570_d19c15b58ab4_20260907T214325Z
+- **run_id:** exec_11136_d19c15b58ab4_20260910T212232Z
 - **fresh_launches:** 1
-- **driver_restarts:** 0
-- **started_at:** 2026-09-07T21:43:25Z
-- **last_progress_at:** 2026-09-08T00:19:55Z
-- **driver_alive:** false
-- **stages_done:** 70
-- **current_stage:** (complete — podcast_publish)
-- **g1_complete:** true
-- **intervention_count:** 0
-- **last_predicate:** ship_bar_complete
-- **last_predicate_flipped:** true
-- **resume_from_stage:** n/a
-- **open_blockers:** []
-- **patches_this_session:** ["durable Waves 1–10 + anti-footgun suite"]
-- **hard_blocker:** null
-- **ship:** true
-- **monitor_loop:** stopped (nudge killed on ship)
-- **notes:** SHIP. master.wav 194M; verify_master OK (−16.0 LUFS); PMQ publish_allowed=true; cover+mp3 present; podcast_publish done. S3 not uploaded (quality advisories → G-Publish consent — Wave 10 correct). Driver heals only (seam_autopsy, G1, narrative_qc); no mid-run agent product patches. EXECUTION_REPORT written.
+- **driver_restarts:** 7
+- **stages_done:** ~54
+- **current_stage:** (stopped) was vo_synthesize
+- **intervention_count:** 7
+- **last_predicate:** addendum A8–C15 + footgun harden landed; driver stopped per operator
+- **notes:** Remaining plan code built (halt write ESR, selection cascade freeze, fail-closed reopen gates, one-shot seat token, lease expand, Phase A dual-lock). Light pytest 23 passed. e2 awaits user MUX_FRESH=1.
 
-## §13 End report (archive)
 
-### What happened
-`mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3` → complete on `exec_5570_d19c15b58ab4_20260907T214325Z`. fresh_launches=1, driver_restarts=0, intervention_count=0 (product patches pre-prove only).
 
-### Root causes fixed
-None mid-campaign — durable Waves 1–10 landed before this MUX_FRESH=1 prove. Driver thrash heals only (G1 synth, seam_autopsy soft-commit, edl narrative, etc.).
+## Campaign goal
 
-### Guardrails added
-Pre-prove: heal_or_refuse_mark, music missing-asset regen + seals, edl_seat_preflight, air-order freeze, seal≠delight waive, junction hard-pin, never auto-S3 on advisories, anti-footgun pytest.
+Confirm success bar from thrash_spine_endgame plan: no false sticky HARD while producers active; seat freeze caps held; gated reopens only; local ship.
 
-### Dead ends
-No second-fresh mid-campaign. No attach to prior exec.
+## Interventions
 
-### Quality & cleanup
-verify_master OK; PMQ pass + publish_allowed; cover.jpg + audio.mp3; S3 blocked on advisories (expected); daemon/driver/nudge stopped.
+| ID | Predicate | Fix |
+|---|---|---|
+| i1 | `true_waste_sticky:orphan_artifact` during early analysis with active producer | `record_wasted_work` HARD stamp gated by ESR `may_hard_halt`; clear false sticky on exec_11136 |
+| i1b | same sticky recurred (old driver PID) | Restart driver `MUX_FRESH=0` to load patched code; continue same run |
+| i2 | empty `compose_restart` → hollow gap + open high-salience / spoken_copy loop | Stop PLAN wipe; refuse hollow gap publish; park unhealable high-salience on orientation |
+| i3 | `layup_skip_stuffed_needs_recompose` despite QC ok (justified sparse skips) | Sanitize only flags stuffed when unjustified skips dominate |
+| i4 | Missing WAV VO contract blocked layup; premature G1 resume → layup thrash | Filter missing WAV from layup/seams preflight; G1-missing always `vo_synthesize` |
+| i5 | EDL stale orientation WAV → gap_framing rewrite under freeze wiped WAVs | `gap_framing_compose` no-op under layup authority / seat freeze; heal selection/gap floor; resume `vo_synthesize` |

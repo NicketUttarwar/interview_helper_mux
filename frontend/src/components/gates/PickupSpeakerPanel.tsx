@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
+import {
+  shouldAdvanceAfterGatePost,
+  shouldBlockOperatorActionsForJob,
+} from "../../utils/partialAcceleratedGuard";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 import { ArtifactAudio } from "../shared/ArtifactAudio";
@@ -31,11 +35,21 @@ function formatRole(role?: string): string {
 }
 
 export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
-  const { runId, run, refreshRun, showToast, advanceFromCheckpoint, closeActionModal } = useApp();
+  const {
+    runId,
+    run,
+    refreshRun,
+    showToast,
+    advanceFromCheckpoint,
+    closeActionModal,
+    jobRunning,
+    partialAutoGPublish,
+  } = useApp();
   const [data, setData] = useState<PickupSpeakerPayload | null>(null);
   const [selected, setSelected] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -75,7 +89,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
   };
 
   const confirm = async () => {
-    if (!runId || !selected || busy) return;
+    if (!runId || !selected || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction("gui.adaptation.pickup_speaker", "Confirming gap pickup speaker", {
       stage: stage.id,
@@ -91,7 +105,9 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
       await load();
       await refreshRun();
       closeActionModal();
-      await advanceFromCheckpoint();
+      if (shouldAdvanceAfterGatePost(run)) {
+        await advanceFromCheckpoint();
+      }
     } catch (e) {
       showToast(formatApiError(e, "Confirm pickup speaker"), "error");
     } finally {
@@ -100,7 +116,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
   };
 
   const skipGapFill = async () => {
-    if (!runId || busy) return;
+    if (!runId || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction("gui.gap_fill.skip", "Skipping gap speaker sections", { stage: stage.id });
     try {
@@ -116,7 +132,9 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
       await load();
       await refreshRun();
       closeActionModal();
-      await advanceFromCheckpoint();
+      if (shouldAdvanceAfterGatePost(run)) {
+        await advanceFromCheckpoint();
+      }
     } catch (e) {
       showToast(formatApiError(e, "Skip gap speaker sections"), "error");
     } finally {
@@ -238,7 +256,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
             className="btn primary sm"
             data-testid="confirm-pickup-speaker"
             data-action-id="gui.adaptation.pickup_speaker"
-            disabled={busy || !selected}
+            disabled={busy || jobBlocksUi || !selected}
             onClick={() => void confirm()}
           >
             {busy ? (
@@ -254,7 +272,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
             className="btn ghost sm"
             data-testid="skip-gap-fill"
             data-action-id="gui.gap_fill.skip"
-            disabled={busy}
+            disabled={busy || jobBlocksUi}
             onClick={() => void skipGapFill()}
           >
             Skip gap speaker sections

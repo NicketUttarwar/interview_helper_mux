@@ -415,7 +415,6 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         ideal_cuts_cfg,
     )
     from interview_mux.stage_coupling import publish_boundary_contract
-    from interview_mux.v2.config import ANALYSIS_ORDER
 
     def _run_post_reanchor_edge_confidence() -> None:
         """Score existing boundaries even when no re-split is necessary.
@@ -440,18 +439,40 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             )
 
     # One invalidation cycle per run — re-entering after resume-from-classification
-    # must not clear markers again (clear_from(from_stage) would wipe this stage's
-    # .stage_done and loop forever).
+    # must not clear markers again. B-01: also refuse when boundaries fingerprint
+    # is unchanged (second heal only if hash flipped).
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if isinstance(meta, dict) and meta.get("boundary_topic_resplit_cycle_done"):
-        ctx.log(
-            "boundary_topic_resplit cycle already completed this run — skipping re-invalidation",
-            level="info",
-            stage="boundary_topic_resplit",
-        )
-        _run_post_reanchor_edge_confidence()
-        heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
-        return
+        # Allow a second pass only when boundaries fingerprint flipped AND heal
+        # count is still under the profile max (2).
+        allow_second = False
+        try:
+            import hashlib
+            import json
+
+            bounds_doc = (
+                ctx.read_json("segments/boundaries.json")
+                if ctx.artifact_exists("segments/boundaries.json")
+                else {}
+            )
+            cur_fp = hashlib.sha256(
+                json.dumps(bounds_doc, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()[:16]
+            prev_fp = str(meta.get("boundary_topic_resplit_bounds_fp") or "")
+            heal_n = int(meta.get("boundary_topic_resplit_heal_count") or 0)
+            if prev_fp and cur_fp and prev_fp != cur_fp and heal_n < 2:
+                allow_second = True
+        except Exception:
+            allow_second = False
+        if not allow_second:
+            ctx.log(
+                "boundary_topic_resplit cycle already completed this run — skipping re-invalidation",
+                level="info",
+                stage="boundary_topic_resplit",
+            )
+            _run_post_reanchor_edge_confidence()
+            heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
+            return
 
     # Talking-points-first: ideal-cut windows are the keep authority — do not
     # re-partition them via topic resplit unless explicitly re-enabled.
@@ -548,12 +569,61 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         marker = ctx.final_path(".stage_done", sid)
         if marker.is_file():
             marker.unlink()
-    next_idx = list(ANALYSIS_ORDER).index("boundary_topic_resplit") + 1
-    if next_idx < len(ANALYSIS_ORDER):
-        ctx.clear_from(ANALYSIS_ORDER[next_idx], list(ANALYSIS_ORDER))
+    # B-01: bounded seg_resplit_heal (never wide ANALYSIS clear_from). Cap via
+    # boundaries fingerprint + profile max_invocations=2.
+    _RESPLIT_CONSUMERS = (
+        "segment_classification",
+        "content_brief_reanchor",
+        "vernacular_segment_sanitize",
+        "low_conf_island_scan",
+        "connector_fuse_pass",
+    )
+    try:
+        import hashlib
+        import json
+
+        bounds_doc = (
+            ctx.read_json("segments/boundaries.json")
+            if ctx.artifact_exists("segments/boundaries.json")
+            else {}
+        )
+        bounds_fp = hashlib.sha256(
+            json.dumps(bounds_doc, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:16]
+    except Exception:
+        bounds_fp = ""
+
+    def _stamp_resplit_fp(m: dict) -> None:
+        prev = str(m.get("boundary_topic_resplit_bounds_fp") or "")
+        m["boundary_topic_resplit_bounds_fp"] = bounds_fp
+        m["boundary_topic_resplit_heal_count"] = int(
+            m.get("boundary_topic_resplit_heal_count") or 0
+        ) + (0 if prev == bounds_fp and prev else 1)
+
+    try:
+        from interview_mux.execution_invalidation_profiles import (
+            INVALIDATION_PROFILES,
+            apply_bounded_invalidation,
+        )
+
+        if "seg_resplit_heal" in INVALIDATION_PROFILES:
+            apply_bounded_invalidation(
+                ctx, "seg_resplit_heal", reason="boundary_topic_resplit"
+            )
+        else:
+            for sid in _RESPLIT_CONSUMERS:
+                marker = ctx.final_path(".stage_done", sid)
+                if marker.is_file():
+                    marker.unlink()
+    except Exception:
+        for sid in _RESPLIT_CONSUMERS:
+            marker = ctx.final_path(".stage_done", sid)
+            if marker.is_file():
+                marker.unlink()
 
     def _mark_cycle_done(m: dict) -> None:
         m["boundary_topic_resplit_cycle_done"] = True
+        _stamp_resplit_fp(m)
 
     ctx.mutate_run_meta(_mark_cycle_done)
 

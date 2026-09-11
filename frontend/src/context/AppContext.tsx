@@ -30,7 +30,11 @@ import type {
   TranscriptReviewState,
   ToastLevel,
 } from "../types";
-import { isPartialAcceleratedRun, isPartialAutoCheckpoint, shouldHoldJobRunningFlag } from "../utils/partialAcceleratedGuard";
+import {
+  isPartialAutoCheckpoint,
+  shouldAdvanceAfterGatePost,
+  shouldHoldJobRunningFlag,
+} from "../utils/partialAcceleratedGuard";
 import type { PartialAutoGPublishState } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 import { applyLiveJobToStages, isJobActivelyRunning } from "../utils/jobStatus";
@@ -1192,12 +1196,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stage?: string;
         awaiting_write_approval?: boolean;
         pending_write_stage?: string;
+        pinned_to?: string;
+        reason?: string;
+        requested_stage?: string;
         job?: JobState;
       },
       stageForLog?: string,
     ): Promise<boolean> => {
       if (res.ok === false) {
         setJobRunning(false);
+        if (res.pinned_to) {
+          const pinMsg =
+            res.reason ||
+            `Pinned to ${res.pinned_to}${
+              res.requested_stage ? ` (requested ${res.requested_stage})` : ""
+            }`;
+          appendClientLog(pinMsg, "info", res.pinned_to);
+          showToast(pinMsg, "warning");
+          await selectStage(res.pinned_to);
+          expandStage(res.pinned_to);
+          await refreshRun();
+          return false;
+        }
         const operatorGate = isOperatorGateStartResponse(res);
         if (operatorGate) {
           appendClientLog(res.error || "Paused for your review", "info", stageForLog);
@@ -1234,6 +1254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshRun,
       startJobPoll,
       selectStage,
+      expandStage,
       openActionModal,
       appendClientLog,
       pollLog,
@@ -1594,7 +1615,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           );
         } else if (startRunMode === "partially-accelerated") {
           showToast(
-            "Partially accelerated — you'll confirm transcript review and S3 upload only.",
+            "Partially accelerated — required stops are transcript review (G0) and S3 / G-Publish; other gates may also pause.",
             "info",
           );
         }
@@ -1728,8 +1749,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userDismissedActionRef.current = false;
     setActionBusy(false);
     actionBusyRef.current = false;
+    const refreshedRun = runId ? await refreshRun() : run;
+    // D-02: Partial + active driver — refresh/focus only; driver owns resume.
+    if (!shouldAdvanceAfterGatePost(refreshedRun)) {
+      await syncPipelineStageFocusRef.current(refreshedRun);
+      if (!actionBusyRef.current) {
+        setActionModalOpen(false);
+        userDismissedActionRef.current = false;
+        lastAutoOpenKeyRef.current = null;
+      }
+      return;
+    }
     await advancePipeline({
-      run,
+      run: refreshedRun,
       runId,
       apiGrants: mergedApiGrants(),
       selectedStageId: selectedStageIdRef.current,
@@ -2062,13 +2094,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ accept_unreviewed: accept }),
         });
         showToast("Transcript review complete", "success");
-        const refreshed = await refreshRun();
+        await refreshRun();
         await loadTranscriptReview();
-        if (!isPartialAcceleratedRun(refreshed)) {
-          await advanceFromCheckpoint();
-        } else {
-          await syncPipelineStageFocusCb(refreshed);
-        }
+        // D-02: same guarded advance as other gates (Partial+driver → focus only).
+        await advanceFromCheckpoint();
       } catch (reason) {
         showToast(formatApiError(reason, "Complete transcript review"), "error");
         throw reason;
@@ -2084,7 +2113,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshRun,
       loadTranscriptReview,
       advanceFromCheckpoint,
-      syncPipelineStageFocusCb,
       logOperatorAction,
     ],
   );

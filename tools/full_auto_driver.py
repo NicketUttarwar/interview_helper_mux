@@ -236,8 +236,20 @@ def _write_terminal_report(
         from interview_mux.execution_report import REPORT_MD_REL, write_execution_report
         from interview_mux.run_context import RunContext
 
+        ctx = RunContext(RUN_ID, create=False)
+        try:
+            from interview_mux.delivery_invariants import invariant_fire_summary
+
+            inv = invariant_fire_summary(ctx)
+            if inv:
+                log(
+                    "[INVARIANT summary] "
+                    + " ".join(f"{k}={v}" for k, v in sorted(inv.items()))
+                )
+        except Exception:
+            pass
         report = write_execution_report(
-            RunContext(RUN_ID, create=False),
+            ctx,
             outcome=outcome,
             halt_stage=halt_stage,
             root_cause=root_cause,
@@ -365,6 +377,28 @@ def _stop_timeline_optimizer_if_driver_idle() -> None:
 
 def pause_needs_operator(stage: str, reason: str) -> str:
     """Cap-reached delivery HARD → stamp needs_operator; do not SystemExit or re-exec body."""
+    # a11: prefer wait while ESR says producers are still progressing
+    try:
+        from interview_mux.execution_status import may_hard_halt, sync_execution_status
+        from interview_mux.run_context import RunContext
+
+        ctx_esr = RunContext(RUN_ID, create=False)
+        sync_execution_status(ctx_esr, pin=str(stage or ""), intent="needs_operator")
+        if not may_hard_halt(ctx_esr, pin=str(stage or "")):
+            log(
+                f"ESR: suppress needs_operator pause at {stage} — progress still fresh "
+                f"({reason[:120]})"
+            )
+            log_decision(
+                "minor",
+                stage=stage,
+                action="esr_wait_needs_operator",
+                reason="progress_fresh",
+                detail=reason[:240],
+            )
+            return "continue"
+    except Exception as exc:
+        log(f"ESR needs_operator gate skipped: {exc}")
     try:
         from interview_mux.run_context import RunContext
         from interview_mux.thrash_hardening import (
@@ -2933,6 +2967,20 @@ def heal_stage_done_markers() -> None:
         return
     clear_orphaned_pending_writes()
     ctx = RunContext(RUN_ID, create=False)
+    # Active remutate cleared these markers on purpose — do not restamp them
+    # from leftover artifacts (forensics exec_10066 mix-noop loop).
+    remutate_protect: set[str] = set()
+    try:
+        from interview_mux.delivery_invariants import active_remutate_stages
+
+        remutate_protect = set(active_remutate_stages(ctx))
+        if remutate_protect:
+            log(
+                "heal: skip remutate-protected stages "
+                f"{sorted(remutate_protect)[:8]}"
+            )
+    except Exception:
+        remutate_protect = set()
     healed_forward: list[str] = []
     # Delivery already has selection+SDP+layup: soft-pass early delivery and
     # never clear those markers for missing optional producers.
@@ -3186,8 +3234,37 @@ def heal_stage_done_markers() -> None:
                             _heal_mark(ctx, sid)
                             healed.append(sid)
                     else:
-                        from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+                        from interview_mux.high_gap_vo import (
+                            demote_uncovered_high_gaps,
+                            fill_uncovered_high_gaps,
+                        )
 
+                        # Prefer fill over demote when hosted framing floor unmet.
+                        try:
+                            fill_n = fill_uncovered_high_gaps(
+                                ctx,
+                                repaired if isinstance(repaired, dict) else {},
+                                applied=[],
+                                origin="e2e_heal_lint_dirty_fill",
+                            )
+                            if fill_n and isinstance(repaired, dict):
+                                from interview_mux.artifact_writes import (
+                                    write_validated_artifact,
+                                )
+
+                                write_validated_artifact(
+                                    ctx,
+                                    "understanding/gap_report.json",
+                                    repaired,
+                                    merge_from_disk=False,
+                                    stage_key="gap_framing_compose",
+                                )
+                                log(
+                                    f"heal: filled {fill_n} uncovered high gap(s) "
+                                    f"before demote ({lint_errs[:1]})"
+                                )
+                        except Exception as fill_exc:
+                            log(f"heal: high-gap fill skipped: {fill_exc}")
                         demoted = demote_uncovered_high_gaps(
                             ctx,
                             gap_report=repaired,
@@ -3203,6 +3280,12 @@ def heal_stage_done_markers() -> None:
     except Exception as exc:
         log(f"heal gap-block: {exc}")
     for sid in (*ANALYSIS_ORDER, *DELIVERY_ORDER):
+        if sid in remutate_protect:
+            marker = ctx.run_dir / ".stage_done" / sid
+            if marker.is_file():
+                marker.unlink(missing_ok=True)
+                cleared.append(f"{sid}(remutate-protect)")
+            continue
         paths = stage_required_artifact_paths(sid) or []
         order = (*ANALYSIS_ORDER, *DELIVERY_ORDER)
         later_done = False
@@ -3246,6 +3329,11 @@ def heal_stage_done_markers() -> None:
             try:
                 for rel in paths:
                     if not ctx.artifact_exists(rel):
+                        continue
+                    # Binary producers (mix → assembly.wav) have no JSON _meta.
+                    if str(rel).lower().endswith(
+                        (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+                    ):
                         continue
                     doc = ctx.read_json(rel)
                     meta = doc.get("_meta") if isinstance(doc, dict) else None
@@ -3314,6 +3402,10 @@ def heal_stage_done_markers() -> None:
             stale_own = False
             for rel in paths:
                 if not ctx.artifact_exists(rel):
+                    continue
+                if str(rel).lower().endswith(
+                    (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+                ):
                     continue
                 doc = ctx.read_json(rel)
                 meta = doc.get("_meta") if isinstance(doc, dict) else None
@@ -6989,6 +7081,27 @@ def delivery_resume_stage() -> str | None:
 
         ctx = RunContext(RUN_ID, create=False)
         root = _P(ctx.run_dir)
+        # Active remutate owns resume until its producers re-run.
+        try:
+            from interview_mux.delivery_invariants import REMUTATE_PLAN_RELS
+
+            for rem_rel in REMUTATE_PLAN_RELS:
+                if not ctx.artifact_exists(rem_rel):
+                    continue
+                rem = ctx.read_json(rem_rel)
+                if (
+                    isinstance(rem, dict)
+                    and not rem.get("exhausted")
+                    and int(rem.get("attempt") or 0)
+                    <= int(rem.get("max_attempts") or 3)
+                ):
+                    pin = str(rem.get("from_stage") or "").strip()
+                    stages = [str(s) for s in (rem.get("from_stages") or []) if str(s)]
+                    if pin and any(not ctx.is_done(s) for s in (stages or [pin])):
+                        log(f"delivery_resume_stage: honor remutate {rem_rel} → {pin}")
+                        return pin
+        except Exception:
+            pass
         asm = (root / "master" / "assembly.wav").is_file()
         edl = (root / "master" / "edl.json").is_file()
         master = (root / "master" / "master.wav").is_file()
@@ -7326,15 +7439,90 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         continue
                 # Forensics: identical seed-order caps must not park forever behind a
                 # live producer — clear the stamp and let heal navigate.
+                # Layup-stale vs selection while EDL/VO runs is the same trap:
+                # waiting never adopts; producer must be the layup stage.
                 if _forensics_mode() and (
                     "seed order" in pause_reason
                     or pause_stage in {"vo_synthesize", "vo_line_adjudicate"}
+                    or (
+                        pause_stage == "nugget_layup_compose"
+                        and any(
+                            tok in pause_reason
+                            for tok in (
+                                "stale",
+                                "layup",
+                                "order_lock",
+                                "selection",
+                                "nugget_layup",
+                            )
+                        )
+                    )
                 ):
                     _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
                     log(
                         f"forensics: cleared needs_operator {pause_stage} while "
-                        f"{live_stage} running (seed-order heal continues)"
+                        f"{live_stage} running (seed-order/layup-stale heal continues)"
                     )
+                    if pause_stage == "nugget_layup_compose":
+                        try:
+                            from interview_mux.nugget_layup import (
+                                PLAN_REL,
+                                adopt_layup_plan_to_selection,
+                                attach_selection_order_lock,
+                                layup_freshness_errors,
+                            )
+                            from interview_mux.run_context import RunContext as _RClayup
+
+                            _ctx_l = _RClayup(RUN_ID, create=False)
+                            if _ctx_l.artifact_exists(PLAN_REL) and _ctx_l.artifact_exists(
+                                "master/selection.json"
+                            ):
+                                adopted = adopt_layup_plan_to_selection(
+                                    _ctx_l, persist=True, stage="nugget_layup_compose"
+                                )
+                                plan = (
+                                    _ctx_l.read_json(PLAN_REL)
+                                    if _ctx_l.artifact_exists(PLAN_REL)
+                                    else {}
+                                )
+                                if isinstance(plan, dict) and layup_freshness_errors(
+                                    _ctx_l, plan
+                                ):
+                                    plan = attach_selection_order_lock(_ctx_l, plan)
+                                    # Force ordered ids onto live selection when adopt
+                                    # could not remap every split child.
+                                    sel = _ctx_l.read_json("master/selection.json")
+                                    if isinstance(sel, dict):
+                                        plan["ordered_segment_ids"] = [
+                                            str(x)
+                                            for x in (sel.get("ordered_segment_ids") or [])
+                                            if x
+                                        ]
+                                    _ctx_l.write_json(
+                                        PLAN_REL,
+                                        plan,
+                                        stage_key="nugget_layup_compose",
+                                    )
+                                log(
+                                    "forensics: layup-stale adopt "
+                                    f"ok={bool(adopted.get('ok'))} "
+                                    f"fresh_err={layup_freshness_errors(_ctx_l)[:2]}"
+                                )
+                                if not layup_freshness_errors(_ctx_l):
+                                    _heal_mark(_ctx_l, "nugget_layup_compose", force=True)
+                                    execute(
+                                        {"mode": "delivery", "from_stage": "edl"}
+                                    )
+                                    continue
+                            execute(
+                                {
+                                    "mode": "delivery",
+                                    "from_stage": "nugget_layup_compose",
+                                }
+                            )
+                            continue
+                        except Exception as layup_exc:
+                            log(f"forensics: layup-stale heal failed: {layup_exc}")
                     continue
                 log(
                     f"{label}: needs_operator "
@@ -7514,41 +7702,50 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     f"keep resume {resume} (not edl/mix)"
                                 )
                             elif missing_g1:
-                                seed_front = None
-                                try:
-                                    from interview_mux.llm_flow_hardening import (
-                                        _earliest_incomplete_seed_stage,
-                                    )
-
-                                    seed_front = _earliest_incomplete_seed_stage(
-                                        ctx_p, "vo_synthesize"
-                                    )
-                                except Exception:
-                                    seed_front = None
-                                if seed_front and seed_front != "vo_synthesize":
-                                    resume = seed_front
-                                    log(
-                                        "premature EDL complete with G1 missing "
-                                        f"{missing_g1[:8]} — resume seed front "
-                                        f"{seed_front} (not vo_synthesize)"
-                                    )
-                                else:
-                                    log(
-                                        "premature EDL complete with G1 missing "
-                                        f"{missing_g1[:8]} — resume vo_synthesize (not edl)"
-                                    )
-                                    resume = "vo_synthesize"
+                                # Missing seated VO WAVs → always re-enter synthesize.
+                                # Do NOT walk earlier seed fronts (e.g. layup unmarked
+                                # solely because VO contract listed missing WAV).
+                                log(
+                                    "premature EDL complete with G1 missing "
+                                    f"{missing_g1[:8]} — resume vo_synthesize (not edl)"
+                                )
+                                resume = "vo_synthesize"
                             elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
-                                resume = _heal_resume(
-                                    error="premature EDL complete mix unseated",
-                                    stage="edl",
-                                    intent="mix_seat",
-                                )
-                                log(
-                                    f"premature EDL complete with mix unseated "
-                                    f"(drift={drift}) — resume {resume}"
-                                )
+                                # Don't bounce into MusicGen while VO/layup floor
+                                # is still incomplete (omit-stamp thrash → empty G1).
+                                try:
+                                    from interview_mux.stage_completion import (
+                                        stage_artifact_incompleteness as _sai,
+                                    )
+
+                                    layup_inc = _sai(ctx_p, "nugget_layup_compose")
+                                    vo_inc = _sai(ctx_p, "vo_synthesize")
+                                except Exception:
+                                    layup_inc = None
+                                    vo_inc = None
+                                if layup_inc:
+                                    resume = "nugget_layup_compose"
+                                    log(
+                                        "premature EDL complete mix unseated but "
+                                        f"layup incomplete — resume {resume}"
+                                    )
+                                elif vo_inc or not ctx_p.is_done("vo_synthesize"):
+                                    resume = "vo_synthesize"
+                                    log(
+                                        "premature EDL complete mix unseated but "
+                                        f"VO incomplete — resume {resume}"
+                                    )
+                                else:
+                                    resume = _heal_resume(
+                                        error="premature EDL complete mix unseated",
+                                        stage="edl",
+                                        intent="mix_seat",
+                                    )
+                                    log(
+                                        f"premature EDL complete with mix unseated "
+                                        f"(drift={drift}) — resume {resume}"
+                                    )
                             elif not ctx_p.is_done("mix"):
                                 from interview_mux.heal_routing import mix_assembly_seated
 
@@ -7959,6 +8156,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     from interview_mux.run_context import RunContext
                     from interview_mux.stage_completion import reconcile_stage_done_marker
                     from interview_mux.thrash_hardening import (
+                        expensive_stage_lease_active,
                         heal_navigate,
                         note_sticky_heal_attempt,
                         stage_predicate_token,
@@ -7970,7 +8168,59 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         reconcile_delivery_batch(ctx_nav)
                     except Exception as recon_exc:
                         log(f"incomplete-after-conductor reconcile: {recon_exc}")
+                    try:
+                        from interview_mux.execution_status import sync_execution_status
+
+                        sync_execution_status(
+                            ctx_nav,
+                            pin=str(stage or "delivery"),
+                            intent="incomplete_after_conductor",
+                        )
+                    except Exception:
+                        pass
                     if not ctx_nav.artifact_exists("master/master.wav"):
+                        lease_on, lease_stage = expensive_stage_lease_active(ctx_nav)
+                        if lease_on:
+                            log(
+                                f"incomplete-after-conductor: expensive lease active "
+                                f"({lease_stage}) — wait without sticky halt"
+                            )
+                            time.sleep(45)
+                            execute(
+                                {
+                                    "mode": "delivery",
+                                    "from_stage": lease_stage or "vo_synthesize",
+                                }
+                            )
+                            continue
+                        try:
+                            from interview_mux.execution_status import wait_vs_halt
+
+                            wvh = wait_vs_halt(
+                                ctx_nav,
+                                pin=str(stage or "delivery"),
+                                intent="incomplete_after_conductor",
+                                reason=err,
+                            )
+                            if wvh.get("decision") == "wait":
+                                log(
+                                    f"incomplete-after-conductor: ESR wait "
+                                    f"({wvh.get('why')}) — sleep without sticky"
+                                )
+                                time.sleep(45)
+                                execute(
+                                    {
+                                        "mode": "delivery",
+                                        "from_stage": str(
+                                            wvh.get("lease_stage")
+                                            or stage
+                                            or "vo_synthesize"
+                                        ),
+                                    }
+                                )
+                                continue
+                        except Exception:
+                            pass
                         nav = heal_navigate(
                             ctx_nav,
                             error=err,
@@ -8080,8 +8330,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     heal_omit_ledger_air_contract(ctx)
                     sync_edl_vo_script_metadata(ctx)
                     if has_pending_writes(ctx, "master_finalize"):
-                        promoted = approve_stage_writes(ctx, "master_finalize")
-                        log(f"ship heal: committed pending master_finalize {promoted}")
+                        from interview_mux.delivery_guardrails import seed_stage_complete
+                        from interview_mux.delivery_invariants import (
+                            record_invariant_heal,
+                        )
+                        from interview_mux.homunculus.agenda import (
+                            _junction_commitment_matches_assembly,
+                        )
+
+                        # Pending master from a failed delight/junction pass must
+                        # not look shipped (exec_10066: promote → ship-stage thrash).
+                        refuse = False
+                        if not seed_stage_complete(ctx, "junction_snip_qa"):
+                            refuse = True
+                            reason = "junction_snip_qa not seed-complete"
+                        elif not _junction_commitment_matches_assembly(ctx):
+                            refuse = True
+                            reason = "junction commitment mismatch"
+                        if refuse:
+                            record_invariant_heal(
+                                ctx,
+                                kind="promote_refuse_pending_master",
+                                stage="master_finalize",
+                                detail={"reason": reason},
+                            )
+                            log(f"ship heal: refuse pending master_finalize — {reason}")
+                        else:
+                            promoted = approve_stage_writes(ctx, "master_finalize")
+                            log(f"ship heal: committed pending master_finalize {promoted}")
                     quality = evaluate_post_master_quality(ctx)
                     if quality.get("publish_allowed"):
                         def _clear_needs(m: dict) -> None:
@@ -8093,10 +8369,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         log("ship heal: PMQ publishable — resume podcast_encode_mp3")
                         execute({"mode": "delivery", "from_stage": "podcast_encode_mp3"})
                         continue
-                    log(
-                        "ship heal: PMQ still blocked "
-                        f"{quality.get('failed_checks')}"
-                    )
+                    failed = quality.get("failed_checks") or []
+                    log(f"ship heal: PMQ still blocked {failed}")
+                    if "listen_delight_floors" in failed or "listen_delight" in str(failed):
+                        from interview_mux.listen_delight_remutate import (
+                            apply_listen_delight_remutate,
+                            plan_listen_delight_remutate,
+                        )
+
+                        audit = (
+                            ctx.read_json("mastering/listen_delight_audit.json")
+                            if ctx.artifact_exists("mastering/listen_delight_audit.json")
+                            else {}
+                        )
+                        failed_dims = list(
+                            (audit or {}).get("failed_dimensions")
+                            or ["conversation_fit", "story_followability"]
+                        )
+                        plan = plan_listen_delight_remutate(
+                            ctx, failed_dimensions=failed_dims
+                        )
+                        apply_listen_delight_remutate(ctx, plan)
+                        pin = str(plan.get("from_stage") or "air_script_seams")
+                        log(
+                            f"ship heal: listen_delight remutate → {pin} "
+                            f"(attempt={plan.get('attempt')} stages={plan.get('from_stages')})"
+                        )
+                        execute({"mode": "delivery", "from_stage": pin})
+                        continue
                 except Exception as exc:
                     log(f"ship conductor heal: {exc}")
             # Post-resplit restart: treat as gate, not hard error.
@@ -12324,8 +12624,36 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         heal_omit_ledger_air_contract(ctx)
                         sync_edl_vo_script_metadata(ctx)
                         if has_pending_writes(ctx, "master_finalize"):
-                            promoted = approve_stage_writes(ctx, "master_finalize")
-                            log(f"pmq heal: committed pending master_finalize {promoted}")
+                            from interview_mux.delivery_guardrails import seed_stage_complete
+                            from interview_mux.delivery_invariants import (
+                                record_invariant_heal,
+                            )
+                            from interview_mux.homunculus.agenda import (
+                                _junction_commitment_matches_assembly,
+                            )
+
+                            refuse = False
+                            if not seed_stage_complete(ctx, "junction_snip_qa"):
+                                refuse = True
+                                reason = "junction_snip_qa not seed-complete"
+                            elif not _junction_commitment_matches_assembly(ctx):
+                                refuse = True
+                                reason = "junction commitment mismatch"
+                            if refuse:
+                                record_invariant_heal(
+                                    ctx,
+                                    kind="promote_refuse_pending_master",
+                                    stage="master_finalize",
+                                    detail={"reason": reason},
+                                )
+                                log(
+                                    f"pmq heal: refuse pending master_finalize — {reason}"
+                                )
+                            else:
+                                promoted = approve_stage_writes(ctx, "master_finalize")
+                                log(
+                                    f"pmq heal: committed pending master_finalize {promoted}"
+                                )
                     except Exception as exc:
                         log(f"pmq gap/omit heal: {exc}")
                     if "listen_delight" in low_err:

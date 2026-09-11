@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-P0|DEEP-STT-01|transcribe->edl->listen_delight_audit|M1_none",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:02Z"
+}

@@ -1572,14 +1572,21 @@ def _collect_generation_items(
             record_wasted_work,
             referenced_musicgen_asset_ids,
         )
+        from interview_mux.theme_slot_integrity import reserved_theme_asset_ids
 
         mix_refs = referenced_musicgen_asset_ids(ctx)
         if mix_refs:
             referenced |= mix_refs
+        # Bookend reservations always generate even when not yet on the cue list.
+        reserved = reserved_theme_asset_ids(ctx)
+        for aid in reserved:
+            if aid in assets_by_id and aid not in ordered_asset_ids:
+                ordered_asset_ids.append(aid)
+                referenced.add(aid)
     except Exception:
         mix_refs = set()
     skipped_unused: list[str] = []
-    # E3: generate cue-referenced + mix-referenced slots only (lazy MusicGen).
+    # E3: generate cue-referenced + mix-referenced + reserved bookends (lazy otherwise).
     for aid in list(assets_by_id):
         if aid in ordered_asset_ids:
             continue

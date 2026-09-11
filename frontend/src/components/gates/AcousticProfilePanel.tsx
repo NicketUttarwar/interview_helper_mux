@@ -7,9 +7,11 @@ import {
   UNDERSCORE_POLICY_OPTIONS,
   escapeHtml,
 } from "../../utils";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 export function AcousticProfilePanel() {
-  const { run, refreshRun, showToast, confirm, selectStage } = useApp();
+  const { run, refreshRun, showToast, confirm, selectStage, jobRunning, partialAutoGPublish } =
+    useApp();
   const [paceOverride, setPaceOverride] = useState("");
   const [policyOverride, setPolicyOverride] = useState("");
   const [derivedPace, setDerivedPace] = useState("—");
@@ -18,6 +20,7 @@ export function AcousticProfilePanel() {
   const [loaded, setLoaded] = useState(false);
   const [invalidateHint, setInvalidateHint] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const loadProfile = useCallback(async () => {
     if (!run) return;
@@ -55,7 +58,7 @@ export function AcousticProfilePanel() {
   }, [loadProfile]);
 
   const recompute = async () => {
-    if (!run || recomputing) return;
+    if (!run || recomputing || jobBlocksUi) return;
     if (!(await confirm("Recompute acoustic profile from current ingest/transcript?")))
       return;
     setRecomputing(true);
@@ -73,7 +76,7 @@ export function AcousticProfilePanel() {
   };
 
   const saveOverrides = async (overrides: Record<string, string>) => {
-    if (!run) return;
+    if (!run || jobBlocksUi) return;
     const hasOverrides = Object.keys(overrides).length > 0;
     const body: { overrides: Record<string, string>; invalidate_from?: string } = {
       overrides,
@@ -109,7 +112,7 @@ export function AcousticProfilePanel() {
       <button
         type="button"
         className="btn sm primary"
-        disabled={recomputing}
+        disabled={recomputing || jobBlocksUi}
         onClick={() => void recompute()}
       >
         {recomputing ? (
@@ -171,6 +174,7 @@ export function AcousticProfilePanel() {
               <button
                 type="button"
                 className="btn primary sm"
+                disabled={jobBlocksUi}
                 onClick={() => {
                   const overrides: Record<string, string> = {};
                   if (paceOverride) overrides.pace_class = paceOverride;
@@ -185,6 +189,7 @@ export function AcousticProfilePanel() {
               <button
                 type="button"
                 className="btn sm"
+                disabled={jobBlocksUi}
                 onClick={async () => {
                   if (
                     !(await confirm(

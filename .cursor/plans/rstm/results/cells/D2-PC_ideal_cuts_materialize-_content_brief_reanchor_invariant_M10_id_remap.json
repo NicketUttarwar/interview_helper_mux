@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-PC|ideal_cuts_materialize->content_brief_reanchor|invariant|M10_id_remap",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "seed_block_ok:ideal_cuts_materialize"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:51Z"
+}

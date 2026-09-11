@@ -104,6 +104,20 @@
     },
     "mastering_plan_bound": {
       "type": "boolean"
+    },
+    "invent_gate": {
+      "type": "string",
+      "enum": ["clear", "satisfied", "blocked"],
+      "description": "F-03: unpaid invent obligation blocks heuristic musical invent"
+    },
+    "invent_obligation": {
+      "type": "string"
+    },
+    "invent_gate_reason": {
+      "type": "string"
+    },
+    "musical_direction_complete": {
+      "type": "boolean"
     }
   },
   "additionalProperties": false

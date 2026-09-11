@@ -105,7 +105,7 @@ export const V2_PHASES: V2Phase[] = [
     id: "sound",
     label: "Sound",
     description: "Sound design plan, VO finalize, SFX prompt craft.",
-    stages: ["sound_design_plan", "sound_design_vo_finalize", "vo_line_adjudicate"],
+    stages: ["sound_design_plan", "vo_line_adjudicate"],
   },
   {
     id: "build",
@@ -113,6 +113,7 @@ export const V2_PHASES: V2Phase[] = [
     description: "Adjudicate VO lines, synthesize, audit heard flow, EDL, preview, listen delight, MMAudio, mix, junction QA.",
     stages: [
       "vo_synthesize",
+      "sound_design_vo_finalize",
       "edl_narrative_audit",
       "edl",
       "assembly_preview",

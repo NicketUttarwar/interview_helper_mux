@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|gap_framing_recompose->selection_framing_apply|partial|M6_pending_shadow|gap_framing_recompose_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:46Z"
+}

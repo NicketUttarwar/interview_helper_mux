@@ -841,6 +841,61 @@ def transition_redundant_with_framing(
     return str(choice.get("kind") or "") == "layup"
 
 
+def heal_redundant_framing_transitions(ctx: RunContext) -> dict[str, Any]:
+    """Drop/demote transition rows already covered by framing VO (Wave 8).
+
+    One heal + continue — do not identical-halt on this signature alone.
+    """
+    rel = "master/transitions.json"
+    if not ctx.artifact_exists(rel):
+        return {"ok": False, "reason": "missing_transitions", "dropped": []}
+    try:
+        doc = ctx.read_json(rel)
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)[:120], "dropped": []}
+    if not isinstance(doc, dict):
+        return {"ok": False, "reason": "bad_transitions", "dropped": []}
+    gap = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else None
+    )
+    rows = list(doc.get("transitions") or doc.get("items") or [])
+    key = "transitions" if "transitions" in doc else ("items" if "items" in doc else "transitions")
+    kept: list[Any] = []
+    dropped: list[str] = []
+    for tr in rows:
+        if not isinstance(tr, dict):
+            kept.append(tr)
+            continue
+        after = str(tr.get("after_segment_id") or "")
+        before = str(tr.get("before_segment_id") or "")
+        if after and before and transition_redundant_with_framing(gap, after, before):
+            dropped.append(f"{after}->{before}")
+            continue
+        kept.append(tr)
+    if not dropped:
+        return {"ok": True, "reason": "none_redundant", "dropped": []}
+    doc[key] = kept
+    meta = dict(doc.get("_meta") or {})
+    meta["redundant_framing_healed"] = True
+    meta["redundant_framing_dropped"] = dropped[:24]
+    doc["_meta"] = meta
+    ctx.write_json(rel, doc, skip_handoff=True)
+    try:
+        from interview_mux.delivery_invariants import record_invariant_heal
+
+        record_invariant_heal(
+            ctx,
+            kind="redundant_framing_transitions_heal",
+            stage="transitions",
+            detail={"dropped": dropped[:12]},
+        )
+    except Exception:
+        pass
+    return {"ok": True, "dropped": dropped, "resume_stage": "transitions"}
+
+
 def _air_script_seat_sets(
     *,
     ctx: Any | None = None,

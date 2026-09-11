@@ -1674,6 +1674,27 @@ def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> 
     if not enabled(ctx):
         return out
 
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="media_ip_cta_editorial_omits",
+            symptoms=["media_ip_cta"],
+        ):
+            out["seat_freeze_blocked"] = True
+            return out
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                out["seat_freeze_blocked"] = True
+                return out
+        except Exception:
+            out["seat_freeze_blocked"] = True
+            return out
+
     from interview_mux.homunculus.values import should_hard_omit_cta
 
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]

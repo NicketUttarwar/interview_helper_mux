@@ -451,6 +451,23 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     level="warning",
                     stage="nugget_layup_compose",
                 )
+        if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
+            from interview_mux.nugget_layup import park_open_high_salience_on_orientation
+
+            doc, park_notes = park_open_high_salience_on_orientation(c, doc)
+            if park_notes:
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
+                doc = prepare_layup_plan_for_persist(c, doc)
+                persist_plan(c, doc)
+                report = publish_layup_plan_to_gap_report(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "parked unhealable high-salience on orientation: "
+                    + "; ".join(str(n) for n in park_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
         # After exhaustion: thinner grounded unlock may still pass grace floors;
         # fail-closed only when analysis minimum / canned / invent remain.
         assert_layup_qc_or_raise(c, qc)
@@ -479,15 +496,10 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict):
                 ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
-        # Fresh compose — drop any stale/partial plan so shard uniqueness starts clean.
-        if ctx.artifact_exists(PLAN_REL):
-            try:
-                ctx.write_json(
-                    PLAN_REL,
-                    {"ordered_segment_ids": list(ordered), "layups": [], "warnings": ["compose_restart"]},
-                )
-            except Exception:
-                pass
+        # Do NOT wipe PLAN_REL to an empty compose_restart document. Concurrent QC /
+        # G-Framing incompleteness readers (and forensics heal) treat empty layups as
+        # coverage=0 and can thrash while shards are still running. Shard merges
+        # overwrite progressively; already_aired walks prior rows when present.
         if len(ordered) <= batch_size:
             run_flow_llm_stage(
                 ctx,

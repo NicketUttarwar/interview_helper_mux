@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-P0|DEEP-JUNCTION-01|junction_snip_qa->transitions->mix|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "incompleteness_ok:master/seam_autopsy.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:01Z"
+}

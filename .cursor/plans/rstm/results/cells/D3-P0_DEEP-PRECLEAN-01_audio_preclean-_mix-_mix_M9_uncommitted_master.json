@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-P0|DEEP-PRECLEAN-01|audio_preclean->mix->mix|M9_uncommitted_master",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:04Z"
+}

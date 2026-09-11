@@ -34,7 +34,7 @@ from interview_mux.homunculus.ledger import append_ledger, count_identity
 from interview_mux.homunculus.loop import nested_chat_create
 from interview_mux.pipeline import run_single_stage
 from interview_mux.run_context import RunContext
-from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+from interview_mux.v2.config import ANALYSIS_ORDER
 from run_fixtures import patch_executions_root, mark_done_raw
 
 
@@ -329,7 +329,8 @@ def test_clear_from_preserves_hitch_artifacts(
     )
     ctx.write_json(INTENT_REL, _plan(_chapter("ch1", "Keep", ["seg_001"])), skip_handoff=True)
     ctx.write_json(REMAP_REL, {"old_to_new": {"seg_001": "seg_101"}}, skip_handoff=True)
-    ctx.clear_from("boundary_detection", list(ANALYSIS_ORDER) + list(DELIVERY_ORDER))
+    # B-06: single-order operator clear (combined ANALYSIS+DELIVERY forbidden).
+    ctx.clear_from("boundary_detection", list(ANALYSIS_ORDER))
     assert ctx.artifact_exists(LATCH_REL)
     assert ctx.artifact_exists(INTENT_REL)
     assert ctx.artifact_exists(REMAP_REL)
@@ -554,6 +555,7 @@ def test_hitch_identity_counts_one_on_010(
         "master/coverage_audit.json",
         {
             "topic_mappings": [],
+            "findings": [{"topic": "keep", "status": "covered"}],
             "coverage_score": 1.0,
             "_meta": {"producer": "test", "producer_stage": "topic_coverage_audit"},
         },

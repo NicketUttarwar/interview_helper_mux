@@ -482,6 +482,53 @@ describe("tryAutoContinuePipeline", () => {
     expect(executeJob).toHaveBeenCalled();
   });
 
+  it("D-02: Partial + active driver does not advancePipeline via autopilot", async () => {
+    const executeJob = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      meta: {
+        run_mode: "partially-accelerated",
+        partial_auto_driver_active: true,
+      },
+      stages: [
+        makeStage("source_acoustic_profile", {
+          title: "Source acoustic profile",
+          status: "done",
+          phase: "understand",
+          handoff_paths: ["understanding/source_acoustic_profile.json"],
+        }),
+        makeStage("interview_spine_build", {
+          title: "Interview spine",
+          status: "pending",
+          phase: "understand",
+        }),
+      ],
+      job: { status: "complete", stage: "source_acoustic_profile" },
+      journey: makeJourney({
+        first_try: { enabled: false },
+        handoff: { handoff_between_stages_enabled: true },
+      }),
+    });
+    const started = await tryAutoContinuePipeline({
+      run,
+      runId: "exec_partial",
+      apiGrants: {},
+      selectedStageId: "source_acoustic_profile",
+      completedStageId: "source_acoustic_profile",
+      executeJob,
+      selectStage: vi.fn().mockResolvedValue(undefined),
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { auto_advance_pipeline: true } },
+    });
+    expect(executeJob).not.toHaveBeenCalled();
+    // May still navigate/focus; must not start another pipeline job.
+    expect(typeof started).toBe("boolean");
+  });
+
   it("opens G0 after STT review prep even if transcript_review was already auto-surfaced", async () => {
     markAutoNavConsumed({ stageId: "transcript_review", stepId: "review_transcript" });
     const selectStage = vi.fn().mockResolvedValue(undefined);

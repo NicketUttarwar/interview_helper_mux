@@ -318,7 +318,16 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
             elif role in ROLE_DURATION_BANDS:
                 band = ROLE_DURATION_BANDS.get(role)
             if band:
-                if d < float(band[0]) - 0.1 or d > float(band[1]) + 0.1:
+                from interview_mux.stages.sound_design_stages import (
+                    sdp_duration_allowed_for_role,
+                )
+
+                if not sdp_duration_allowed_for_role(
+                    role,
+                    d,
+                    palette_kind=str(asset.get("palette_kind") or "") or None,
+                    band=(float(band[0]), float(band[1])),
+                ):
                     errors.append(
                         f"SDP asset {asset.get('asset_id')} duration {d}s outside role band "
                         f"{band[0]}-{band[1]}s"

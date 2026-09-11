@@ -1,0 +1,9 @@
+{
+  "description": "Autopsy commitment size mismatch vs live assembly",
+  "assembly_size": 9000,
+  "commitment_size": 100,
+  "expect": {
+    "junction_commitment_matches": false,
+    "ship_path_ready": false
+  }
+}

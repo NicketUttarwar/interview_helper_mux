@@ -14,14 +14,11 @@ from interview_mux.gates import (
 )
 from interview_mux.refinement_agenda import run_refinement_agenda
 from interview_mux.refinement_passes import (
+    RETIRED_REFINE_GHOSTS,
     after_gap_compose_hook,
-    run_edl_narrative_refine,
+    refuse_retired_refine,
     run_gap_framing_recompose,
-    run_narrative_arc_refine,
-    run_ranking_refine,
-    run_sdp_intent_refine,
     run_selection_framing_apply,
-    run_transitions_refine,
 )
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import resolve_before_stage_run
@@ -185,8 +182,8 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             "interview_mux.artifact_sanitize.gap_report",
             fromlist=["run_gap_report_sanitize"],
         ).run_gap_report_sanitize(ctx),
-        # Refinement Pass (docs/cross-cutting/refinement-passes.md): L0 agenda + deterministic
-        # recompose/refine stages. No LLM calls — gated by refinement_gate.decide_pass.
+        # Refinement Pass (docs/cross-cutting/refinement-passes.md): L0 agenda +
+        # gap recompose / framing apply only. Ghost *_refine ids are retired (F-06).
         "refinement_agenda": lambda: run_refinement_agenda(ctx, phase="confirm"),
         "gap_framing_recompose": lambda: run_gap_framing_recompose(ctx),
         "selection_framing_apply": lambda: run_selection_framing_apply(ctx),
@@ -197,17 +194,12 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             "interview_mux.artifact_sanitize.air_script",
             fromlist=["run_air_contract_sanitize"],
         ).run_air_contract_sanitize(ctx),
-        "ranking_refine": lambda: run_ranking_refine(ctx),
-        "narrative_arc_refine": lambda: run_narrative_arc_refine(ctx),
         "transitions": lambda: selection.run_transitions(ctx),
-        "transitions_refine": lambda: run_transitions_refine(ctx),
         "sound_design_plan": lambda: sound_design_stages.run_sound_design_plan(ctx),
-        "sdp_intent_refine": lambda: run_sdp_intent_refine(ctx),
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
         "vo_line_adjudicate": lambda: vo_line_adjudicate.run_vo_line_adjudicate(ctx),
         "vo_synthesize": lambda: vo_synthesize.run_vo_synthesize(ctx),
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
-        "edl_narrative_refine": lambda: run_edl_narrative_refine(ctx),
         "edl": lambda: assembly.run_edl(ctx),
         "assembly_preview": lambda: assembly.run_preview(ctx),
         "listen_delight_audit": lambda: __import__(
@@ -392,6 +384,8 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
     if stage == "sfx_prompt_refine":
         sound_design_stages.run_sfx_prompt_refine(ctx)
         return
+    if stage in RETIRED_REFINE_GHOSTS:
+        refuse_retired_refine(stage)
 
     analysis_order = effective_analysis_order()
     delivery_order = effective_delivery_order()
@@ -905,7 +899,16 @@ def _run_steps(
                 "Delivery blocked — analysis incomplete: " + ", ".join(str(s) for s in blocked)
             )
         remaining_after = list((result or {}).get("remaining_after") or [])
-        if remaining_after and not ctx.artifact_exists("master/master.wav"):
+        committed_master = ctx.final_path("master", "master.wav").is_file()
+        if remaining_after and not committed_master:
+            if isinstance(result, dict) and result.get("esr_wait"):
+                lease = str(result.get("resume") or remaining_after[0])
+                ctx.log(
+                    f"Delivery ESR wait — walking producer {lease} without HARD sticky",
+                    level="warning",
+                    stage=lease,
+                )
+                return
             try:
                 from interview_mux.thrash_hardening import (
                     FAIL_CLASS_DELIVERY_BLOCKED,
@@ -917,17 +920,55 @@ def _run_steps(
                 )
             except Exception:
                 pin = remaining_after[0]
+            try:
+                from interview_mux.execution_status import (
+                    should_wait_incomplete_after_conductor,
+                )
+
+                wait_row = should_wait_incomplete_after_conductor(
+                    ctx, pin=pin, remaining=remaining_after
+                )
+                if wait_row is not None:
+                    lease = str(
+                        wait_row.get("lease_stage") or pin or remaining_after[0]
+                    )
+                    ctx.log(
+                        "Delivery incomplete after conductor — ESR wait "
+                        f"({wait_row.get('why')}); resume={lease}",
+                        level="warning",
+                        stage=lease,
+                    )
+                    return
+            except Exception:
+                pass
             raise RuntimeError(
                 "Delivery incomplete after conductor — remaining stages: "
                 + ", ".join(str(s) for s in remaining_after[:12])
                 + f"; resume={pin}"
             )
-        if ctx.artifact_exists("master/master.wav"):
+        if committed_master:
             from interview_mux.homunculus.agenda import ship_after_master_remaining
             from interview_mux.homunculus.judge import after_complete_master
 
             left = ship_after_master_remaining(ctx)
             if left:
+                # Pending/promoted master with failing PMQ must remutate — not
+                # raise a ship-stage incomplete loop (exec_10066).
+                publish_ok = False
+                try:
+                    if ctx.artifact_exists("master/post_master_quality.json"):
+                        pmq = ctx.read_json("master/post_master_quality.json")
+                        publish_ok = bool(
+                            isinstance(pmq, dict) and pmq.get("publish_allowed")
+                        )
+                except Exception:
+                    publish_ok = False
+                if not publish_ok:
+                    raise RuntimeError(
+                        "Delivery incomplete after conductor — master present but "
+                        "not publishable; remaining stages: "
+                        + ", ".join(str(s) for s in (remaining_after or left)[:12])
+                    )
                 raise RuntimeError(
                     "Delivery incomplete after conductor — remaining ship stages: "
                     + ", ".join(left)

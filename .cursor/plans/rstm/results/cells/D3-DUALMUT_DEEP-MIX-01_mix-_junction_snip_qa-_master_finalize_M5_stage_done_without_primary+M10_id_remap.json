@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-DUALMUT|DEEP-MIX-01|mix->junction_snip_qa->master_finalize|M5_stage_done_without_primary+M10_id_remap",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "incompleteness_ok:master/assembly.wav is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

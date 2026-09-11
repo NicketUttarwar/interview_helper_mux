@@ -1,6 +1,12 @@
 import { useApp } from "../../context/AppContext";
 import { useLiveStatus } from "../../hooks/useLiveStatus";
 import { formatBytes, formatBrainLabel } from "../../utils";
+import {
+  fullAutoG0HonestyCopy,
+  partialMustActCopy,
+  partialMustActStartDesc,
+  partialMustActStartHint,
+} from "../../utils/partialOperatorGates";
 import { InfoTooltip } from "../InfoTooltip";
 import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
 import { ActionMarker } from "../guidance/ActionMarker";
@@ -125,14 +131,14 @@ export function StartTab() {
           </p>
           {isFullAuto ? (
             <p className="hint" data-testid="start-full-auto-active">
-              Full-auto is running — gates, package, and S3 publish are handled automatically.
-              Watch Pipeline / Logs for progress.
+              Full-auto is running — G0 is auto-accepted; package and S3 publish are handled
+              automatically. Watch Pipeline / Logs for progress.
             </p>
           ) : null}
           {isPartialAuto ? (
             <p className="hint" data-testid="start-partial-auto-active">
-              Partially accelerated — automation runs until transcript review and S3 upload.
-              The guardrail overlay lifts at those two checkpoints only.
+              Partially accelerated — {partialMustActCopy()} The guardrail overlay lifts at those
+              checkpoints.
             </p>
           ) : null}
           <p className="hint start-live-subline">
@@ -251,11 +257,9 @@ export function StartTab() {
             onClick={() => setStartRunMode("partially-accelerated")}
           >
             <span className="start-run-mode-title">Partially accelerated</span>
-            <span className="start-run-mode-desc">
-              Full-auto speed with stops for STT review and S3 upload only.
-            </span>
+            <span className="start-run-mode-desc">{partialMustActStartDesc()}</span>
             <span className="start-run-mode-footnote hint sm">
-              Guardrail mode — change the transcript and confirm publish; everything else is automatic.
+              Guardrail mode — required stops are G0 + G-Publish; other gates may also pause.
             </span>
           </button>
           <button
@@ -267,25 +271,21 @@ export function StartTab() {
             onClick={() => setStartRunMode("full-auto")}
           >
             <span className="start-run-mode-title">Full-auto</span>
-            <span className="start-run-mode-desc">
-              After Start, the app accepts every gate, builds the master, prepares the package,
-              and uploads this run to S3.
-            </span>
+            <span className="start-run-mode-desc">{fullAutoG0HonestyCopy()}</span>
             <span className="start-run-mode-footnote hint sm">
-              Bypasses transcript review and voice-clone consent.
+              G0 auto-accepted; voice-clone consent bypassed.
             </span>
           </button>
         </div>
         {fullAutoSelected ? (
           <p className="hint start-run-mode-warning" data-testid="start-full-auto-hint">
-            Full-auto bypasses transcript review and voice-clone consent. Use only when you want
-            an unattended end-to-end ship including S3 publish.
+            Full-auto auto-accepts transcript review (G0) and voice-clone consent. Use only when you
+            want an unattended end-to-end ship including S3 publish.
           </p>
         ) : null}
         {partialAutoSelected ? (
           <p className="hint start-run-mode-warning" data-testid="start-partial-auto-hint">
-            Partially accelerated never auto-accepts transcript review or uploads to S3 without
-            your confirmation.
+            {partialMustActStartHint()}
           </p>
         ) : null}
       </section>

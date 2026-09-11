@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|episode_cover_prompt_craft->podcast_encode_mp3|full_auto|M8_seated_vo_no_wav|episode_cover_prompt_craft_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:45Z"
+}

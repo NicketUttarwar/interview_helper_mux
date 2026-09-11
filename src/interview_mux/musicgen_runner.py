@@ -701,6 +701,14 @@ def stamp_music_omitted(
             run_ctx.mutate_run_meta(_mark)
     except Exception:
         pass
+    # Honest omit must shrink reservations in the same write (no silent pads).
+    if run_ctx is not None and asset_id:
+        try:
+            from interview_mux.theme_slot_integrity import shrink_theme_reservations_for_omit
+
+            shrink_theme_reservations_for_omit(run_ctx, [str(asset_id)])
+        except Exception:
+            pass
     return row
 
 

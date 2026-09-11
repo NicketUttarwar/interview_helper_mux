@@ -6,6 +6,8 @@ one predicate. See docs/cross-cutting/delivery-phases.md.
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,7 +16,17 @@ from interview_mux.v2.config import DELIVERY_ORDER, SHIP_AFTER_MASTER
 
 CHECKPOINT_REL = "operator/delivery_checkpoint.json"
 WASTED_WORK_REL = "operator/wasted_work.json"
+DELIVERY_RESIDUALS_REL = "operator/delivery_residuals.json"
 LISTEN_DELIGHT_WAIVER_REL = "operator/escalations/listen_delight_audit.json"
+
+# Soft seal rewrite: only when markers lag usable artifacts (never hard producer holes).
+PHASE_A_MARKER_LAG_REASONS: frozenset[str] = frozenset(
+    {
+        "edl_incomplete",
+        "assembly_missing",
+        "listen_delight_incomplete",
+    }
+)
 
 # Phase A = DELIVERY_ORDER prefix through listen_delight_audit (§5.6).
 PHASE_A_END = "listen_delight_audit"
@@ -132,6 +144,7 @@ def assembly_wav_present(ctx: RunContext) -> bool:
 
 
 def listen_delight_waived_unattended(ctx: RunContext) -> bool:
+    """Telemetry-only unattended waiver — not quality / ship clearance (A-04 / SYN-DELIGHT-01)."""
     if not ctx.artifact_exists(LISTEN_DELIGHT_WAIVER_REL):
         return False
     try:
@@ -143,8 +156,49 @@ def listen_delight_waived_unattended(ctx: RunContext) -> bool:
     return str(doc.get("status") or "") == "waived_unattended"
 
 
+def listen_delight_quality_waived(ctx: RunContext) -> bool:
+    """Explicit quality waiver — may clear music/ship delight floor (not bare telemetry)."""
+    if ctx.artifact_exists(LISTEN_DELIGHT_WAIVER_REL):
+        try:
+            doc = ctx.read_json(LISTEN_DELIGHT_WAIVER_REL)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict) and str(doc.get("status") or "") in {
+            "quality_waived",
+            "waived_quality",
+        }:
+            return True
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    except Exception:
+        meta = {}
+    try:
+        from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+        if e2e_quality_waivers_enabled(meta=meta if isinstance(meta, dict) else None):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def listen_delight_cleared_for_progress(ctx: RunContext) -> bool:
+    """Three-state delight clearance for music/ship: seed_complete or quality_waived only.
+
+    ``waived_unattended`` is telemetry and must not green delivery_stable_for_music,
+    ship_path_ready, or PMQ publish_allowed by itself (A-04 Done-when).
+    """
+    if seed_stage_complete(ctx, "listen_delight_audit"):
+        return True
+    return listen_delight_quality_waived(ctx)
+
+
 def ensure_listen_delight_waiver_unattended(ctx: RunContext) -> bool:
-    """Automation driver: write waived_unattended after an audit artifact exists but is not complete."""
+    """Automation driver: write waived_unattended telemetry after an audit attempt.
+
+    Does **not** clear music/ship delight floors — callers must use
+    ``listen_delight_cleared_for_progress`` (seed_complete | quality_waived).
+    """
     from interview_mux.automation_run import automation_driver_run
 
     if listen_delight_waived_unattended(ctx):
@@ -162,7 +216,7 @@ def ensure_listen_delight_waiver_unattended(ctx: RunContext) -> bool:
     payload = {
         "stage": "listen_delight_audit",
         "status": "waived_unattended",
-        "reason": "full-auto Phase B/C may proceed after audit attempt (aspiration floors)",
+        "reason": "full-auto telemetry after audit attempt (not quality clearance)",
         "at": _utc_now(),
     }
     ctx.write_json(LISTEN_DELIGHT_WAIVER_REL, payload, skip_handoff=True)
@@ -176,6 +230,46 @@ def _g1_open(ctx: RunContext) -> list[str]:
         return list(check_g1_vo(ctx) or [])
     except Exception:
         return []
+
+
+def _g1_record_open(ctx: RunContext) -> list[str]:
+    """Missing G1 lines that still need operator *record* takes.
+
+    ``delivery=synthesize`` holes are closed by ``vo_synthesize`` itself — treating
+    them as a stability prereq creates a g1_vo_open ↔ vo_synthesize deadlock
+    (forensics exec_10066 identical×N seed_order_prereq).
+
+    C-01: prefer ``operator/vo_line_owners.json`` when present.
+    """
+    try:
+        from interview_mux.delivery_invariants import (
+            OWNER_RECORD,
+            VO_LINE_OWNERS_REL,
+        )
+
+        if ctx.artifact_exists(VO_LINE_OWNERS_REL):
+            doc = ctx.read_json(VO_LINE_OWNERS_REL)
+            owners = (doc or {}).get("owners") if isinstance(doc, dict) else {}
+            if isinstance(owners, dict) and owners:
+                return [lid for lid, own in owners.items() if own == OWNER_RECORD]
+    except Exception:
+        pass
+    missing = _g1_open(ctx)
+    if not missing:
+        return []
+    by_delivery: dict[str, str] = {}
+    try:
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap = ctx.read_json("understanding/gap_report.json") or {}
+            for row in gap.get("interviewer_lines") or []:
+                if not isinstance(row, dict):
+                    continue
+                lid = str(row.get("line_id") or "").strip()
+                if lid:
+                    by_delivery[lid] = str(row.get("delivery") or "synthesize").strip().lower()
+    except Exception:
+        return list(missing)
+    return [lid for lid in missing if by_delivery.get(lid, "synthesize") == "record"]
 
 
 def _layup_escalation_blocking(ctx: RunContext) -> bool:
@@ -193,7 +287,12 @@ def _layup_escalation_blocking(ctx: RunContext) -> bool:
 
 
 def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
-    """G5: Phase C music block may start only when this returns (True, '')."""
+    """G5: Phase C music block may start only when this returns (True, '').
+
+    SYN-DELIGHT-01: ``waived_unattended`` telemetry alone is NOT delight-OK.
+    Music may proceed only with seed_complete listen_delight or an explicit
+    quality waiver (e2e_quality_waivers / quality_waived stamp).
+    """
     if not seed_stage_complete(ctx, "nugget_layup_compose"):
         return False, "layup_incomplete"
     if _g1_open(ctx):
@@ -209,13 +308,10 @@ def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
         return False, "edl_incomplete"
     if not seed_stage_complete(ctx, "assembly_preview") and not assembly_wav_present(ctx):
         return False, "assembly_missing"
-    delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
-        ctx
-    )
-    if not delight_ok:
-        if ensure_listen_delight_waiver_unattended(ctx):
-            delight_ok = True
-    if not delight_ok:
+    # A-04: mint telemetry waiver for observability; clearance is seed|quality only.
+    if not listen_delight_cleared_for_progress(ctx):
+        ensure_listen_delight_waiver_unattended(ctx)
+    if not listen_delight_cleared_for_progress(ctx):
         return False, "listen_delight_incomplete"
     stale = upstream_stale_blockers(ctx, "mmaudio_sfx")
     if stale:
@@ -226,6 +322,11 @@ def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
     if not read_checkpoint(ctx) and not epoch.get("phase_a_sealed_at"):
         return False, "phase_a_unsealed"
     return True, ""
+
+
+def _listen_delight_quality_cleared(ctx: RunContext) -> bool:
+    """Alias for listen_delight_quality_waived (compat for older call sites)."""
+    return listen_delight_quality_waived(ctx)
 
 
 def phase_a_sealed(ctx: RunContext) -> bool:
@@ -323,30 +424,103 @@ VO_SYNTH_SEED_SENTINELS: dict[str, str] = {
 }
 
 
-def resolve_vo_synth_seed_resume(block: str | None) -> str | None:
-    """Map vo_synthesize stability tokens to a real ANALYSIS/DELIVERY stage id."""
+def resolve_vo_synth_seed_resume(
+    block: str | None, ctx: RunContext | None = None
+) -> str | None:
+    """Map vo_synthesize stability tokens to a real ANALYSIS/DELIVERY stage id.
+
+    ``g1_vo_open`` uses the unified Wave-1 policy when ``ctx`` is provided
+    (record → adjudicate; synth+seeded → synthesize; synth+hollow → adjudicate).
+    """
     token = str(block or "").strip()
     if not token:
         return None
+    if token == "g1_vo_open" and ctx is not None:
+        try:
+            from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+            return resolve_g1_vo_open_resume(ctx)
+        except Exception:
+            pass
     return VO_SYNTH_SEED_SENTINELS.get(token, token)
 
 
+def seal_adjudicate_stale_when_g1_green(ctx: RunContext) -> bool:
+    """Clear false layup-invalidation on adjudication when G1 coverage is already green.
+
+    Re-entering ``vo_line_adjudicate`` rewrites gap text and purges matching WAVs
+    (forensics exec_10066). When pickups already resolve, the stale stamp is a
+    heal artifact — not a reason to destroy seated audio.
+    """
+    try:
+        missing = _g1_open(ctx)
+    except Exception:
+        return False
+    if missing:
+        return False
+    rel = "understanding/vo_line_adjudication.json"
+    if not ctx.artifact_exists(rel):
+        return False
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    meta = dict(doc.get("_meta") or {})
+    if not meta.get("stale"):
+        # Still ensure done marker so seed order does not re-enter.
+        marker = ctx.final_path(".stage_done", "vo_line_adjudicate")
+        if not marker.is_file():
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+            return True
+        return False
+    reason = str(meta.get("stale_reason") or "")
+    if "nugget_layup_compose" not in reason and "invalidated_by" not in reason.lower():
+        return False
+    meta.pop("stale", None)
+    meta.pop("stale_reason", None)
+    meta["sealed_g1_green"] = True
+    meta["sealed_g1_green_at"] = _utc_now()
+    doc["_meta"] = meta
+    try:
+        ctx.write_json(rel, doc, skip_handoff=True)
+    except Exception:
+        return False
+    marker = ctx.final_path(".stage_done", "vo_line_adjudicate")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    try:
+        ctx.log(
+            "Sealed vo_line_adjudicate stale — G1 green; refuse re-adjudicate thrash",
+            level="warning",
+            stage="vo_line_adjudicate",
+            detail={"stale_reason_cleared": reason[:160]},
+        )
+    except Exception:
+        pass
+    return True
+
+
 def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
-    """G8: Chatterbox batch waits for layup/transitions stability and closed G1.
+    """G8: Chatterbox batch waits for layup/transitions stability.
+
+    Operator *record* G1 holes still block (``g1_vo_open``). Synthesize-delivery
+    G1 holes do not — this stage is what closes them.
 
     Returns a blocker token (may be a sentinel such as ``g1_vo_open``). Callers
     that need ``--from-stage`` must run :func:`resolve_vo_synth_seed_resume`.
     """
-    if _g1_open(ctx):
+    if _g1_record_open(ctx):
         return "g1_vo_open"
     if _layup_escalation_blocking(ctx):
         return "nugget_layup_compose"
-    if not seed_stage_complete(ctx, "nugget_layup_compose") and not (
-        ctx.is_done("nugget_layup_compose")
-        and ctx.artifact_exists("mastering/nugget_layup_plan.json")
-    ):
-        if not ctx.artifact_exists("mastering/nugget_layup_plan.json"):
-            return "nugget_layup_compose"
+    # C-05: require seed_stage_complete (coverage floors via incompleteness).
+    # Wrong path was mastering/nugget_layup_plan.json; SSOT is understanding/….
+    # Soft escape that bypassed incompleteness is removed.
+    if not seed_stage_complete(ctx, "nugget_layup_compose"):
+        return "nugget_layup_compose"
     if not ctx.artifact_exists("master/transitions.json"):
         return "transitions"
     if not seed_stage_complete(ctx, "transitions"):
@@ -430,7 +604,9 @@ def upstream_stale_blockers(ctx: RunContext, stage: str) -> list[str]:
 
 def current_delivery_phase(ctx: RunContext) -> str:
     """A|B|C|D|E from checkpoint + remaining work."""
-    if ctx.artifact_exists("master/master.wav") and ctx.is_done("master_finalize"):
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if committed_master_wav(ctx) and ctx.is_done("master_finalize"):
         return "E"
     ok, _ = delivery_stable_for_music(ctx)
     if ok or read_checkpoint(ctx):
@@ -490,10 +666,10 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
         _music_sealed_fn = None
     g1_missing = _g1_open(ctx)
     vo_block = vo_synthesize_stability_block(ctx)
-    stable, stable_reason = delivery_stable_for_music(ctx)
-    if not stable:
+    # Telemetry waiver may be written, but does not flip delivery_stable alone (A-04).
+    if not delivery_stable_for_music(ctx)[0]:
         ensure_listen_delight_waiver_unattended(ctx)
-        stable, stable_reason = delivery_stable_for_music(ctx)
+    stable, stable_reason = delivery_stable_for_music(ctx)
     sealed = phase_a_sealed(ctx)
     ship_ready, ship_reason = ship_path_ready(ctx)
     music_sealed = False
@@ -517,7 +693,13 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             except Exception:
                 pass
             # Hollow/incomplete — keep in candidates so quality can finish.
-        if ship_ready and sid == "junction_snip_qa":
+        # Only skip junction when it is actually seed-complete. ship_path_ready
+        # already requires that, but keep the guard explicit for thrash safety.
+        if (
+            ship_ready
+            and sid == "junction_snip_qa"
+            and seed_stage_complete(ctx, "junction_snip_qa")
+        ):
             record_wasted_work(
                 ctx,
                 event="avoided_junction_remaster",
@@ -546,7 +728,9 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                 )
             deferred.append(sid)
             continue
-        if sid in SHIP_AFTER_MASTER and not ctx.artifact_exists("master/master.wav"):
+        from interview_mux.delivery_invariants import committed_master_wav
+
+        if sid in SHIP_AFTER_MASTER and not committed_master_wav(ctx):
             deferred.append(sid)
             continue
         if sid in (*PHASE_B_STAGES, *PHASE_C_STAGES, "mix", "junction_snip_qa", "master_finalize") or sid in SHIP_AFTER_MASTER:
@@ -560,6 +744,19 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                             stage=sid,
                             detail={"reason": reason},
                         )
+                deferred.append(sid)
+                continue
+            # C-05 belt: sealed stamp alone is not enough if layup later went hollow.
+            if sid in MUSIC_REQUIRES_ASSEMBLY and not seed_stage_complete(
+                ctx, "nugget_layup_compose"
+            ):
+                if _music_defer_log_allowed(ctx, sid, "layup_incomplete"):
+                    record_wasted_work(
+                        ctx,
+                        event="music_deferred",
+                        stage=sid,
+                        detail={"reason": "layup_incomplete", "predicate": "phase_a_seal"},
+                    )
                 deferred.append(sid)
                 continue
         if sid in MIX_EPOCH_CONSUMERS:
@@ -699,6 +896,13 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
     return list(dict.fromkeys(cleared))
 
 
+def _active_listen_delight_remutate_stages(ctx: RunContext) -> frozenset[str]:
+    """Compat: prefer ``active_remutate_stages`` (listen-delight + edl_narrative)."""
+    from interview_mux.delivery_invariants import active_remutate_stages
+
+    return active_remutate_stages(ctx)
+
+
 def promote_complete_orphan_stage_done(
     ctx: RunContext,
     stages: tuple[str, ...] | None = None,
@@ -711,12 +915,16 @@ def promote_complete_orphan_stage_done(
     Phase A never seals → music deferred → premature_cap rewrites music→narrative.
 
     TH6: ``skip`` stages (just unmarked this batch) are never promoted (XOR).
+    Active remutate stages (listen-delight + edl_narrative) are also skipped —
+    leftover artifacts must not restamp markers and noop the remutate
+    (forensics exec_10066).
     """
+    from interview_mux.delivery_invariants import active_remutate_stages
     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
     scope = stages if stages is not None else tuple(G3_RECONCILE_CHAIN)
-    skip_set = skip or frozenset()
+    skip_set = set(skip or frozenset()) | set(active_remutate_stages(ctx))
     promoted: list[str] = []
     for sid in scope:
         if sid in skip_set:
@@ -801,8 +1009,22 @@ def reconcile_orphan_artifacts(
             continue
         if sid in (skip_promote or frozenset()):
             continue
-        if ctx.artifact_exists(rel) and not ctx.is_done(sid):
-            orphans.append(sid)
+        if not (ctx.artifact_exists(rel) and not ctx.is_done(sid)):
+            continue
+        # Shared-path early writers (e.g. sound_design_palettes → plan.json) are
+        # not orphans of the later consumer stage — sticky-halting on them
+        # freezes Full-auto before G-Framing (forensics exec_11130).
+        try:
+            if str(rel).endswith(".json"):
+                doc = ctx.read_json(rel)
+                producer = ""
+                if isinstance(doc, dict):
+                    producer = str((doc.get("_meta") or {}).get("producer_stage") or "")
+                if producer and producer != sid and ctx.is_done(producer):
+                    continue
+        except Exception:
+            pass
+        orphans.append(sid)
     if orphans or demoted:
         record_wasted_work(
             ctx,
@@ -980,7 +1202,15 @@ def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
     Assembly + G1 green + deferred transition pairs alone must not unmark
     vo_synthesize. Script↔WAV mismatch (gap or spoken transition) and missing
     seated pickups still may rewind so master finalize can reseat fresh audio.
+
+    C-03: ``check_g1_vo`` exception alone must not fail-open to True. Refuse
+    rewind when Phase A is sealed **and** positive-evidence probes fail.
+    Unsealed + exception may still rewind (progress) when no evidence found.
+
+    Hard seat freeze + assembly: refuse non-catastrophe vo/seams rewind
+    (Pillar B ``may_rewind_to_air_script_seams``) after G1/missing-WAV allows.
     """
+    g1_check_failed = False
     try:
         from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
 
@@ -989,12 +1219,20 @@ def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
         if check_g1_vo(ctx):
             return True
     except Exception:
-        return True
+        g1_check_failed = True
     try:
         from interview_mux.vo_contract import seated_vo_missing_ids
 
         if seated_vo_missing_ids(ctx):
             return True
+    except Exception:
+        pass
+    # B5: hard freeze + assembly refuses further rewind (not G1 / missing WAV).
+    try:
+        from interview_mux.seat_authority import may_rewind_to_air_script_seams
+
+        if not may_rewind_to_air_script_seams(ctx):
+            return False
     except Exception:
         pass
     try:
@@ -1008,24 +1246,27 @@ def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
         from interview_mux.transition_vo import current_transition_pairs_missing
 
         missing = current_transition_pairs_missing(ctx)
-        if not missing:
-            return False
-        # Deferred-only holes after pair freeze stay mix last-chance.
-        try:
-            from interview_mux.transition_vo import (
-                frozen_transition_pair_keys,
-                read_transitions_pair_freeze,
-            )
+        if missing:
+            # Deferred-only holes after pair freeze stay mix last-chance.
+            try:
+                from interview_mux.transition_vo import (
+                    frozen_transition_pair_keys,
+                    read_transitions_pair_freeze,
+                )
 
-            if read_transitions_pair_freeze(ctx):
-                frozen = frozen_transition_pair_keys(ctx)
-                if frozen and all(m not in frozen for m in missing):
-                    return False
-        except Exception:
-            pass
-        return True
+                if read_transitions_pair_freeze(ctx):
+                    frozen = frozen_transition_pair_keys(ctx)
+                    if frozen and all(m not in frozen for m in missing):
+                        missing = []
+            except Exception:
+                pass
+            if missing:
+                return True
     except Exception:
         pass
+    # C-03: sealed + no positive evidence → refuse (closes fail-open).
+    if g1_check_failed and not phase_a_sealed(ctx):
+        return True
     return False
 
 
@@ -1060,6 +1301,8 @@ def premature_cap_hard_pin(
     except Exception:
         pass
     # Prefer stable fail-class pins (T4) for known epochs before earliest walk.
+    # D-08 / XC-PREMATURE: on heal_navigate exception, return last safe pin for
+    # the class — never fall through to the original consumer resume.
     try:
         from interview_mux.thrash_hardening import (
             FAIL_CLASS_FINALIZE,
@@ -1073,28 +1316,80 @@ def premature_cap_hard_pin(
         )
 
         cls = premature_fail_class(resume)
+
+        def _safe_heal(intent: str) -> str:
+            try:
+                return str(
+                    heal_navigate(
+                        ctx, intent=intent, stage=resume, error=message
+                    ).get("from_stage")
+                    or ""
+                )
+            except Exception as exc:
+                try:
+                    ctx.log(
+                        f"premature_cap heal_navigate failed ({intent}): {exc}",
+                        level="warning",
+                        stage=resume,
+                        detail={
+                            "event": "premature_cap_heal_exception",
+                            "intent": intent,
+                            "error": str(exc)[:400],
+                        },
+                    )
+                except Exception:
+                    pass
+                try:
+                    pinned = canonical_resume_pin(ctx, intent, hint=resume or message)
+                    if pinned:
+                        return pinned
+                except Exception as pin_exc:
+                    try:
+                        ctx.log(
+                            f"premature_cap canonical_resume_pin failed ({intent}): {pin_exc}",
+                            level="warning",
+                            stage=resume,
+                            detail={
+                                "event": "premature_cap_pin_exception",
+                                "intent": intent,
+                                "error": str(pin_exc)[:400],
+                            },
+                        )
+                    except Exception:
+                        pass
+                # Last resort for known class: never return the consumer resume.
+                if intent == FAIL_CLASS_MUSIC_EPOCH:
+                    return "music_palette_compose"
+                if intent == FAIL_CLASS_MIX_SEAT:
+                    return "mix"
+                if intent == FAIL_CLASS_FINALIZE:
+                    return "edl"
+                if intent == FAIL_CLASS_VO_G1:
+                    return "vo_line_adjudicate"
+                if intent == FAIL_CLASS_PHASE_A_EDL:
+                    return "edl"
+                return resume
+
         if cls == FAIL_CLASS_MUSIC_EPOCH and resume in MUSIC_BEFORE_MIX:
-            return heal_navigate(ctx, intent=FAIL_CLASS_MUSIC_EPOCH, stage=resume)[
-                "from_stage"
-            ]
+            return _safe_heal(FAIL_CLASS_MUSIC_EPOCH)
         if cls == FAIL_CLASS_MIX_SEAT:
-            return heal_navigate(ctx, intent=FAIL_CLASS_MIX_SEAT, stage=resume)[
-                "from_stage"
-            ]
+            return _safe_heal(FAIL_CLASS_MIX_SEAT)
         if cls == FAIL_CLASS_FINALIZE or resume == "master_finalize":
-            return heal_navigate(
-                ctx, intent=FAIL_CLASS_FINALIZE, stage=resume, error=message
-            )["from_stage"]
+            return _safe_heal(FAIL_CLASS_FINALIZE)
         if cls == FAIL_CLASS_VO_G1 and resume == "vo_synthesize" and _g1_open(ctx):
-            return heal_navigate(ctx, intent=FAIL_CLASS_VO_G1, stage=resume)[
-                "from_stage"
-            ]
+            return _safe_heal(FAIL_CLASS_VO_G1)
         if cls == FAIL_CLASS_PHASE_A_EDL:
-            return heal_navigate(ctx, intent=FAIL_CLASS_PHASE_A_EDL, stage=resume)[
-                "from_stage"
-            ]
-    except Exception:
-        pass
+            return _safe_heal(FAIL_CLASS_PHASE_A_EDL)
+    except Exception as outer_exc:
+        try:
+            ctx.log(
+                f"premature_cap class pin failed: {outer_exc}",
+                level="warning",
+                stage=resume,
+                detail={"event": "premature_cap_class_exception", "error": str(outer_exc)[:400]},
+            )
+        except Exception:
+            pass
     # Finalize-class holes: pin the producer, never spin on mix/finalize alone.
     if resume == "master_finalize":
         try:
@@ -1188,8 +1483,13 @@ def premature_cap_hard_pin(
         block = vo_synthesize_stability_block(ctx)
         if block == "nugget_layup_compose":
             return "nugget_layup_compose"
-        # G1 open with layup present — pin adjudicate (never fake stage g1_vo_open).
-        return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
+        # G1 open with layup present — unified resume (never fake stage g1_vo_open).
+        # Synth-only G1 stays on vo_synthesize when stability block is None.
+        if block is None:
+            from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+            return resolve_g1_vo_open_resume(ctx)
+        return resolve_vo_synth_seed_resume(block, ctx) or "vo_line_adjudicate"
     # Phase-A: skip audit-only when assembly audio already present.
     if resume in {"edl", "edl_narrative_audit", "assembly_preview"} and assembly_wav_present(
         ctx
@@ -1259,10 +1559,13 @@ def read_checkpoint(ctx: RunContext) -> dict[str, Any] | None:
 def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
     """Write operator/delivery_checkpoint.json when G5 stability predicates pass.
 
-    Artifact-led: if EDL + preview/assembly + delight (or waiver) are usable,
-    promote hollow markers once and seal even when .stage_done lagged.
+    C-05: layup requires ``seed_stage_complete`` only (no file-exists escape).
+    Soft rewrite to ``phase_a_unsealed`` is marker-lag reasons only.
     """
     existing = read_checkpoint(ctx)
+    # C-05: never seal (or soft-rewrite) without sanitary layup seed complete.
+    if not seed_stage_complete(ctx, "nugget_layup_compose"):
+        return existing
     # Artifact-led promote before stability check (markers often lag usable files).
     try:
         promote_complete_orphan_stage_done(
@@ -1279,17 +1582,15 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
     ok, reason = delivery_stable_for_music(ctx)
     # Allow sealing when stable except the seal itself is the only missing piece.
     if not ok and reason != "phase_a_unsealed":
-        # Artifact-led soft path: usable EDL + audio + delight may still seal
-        # when seed markers lag but G1 is closed.
+        # Soft rewrite only for marker-lag — never layup_incomplete / g1_open / etc.
+        if reason not in PHASE_A_MARKER_LAG_REASONS:
+            return existing
         try:
             from interview_mux.thrash_hardening import artifact_usable
 
             edl_ok, _ = artifact_usable(ctx, "master/edl.json", consumer="edl")
             audio_ok = assembly_wav_present(ctx)
-            delight_ok = (
-                seed_stage_complete(ctx, "listen_delight_audit")
-                or listen_delight_waived_unattended(ctx)
-            )
+            delight_ok = listen_delight_cleared_for_progress(ctx)
             if (
                 edl_ok
                 and audio_ok
@@ -1306,11 +1607,7 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
     if not ok and reason == "phase_a_unsealed":
         # Re-check stability without seal requirement for the write path.
         # Prefer artifact usability over strict seed_stage_complete for EDL/preview.
-        layup_ok = seed_stage_complete(ctx, "nugget_layup_compose") or ctx.artifact_exists(
-            "mastering/nugget_layup_plan.json"
-        )
-        if not layup_ok:
-            return existing
+        # C-05: layup already gated above via seed_stage_complete only.
         if _g1_open(ctx):
             return existing
         if not seed_stage_complete(ctx, "vo_line_adjudicate"):
@@ -1330,13 +1627,8 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
             return existing
         if not seed_stage_complete(ctx, "assembly_preview") and not assembly_wav_present(ctx):
             return existing
-        # TH4 / MU2: delight OK only if seed_stage_complete (or *existing* waiver) —
-        # bare listen_delight_audit.json must not soft-seal Phase A, and we must not
-        # mint a waiver here just because the file exists.
-        delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
-            ctx
-        )
-        if not delight_ok:
+        # A-04 / TH4: seed_complete or quality_waived only — not waived_unattended.
+        if not listen_delight_cleared_for_progress(ctx):
             return existing
         if upstream_stale_blockers(ctx, "mmaudio_sfx"):
             return existing
@@ -1383,6 +1675,14 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
     }
     ctx.write_json(CHECKPOINT_REL, row, skip_handoff=True)
     stamp_delivery_epoch(ctx, phase_a_sealed_at=row["sealed_at"])
+    # b15: Phase A seal dual-locks seats (soft freeze) in the same delivery_epoch
+    try:
+        from interview_mux.seat_authority import soft_freeze_active, stamp_soft_seat_freeze
+
+        if not soft_freeze_active(ctx):
+            stamp_soft_seat_freeze(ctx, reason="phase_a_seal")
+    except Exception:
+        pass
     record_wasted_work(ctx, event="phase_seal", stage="listen_delight_audit", detail=row)
     return row
 
@@ -1396,12 +1696,48 @@ def delivery_epoch_locked(ctx: RunContext) -> bool:
     return bool(epoch.get("phase_a_sealed_at"))
 
 
-def unlock_delivery_epoch(ctx: RunContext, reason: str) -> dict[str, Any]:
+def unlock_delivery_epoch(
+    ctx: RunContext, reason: str, *, unlock_seats: bool = False
+) -> dict[str, Any]:
+    """Unlock Phase A delivery epoch.
+
+    ``unlock_seats=False`` (default) leaves ``vo_seats_freeze`` intact.
+    ``unlock_seats=True`` soft+hard clears seat freeze in the same epoch stamp.
+    """
     epoch = read_delivery_epoch(ctx)
     epoch["unlocked_at"] = _utc_now()
     epoch["unlock_reason"] = str(reason or "")[:400]
     epoch["locked"] = False
     epoch["updated_at"] = _utc_now()
+    epoch["unlock_seats"] = bool(unlock_seats)
+    if unlock_seats:
+        try:
+            from interview_mux.seat_authority import unlock_seat_freeze
+
+            unlock_seat_freeze(
+                ctx,
+                reason=f"delivery_epoch:{reason}",
+                clear_hard=True,
+                clear_soft=True,
+            )
+            # Re-read so _mark does not clobber the seat unlock.
+            epoch = read_delivery_epoch(ctx)
+            epoch["unlocked_at"] = _utc_now()
+            epoch["unlock_reason"] = str(reason or "")[:400]
+            epoch["locked"] = False
+            epoch["updated_at"] = _utc_now()
+            epoch["unlock_seats"] = True
+            epoch["seat_unlock_note"] = "vo_seats_freeze cleared with delivery epoch"
+        except Exception:
+            seats = dict(epoch.get("vo_seats_freeze") or {})
+            seats["soft"] = False
+            seats["hard"] = False
+            seats["unlocked_at"] = _utc_now()
+            seats["unlock_reason"] = str(reason or "")[:200]
+            epoch["vo_seats_freeze"] = seats
+            epoch["seat_unlock_note"] = "vo_seats_freeze cleared in-place"
+    else:
+        epoch["seat_unlock_note"] = "seats left frozen"
 
     def _mark(meta: dict[str, Any]) -> None:
         meta["delivery_epoch"] = epoch
@@ -1450,21 +1786,279 @@ def stamp_delivery_epoch(ctx: RunContext, **fields: Any) -> dict[str, Any]:
     return epoch
 
 
+def record_delivery_residual(
+    ctx: RunContext,
+    *,
+    kind: str,
+    severity: str = "critical",
+    stage: str = "",
+    detail: dict[str, Any] | None = None,
+    mirror_junction: bool = True,
+) -> dict[str, Any]:
+    """B-02/B-03: persist residuals that ship/junction consumers must read.
+
+    Writes ``operator/delivery_residuals.json``. Critical rows also bump
+    ``critical_residual_count`` on ``master/junction_snip_qa.json`` when present
+    so ``ship_path_ready`` and junction consumers share one view.
+    """
+    sev = str(severity or "critical").strip().lower() or "critical"
+    if sev not in {"critical", "soft", "advisory"}:
+        sev = "critical"
+    kind_s = str(kind or "residual").strip()[:120] or "residual"
+    row = {
+        "at": _utc_now(),
+        "kind": kind_s,
+        "severity": sev,
+        "stage": str(stage or "")[:80],
+        "detail": detail if isinstance(detail, dict) else {},
+    }
+    doc: dict[str, Any] = {"version": 1, "residuals": [], "critical_count": 0}
+    if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
+        try:
+            raw = ctx.read_json(DELIVERY_RESIDUALS_REL)
+            if isinstance(raw, dict):
+                doc = dict(raw)
+        except Exception:
+            pass
+    residuals = [r for r in (doc.get("residuals") or []) if isinstance(r, dict)]
+    # Dedup identical kind+stage+severity in the last few events.
+    fingerprint = (
+        kind_s,
+        str(stage or ""),
+        sev,
+        str((detail or {}).get("pass_id") or (detail or {}).get("sig") or "")[:80],
+    )
+    for prev in residuals[-8:]:
+        prev_fp = (
+            str(prev.get("kind") or ""),
+            str(prev.get("stage") or ""),
+            str(prev.get("severity") or ""),
+            str((prev.get("detail") or {}).get("pass_id") or (prev.get("detail") or {}).get("sig") or "")[
+                :80
+            ],
+        )
+        if prev_fp == fingerprint:
+            return doc
+    residuals.append(row)
+    doc["version"] = 1
+    doc["updated_at"] = _utc_now()
+    doc["residuals"] = residuals[-100:]
+    doc["critical_count"] = sum(
+        1 for r in doc["residuals"] if str(r.get("severity") or "") == "critical"
+    )
+    try:
+        ctx.write_json(DELIVERY_RESIDUALS_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
+    if sev == "critical" and mirror_junction:
+        try:
+            _mirror_critical_residual_into_junction(ctx, row)
+        except Exception:
+            pass
+    try:
+        record_wasted_work(
+            ctx,
+            event=f"delivery_residual:{kind_s}",
+            stage=stage or "delivery",
+            detail={"severity": sev, **(detail or {})},
+        )
+    except Exception:
+        pass
+    return doc
+
+
+def critical_delivery_residual_count(ctx: RunContext) -> int:
+    """Count critical residuals in the delivery ledger (ship gate input)."""
+    if not ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
+        return 0
+    try:
+        doc = ctx.read_json(DELIVERY_RESIDUALS_REL)
+    except Exception:
+        return 0
+    if not isinstance(doc, dict):
+        return 0
+    try:
+        n = int(doc.get("critical_count") or 0)
+        if n:
+            return n
+    except (TypeError, ValueError):
+        pass
+    return sum(
+        1
+        for r in (doc.get("residuals") or [])
+        if isinstance(r, dict) and str(r.get("severity") or "") == "critical"
+    )
+
+
+@dataclass(frozen=True)
+class CriticalResidualView:
+    """SSOT view of critical residuals across ledger + junction dialects."""
+
+    count: int
+    kinds: tuple[str, ...]
+    sources: tuple[str, ...]
+
+
+def critical_residual_view(ctx: RunContext) -> CriticalResidualView:
+    """Union ledger criticals, junction residual_findings, and stamped ints.
+
+    Final count is ``max(ledger, findings, stamped)`` so a stale zero stamp
+    cannot hide live findings/ledger (B-02 Wave 9 residual SSOT).
+    """
+    kinds: list[str] = []
+    sources: list[str] = []
+    ledger_n = 0
+    findings_n = 0
+    stamped_n = 0
+
+    if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
+        try:
+            doc = ctx.read_json(DELIVERY_RESIDUALS_REL)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            for row in doc.get("residuals") or []:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("severity") or "") != "critical":
+                    continue
+                ledger_n += 1
+                kind = str(row.get("kind") or "residual").strip() or "residual"
+                if kind not in kinds:
+                    kinds.append(kind)
+            if ledger_n:
+                sources.append("delivery_ledger")
+
+    if ctx.artifact_exists("master/junction_snip_qa.json"):
+        try:
+            qa = ctx.read_json("master/junction_snip_qa.json")
+        except Exception:
+            qa = None
+        if isinstance(qa, dict):
+            for finding in qa.get("residual_findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                if str(finding.get("severity") or "") != "critical":
+                    continue
+                findings_n += 1
+                kind = str(finding.get("kind") or "junction_residual").strip() or "junction_residual"
+                if kind not in kinds:
+                    kinds.append(kind)
+            if findings_n:
+                sources.append("junction_findings")
+            for key in ("critical_residual_count", "critical_count", "critical_residuals"):
+                try:
+                    stamped_n = max(stamped_n, int(qa.get(key) or 0))
+                except (TypeError, ValueError):
+                    continue
+            if stamped_n > 0:
+                sources.append("junction_count")
+
+    count = max(ledger_n, findings_n, stamped_n)
+    # Preserve source order without duplicates.
+    seen_src: set[str] = set()
+    uniq_sources: list[str] = []
+    for s in sources:
+        if s not in seen_src:
+            seen_src.add(s)
+            uniq_sources.append(s)
+    return CriticalResidualView(
+        count=int(count),
+        kinds=tuple(kinds),
+        sources=tuple(uniq_sources),
+    )
+
+
+def has_critical_residuals(ctx: RunContext) -> bool:
+    """True when any residual dialect reports a critical residual."""
+    try:
+        return critical_residual_view(ctx).count > 0
+    except Exception:
+        # Callers that need fail-closed (ship) must treat exceptions as blocked.
+        # Returning True is safer than False for ship honesty if view blows up.
+        return True
+
+
+def _mirror_critical_residual_into_junction(ctx: RunContext, row: dict[str, Any]) -> None:
+    """Surface fuse/junction family residuals on junction_snip_qa when present."""
+    rel = "master/junction_snip_qa.json"
+    if not ctx.artifact_exists(rel):
+        return
+    try:
+        qa = ctx.read_json(rel)
+    except Exception:
+        return
+    if not isinstance(qa, dict):
+        return
+    mirrored = [r for r in (qa.get("delivery_residuals") or []) if isinstance(r, dict)]
+    kind = str(row.get("kind") or "")
+    findings = [f for f in (qa.get("residual_findings") or []) if isinstance(f, dict)]
+    finding_row = {
+        "kind": kind or "delivery_residual",
+        "severity": "critical",
+        "stage": str(row.get("stage") or "")[:80],
+        "source": "delivery_residual_mirror",
+        "detail": row.get("detail") if isinstance(row.get("detail"), dict) else {},
+    }
+
+    def _stamp_counts(min_count: int) -> None:
+        try:
+            crit = int(qa.get("critical_residual_count") or qa.get("critical_count") or 0)
+        except (TypeError, ValueError):
+            crit = 0
+        crit = max(crit, int(min_count), 1)
+        qa["critical_residual_count"] = crit
+        qa["critical_count"] = crit
+        qa["critical_residuals"] = crit
+
+    if any(str(r.get("kind") or "") == kind for r in mirrored):
+        if not any(str(f.get("kind") or "") == kind for f in findings):
+            findings.append(finding_row)
+            qa["residual_findings"] = findings[-80:]
+        _stamp_counts(1)
+        try:
+            ctx.write_json(rel, qa, skip_handoff=True)
+        except Exception:
+            pass
+        return
+    mirrored.append(row)
+    qa["delivery_residuals"] = mirrored[-40:]
+    if not any(str(f.get("kind") or "") == kind for f in findings):
+        findings.append(finding_row)
+        qa["residual_findings"] = findings[-80:]
+    try:
+        crit = int(qa.get("critical_residual_count") or qa.get("critical_count") or 0)
+    except (TypeError, ValueError):
+        crit = 0
+    qa["critical_residual_count"] = crit + 1
+    qa["critical_count"] = int(qa["critical_residual_count"])
+    qa["critical_residuals"] = int(qa["critical_residual_count"])
+    try:
+        ctx.write_json(rel, qa, skip_handoff=True)
+    except Exception:
+        pass
+
+
 def record_wasted_work(
     ctx: RunContext,
     *,
     event: str,
     stage: str = "",
     detail: dict[str, Any] | None = None,
-) -> None:
-    """D1: append operator/wasted_work.json event (expensive_start/orphan/avoided/…)."""
+) -> bool:
+    """D1: append operator/wasted_work.json event (expensive_start/orphan/avoided/…).
+
+    Returns True when the ledger write landed (including schema_bypass via file_store).
+    F-02: never silent — schema ValueError bypasses validation with a stamp; IO errors
+    return False (no bare ``except: pass`` on the write path).
+    """
     doc: dict[str, Any] = {"version": 1, "events": []}
     if ctx.artifact_exists(WASTED_WORK_REL):
         try:
             raw = ctx.read_json(WASTED_WORK_REL)
             if isinstance(raw, dict):
                 doc = raw
-        except Exception:
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
     events = list(doc.get("events") or [])
     if event == "music_deferred" and detail:
@@ -1478,7 +2072,7 @@ def record_wasted_work(
             and str((row.get("detail") or {}).get("reason") or "") == reason
         )
         if dupes >= 5:
-            return
+            return True
     events.append(
         {
             "at": _utc_now(),
@@ -1510,10 +2104,41 @@ def record_wasted_work(
                 halt_event = key
     except Exception:
         pass
+    written = False
     try:
         ctx.write_json(WASTED_WORK_REL, doc, skip_handoff=True)
-    except Exception:
-        pass
+        written = True
+    except ValueError as exc:
+        # Schema refused the row — still surface the ledger via raw file_store.
+        try:
+            from interview_mux.file_store import write_json as fs_write_json
+
+            bypass = dict(doc)
+            bypass["schema_bypass"] = True
+            bypass["schema_bypass_at"] = _utc_now()
+            bypass["schema_bypass_error"] = str(exc)[:240]
+            fs_write_json(ctx.path(WASTED_WORK_REL), bypass)
+            written = True
+        except OSError:
+            written = False
+    except OSError:
+        written = False
+    if halt_event:
+        # ESR: do not HARD-pause while producer progress / lease is fresh.
+        try:
+            from interview_mux.execution_status import may_hard_halt, wait_vs_halt
+
+            pin = str(stage or "delivery")[:80] or "delivery"
+            if not may_hard_halt(ctx, pin=pin):
+                wait_vs_halt(
+                    ctx,
+                    pin=pin,
+                    intent="true_waste_sticky",
+                    reason=f"true_waste_sticky:{halt_event}",
+                )
+                halt_event = ""
+        except Exception:
+            pass
     if halt_event:
         try:
 
@@ -1534,7 +2159,7 @@ def record_wasted_work(
                     },
                     skip_handoff=True,
                 )
-        except Exception:
+        except OSError:
             pass
     if event == "orphan":
 
@@ -1545,8 +2170,9 @@ def record_wasted_work(
 
         try:
             ctx.mutate_run_meta(_mark)
-        except Exception:
+        except OSError:
             pass
+    return written
 
 
 def maybe_restore_master_bundle(ctx: RunContext, *, stage: str) -> list[str]:
@@ -1570,7 +2196,11 @@ def maybe_restore_master_bundle(ctx: RunContext, *, stage: str) -> list[str]:
 
 
 def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
-    """E3: theme/SFX slots actually referenced by cues or mix recipe."""
+    """Theme/SFX slots required for generation: cues, mix recipe, + reserved bookends.
+
+    Speech-free theme reservations (cold_open / outro, EDL opening_music) are
+    always included so lazy E3 cannot skip beds that mix will later demand.
+    """
     ids: set[str] = set()
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
         try:
@@ -1583,7 +2213,7 @@ def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
                 if not isinstance(flow, dict):
                     continue
                 for cue in flow.get("cues") or []:
-                    if isinstance(cue, dict) and cue.get("asset_id"):
+                    if isinstance(cue, dict) and cue.get("asset_id") and not cue.get("skip"):
                         ids.add(str(cue.get("asset_id")))
     for rel in ("master/mix_recipe.json", "sound_design/mix_recipe.json", "master/edl.json"):
         if not ctx.artifact_exists(rel):
@@ -1592,7 +2222,6 @@ def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
             doc = ctx.read_json(rel)
         except Exception:
             continue
-        blob = str(doc) if not isinstance(doc, dict) else ""
         if isinstance(doc, dict):
             for key in ("asset_ids", "theme_asset_ids", "sfx_asset_ids"):
                 for aid in doc.get(key) or []:
@@ -1600,8 +2229,12 @@ def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
             for clip in doc.get("clips") or doc.get("entries") or []:
                 if isinstance(clip, dict) and clip.get("asset_id"):
                     ids.add(str(clip.get("asset_id")))
-        if "show_theme" in blob:
-            pass
+    try:
+        from interview_mux.theme_slot_integrity import reserved_theme_asset_ids
+
+        ids |= reserved_theme_asset_ids(ctx)
+    except Exception:
+        pass
     return ids
 
 
@@ -1805,33 +2438,88 @@ def resolve_music_limbo_exit(ctx: RunContext) -> dict[str, Any]:
         missing = []
     if not missing:
         return out
-    # Path A: stamp omit ledger for missing referenced beds (MU1 honesty).
+    # Speech-free bookends: prefer regenerate (pin mmaudio) over silent omit.
+    try:
+        from interview_mux.theme_slot_integrity import (
+            is_speech_free_theme_role,
+            speech_free_palette_asset_ids,
+        )
+
+        palette_sf = speech_free_palette_asset_ids(ctx)
+        speech_free_missing = []
+        sdp = {}
+        if ctx.artifact_exists("understanding/sound_design_plan.json"):
+            try:
+                sdp = ctx.read_json("understanding/sound_design_plan.json") or {}
+            except Exception:
+                sdp = {}
+        role_by_id = {
+            str(a.get("asset_id")): str(a.get("role") or "")
+            for a in (sdp.get("assets") or [])
+            if isinstance(a, dict) and a.get("asset_id")
+        }
+        for aid in missing:
+            if aid in palette_sf or is_speech_free_theme_role(role_by_id.get(aid)):
+                speech_free_missing.append(aid)
+        if speech_free_missing:
+            pin = "mmaudio_sfx"
+            break_music_epoch_seal(
+                ctx, reason=f"music_limbo_bookend:{','.join(speech_free_missing[:4])}"
+            )
+            try:
+
+                def _pin_bookend(meta: dict[str, Any]) -> None:
+                    meta["needs_operator"] = True
+                    meta["needs_operator_stage"] = pin
+                    meta["needs_operator_reason"] = "music_limbo_speech_free_regen"
+
+                if ctx.artifact_exists("run_meta.json"):
+                    ctx.mutate_run_meta(_pin_bookend)
+            except Exception:
+                pass
+            out["resolved"] = True
+            out["path"] = "break_seal_bookend"
+            out["pin"] = pin
+            out["omitted"] = []
+            record_wasted_work(
+                ctx,
+                event="music_limbo_pin_mmaudio",
+                stage="mmaudio_sfx",
+                detail={"asset_ids": speech_free_missing[:12]},
+            )
+            return out
+    except Exception as exc:
+        out["bookend_pin_error"] = str(exc)[:200]
+    # Path A: stamp omit ledger for other missing beds + shrink reservations.
     try:
         from interview_mux.musicgen_runner import stamp_music_omitted
+        from interview_mux.theme_slot_integrity import shrink_theme_reservations_for_omit
 
         for aid in missing[:12]:
             stamp_music_omitted(ctx, asset_id=aid, reason="music_limbo_omit")
+        shrink = shrink_theme_reservations_for_omit(ctx, missing[:12])
         out["resolved"] = True
         out["path"] = "music_omitted"
         out["omitted"] = missing[:12]
+        out["shrink"] = shrink
         record_wasted_work(
             ctx,
             event="music_limbo_omit",
             stage="mmaudio_sfx",
-            detail={"asset_ids": missing[:12]},
+            detail={"asset_ids": missing[:12], "shrink": shrink},
         )
         return out
     except Exception as exc:
         out["omit_error"] = str(exc)[:200]
     # Path B: break seal + pin earliest incomplete music producer.
-    pin = "music_palette_compose"
+    pin = "mmaudio_sfx"
     try:
         for sid in MUSIC_BEFORE_MIX:
             if not seed_stage_complete(ctx, sid):
                 pin = sid
                 break
     except Exception:
-        pin = "music_palette_compose"
+        pin = "mmaudio_sfx"
     break_music_epoch_seal(ctx, reason=f"music_limbo_break:{','.join(missing[:4])}")
     try:
 
@@ -1957,42 +2645,75 @@ def read_delivery_epoch_at_dispatch(ctx: RunContext) -> dict[str, Any]:
 
 
 def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:
-    """Late-phase pin: mix sealed, assembly fresh, delight ok, no critical junction residuals."""
+    """Late-phase pin: mix sealed, junction seed-complete + commitment, delight ok.
+
+    Missing ``junction_snip_qa.json`` must not look ship-ready — that dropped
+    junction from ``filter_delivery_candidates`` and thrashed finalize↔junction
+    (forensics exec_10066: pending master.wav + stale autopsy commitment).
+
+    Soft residuals are advisory only; only **critical** residuals block ship-ready.
+    Autopsy commitment must match live assembly (size + sha when present).
+    """
     if not ctx.artifact_exists("master/assembly.wav"):
         return False, "assembly_missing"
     try:
-        from interview_mux.homunculus.agenda import assembly_stale_versus_edl
+        from interview_mux.homunculus.agenda import (
+            _junction_commitment_matches_assembly,
+            assembly_stale_versus_edl,
+        )
 
         if assembly_stale_versus_edl(ctx):
             return False, "assembly_stale_versus_edl"
     except Exception:
-        pass
+        _junction_commitment_matches_assembly = None  # type: ignore[assignment]
     if not seed_stage_complete(ctx, "mix"):
         return False, "mix_incomplete"
-    delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
-        ctx
-    )
-    if not delight_ok:
+    if not seed_stage_complete(ctx, "junction_snip_qa"):
+        return False, "junction_incomplete"
+    try:
+        if _junction_commitment_matches_assembly and not _junction_commitment_matches_assembly(
+            ctx
+        ):
+            return False, "junction_commitment_mismatch"
+    except Exception:
+        pass
+    if not ctx.artifact_exists("master/junction_snip_qa.json"):
+        # Defense in depth: autopsy-only seed must not look ship-ready.
+        return False, "junction_qa_missing"
+    if not listen_delight_cleared_for_progress(ctx):
         return False, "listen_delight_incomplete"
-    if ctx.artifact_exists("master/junction_snip_qa.json"):
-        try:
-            doc = ctx.read_json("master/junction_snip_qa.json")
-            if isinstance(doc, dict):
-                crit = int(doc.get("critical_residual_count") or doc.get("critical_count") or 0)
-                if crit > 0:
-                    return False, "critical_junction_residuals"
-                residuals = doc.get("residuals") or doc.get("critical_residuals") or []
-                if isinstance(residuals, list) and residuals:
-                    return False, "junction_residuals"
-        except Exception:
-            pass
+    # B-02 Wave 9: one SSOT for ledger + junction findings + stamped ints.
+    # Fail closed on check errors — never fail-open past critical residuals.
+    try:
+        view = critical_residual_view(ctx)
+        if view.count > 0:
+            if "delivery_ledger" in view.sources:
+                return False, "critical_delivery_residuals"
+            return False, "critical_junction_residuals"
+    except Exception:
+        return False, "critical_residual_check_failed"
     if ctx.artifact_exists("master/post_master_quality.json"):
         try:
+            from interview_mux.e2e_soft import e2e_soft_enabled
+
             pmq = ctx.read_json("master/post_master_quality.json")
             if isinstance(pmq, dict) and pmq.get("publish_allowed") is False:
-                return False, "pmq_not_publishable"
+                # e2e_soft must not waive authoritative PMQ / delight for ship-ready.
+                if not e2e_soft_enabled():
+                    return False, "pmq_not_publishable"
+                # Soft mode: still refuse if authoritative floors failed hard.
+                if pmq.get("authoritative_block") or pmq.get("listen_delight_floors_failed"):
+                    return False, "pmq_not_publishable"
         except Exception:
             pass
+    # Bare master.wav without commitment is not ship-ready (RSTM committed-master-honesty).
+    try:
+        from interview_mux.delivery_invariants import committed_master_wav
+
+        if ctx.artifact_exists("master/master.wav") and not committed_master_wav(ctx):
+            return False, "master_uncommitted"
+    except Exception:
+        pass
     return True, ""
 
 

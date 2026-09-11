@@ -114,3 +114,22 @@ def test_stage_acceptance_nullable_topic_tags(tmp_path, monkeypatch: pytest.Monk
     )
     result = stage_acceptance_ok(ctx, "segment_classification", staged=True, include_cross_validate=False)
     assert result.ok or not result.null_violations
+
+
+def test_stage_acceptance_ok_binary_mix_wav(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """mix producer is assembly.wav — acceptance must not read_json the WAV."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "accept_mix_wav")
+    # Align with artifact_completeness size floor (>1024).
+    wav = ctx.final_path("master", "assembly.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\x00" * 2048)
+    result = stage_acceptance_ok(
+        ctx,
+        "mix",
+        staged=False,
+        include_cross_validate=False,
+        include_downstream=False,
+    )
+    assert result.ok
+    assert not result.errors

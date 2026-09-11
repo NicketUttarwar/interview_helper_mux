@@ -212,6 +212,48 @@ def test_pending_write_barrier_pre_mix(tmp_path: Path) -> None:
     assert any(v.error_class == "pending_write_barrier" for v in report.violations)
 
 
+def test_pending_write_barrier_ignores_active_mix_staging(tmp_path: Path) -> None:
+    """mix runs pre_mix while its own .pending_writes/mix is live — must not self-block."""
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = isolated_run_ctx(tmp_path, "pub_pending_active_mix")
+    pending = ctx.run_dir / ".pending_writes" / "mix" / "master"
+    pending.mkdir(parents=True, exist_ok=True)
+    (pending / "assembly.wav").write_bytes(b"RIFF" + b"\0" * 64)
+    _write_edl(
+        ctx,
+        ordered=["seg_001"],
+        clips=[_speech_clip("seg_001", duration_ms=5000)],
+    )
+    enter_stage_staging("mix")
+    try:
+        report = validate_publishability(ctx, checkpoint="pre_mix")
+        assert not any(v.error_class == "pending_write_barrier" for v in report.violations)
+    finally:
+        exit_stage_staging()
+
+
+def test_pending_write_barrier_ignores_later_junction_orphan(tmp_path: Path) -> None:
+    """Abandoned junction pending must not block mix remaster (exec_11130)."""
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = isolated_run_ctx(tmp_path, "pub_pending_later_junc")
+    pending = ctx.run_dir / ".pending_writes" / "junction_snip_qa" / "master"
+    pending.mkdir(parents=True, exist_ok=True)
+    (pending / "junction_snip_qa.json").write_text("{}")
+    _write_edl(
+        ctx,
+        ordered=["seg_001"],
+        clips=[_speech_clip("seg_001", duration_ms=5000)],
+    )
+    enter_stage_staging("mix")
+    try:
+        report = validate_publishability(ctx, checkpoint="pre_mix")
+        assert not any(v.error_class == "pending_write_barrier" for v in report.violations)
+    finally:
+        exit_stage_staging()
+
+
 def test_critical_junction_post_junction(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "pub_junction")
     _write_raw(
@@ -305,3 +347,24 @@ def test_checkpoint_fail_open_by_default(tmp_path: Path) -> None:
     assert ctx.artifact_exists("operator/publishability_report.json")
     # Soft/fail-open must leave the just-committed EDL on disk.
     assert ctx.artifact_exists("master/edl.json")
+
+
+def test_pre_mix_skips_critical_junction_while_junction_active(tmp_path: Path) -> None:
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+    from interview_mux.delivery_guardrails import record_delivery_residual
+
+    ctx = isolated_run_ctx(tmp_path, "pub_junc_active_skip")
+    record_delivery_residual(
+        ctx, kind="incomplete_clause", severity="critical", stage="junction_snip_qa"
+    )
+    _write_edl(
+        ctx,
+        ordered=["seg_001"],
+        clips=[_speech_clip("seg_001", duration_ms=5000)],
+    )
+    enter_stage_staging("junction_snip_qa")
+    try:
+        report = validate_publishability(ctx, checkpoint="pre_mix")
+        assert not any(v.error_class == "incomplete_cut_unresolved" for v in report.violations)
+    finally:
+        exit_stage_staging()

@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-GATEMID|vo_line_adjudicate->G1->vo_synthesize->edl_narrative_audit|manual|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D3-GATEMID",
+  "notes": [
+    "incompleteness_ok:understanding/vo_line_adjudication.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

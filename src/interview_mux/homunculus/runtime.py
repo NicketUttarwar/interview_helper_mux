@@ -56,6 +56,14 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
 
     if stage not in ANALYSIS_ORDER and stage not in DELIVERY_ORDER:
         return None
+    # G1 already green: do not force vo_line_adjudicate over fresh WAVs.
+    if stage in {"vo_synthesize", "edl_narrative_audit", "edl"}:
+        try:
+            from interview_mux.delivery_guardrails import seal_adjudicate_stale_when_g1_green
+
+            seal_adjudicate_stale_when_g1_green(ctx)
+        except Exception:
+            pass
     earliest = _earliest_incomplete_seed_stage(ctx, stage)
     if earliest and earliest != stage:
         if (
@@ -74,6 +82,33 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                 from interview_mux.delivery_guardrails import seed_stage_complete
 
                 if seed_stage_complete(ctx, "air_script_seams"):
+                    return None
+            except Exception:
+                pass
+        # After seal, adjudicate may still be earliest if marker missing — recheck.
+        if earliest == "vo_line_adjudicate" and stage in {
+            "vo_synthesize",
+            "edl_narrative_audit",
+            "edl",
+        }:
+            try:
+                from interview_mux.delivery_guardrails import (
+                    seed_stage_complete,
+                    seal_adjudicate_stale_when_g1_green,
+                )
+                from interview_mux.gates import check_g1_vo
+
+                seal_adjudicate_stale_when_g1_green(ctx)
+                if seed_stage_complete(ctx, "vo_line_adjudicate") or not check_g1_vo(ctx):
+                    return None
+            except Exception:
+                pass
+        # Junction remaster unlinks .stage_done/mix at the start of remaster_mix_only.
+        # Re-dispatch mid-remaster (or after a loud fail) must not seed-block on mix
+        # when assembly already exists — junction owns the remaster (exec_11130).
+        if stage == "junction_snip_qa" and earliest == "mix":
+            try:
+                if ctx.artifact_exists("master/assembly.wav"):
                     return None
             except Exception:
                 pass
@@ -462,7 +497,10 @@ def recovery_allowed(
 
         plan = read_active_remediation_plan(ctx) or read_active_vo_repair_plan(ctx)
         if isinstance(plan, dict):
-            allowed = {str(s) for s in (plan.get("allowed_rerun_stages") or plan.get("invalidate_set") or [])}
+            from interview_mux.refinement_passes import filter_retired_refine_stages
+
+            raw_allowed = plan.get("allowed_rerun_stages") or plan.get("invalidate_set") or []
+            allowed = set(filter_retired_refine_stages(raw_allowed))
             if stage in allowed or str(plan.get("consumer_stage") or "") == stage:
                 return True
     except Exception:

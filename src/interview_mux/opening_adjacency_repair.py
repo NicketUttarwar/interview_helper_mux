@@ -68,6 +68,23 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
 
     Returns line_ids that were suppressed. No-op when orientation is absent.
     """
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="opening_adjacency_suppress_layup",
+            symptoms=["opening_adjacency"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     gap = ctx.read_json("understanding/gap_report.json")
@@ -166,6 +183,23 @@ def drop_orphan_opening_vo_when_native_orients(ctx: RunContext) -> list[str]:
     Orientation omit leaves vo_preface_opening.wav on disk; EDL/G1 still see it
     as competing with the first native. Keep the omit; remove the duplicate.
     """
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="opening_adjacency_drop_orphan",
+            symptoms=["opening_adjacency", "wav_delete"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     gap = ctx.read_json("understanding/gap_report.json")

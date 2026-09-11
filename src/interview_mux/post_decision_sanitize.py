@@ -1,0 +1,262 @@
+"""Post-decision sanitize — gap inventory + shared-path authority restamp.
+
+Wave 0.2: after major decisions (resplit, framing, remutate, …) write a gap
+inventory and unmark only implicated producers. Shared paths stamp
+``authoritative_producer`` + content hash under ``_meta`` without breaking
+body schemas.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from interview_mux.run_context import RunContext
+
+SHARED_PATHS: dict[str, str] = {
+    "content_brief": "understanding/content_brief.json",
+    "boundaries": "segments/boundaries.json",
+    "sound_design_plan": "understanding/sound_design_plan.json",
+}
+
+SHARED_PATH_CO_PRODUCERS: dict[str, tuple[str, ...]] = {
+    "understanding/content_brief.json": ("content_context", "content_brief_reanchor"),
+    "segments/boundaries.json": ("boundary_detection", "boundary_topic_resplit"),
+    "understanding/sound_design_plan.json": ("sound_design_palettes", "sound_design_plan"),
+}
+
+GAP_INVENTORY_DIR = "operator/gap_inventory"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def resolve_shared_path(name_or_rel: str) -> str:
+    key = str(name_or_rel or "").strip()
+    if key in SHARED_PATHS:
+        return SHARED_PATHS[key]
+    return key.replace("\\", "/").lstrip("/")
+
+
+def stamp_authoritative_producer(
+    ctx: RunContext,
+    rel: str,
+    producer_stage: str,
+) -> dict[str, Any] | None:
+    """Write ``_meta.authoritative_producer`` + content hash on a shared artifact.
+
+    Uses the lifecycle fingerprint helper so body schemas stay intact (``_meta``
+    only). Writes the committed path via ``file_store`` — never ``ctx.write_json`` —
+    so admit/sanitize cannot oscillate hashes mid-stamp. Returns the stamped
+    document, or None when the path is missing / unreadable.
+    """
+    path = resolve_shared_path(rel)
+    stage = str(producer_stage or "").strip()
+    if not path or not stage:
+        return None
+    if not ctx.artifact_exists(path):
+        return None
+    try:
+        raw = ctx.read_json(path)
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    from interview_mux.artifact_lifecycle import fingerprint_artifact
+    from interview_mux.file_store import write_json as fs_write_json
+
+    fp = fingerprint_artifact(raw, stage)
+    meta = dict(fp.get("_meta") or {})
+    meta["authoritative_producer"] = stage
+    meta["authoritative_stamped_at"] = _utc_now()
+    fp["_meta"] = meta
+    dest = ctx.final_path(*path.split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(dest, fp)
+    h = str(meta.get("content_hash") or "")
+    if h and hasattr(ctx, "mutate_run_meta"):
+
+        def _mut(run_meta: dict[str, Any]) -> None:
+            fps = dict(run_meta.get("artifact_fingerprints") or {})
+            fps[path] = {
+                "hash": h,
+                "producer_stage": stage,
+                "authoritative_producer": stage,
+            }
+            run_meta["artifact_fingerprints"] = fps
+
+        try:
+            ctx.mutate_run_meta(_mut)
+        except Exception:
+            pass
+    return fp
+
+
+def after_shared_path_write(
+    ctx: RunContext,
+    rel: str,
+    writer_stage: str,
+) -> dict[str, Any]:
+    """A-05: on brief/boundaries/SDP writes — stamp producer + reconcile co-producer done.
+
+    Unmarks other co-producers for *that* path only when content fingerprint flips
+    after a prior stamp (observe→unmark). Initial/scaffold stamps do not unmark.
+    Skips while an admit is in flight (stamp after sole write settles).
+    """
+    try:
+        from interview_mux.artifact_sanitize.reentry import admitting
+
+        if admitting(ctx):
+            return {"ok": True, "skipped": "admitting"}
+    except Exception:
+        pass
+
+    path = resolve_shared_path(rel)
+    writers = SHARED_PATH_CO_PRODUCERS.get(path)
+    stage = str(writer_stage or "").strip()
+    if not writers or stage not in writers:
+        return {"ok": False, "reason": "not_shared_writer"}
+
+    if getattr(ctx, "_shared_path_stamping", False):
+        return {"ok": True, "skipped": "reentrant"}
+
+    prev_hash = ""
+    prev_producer = ""
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict):
+            row = (meta.get("artifact_fingerprints") or {}).get(path) or {}
+            if isinstance(row, dict):
+                prev_hash = str(row.get("hash") or "")
+                prev_producer = str(row.get("authoritative_producer") or "")
+    except Exception:
+        pass
+
+    try:
+        ctx._shared_path_stamping = True
+        stamped = stamp_authoritative_producer(ctx, path, stage)
+    finally:
+        ctx._shared_path_stamping = False
+
+    new_hash = ""
+    if isinstance(stamped, dict) and isinstance(stamped.get("_meta"), dict):
+        new_hash = str(stamped["_meta"].get("content_hash") or "")
+
+    if prev_hash and new_hash and prev_hash == new_hash and prev_producer == stage:
+        return {"ok": True, "fingerprint_unchanged": True, "cleared": []}
+
+    # First authoritative stamp (scaffold / bootstrap): observe only — do not
+    # unmark co-producers. Otherwise ensure_analysis_workspace SDP scaffolds
+    # wipe sound_design_palettes mid eligibility/auto-accept (gap framing gates).
+    if not prev_hash:
+        return {"ok": True, "fingerprint_initial": True, "cleared": []}
+
+    to_clear = [s for s in writers if s != stage]
+    return post_decision_sanitize(
+        ctx,
+        f"shared_restamp_{stage}",
+        implicated_stages=to_clear,
+        reason=f"A-05 co-producer reconcile after {stage} wrote {path}",
+    )
+
+
+def co_producers_for(rel: str) -> tuple[str, ...]:
+    path = resolve_shared_path(rel)
+    return SHARED_PATH_CO_PRODUCERS.get(path, ())
+
+
+def _music_blocks(ctx: RunContext, stage_id: str, *, source: str) -> bool:
+    try:
+        from interview_mux.delivery_guardrails import music_clear_blocked
+
+        return bool(music_clear_blocked(ctx, stage_id, source=source))
+    except Exception:
+        return False
+
+
+def post_decision_sanitize(
+    ctx: RunContext,
+    decision_id: str,
+    *,
+    implicated_stages: list[str] | tuple[str, ...] | None = None,
+    profile_id: str = "",
+    shared_path: str = "",
+    producer_stage: str = "",
+    gaps: list[Any] | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Write gap inventory and unmark only implicated stages.
+
+    Prefer ``apply_bounded_invalidation(profile_id)`` when a profile is named;
+    otherwise unlink ``.stage_done`` for each implicated stage (honoring
+    ``music_clear_blocked``).
+    """
+    did = str(decision_id or "").strip() or "unnamed"
+    stages = [str(s).strip() for s in (implicated_stages or ()) if str(s).strip()]
+    inventory: dict[str, Any] = {
+        "version": 1,
+        "decision_id": did,
+        "updated_at": _utc_now(),
+        "reason": str(reason or ""),
+        "implicated_stages": list(stages),
+        "profile_id": str(profile_id or ""),
+        "shared_path": resolve_shared_path(shared_path) if shared_path else "",
+        "producer_stage": str(producer_stage or ""),
+        "gaps": list(gaps or []),
+        "cleared": [],
+        "blocked_music": [],
+        "stamp": None,
+    }
+
+    stamp_doc = None
+    if shared_path and producer_stage:
+        stamp_doc = stamp_authoritative_producer(ctx, shared_path, producer_stage)
+        if stamp_doc is not None:
+            meta = stamp_doc.get("_meta") if isinstance(stamp_doc, dict) else {}
+            inventory["stamp"] = {
+                "authoritative_producer": (meta or {}).get("authoritative_producer"),
+                "content_hash": (meta or {}).get("content_hash"),
+            }
+
+    cleared: list[str] = []
+    blocked: list[str] = []
+    profile = str(profile_id or "").strip()
+    if profile:
+        from interview_mux.execution_invalidation_profiles import apply_bounded_invalidation
+
+        result = apply_bounded_invalidation(
+            ctx, profile, reason=reason or f"post_decision:{did}"
+        )
+        cleared = list(result.get("cleared") or [])
+        inventory["invalidation"] = {
+            "profile_id": result.get("profile_id"),
+            "capped": bool(result.get("capped")),
+            "forbidden_skipped": list(result.get("forbidden_skipped") or []),
+        }
+    else:
+        for sid in stages:
+            if _music_blocks(ctx, sid, source=f"post_decision:{did}"):
+                blocked.append(sid)
+                continue
+            marker = ctx.run_dir / ".stage_done" / sid
+            if marker.is_file():
+                marker.unlink()
+                cleared.append(sid)
+
+    inventory["cleared"] = cleared
+    inventory["blocked_music"] = blocked
+
+    rel = f"{GAP_INVENTORY_DIR}/{did}.json"
+    try:
+        ctx.write_json(rel, inventory, skip_handoff=True)
+    except Exception:
+        dest = ctx.run_dir / GAP_INVENTORY_DIR
+        dest.mkdir(parents=True, exist_ok=True)
+        from interview_mux.file_store import write_json as fs_write_json
+
+        fs_write_json(dest / f"{did}.json", inventory)
+
+    inventory["inventory_rel"] = rel
+    return inventory

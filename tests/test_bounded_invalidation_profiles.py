@@ -45,3 +45,25 @@ def test_vo_coverage_forbidden_stages_logged(ctx: RunContext) -> None:
 def test_structural_profile_exists(ctx: RunContext) -> None:
     profile = INVALIDATION_PROFILES["structural_delivery"]
     assert "mix" in profile.allowed_clear
+
+
+def test_seg_resplit_heal_does_not_archive_content_brief(ctx: RunContext) -> None:
+    """Nested content_brief_reanchor must still read the live brief after resplit."""
+    profile = INVALIDATION_PROFILES["seg_resplit_heal"]
+    assert "understanding/content_brief.json" not in (profile.archive_allowlist or ())
+    assert "segments/boundaries.json" in (profile.archive_allowlist or ())
+
+    brief_rel = "understanding/content_brief.json"
+    ctx.write_json(
+        brief_rel,
+        {"thesis": "keep me", "topics": [{"name": "t", "summary": "s"}]},
+        skip_handoff=True,
+    )
+    mark_done_raw(ctx, "content_brief_reanchor")
+    mark_done_raw(ctx, "segment_classification")
+
+    apply_bounded_invalidation(ctx, "seg_resplit_heal", reason="boundary_topic_resplit")
+    assert ctx.artifact_exists(brief_rel), "brief must survive seg_resplit_heal"
+    brief = ctx.read_json(brief_rel)
+    assert brief.get("thesis") == "keep me"
+

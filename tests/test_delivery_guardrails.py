@@ -151,6 +151,30 @@ def test_premature_cap_pins_not_advances(tmp_path: Path, monkeypatch: pytest.Mon
     assert pinned != "mmaudio_sfx"
 
 
+def test_premature_cap_heal_exception_never_falls_to_consumer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-08 / XC-PREMATURE: heal_navigate throw → last safe pin, not master_finalize."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "d08_premature")
+    _write_raw(ctx, "master/selection.json", {"ordered_segment_ids": ["a"]})
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("heal_navigate fixture failure")
+
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.heal_navigate",
+        _boom,
+    )
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.canonical_resume_pin",
+        lambda *_a, **_k: "edl",
+    )
+    pinned = premature_cap_hard_pin(ctx, "master_finalize", message="fixture")
+    assert pinned != "master_finalize"
+    assert pinned == "edl"
+
+
 def test_premature_cap_pins_ranking_producer_when_selection_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -683,6 +707,10 @@ def test_phase_a_seal_writes_checkpoint(tmp_path: Path, monkeypatch: pytest.Monk
         "interview_mux.delivery_guardrails.delivery_stable_for_music",
         lambda _ctx: (True, ""),
     )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: True,
+    )
     ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]})
     preview = ctx.path("master", "assembly_preview.wav")
     preview.parent.mkdir(parents=True, exist_ok=True)
@@ -691,6 +719,150 @@ def test_phase_a_seal_writes_checkpoint(tmp_path: Path, monkeypatch: pytest.Monk
     assert row is not None
     assert ctx.artifact_exists(CHECKPOINT_REL)
     assert row.get("phase") == "A_sealed"
+
+
+def test_phase_a_seal_refuses_thin_layup_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-05: hollow layup file + green EDL/WAV/delight must not seal."""
+    from interview_mux.delivery_guardrails import phase_a_sealed
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "c05_thin_layup")
+    _write_raw(ctx, "understanding/nugget_layup_plan.json", {"slots": []})
+    _write_raw(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_001"]})
+    _write_raw(
+        ctx,
+        "master/edl.json",
+        {"ordered_segment_ids": ["seg_001"], "clips": [{"segment_id": "seg_001", "duration_ms": 1000}]},
+    )
+    preview = ctx.path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 64)
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid != "nugget_layup_compose",
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (False, "layup_incomplete"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.assembly_wav_present",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.listen_delight_cleared_for_progress",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.artifact_usable",
+        lambda _ctx, _rel, consumer="": (True, ""),
+    )
+    row = seal_phase_a_if_stable(ctx)
+    assert row is None
+    assert not ctx.artifact_exists(CHECKPOINT_REL)
+    assert phase_a_sealed(ctx) is False
+
+
+def test_phase_a_seal_soft_path_does_not_rewrite_layup_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-05: layup_incomplete must never soft-rewrite to phase_a_unsealed."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "c05_no_rewrite")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (False, "layup_incomplete"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.assembly_wav_present",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.listen_delight_cleared_for_progress",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.artifact_usable",
+        lambda _ctx, _rel, consumer="": (True, ""),
+    )
+    assert seal_phase_a_if_stable(ctx) is None
+    assert not ctx.artifact_exists(CHECKPOINT_REL)
+
+
+def test_phase_a_seal_when_layup_seed_complete_and_edl_marker_lags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-05: marker-lag soft path still seals when layup seed_complete."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "c05_marker_lag")
+    _write_raw(
+        ctx,
+        "master/edl.json",
+        {"ordered_segment_ids": ["seg_001"], "clips": [{"segment_id": "seg_001", "duration_ms": 1000}]},
+    )
+    preview = ctx.path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 64)
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid
+        in {
+            "nugget_layup_compose",
+            "vo_line_adjudicate",
+            "assembly_preview",
+            "listen_delight_audit",
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (False, "edl_incomplete"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.assembly_wav_present",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.listen_delight_cleared_for_progress",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.upstream_stale_blockers",
+        lambda _ctx, _stage: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._layup_escalation_blocking",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.artifact_usable",
+        lambda _ctx, _rel, consumer="": (True, ""),
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.check_g1_vo",
+        lambda _ctx: [],
+    )
+    row = seal_phase_a_if_stable(ctx)
+    assert row is not None
+    assert row.get("phase") == "A_sealed"
+    assert ctx.artifact_exists(CHECKPOINT_REL)
 
 
 def test_music_deferred_until_checkpoint_sealed(
@@ -765,8 +937,12 @@ def test_ship_path_ready_pins_finalize(
         lambda _ctx: False,
     )
     monkeypatch.setattr(
+        "interview_mux.homunculus.agenda._junction_commitment_matches_assembly",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
         "interview_mux.delivery_guardrails.seed_stage_complete",
-        lambda _ctx, sid: sid in {"mix", "listen_delight_audit"},
+        lambda _ctx, sid: sid in {"mix", "junction_snip_qa", "listen_delight_audit"},
     )
     ready, _ = ship_path_ready(ctx)
     assert ready is True
@@ -777,6 +953,49 @@ def test_ship_path_ready_pins_finalize(
     assert "master_finalize" in filtered
 
 
+def test_ship_path_ready_requires_junction_seed_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """exec_10066: missing junction QA must not drop junction from the walk."""
+    from interview_mux.delivery_guardrails import ship_path_ready
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "ship_junction_required")
+    asm = ctx.path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + b"\x00" * 4096)
+    mark_done_raw(ctx, "mix")
+    mark_done_raw(ctx, "listen_delight_audit")
+    _write_raw(ctx, "mastering/listen_delight_audit.json", {"status": "complete", "passed": True})
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.assembly_stale_versus_edl",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid in {"mix", "listen_delight_audit"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.music_epoch_complete",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    ready, reason = ship_path_ready(ctx)
+    assert ready is False
+    assert reason == "junction_incomplete"
+    filtered = filter_delivery_candidates(
+        ctx, ["junction_snip_qa", "master_finalize"]
+    )
+    assert "junction_snip_qa" in filtered
+
+
 def test_vo_synth_blocked_when_transitions_incomplete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -784,6 +1003,132 @@ def test_vo_synth_blocked_when_transitions_incomplete(
     ctx = _ctx(tmp_path, "g8_tr")
     block = vo_synthesize_stability_block(ctx)
     assert block in {"transitions", "nugget_layup_compose"}
+
+
+def test_vo_synth_not_blocked_by_synthesize_only_g1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Synthesize-delivery G1 holes are vo_synthesize's job — no g1_vo_open deadlock."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "g8_synth_g1")
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_007",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "text": "Bridge the story.",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_007",
+                    "placement": "before",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid in {"nugget_layup_compose", "transitions"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._layup_escalation_blocking",
+        lambda _ctx: False,
+    )
+    # C-05: understanding path is SSOT; mastering soft escape removed.
+    _write_raw(ctx, "understanding/nugget_layup_plan.json", {"slots": []})
+    _write_raw(ctx, "master/transitions.json", {"transitions": []})
+    mark_done_raw(ctx, "nugget_layup_compose")
+    mark_done_raw(ctx, "transitions")
+    assert vo_synthesize_stability_block(ctx) is None
+
+
+def test_vo_synth_blocked_when_layup_seed_incomplete_despite_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-05: file-exists alone must not soft-escape seed_stage_complete(layup)."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "c05_layup_soft")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid == "transitions",
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._layup_escalation_blocking",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_record_open",
+        lambda _ctx: [],
+    )
+    _write_raw(ctx, "understanding/nugget_layup_plan.json", {"slots": []})
+    _write_raw(ctx, "mastering/nugget_layup_plan.json", {"slots": []})
+    mark_done_raw(ctx, "nugget_layup_compose")
+    assert vo_synthesize_stability_block(ctx) == "nugget_layup_compose"
+
+
+def test_vo_synth_blocked_when_g1_record_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "g8_record_g1")
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_host_record_001",
+                    "delivery": "record",
+                    "severity": "high",
+                    "text": "Operator must record this.",
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._layup_escalation_blocking",
+        lambda _ctx: False,
+    )
+    _write_raw(ctx, "master/transitions.json", {"transitions": []})
+    assert vo_synthesize_stability_block(ctx) == "g1_vo_open"
+
+
+def test_seal_adjudicate_stale_when_g1_green(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.delivery_guardrails import seal_adjudicate_stale_when_g1_green
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "seal_adj")
+    _write_raw(
+        ctx,
+        "understanding/vo_line_adjudication.json",
+        {
+            "version": 1,
+            "lines": [],
+            "_meta": {
+                "stale": True,
+                "stale_reason": "invalidated_by:nugget_layup_compose",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    assert seal_adjudicate_stale_when_g1_green(ctx) is True
+    doc = ctx.read_json("understanding/vo_line_adjudication.json")
+    assert not (doc.get("_meta") or {}).get("stale")
+    assert (ctx.run_dir / ".stage_done" / "vo_line_adjudicate").is_file()
 
 
 def test_preclean_skipped_when_ingest_unchanged(
@@ -861,3 +1206,164 @@ def test_resolve_assembly_and_gap_helpers(tmp_path: Path, monkeypatch: pytest.Mo
     assert premature_cap_hard_pin(
         ctx, "master_finalize", message="master/assembly_ledger.json missing"
     ) in {"edl", "topic_coverage_audit", "master_finalize"}
+
+
+def test_ship_path_ready_blocks_uncommitted_master(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RSTM committed-master-honesty: bare master.wav must not be ship-ready."""
+    from interview_mux.delivery_guardrails import ship_path_ready
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "ship_uncommitted")
+    asm = ctx.path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + b"\x00" * 4096)
+    master = ctx.path("master", "master.wav")
+    master.write_bytes(b"RIFF" + b"\x00" * 64)
+    mark_done_raw(ctx, "mix", "listen_delight_audit")
+    _write_raw(ctx, "mastering/listen_delight_audit.json", {"status": "complete", "passed": True})
+    _write_raw(ctx, "master/junction_snip_qa.json", {"critical_count": 0, "residuals": []})
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.assembly_stale_versus_edl",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda._junction_commitment_matches_assembly",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid in {"mix", "junction_snip_qa", "listen_delight_audit"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_invariants.committed_master_wav",
+        lambda _ctx: False,
+    )
+    ready, reason = ship_path_ready(ctx)
+    assert ready is False
+    assert reason == "master_uncommitted"
+
+
+def test_a04_waived_unattended_alone_not_delivery_stable_or_ship(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-04 / SYN-DELIGHT-01: telemetry waiver must not green music or ship alone."""
+    from interview_mux.delivery_guardrails import (
+        LISTEN_DELIGHT_WAIVER_REL,
+        listen_delight_cleared_for_progress,
+        ship_path_ready,
+    )
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "a04_telemetry")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid
+        in {
+            "nugget_layup_compose",
+            "vo_line_adjudicate",
+            "edl",
+            "assembly_preview",
+            # listen_delight_audit intentionally incomplete
+            "mix",
+            "junction_snip_qa",
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.assembly_wav_present",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.upstream_stale_blockers",
+        lambda _ctx, _stage: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.read_checkpoint",
+        lambda _ctx: {"phase": "A_sealed"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.read_delivery_epoch",
+        lambda _ctx: {"phase_a_sealed_at": "2026-01-01T00:00:00Z"},
+    )
+    _write_raw(
+        ctx,
+        LISTEN_DELIGHT_WAIVER_REL,
+        {"status": "waived_unattended", "stage": "listen_delight_audit"},
+    )
+    _write_raw(ctx, "mastering/listen_delight_audit.json", {"passed": False})
+    assert listen_delight_cleared_for_progress(ctx) is False
+    ok, reason = delivery_stable_for_music(ctx)
+    assert ok is False
+    assert reason == "listen_delight_incomplete"
+
+    asm = ctx.path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + b"\x00" * 4096)
+    _write_raw(ctx, "master/junction_snip_qa.json", {"critical_count": 0})
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.assembly_stale_versus_edl",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda._junction_commitment_matches_assembly",
+        lambda _ctx: True,
+    )
+    ready, ship_reason = ship_path_ready(ctx)
+    assert ready is False
+    assert ship_reason == "listen_delight_incomplete"
+
+
+def test_a04_quality_waived_clears_delight_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-04: quality_waived (or e2e quality waivers) may clear music delight floor."""
+    from interview_mux.delivery_guardrails import (
+        LISTEN_DELIGHT_WAIVER_REL,
+        listen_delight_cleared_for_progress,
+    )
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "a04_quality")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid != "listen_delight_audit",
+    )
+    _write_raw(
+        ctx,
+        LISTEN_DELIGHT_WAIVER_REL,
+        {"status": "quality_waived", "stage": "listen_delight_audit"},
+    )
+    assert listen_delight_cleared_for_progress(ctx) is True
+
+
+def test_shared_path_palettes_plan_is_not_orphan_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """sound_design_palettes writing plan.json must not sticky-orphan sound_design_plan."""
+    from interview_mux.delivery_guardrails import reconcile_orphan_artifacts
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "orphan_shared_sdp")
+    mark_done_raw(ctx, "sound_design_palettes")
+    _write_raw(
+        ctx,
+        "understanding/sound_design_plan.json",
+        {
+            "version": 1,
+            "palettes": [],
+            "assets": [],
+            "_meta": {"producer_stage": "sound_design_palettes"},
+        },
+    )
+    assert not ctx.is_done("sound_design_plan")
+    orphans = reconcile_orphan_artifacts(ctx)
+    assert "sound_design_plan" not in orphans

@@ -13,14 +13,8 @@
           "at": { "type": "string" },
           "event": {
             "type": "string",
-            "enum": [
-              "expensive_start",
-              "orphan",
-              "avoided_musicgen",
-              "phase_seal",
-              "music_deferred",
-              "restore_bundle"
-            ]
+            "minLength": 1,
+            "description": "Ledger event id (open vocabulary; thrash + vernacular + residual kinds)"
           },
           "stage": { "type": "string" },
           "detail": { "type": "object" }

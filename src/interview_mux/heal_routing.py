@@ -21,6 +21,8 @@ FAMILY_SELECTION_ORDER_DRIFT = "selection_order_drift"
 FAMILY_SPOKEN_COPY = "spoken_copy"
 FAMILY_MIX_WAV_SEATED = "mix_wav_seated"
 FAMILY_VO_ADJUDICATE_STALE = "vo_adjudicate_stale"
+# B-03: remaster ↔ hitch ↔ fuse share one family ceiling (no osc re-arm).
+FAMILY_JUNCTION = "junction_family"
 
 HALT_FAMILIES = frozenset(
     {
@@ -30,6 +32,8 @@ HALT_FAMILIES = frozenset(
         FAMILY_HITCH_LISTEN_RESTAGE,
         FAMILY_SELECTION_ORDER_DRIFT,
         FAMILY_VO_ADJUDICATE_STALE,
+        # B-03: remaster ↔ hitch ↔ fuse share one ceiling (identical×3 halt).
+        FAMILY_JUNCTION,
     }
 )
 
@@ -76,9 +80,13 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
         resume_stage="master_finalize", action="run_pmq"
     ),
     "pmq_incomplete_ship_walk": PlaybookSpec(
-        resume_stage="mix", action="listen_delight_remutate"
+        # Default pin; recovery_controller overrides from listen_delight_remutate.json
+        # (conversation/story → air_script_seams, not mix-only).
+        resume_stage="air_script_seams", action="listen_delight_remutate"
     ),
-    "layup_stale": PlaybookSpec(resume_stage="edl", action="adopt_layup"),
+    "layup_stale": PlaybookSpec(
+        resume_stage="nugget_layup_compose", action="adopt_layup"
+    ),
     "opening_slot_conflict": PlaybookSpec(
         resume_stage="edl", action="opening_slot_repair"
     ),
@@ -91,6 +99,15 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     ),
     "assembly_not_rendered_from_current_edl": PlaybookSpec(
         resume_stage="mix", action="clear_mix_junction"
+    ),
+    "redundant_framing_transitions": PlaybookSpec(
+        resume_stage="transitions", action="drop_redundant_framing_rows"
+    ),
+    "seed_order_prereq": PlaybookSpec(
+        resume_stage="vo_synthesize", action="restamp_or_unmark_seed"
+    ),
+    "vo_ladder_fingerprint_stall": PlaybookSpec(
+        resume_stage="vo_synthesize", action="pin_synth_after_ladder_cap"
     ),
 }
 
@@ -159,9 +176,9 @@ def classify_heal_error(
     ):
         return HealRoute(
             family=FAMILY_LAYUP_STALE,
-            from_stage="edl",
+            from_stage="nugget_layup_compose",
             action="adopt_layup",
-            detail="adopt then edl — never remine compose",
+            detail="adopt to selection then resume layup — never remine compose unless adopt fails",
         )
 
     if (
@@ -183,6 +200,8 @@ def classify_heal_error(
         or "stale_or_missing_pickup" in low
         or "g1_vo_open" in low
         or "complete g1_vo_open" in low
+        or "seated_bind_stale" in low
+        or "synthesize wav stale/missing" in low
         or (stage_l in {"g1_vo_pickup", "g1_vo", "g1_vo_open", "edl"} and "pickup" in low and "missing" in low)
     ):
         if ctx is not None and gap_fill_skipped(ctx):
@@ -192,24 +211,50 @@ def classify_heal_error(
                 action="skip_interviewer_g1",
                 detail="gap-fill skipped — interviewer G1 is not a block",
             )
-        # g1_vo_open with adjudicate already seeded → synthesize only (no rewrite thrash).
+        # g1_vo_open with adjudicate seeded → synthesize only (no rewrite thrash).
+        # seated_bind_stale / post-synth resolve false-fail → synthesize only
+        # (never rewind nugget_layup_compose — exec_10066).
         from_stage = "vo_line_adjudicate"
         detail = "adjudicate then synthesize — never rewind nugget_layup_compose"
-        if ctx is not None and ("g1_vo_open" in low or "complete g1_vo_open" in low):
+        synth_only = (
+            "seated_bind_stale" in low or "synthesize wav stale/missing" in low
+        )
+        if ctx is not None and (
+            synth_only or "g1_vo_open" in low or "complete g1_vo_open" in low
+        ):
             try:
-                from interview_mux.delivery_guardrails import seed_stage_complete
+                from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
 
-                if seed_stage_complete(ctx, "vo_line_adjudicate") or (
-                    ctx.is_done("vo_line_adjudicate")
-                    and ctx.artifact_exists("understanding/gap_report.json")
-                ):
-                    from_stage = "vo_synthesize"
-                    detail = (
-                        "g1_vo_open with adjudicate seeded — synthesize_g1 only, "
-                        "do not re-adjudicate"
-                    )
+                from_stage = resolve_g1_vo_open_resume(ctx)
+                detail = (
+                    "g1_vo_open with adjudicate seeded — synthesize_g1 only, "
+                    "do not re-adjudicate"
+                    if from_stage == "vo_synthesize"
+                    else "unified g1_vo_open resume — adjudicate then synthesize"
+                )
             except Exception:
-                pass
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+
+                    adjudicate_seeded = seed_stage_complete(ctx, "vo_line_adjudicate") or (
+                        ctx.is_done("vo_line_adjudicate")
+                        and ctx.artifact_exists("understanding/gap_report.json")
+                    )
+                    if synth_only or adjudicate_seeded:
+                        from_stage = "vo_synthesize"
+                        detail = (
+                            "seated/G1 synth hole — synthesize only, "
+                            "do not re-adjudicate or re-layup"
+                            if synth_only
+                            else (
+                                "g1_vo_open with adjudicate seeded — synthesize_g1 only, "
+                                "do not re-adjudicate"
+                            )
+                        )
+                except Exception:
+                    if synth_only:
+                        from_stage = "vo_synthesize"
+                        detail = "seated/G1 synth hole — synthesize only"
         return HealRoute(
             family=FAMILY_G1_MISSING,
             from_stage=from_stage,
@@ -233,9 +278,34 @@ def classify_heal_error(
 
     if "hitch_listen_restage" in low or "incomplete_cut_restage_hitch" in low:
         return HealRoute(
-            family=FAMILY_HITCH_LISTEN_RESTAGE,
+            # B-03: hitch shares FAMILY_JUNCTION with remaster/fuse (legacy alias kept).
+            family=FAMILY_JUNCTION,
             from_stage="chapter_close_hitch",
             action="hitch_listen_restage",
+            detail="junction_family:hitch_listen_restage",
+        )
+
+    if (
+        "fuse_oscillation" in low
+        or "oscillation_halt" in low
+        or "connector_fuse_oscillation" in low
+        or "junction_remaster_budget" in low
+        or "junction_oscillation" in low
+        or "junction_budget_exhaust" in low
+    ):
+        from_stage = "junction_snip_qa"
+        action = "resume_junction"
+        if "fuse" in low or "connector_fuse" in low:
+            from_stage = "connector_fuse_pass" if "connector" in low or "fuse" in low else from_stage
+            # Prefer fuse stage when the fingerprint is fuse-local.
+            if "fuse" in low:
+                from_stage = "edl"  # fuse is mid-EDL; resume producer not remaster-mix
+                action = "fuse_residual"
+        return HealRoute(
+            family=FAMILY_JUNCTION,
+            from_stage=from_stage,
+            action=action,
+            detail="junction_family:fuse_or_remaster_oscillation",
         )
 
     if (

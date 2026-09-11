@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from interview_mux.delivery_invariants import committed_master_wav
 from interview_mux.homunculus.budget import check_dispatch
 from interview_mux.homunculus.ledger import append_ledger
 from interview_mux.homunculus.runtime import homunculus_version
@@ -62,9 +63,7 @@ def after_complete_master(ctx: RunContext) -> dict[str, Any]:
     ``master/master.wav`` nor ``master/assembly.wav`` exists, reject only when
     listen-delight already failed; otherwise defer until a wav is written.
     """
-    has_wav = ctx.artifact_exists("master/master.wav") or ctx.artifact_exists(
-        "master/assembly.wav"
-    )
+    has_wav = committed_master_wav(ctx) or ctx.artifact_exists("master/assembly.wav")
     if ctx.artifact_exists(JUDGE_REL):
         existing = ctx.read_json(JUDGE_REL)
         if isinstance(existing, dict):

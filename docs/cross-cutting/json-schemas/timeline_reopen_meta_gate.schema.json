@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TimelineReopenMetaGateDecision",
+  "type": "object",
+  "required": ["allow", "intent"],
+  "properties": {
+    "decision_id": { "type": "string" },
+    "intent": { "type": "string" },
+    "at": { "type": "string" },
+    "allow": { "type": "boolean" },
+    "expected_gain": { "type": "number" },
+    "min_significant": { "type": "number" },
+    "refuse_reason": { "type": "string" },
+    "axes_allowed": { "type": "array", "items": { "type": "string" } },
+    "path": { "type": "string" },
+    "prefilter": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -117,6 +117,33 @@ def run_connector_fuse_pass_pre_ranking(ctx: RunContext) -> None:
 
 def run_connector_fuse_pass_junction_heal(ctx: RunContext) -> None:
     """Fuse pass scheduled from junction QA when incomplete residuals survive."""
+    try:
+        asm = ctx.final_path("master", "assembly.wav")
+        if asm.is_file() and asm.stat().st_size > 0:
+            from interview_mux.timeline_reopen_meta_gate import (
+                INTENT_FUSE,
+                decide_timeline_reopen,
+            )
+
+            gate = decide_timeline_reopen(
+                ctx,
+                intent=INTENT_FUSE,
+                detail={"from_stage": "connector_fuse_pass", "pass_id": "junction_heal"},
+            )
+            if not gate.get("allow"):
+                ctx.log(
+                    f"connector fuse junction_heal refused: {gate.get('refuse_reason')}",
+                    level="info",
+                    stage="connector_fuse_pass",
+                )
+                return
+    except Exception as exc:
+        ctx.log(
+            f"connector fuse junction_heal fail-closed refuse: {exc}",
+            level="info",
+            stage="connector_fuse_pass",
+        )
+        return
     run_connector_fuse_pass(ctx, pass_id="junction_heal", force_readjudicate=True)
 
 

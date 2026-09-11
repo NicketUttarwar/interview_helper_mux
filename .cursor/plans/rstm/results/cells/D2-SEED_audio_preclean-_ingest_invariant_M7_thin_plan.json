@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-SEED|audio_preclean->ingest|invariant|M7_thin_plan",
+  "status": "PASS",
+  "tier": "D2-SEED",
+  "notes": [
+    "seed_block_ok:audio_preclean"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:34Z"
+}

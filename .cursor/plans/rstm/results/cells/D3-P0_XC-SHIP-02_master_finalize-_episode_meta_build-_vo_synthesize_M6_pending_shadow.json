@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-P0|XC-SHIP-02|master_finalize->episode_meta_build->vo_synthesize|M6_pending_shadow",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:09Z"
+}

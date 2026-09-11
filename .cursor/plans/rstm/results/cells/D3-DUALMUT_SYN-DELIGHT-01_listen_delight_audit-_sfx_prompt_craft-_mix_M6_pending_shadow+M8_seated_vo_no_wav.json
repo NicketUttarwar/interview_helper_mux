@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-DUALMUT|SYN-DELIGHT-01|listen_delight_audit->sfx_prompt_craft->mix|M6_pending_shadow+M8_seated_vo_no_wav",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

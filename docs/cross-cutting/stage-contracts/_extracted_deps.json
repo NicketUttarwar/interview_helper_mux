@@ -90,8 +90,7 @@
     ],
     "writes": [
       "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n",
-      "understanding/gap_framing_plan.json",
-      "understanding/gap_report.json"
+      "understanding/gap_framing_plan.json"
     ]
   },
   "ingest": {

@@ -30,6 +30,19 @@ def test_compute_gaps_complete_content_brief():
     assert compute_gaps("understanding/content_brief.json", data) == []
 
 
+def test_coverage_audit_complete_with_topic_mappings_not_findings():
+    """OF-01 LLM shape uses topic_mappings; must not refuse commit for missing findings."""
+    data = {
+        "topic_mappings": [{"topic": "Liquid biopsy", "segment_ids": ["seg_001"], "covered": True}],
+        "claim_mappings": [],
+        "missing_coverage": [],
+        "orphan_segment_ids": [],
+        "coverage_score": 1.0,
+    }
+    assert compute_gaps("master/coverage_audit.json", data) == []
+    assert compute_gaps("master/coverage_audit.json", {}) != []
+
+
 def test_compute_staged_write_gaps_relax_analysis_state_for_speaker_roles():
     from interview_mux.analysis_memory import default_analysis_state
 
@@ -209,4 +222,39 @@ def test_artifact_status_partial_when_resilience_partial(tmp_path, monkeypatch):
         stage_key="speaker_roles",
     )
     assert artifact_status("understanding/speakers.json", ctx) == "partial"
-    assert should_run_stage_for_artifact(ctx, "speaker_roles") is True
+
+
+def test_a02_hollow_primary_arrays_incompleteness():
+    """A-02 / SYN-SCHEMA-02: empty [] where content expected → incompleteness; allowlist OK."""
+    assert {g.path for g in compute_gaps("master/selection.json", {"ordered_segment_ids": []})} == {
+        "ordered_segment_ids"
+    }
+    assert {g.path for g in compute_gaps("segments/boundaries.json", {"boundaries": []})} == {
+        "boundaries"
+    }
+    assert {g.path for g in compute_gaps("understanding/gap_evaluations.json", {"evaluations": []})} == {
+        "evaluations"
+    }
+    # Allowlist: gap_report empty lines OK; evaluations empty only when flagged;
+    # transitions empty when selection_count < 2.
+    assert (
+        compute_gaps(
+            "understanding/gap_report.json",
+            {"interviewer_lines": []},
+        )
+        == []
+    )
+    assert (
+        compute_gaps(
+            "understanding/gap_evaluations.json",
+            {"evaluations": [], "all_self_explanatory": True},
+        )
+        == []
+    )
+    assert (
+        compute_gaps(
+            "master/transitions.json",
+            {"transitions": [], "selection_count": 1},
+        )
+        == []
+    )

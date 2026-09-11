@@ -1235,6 +1235,24 @@ def _nugget_preview_ok(
     return bool(nids) and overlap < 0.92
 
 
+def _count_active_synthetic_lines(lines: list[Any] | None) -> int:
+    """Count non-skipped synthesize/record host lines (G-Framing floor helper)."""
+    n = 0
+    for ln in lines or []:
+        if not isinstance(ln, dict) or ln.get("skipped_optional"):
+            continue
+        raw = ln.get("delivery")
+        if raw is None:
+            delivery = "synthesize"
+        else:
+            delivery = str(raw).strip().lower()
+            if not delivery:
+                continue
+        if delivery in {"synthesize", "chatterbox", "record", "mlx_audio"}:
+            n += 1
+    return n
+
+
 def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a plan layup row into a gap_report interviewer_line (or None if skip)."""
     if not isinstance(row, dict):
@@ -2264,6 +2282,7 @@ def repair_or_skip_spoken_copy_layups(
     from interview_mux.gap_vo_prior_context import (
         _target_aware_forward_cues,
         has_forward_cue,
+        last_sentence_restates_target,
         repair_last_sentence_layup,
         vo_target_overlap_ratio,
     )
@@ -2452,6 +2471,15 @@ def repair_or_skip_spoken_copy_layups(
             soft_bad = True
             if "spoken_next_clip_restatement" not in violations:
                 violations = list(violations) + ["spoken_next_clip_restatement"]
+        # Last-sentence restatement can fire with full-text overlap well below 0.75
+        # (exec_11130 vo_layup_seg_038) — still soft-heal via repair_last_sentence_layup.
+        last_restates = bool(
+            text and target_text and last_sentence_restates_target(text, target_text)
+        )
+        if last_restates:
+            soft_bad = True
+            if "spoken_next_clip_restatement" not in violations:
+                violations = list(violations) + ["spoken_next_clip_restatement"]
         if not violations and not soft_bad:
             seen.append(text)
             continue
@@ -2471,11 +2499,22 @@ def repair_or_skip_spoken_copy_layups(
             for nid in row_nugget_ids(row)
         ]
         nugget_grounded = bool(row_nugget_ids(row) or any(nugget_bits))
-        restates = bool(target_text and text and overlap > 0.75 and not preview_ok)
+        restates = bool(
+            (target_text and text and overlap > 0.75 and not preview_ok) or last_restates
+        )
         # Nugget bodies keep their claims; only wipe seed when a non-nugget line
         # restates T. Never recover by pasting analysis fields.
         seed_for_repair = "" if (restates and not nugget_grounded) else text
         candidates: list[str] = []
+        if last_restates:
+            candidates.append(
+                repair_last_sentence_layup(
+                    text,
+                    target_text=target_text,
+                    category=str(row.get("line_category") or "extracted_context"),
+                    target_segment_id=target,
+                )
+            )
         if nugget_grounded:
             body = setup or " ".join(bit for bit in nugget_bits[:2] if bit).strip() or seed_for_repair
             cue = unlock or derive_forward_unlock(row, target_text=target_text)
@@ -2487,7 +2526,7 @@ def repair_or_skip_spoken_copy_layups(
             if seed_for_repair and not has_forward_cue(seed_for_repair) and cue:
                 candidates.insert(0, f"{seed_for_repair.rstrip('.!?')}. {cue}".strip())
         else:
-            candidates = [
+            candidates = candidates + [
                 " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
                 unlock,
                 repair_last_sentence_layup(
@@ -2893,7 +2932,14 @@ def publish_layup_plan_to_gap_report(
     if not isinstance(existing, dict):
         existing = {}
     prior_lines = [ln for ln in (existing.get("interviewer_lines") or []) if isinstance(ln, dict)]
-    orientation = [ln for ln in prior_lines if is_episode_orientation(ln)]
+    orientation = [
+        ln
+        for ln in prior_lines
+        if is_episode_orientation(ln)
+        and str(ln.get("text") or "").strip()
+        and str(ln.get("targets_segment_id") or "").strip()
+        and str(ln.get("placement") or "").strip()
+    ]
 
     body: list[dict[str, Any]] = []
     seen_targets: set[str] = set()
@@ -2987,9 +3033,48 @@ def publish_layup_plan_to_gap_report(
             body.append(ln)
             seen_targets.add(tid)
 
+    candidate_lines = orientation + body
+    # G-Framing Yes floor: never commit a hollow layup-authority gap_report.
+    # Empty compose_restart / mid-shard publishes used to wipe interviewer_lines
+    # to [] then fail synthetic_vo_incompleteness (≥3) in a retry loop.
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+
+        if hosted_framing_requires_synthetic_vo(ctx):
+            need = min_synthetic_vo_lines(ctx)
+            active_new = _count_active_synthetic_lines(candidate_lines)
+            if active_new < need:
+                prior_active = _count_active_synthetic_lines(prior_lines)
+                warnings = [
+                    str(w)
+                    for w in ((plan.get("warnings") or []) if isinstance(plan, dict) else [])
+                ]
+                hollow_plan = (not (plan.get("layups") or [])) or any(
+                    "compose_restart" in w for w in warnings
+                )
+                if hollow_plan and prior_active >= need:
+                    ctx.log(
+                        "nugget_layup: refuse hollow gap publish under G-Framing Yes "
+                        f"(active={active_new} < {need}; preserving prior {prior_active})",
+                        level="warning",
+                        stage="nugget_layup_compose",
+                    )
+                    return existing
+                raise RuntimeError(
+                    "nugget_layup_compose: refuse hollow gap_report publish under "
+                    f"G-Framing Yes (active_synthetic={active_new} < min={need})"
+                )
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+
     report = {
         **{k: v for k, v in existing.items() if k not in ("interviewer_lines", "_meta")},
-        "interviewer_lines": orientation + body,
+        "interviewer_lines": candidate_lines,
         "nugget_layup_authority": True,
     }
     report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
@@ -3605,6 +3690,41 @@ def recover_open_high_salience_nuggets(
         if nid not in aired_nugget_ids(out) and nid not in orient_assigned
     ]
     out["open_high_salience_nugget_ids"] = still_open
+    return out, notes
+
+
+def park_open_high_salience_on_orientation(
+    ctx: RunContext,
+    plan: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Last-resort: park unaired high-salience nuggets onto episode orientation.
+
+    Used when body unskip + spoken-copy heal cannot keep corpus claims on-air
+    without generic filler. Orientation embed recovers the facts without
+    inventing new body hinges.
+    """
+    out = dict(plan) if isinstance(plan, dict) else {}
+    qc = evaluate_layup_qc(ctx, out)
+    open_ids = [str(x) for x in (qc.get("open_high_salience_nugget_ids") or []) if x]
+    if not open_ids:
+        return out, []
+    prev = [str(x) for x in (out.get("orientation_nugget_recovery_ids") or []) if x]
+    merged = list(dict.fromkeys([*prev, *open_ids]))
+    out["orientation_nugget_recovery_ids"] = merged
+    out["open_high_salience_nugget_ids"] = []
+    notes = [f"orientation_park:{nid}" for nid in open_ids]
+    # Keep skip rows' value_forgone so omit ledger / audit can see the trade.
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or not row.get("skip"):
+            continue
+        held = set(row_nugget_ids(row)) | {
+            str(x) for x in (row.get("value_forgone") or []) if x
+        }
+        park_hit = [nid for nid in open_ids if nid in held]
+        if not park_hit:
+            continue
+        forgone = [str(x) for x in (row.get("value_forgone") or []) if x]
+        row["value_forgone"] = list(dict.fromkeys([*forgone, *park_hit]))
     return out, notes
 
 

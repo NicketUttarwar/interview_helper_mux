@@ -175,16 +175,14 @@
     },
     "master/selection.json": {
       "schemas_by_producer": {
-        "full_master_ranking": "master_selection_artifact.schema.json",
-        "selection_order_sanitize": null
+        "full_master_ranking": "master_selection_artifact.schema.json"
       },
       "producers": [
         "full_master_ranking"
       ],
       "consumers": [
         "chapter_close_hitch",
-        "full_master_ranking",
-        "selection_order_sanitize"
+        "full_master_ranking"
       ],
       "has_write_validator": true
     },
@@ -345,14 +343,30 @@
       ],
       "has_write_validator": false
     },
+    "master/master.wav": {
+      "schemas_by_producer": {
+        "master_finalize": null
+      },
+      "producers": [
+        "master_finalize"
+      ],
+      "consumers": [
+        "junction_feel_audit"
+      ],
+      "has_write_validator": false
+    },
     "mastering/mastering_plan.json": {
       "schemas_by_producer": {
         "air_script_compose": "mastering_plan.schema.json",
-        "air_script_seams": "mastering_plan.schema.json"
+        "air_script_seams": "mastering_plan.schema.json",
+        "mastering_plan_confirm": null,
+        "mastering_plan_synthesize": null
       },
       "producers": [
         "air_script_compose",
-        "air_script_seams"
+        "air_script_seams",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm"
       ],
       "consumers": [
         "air_script_compose"
@@ -384,10 +398,12 @@
     },
     "master/podcast_sfx_brief.json": {
       "schemas_by_producer": {
-        "podcast_sfx_brief": "podcast_sfx_artifact.schema.json"
+        "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
+        "sfx_brief": "sfx_montage_artifact.schema.json"
       },
       "producers": [
-        "podcast_sfx_brief"
+        "podcast_sfx_brief",
+        "sfx_brief"
       ],
       "consumers": [
         "podcast_sfx_brief"
@@ -500,6 +516,26 @@
       },
       "producers": [
         "mastering_research_rollup"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "mastering/shape/agenda.json": {
+      "schemas_by_producer": {
+        "mastering_shape_agenda": null
+      },
+      "producers": [
+        "mastering_shape_agenda"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "mastering/shape/candidates.json": {
+      "schemas_by_producer": {
+        "mastering_shape_candidates": null
+      },
+      "producers": [
+        "mastering_shape_candidates"
       ],
       "consumers": [],
       "has_write_validator": false

@@ -847,6 +847,59 @@ def on_selection_order_changed(
     cur_ids = [str(s) for s in (current.get("ordered_segment_ids") or []) if s]
     if prev_ids == cur_ids:
         return notes
+    # Pillar B: under seat freeze, order-change cascade must not thrash seats/timeline
+    # without meta-gate allow. Refuse → keep consumers; only note seating stale.
+    seat_frozen = False
+    seat_allow_cascade = True
+    try:
+        from interview_mux.seat_authority import (
+            freeze_blocks_selection_layup_invalidate,
+            request_seat_rewrite,
+        )
+
+        seat_frozen = freeze_blocks_selection_layup_invalidate(ctx)
+        if seat_frozen:
+            decision = request_seat_rewrite(
+                ctx,
+                proposed_delta={"ops": [], "order_change": True, "source": source},
+                reason=f"selection_order_changed:{source}",
+                symptoms=["order_change"],
+            )
+            if not decision.get("allow"):
+                notes.append("seat_freeze_blocked_layup_invalidate")
+                notes.append("seat_freeze_blocked_order_cascade")
+                seat_allow_cascade = False
+    except Exception:
+        # Fail-closed when freeze may be active / unknown
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            frozen = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+        except Exception:
+            frozen = True
+        if frozen:
+            notes.append("seat_freeze_cascade_fail_closed")
+            seat_frozen = True
+            seat_allow_cascade = False
+    if not seat_allow_cascade:
+        # Still bump seating stale for mix honesty, but skip transitions/EDL/mix clears
+        # and layup wipe — imperfect order beats thrash under freeze.
+        if prev_ids != cur_ids:
+            def _bump_seating(meta: dict[str, Any]) -> None:
+                meta["assembly_seating_generation"] = int(
+                    meta.get("assembly_seating_generation") or 0
+                ) + 1
+                meta["assembly_seating_stale"] = True
+                meta["assembly_seating_stale_reason"] = (
+                    f"order_change_frozen:{source}"
+                )[:200]
+
+            try:
+                ctx.mutate_run_meta(_bump_seating)
+                notes.append("assembly_seating_stale")
+            except Exception:
+                pass
+        return notes
     if invalidate_transitions_on_order_change() and ctx.is_done("transitions"):
         marker = ctx.final_path(".stage_done", "transitions")
         if marker.is_file():
@@ -911,8 +964,12 @@ def on_selection_order_changed(
                 notes.append(f"cleared_stage_done:{sid}")
         try:
             from interview_mux.transition_vo import clear_transitions_pair_freeze
+            from interview_mux.seat_authority import soft_freeze_active
 
-            if clear_transitions_pair_freeze(ctx):
+            # Dual-freeze: do not blindly clear pair freeze under seat freeze
+            if soft_freeze_active(ctx) and "seat_freeze_blocked_layup_invalidate" in notes:
+                notes.append("kept_transitions_pair_freeze:seat_freeze")
+            elif clear_transitions_pair_freeze(ctx):
                 notes.append("cleared_transitions_pair_freeze")
         except Exception:
             pass
@@ -922,7 +979,9 @@ def on_selection_order_changed(
 
             fp_unchanged = fingerprints_match_checkpoint(ctx)
             src_l = str(source or "").lower()
-            if "junction_snip_qa" in src_l:
+            if "seat_freeze_blocked_layup_invalidate" in notes:
+                notes.append("skipped_layup_invalidate:seat_freeze")
+            elif "junction_snip_qa" in src_l:
                 notes.append("skipped_layup_invalidate:junction_source")
             elif fp_unchanged:
                 notes.append("skipped_layup_invalidate:fingerprint_unchanged")

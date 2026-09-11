@@ -614,6 +614,75 @@ def create_app() -> FastAPI:
         run_mode = normalize_run_mode(body.run_mode)
         if body.full_auto is True:
             run_mode = "full-auto"
+        # D-04: refuse cross-run / Full↔Partial dual driver before creating a new exec.
+        if run_mode in {"full-auto", "partially-accelerated"}:
+            from interview_mux.full_auto_launch import (
+                alive_driver_run_mode,
+                automation_driver_alive,
+                automation_driver_bound_run_id,
+                refuse_dual_driver_launch,
+            )
+
+            if automation_driver_alive():
+                bound = automation_driver_bound_run_id()
+                alive_mode = alive_driver_run_mode(bound)
+                if (
+                    body.run_id
+                    and bound
+                    and bound == body.run_id
+                    and alive_mode == run_mode
+                    and RunContext.exists(body.run_id)
+                ):
+                    # Same-run same-mode idempotent attach (no silent wrong launch).
+                    existing = RunContext(body.run_id, create=False)
+                    meta_exist = (
+                        existing.read_json("run_meta.json")
+                        if existing.artifact_exists("run_meta.json")
+                        else {}
+                    )
+                    launch_key = (
+                        "full_auto_launch"
+                        if run_mode == "full-auto"
+                        else "partial_auto_launch"
+                    )
+                    return {
+                        "run_id": body.run_id,
+                        "run_dir": str(existing.run_dir.relative_to(existing.root)),
+                        "execution_number": meta_exist.get("execution_number")
+                        if isinstance(meta_exist, dict)
+                        else None,
+                        "input_audio_path": meta_exist.get("input_audio_path")
+                        if isinstance(meta_exist, dict)
+                        else body.input_audio_path,
+                        "run_mode": run_mode,
+                        "full_auto": run_mode == "full-auto",
+                        "partial_auto": run_mode == "partially-accelerated",
+                        "homunculus_version": (
+                            meta_exist.get("homunculus_version")
+                            if isinstance(meta_exist, dict)
+                            else body.homunculus_version
+                        ),
+                        "podcast_id": (
+                            meta_exist.get("podcast_id")
+                            if isinstance(meta_exist, dict)
+                            else body.podcast_id
+                        ),
+                        launch_key: {
+                            "driver_already_running": True,
+                            "attached": True,
+                            "bound_run_id": bound,
+                        },
+                    }
+                conflict = refuse_dual_driver_launch(
+                    requested_run_id=body.run_id or "__new__",
+                    requested_mode=run_mode,
+                )
+                if conflict and not conflict.get("attach"):
+                    raise HTTPException(
+                        409,
+                        conflict.get("message")
+                        or "Automation driver already running (cross-run or mode conflict).",
+                    )
         wav_src = pipeline_wav_path(src)
         full_hash, short_hash = source_audio_hash_pair(wav_src)
         run_id = body.run_id or RunContext.allocate_run_id(source_hash=short_hash)
@@ -663,23 +732,19 @@ def create_app() -> FastAPI:
         }
         if run_mode == "full-auto":
             from interview_mux.full_auto_launch import (
-                automation_driver_alive,
                 launch_full_auto_for_run,
             )
 
             try:
-                if automation_driver_alive():
-                    launch_info = {"driver_already_running": True}
-                else:
-                    launch_info = launch_full_auto_for_run(
-                        run_id=ctx.run_id,
-                        input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
-                        keep_gui_server=True,
-                    )
+                launch_info = launch_full_auto_for_run(
+                    run_id=ctx.run_id,
+                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                    keep_gui_server=True,
+                )
                 payload["full_auto_launch"] = launch_info
                 append_log(
                     ctx.run_dir,
-                    "Full-auto worker launched (gates auto-accepted; package + S3 on ship).",
+                    "Full-auto worker launched (G0 auto-accepted; package + S3 on ship).",
                     level="info",
                     stage="setup",
                     detail={"journey_kind": "full_auto", **launch_info},
@@ -697,19 +762,15 @@ def create_app() -> FastAPI:
                 ) from exc
         elif run_mode == "partially-accelerated":
             from interview_mux.full_auto_launch import (
-                automation_driver_alive,
                 launch_partial_auto_for_run,
             )
 
             try:
-                if automation_driver_alive():
-                    launch_info = {"driver_already_running": True}
-                else:
-                    launch_info = launch_partial_auto_for_run(
-                        run_id=ctx.run_id,
-                        input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
-                        keep_gui_server=True,
-                    )
+                launch_info = launch_partial_auto_for_run(
+                    run_id=ctx.run_id,
+                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                    keep_gui_server=True,
+                )
                 payload["partial_auto_launch"] = launch_info
 
                 def _mark_driver(meta: dict[str, Any]) -> None:
@@ -719,7 +780,8 @@ def create_app() -> FastAPI:
                 ctx.mutate_run_meta(_mark_driver)
                 append_log(
                     ctx.run_dir,
-                    "Partially-accelerated worker launched (G0 + S3 require operator).",
+                    "Partially-accelerated worker launched "
+                    "(G0 + G-Publish require operator; framing/G1/reuse may also pause).",
                     level="info",
                     stage="setup",
                     detail={"journey_kind": "partial_auto", **launch_info},
@@ -961,6 +1023,7 @@ def create_app() -> FastAPI:
             "llm_verification_alerts": llm_verification_alerts,
             "segment_lineage_warnings": segment_lineage_warnings,
             "resilience": _resilience_payload(ctx),
+            "execution_status": _execution_status_payload(ctx),
             "thrash": None,
             "wasted_work": None,
             "delivery_pin": None,
@@ -1961,6 +2024,7 @@ def create_app() -> FastAPI:
             show_cfg,
         )
         from interview_mux.podcast_rss.sync_assets import read_last_sync_result, sync_status_summary
+        from interview_mux.delivery_invariants import committed_master_wav
 
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         pid = podcast_id_from_ctx(ctx)
@@ -1991,7 +2055,7 @@ def create_app() -> FastAPI:
             "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
             "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
             "package_ready": bool(isinstance(package_ready, dict) and package_ready.get("ready")),
-            "has_master": ctx.artifact_exists("master/master.wav"),
+            "has_master": committed_master_wav(ctx),
             "publish_result": result if isinstance(result, dict) else {},
             "ready_package_count": int(sync_summary.get("ready_package_count") or 0),
             "already_uploaded_count": int(sync_summary.get("already_uploaded_count") or 0),
@@ -2122,6 +2186,19 @@ def create_app() -> FastAPI:
             force = bool(body.get("force"))
             from interview_mux.delivery_brief import rebuild_delivery_brief
 
+            # B12: G1 is an explicit operator action — allow seat/omit mutation under
+            # soft freeze, then clamp + re-stamp soft freeze after the skip.
+            try:
+                from interview_mux.seat_authority import (
+                    operator_seat_unlock_note,
+                    soft_freeze_active,
+                )
+
+                if soft_freeze_active(ctx):
+                    operator_seat_unlock_note(ctx, reason="g1_skip_optional")
+            except Exception:
+                pass
+
             def _line_severity(line: dict[str, Any]) -> str:
                 return str(line.get("severity") or "medium").lower()
 
@@ -2199,12 +2276,23 @@ def create_app() -> FastAPI:
 
                 def _mark_g1_skipped(meta: dict[str, Any]) -> None:
                     meta["g1_vo_skipped_optional"] = True
+                    # C-04: sticky XOR — skip ⇒ hosted framing seat floor waived.
+                    meta["hosted_framing_floor_waived"] = True
                     prev = meta.get("g1_skip_applied_line_ids")
                     existing = [str(x) for x in prev] if isinstance(prev, list) else []
                     merged = list(dict.fromkeys([*existing, *[str(x) for x in skipped if x]]))
                     meta["g1_skip_applied_line_ids"] = merged
 
                 ctx.mutate_run_meta(_mark_g1_skipped)
+            try:
+                from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+                from interview_mux.seat_authority import stamp_soft_seat_freeze
+
+                if skipped:
+                    clamp_hosted_seats_to_rendered_wavs(ctx)
+                    stamp_soft_seat_freeze(ctx, reason="post_g1_operator_skip")
+            except Exception:
+                pass
             rebuild_delivery_brief(ctx, reason="g1_skip_optional")
             ctx.log(
                 f"G1 skip-optional: marked {len(skipped)} line(s)",
@@ -4150,9 +4238,26 @@ def _resilience_payload(ctx: RunContext) -> dict[str, Any]:
         "quality_first": True,
         "suggest_delivery_resume": None,
         "execution_health": _execution_health_payload(ctx),
+        "execution_status": _execution_status_payload(ctx),
         "execution_contract": _execution_contract_payload(ctx),
         "remediation_plan": _remediation_plan_payload(ctx),
     }
+
+
+def _execution_status_payload(ctx: RunContext) -> dict[str, Any] | None:
+    """Pillar A ESR for GUI checkpoint / sticky honesty."""
+    try:
+        from interview_mux.execution_status import read_execution_status, sync_execution_status
+
+        if not ctx.artifact_exists("operator/execution_status.json"):
+            try:
+                sync_execution_status(ctx)
+            except Exception:
+                pass
+        doc = read_execution_status(ctx)
+        return doc if isinstance(doc, dict) and doc.get("run_id") is not None else doc
+    except Exception:
+        return None
 
 
 def _execution_health_payload(ctx: RunContext) -> dict[str, Any] | None:
@@ -4521,22 +4626,27 @@ def _start_podcast_sync_job(
 def _assert_asset_input_path(rel: str) -> None:
     """Source audio for a new execution must live directly under ASSETS/input/."""
     cfg = merged_config()
-    assets = (repo_root() / cfg.get("assets_root", "ASSETS")).resolve()
+    assets_cfg = Path(str(cfg.get("assets_root", "ASSETS")))
+    assets = assets_cfg.resolve() if assets_cfg.is_absolute() else (repo_root() / assets_cfg).resolve()
     input_dir = assets / "input"
     resolved = _resolve_repo_path(rel)
+    try:
+        under = input_dir.relative_to(repo_root()).as_posix()
+    except ValueError:
+        under = input_dir.as_posix()
     try:
         resolved.relative_to(input_dir)
     except ValueError as exc:
         raise HTTPException(
             400,
-            f"input_audio_path must be under {input_dir.relative_to(repo_root()).as_posix()}/",
+            f"input_audio_path must be under {under}/",
         ) from exc
     rel_parts = resolved.relative_to(input_dir).parts
     if len(rel_parts) != 1:
         raise HTTPException(
             400,
             f"input_audio_path must be a file directly under "
-            f"{input_dir.relative_to(repo_root()).as_posix()}/ (not in subfolders)",
+            f"{under}/ (not in subfolders)",
         )
     if any(part in SKIP_ASSET_PARTS for part in rel_parts):
         raise HTTPException(400, "input_audio_path cannot be under executions/ or .gui/")

@@ -1,7 +1,8 @@
 """Slim Pass-2: L0 agenda + gap recompose + framing apply.
 
-No-op ``*_refine`` stubs remain callable for manual/legacy runs but are **removed
-from ``DELIVERY_ORDER``** — the default delivery path only runs:
+Retired ``*_refine`` ghosts are **non-dispatchable** (F-06 / DEEP-REFINE-GHOST).
+Import shims raise ``StageRetired``; they are absent from ``DELIVERY_ORDER`` and
+pipeline runners. Live Pass-2 path:
 
 ``refinement_agenda`` → ``gap_framing_recompose`` → ``selection_framing_apply``
 """
@@ -9,7 +10,7 @@ from ``DELIVERY_ORDER``** — the default delivery path only runs:
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import Any, Iterable
 
 from interview_mux.refinement_accept import accept_gap_recompose
 from interview_mux.refinement_champion import seed_champion
@@ -28,6 +29,17 @@ from interview_mux.refinement_outcome import append_listener_outcome
 from interview_mux.refinement_shadow import maybe_write_shadow_score
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import heal_or_refuse_mark
+
+# F-06 SSOT — not in DELIVERY_ORDER / runners / STAGE_BY_ID; sfx_prompt_refine stays live.
+RETIRED_REFINE_GHOSTS: frozenset[str] = frozenset(
+    {
+        "ranking_refine",
+        "narrative_arc_refine",
+        "transitions_refine",
+        "sdp_intent_refine",
+        "edl_narrative_refine",
+    }
+)
 
 
 def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any) -> None:
@@ -57,6 +69,27 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
     When the Nugget Layup System owns gap_report, this stage is a thin adapter:
     re-publish layups, ensure orientation, and mark done without dropping recovery lines.
     """
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="gap_framing_recompose",
+            symptoms=["refinement"],
+        ):
+            ctx.log(
+                "gap_framing_recompose: seat freeze blocked (no-op)",
+                level="info",
+                stage="gap_framing_recompose",
+            )
+            return
+    except Exception:
+        ctx.log(
+            "gap_framing_recompose: seat gate error — fail-closed no-op",
+            level="warning",
+            stage="gap_framing_recompose",
+        )
+        return
     from interview_mux.nugget_layup import (
         PLAN_REL,
         adopt_layup_plan_to_selection,
@@ -274,6 +307,27 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
 
 
 def run_selection_framing_apply(ctx: RunContext) -> None:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="selection_framing_apply",
+            symptoms=["refinement"],
+        ):
+            ctx.log(
+                "selection_framing_apply: seat freeze blocked (no-op)",
+                level="info",
+                stage="selection_framing_apply",
+            )
+            return
+    except Exception:
+        ctx.log(
+            "selection_framing_apply: seat gate error — fail-closed no-op",
+            level="warning",
+            stage="selection_framing_apply",
+        )
+        return
     from interview_mux.framing_coverage_guard import validate_framing_ranking
     from interview_mux.gap_framing import ranking_exclude_segment_ids
 
@@ -413,39 +467,57 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
         heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
 
 
-def _noop_refine(ctx: RunContext, pass_id: str) -> None:
-    decision = decide_pass(ctx, pass_id)
-    if decision.get("status") == "activate":
-        # Deterministic no-op refine: mark done, ledger once, shadow not needed
-        _record_refinement(ctx, pass_id, "ok", gate="deterministic", detail={"mode": "identity_refine"})
-        append_listener_outcome(ctx, pass_id, {"status": "identity_ok"})
-    else:
-        maybe_write_shadow_score(ctx, pass_id)
-    if not ctx.is_done(pass_id):
-        heal_or_refuse_mark(ctx, pass_id, force=True)
+def refuse_retired_refine(pass_id: str) -> None:
+    """Raise StageRetired for a ghost refine id (never mark done / fake progress)."""
+    raise RuntimeError(
+        f"StageRetired: {pass_id} is a no-op refine ghost outside DELIVERY_ORDER; "
+        "use ensemble remutate / listen_delight remutate instead"
+    )
+
+
+def remap_retired_refine_pin(ctx: RunContext, pin: str) -> str:
+    """Old runs pinned on a ghost → first pending live delivery (or gap recompose)."""
+    key = str(pin or "").strip()
+    if key not in RETIRED_REFINE_GHOSTS:
+        return key
+    try:
+        from interview_mux.delivery_recovery import first_pending_delivery
+
+        pending = first_pending_delivery(ctx)
+        if pending and str(pending) not in RETIRED_REFINE_GHOSTS:
+            return str(pending)
+    except Exception:
+        pass
+    return "gap_framing_recompose"
+
+
+def filter_retired_refine_stages(stages: Iterable[Any]) -> list[str]:
+    """Drop ghost refine ids from remutate / remediation allowlists."""
+    return [
+        str(s)
+        for s in (stages or ())
+        if str(s).strip() and str(s).strip() not in RETIRED_REFINE_GHOSTS
+    ]
 
 
 def run_narrative_arc_refine(ctx: RunContext) -> None:
-    _noop_refine(ctx, "narrative_arc_refine")
+    refuse_retired_refine("narrative_arc_refine")
 
 
 def run_ranking_refine(ctx: RunContext) -> None:
-    _noop_refine(ctx, "ranking_refine")
+    refuse_retired_refine("ranking_refine")
 
 
 def run_transitions_refine(ctx: RunContext) -> None:
-    _noop_refine(ctx, "transitions_refine")
-    from interview_mux.refinement_ensemble import lint_gap_and_transitions
-
-    lint_gap_and_transitions(ctx)
+    refuse_retired_refine("transitions_refine")
 
 
 def run_sdp_intent_refine(ctx: RunContext) -> None:
-    _noop_refine(ctx, "sdp_intent_refine")
+    refuse_retired_refine("sdp_intent_refine")
 
 
 def run_edl_narrative_refine(ctx: RunContext) -> None:
-    _noop_refine(ctx, "edl_narrative_refine")
+    refuse_retired_refine("edl_narrative_refine")
 
 
 def after_gap_compose_hook(ctx: RunContext) -> None:

@@ -67,7 +67,7 @@ def _seed_flow1_inputs(ctx: RunContext) -> None:
 
 def test_sound_design_plan_persists_assets_and_cues(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_202", create=True)
+    ctx = RunContext("exec_sdp_persist_cues", create=True)
     _seed_flow1_inputs(ctx)
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):
@@ -120,7 +120,7 @@ def test_sound_design_plan_persists_assets_and_cues(tmp_path, monkeypatch):
 
 def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_203", create=True)
+    ctx = RunContext("exec_sdp_reject_cue", create=True)
     _seed_flow1_inputs(ctx)
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, _build_input, persist):
@@ -168,7 +168,7 @@ def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
 
 def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_204", create=True)
+    ctx = RunContext("exec_sdp_persist_assets", create=True)
     plan = default_sound_design_plan()
     plan["assets"] = [
         {
@@ -211,13 +211,13 @@ def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     artifact = ctx.read_json("sound_design/sfx_prompts.json")
     assert artifact["prompts"][0]["asset_id"] == "show_theme_v1_motif"
     assert float(artifact["prompts"][0]["duration_seconds"]) > 0
-    ctx.mark_done("sfx_prompt_craft")
+    mark_done_raw(ctx, "sfx_prompt_craft")
     assert ctx.is_done("sfx_prompt_craft")
 
 
 def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_204b", create=True)
+    ctx = RunContext("exec_sdp_persist_b", create=True)
     plan = default_sound_design_plan()
     plan["assets"] = [
         {
@@ -287,7 +287,7 @@ def test_analysis_order_places_sonic_context_and_palettes_after_content_brief_re
 def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv("INTERVIEW_MUX_SOUND_DESIGN_EARLY_PALETTES_LLM", "1")
-    ctx = RunContext("run_205", create=True)
+    ctx = RunContext("exec_sdp_205", create=True)
     ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Test thesis"))
     ctx.write_json(
         "segments/manifest.json",

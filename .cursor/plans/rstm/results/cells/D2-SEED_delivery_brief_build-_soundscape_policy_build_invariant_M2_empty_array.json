@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-SEED|delivery_brief_build->soundscape_policy_build|invariant|M2_empty_array",
+  "status": "PASS",
+  "tier": "D2-SEED",
+  "notes": [
+    "seed_block_ok:delivery_brief_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:35Z"
+}

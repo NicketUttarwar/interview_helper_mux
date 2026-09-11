@@ -89,13 +89,184 @@ def test_research_waves_writes_waves_json(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_research_rollup_fail_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A-01: early rollup thin is advisory; Shape consumers refuse shape-core thin under defaults."""
+    from interview_mux.mastering_plan_loader import shape_llm_enabled
+    from interview_mux.mastering_research import research_shape_core_thin
+    from interview_mux.stage_completion import (
+        _research_is_thin,
+        _research_thin_late_refuse,
+        stage_artifact_incompleteness,
+    )
+
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("exec_ne_research", create=True)
     dossier = run_research_rollup(ctx)
     assert "fields" in dossier
     assert len(WAVE_FIELDS) == 8
     assert len(dossier["fields"]) == sum(len(v) for v in WAVE_FIELDS.values())
+    # Defaults: LLM flags remain off — refuse must not depend on them.
+    assert shape_llm_enabled() is False
+    # Early: thin rollup does not late-refuse the rollup stage itself.
+    assert _research_thin_late_refuse(ctx, "mastering_research_rollup") is None
+    assert _research_is_thin(ctx) is True
+    assert research_shape_core_thin(ctx) is True
+    # Late: Shape consumers refuse shape-core thin without LLM/consumers_bind flags.
+    late = _research_thin_late_refuse(ctx, "mastering_plan_synthesize")
+    assert late is not None
+    assert "thin" in late.lower() or "shape-core" in late.lower()
+    # seed_stage path also surfaces the refuse once the plan path exists.
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {"plan_status": "degraded", "narrative_mode": "sparse_source"},
+        skip_handoff=True,
+    )
+    # With Shape about-to-bind, rollup itself becomes late.
+    rollup_late = _research_thin_late_refuse(ctx, "mastering_research_rollup")
+    assert rollup_late is not None
+    inc = stage_artifact_incompleteness(ctx, "mastering_plan_synthesize")
+    assert inc is not None and ("thin" in inc.lower() or "shape-core" in inc.lower())
 
+
+def test_a01_shape_core_complete_allows_shape_despite_late_waves_thin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """W1–3 complete + W5–8 thin still allows Shape consumers under defaults."""
+    from interview_mux.mastering_plan_loader import shape_llm_enabled
+    from interview_mux.mastering_research import (
+        DOSSIER_REL,
+        SHAPE_CORE_REQUIRED_FIELDS,
+        WAVE_FIELDS,
+        research_shape_core_thin,
+        shape_core_field_ids,
+    )
+    from interview_mux.stage_completion import _research_thin_late_refuse
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_a01_core_ok", create=True)
+    assert shape_llm_enabled() is False
+
+    fields: dict = {}
+    for wave, fids in WAVE_FIELDS.items():
+        for fid in fids:
+            if wave <= 3:
+                status = "complete"
+            else:
+                status = "skipped_or_thin"
+            fields[fid] = {
+                "version": 1,
+                "field_id": fid,
+                "wave": wave,
+                "status": status,
+                "evidence_refs": [],
+            }
+    # Ensure hard-required are complete (already via W1–3).
+    for fid in SHAPE_CORE_REQUIRED_FIELDS:
+        assert fid in shape_core_field_ids()
+        fields[fid]["status"] = "complete"
+    dossier = {
+        "version": 1,
+        "fields": fields,
+        "complete_fields": [k for k, v in fields.items() if v["status"] == "complete"],
+        "thin_fields": [k for k, v in fields.items() if v["status"] != "complete"],
+    }
+    ctx.write_json(DOSSIER_REL, dossier, skip_handoff=True)
+    ctx.write_json("mastering/research/rollup.json", dossier, skip_handoff=True)
+    assert research_shape_core_thin(ctx) is False
+    assert _research_thin_late_refuse(ctx, "mastering_plan_synthesize") is None
+    assert _research_thin_late_refuse(ctx, "mastering_shape_agenda") is None
+    assert _research_thin_late_refuse(ctx, "missing_framing") is None
+
+
+def test_field_probes_use_canon_g0_and_speaker_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rollup must not mark shape-core thin when review_queue + speakers.json exist."""
+    from interview_mux.mastering_research import (
+        research_shape_core_thin,
+        run_research_rollup,
+    )
+    from interview_mux.stage_completion import _research_thin_late_refuse
+    from run_fixtures import minimal_content_brief, minimal_speakers
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_probe_canon", create=True)
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {"version": 1, "chunks": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "transcript/full.json",
+        {"segments": [{"start": 0.0, "end": 1.0, "text": "hello"}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        minimal_speakers(),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"topology_class": "one_on_one_asymmetric", "speaker_stats": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        minimal_content_brief(),
+        skip_handoff=True,
+    )
+    # Probe only checks existence — write raw to avoid full spine schema in unit test.
+    spine_path = ctx.path("understanding/interview_spine.json")
+    spine_path.parent.mkdir(parents=True, exist_ok=True)
+    spine_path.write_text(
+        '{"schema_version":1,"windows":[{"window_id":"w1"}],'
+        '"derived_from":{},"encoders":{},"window_policy":{},'
+        '"boundary_events":[],"retrieval":{},"speaker_stats":[]}',
+        encoding="utf-8",
+    )
+    dossier = run_research_rollup(ctx)
+    fields = dossier.get("fields") or {}
+    assert fields.get("g0_transcript_fidelity", {}).get("status") == "complete"
+    assert fields.get("speaker_roles", {}).get("status") == "complete"
+    assert fields.get("interview_spine_windows", {}).get("status") == "complete"
+    assert research_shape_core_thin(ctx) is False
+    # Orphan shape agenda must not late-refuse rollup once core probes hit.
+    ctx.write_json(
+        "mastering/shape/agenda.json",
+        {"version": 1, "items": []},
+        skip_handoff=True,
+    )
+    assert _research_thin_late_refuse(ctx, "mastering_research_rollup") is None
+
+
+
+def test_a03_soft_gate_cannot_claim_complete_when_llm_flags_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A-03 / SYN-SHAPE-01: soft_gate must not set plan_status=complete when shape.llm on."""
+    from interview_mux.mastering_plan_loader import soft_gate_may_claim_complete
+    from interview_mux.mastering_shape_runtime import (
+        run_mastering_plan_synthesize,
+        run_mastering_shape_agenda,
+        run_mastering_shape_candidates,
+    )
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_a03_shape", create=True)
+    monkeypatch.setattr(
+        "interview_mux.mastering_plan_loader.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    assert soft_gate_may_claim_complete() is False
+    ctx.write_json("understanding/content_brief.json", {"thesis": "t", "topics": [{"name": "a", "summary": "b"}]})
+    run_research_rollup(ctx)
+    run_mastering_shape_agenda(ctx)
+    run_mastering_shape_candidates(ctx)
+    run_mastering_plan_synthesize(ctx)
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    assert plan.get("plan_status") != "complete"
+    assert "soft_gate_not_authoritative" in list(plan.get("degradation_reasons") or [])
+    assert plan.get("source") == "soft_gate"
 
 def test_two_pass_shape_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     patch_executions_root(monkeypatch, tmp_path)

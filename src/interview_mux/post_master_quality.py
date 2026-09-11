@@ -171,25 +171,44 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         if ctx.artifact_exists("master/junction_snip_qa.json")
         else {}
     )
-    residual = [
-        f
-        for f in ((junction or {}).get("residual_findings") or [])
-        if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
-    ]
-    add("no_critical_junction_residuals", not residual, {"count": len(residual)})
+    residual_view = None
+    residual_n = 0
+    try:
+        from interview_mux.delivery_guardrails import critical_residual_view, has_critical_residuals
+
+        residual_view = critical_residual_view(ctx)
+        residual_n = int(residual_view.count)
+        has_residual = has_critical_residuals(ctx)
+    except Exception:
+        residual = [
+            f
+            for f in ((junction or {}).get("residual_findings") or [])
+            if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
+        ]
+        residual_n = len(residual)
+        has_residual = bool(residual)
+    add(
+        "no_critical_junction_residuals",
+        not has_residual,
+        {
+            "count": residual_n,
+            "kinds": list(residual_view.kinds) if residual_view is not None else [],
+            "sources": list(residual_view.sources) if residual_view is not None else [],
+        },
+    )
     feel_unavailable = bool((junction or {}).get("feel_audit_unavailable")) or (
         "junction_feel_audit_unavailable"
         in [str(x) for x in ((junction or {}).get("blocking_reasons") or [])]
     )
     block_feel = bool(conf.get("block_on_feel_unavailable", True))
-    feel_gate_ok = (not feel_unavailable) or (commit_ok and not residual)
+    feel_gate_ok = (not feel_unavailable) or (commit_ok and not has_residual)
     add(
         "feel_audit_available",
         feel_gate_ok if block_feel else True,
         {
             "feel_unavailable": feel_unavailable,
             "block_on_feel_unavailable": block_feel,
-            "committed_without_critical_residuals": bool(commit_ok and not residual),
+            "committed_without_critical_residuals": bool(commit_ok and not has_residual),
         },
     )
     add("render_ledger_exists", ctx.artifact_exists("master/render_ledger.json"))

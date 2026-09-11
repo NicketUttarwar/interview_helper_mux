@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SeatRewriteMetaGateDecision",
+  "type": "object",
+  "required": ["allow"],
+  "properties": {
+    "decision_id": { "type": "string" },
+    "allow": { "type": "boolean" },
+    "opportunity_score": { "type": "number" },
+    "expected_listener_gain": { "type": "number" },
+    "refuse_reason": { "type": "string" },
+    "rewrite_ops": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "path": { "type": "string" }
+  },
+  "additionalProperties": true
+}

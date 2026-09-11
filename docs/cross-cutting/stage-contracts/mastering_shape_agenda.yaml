@@ -8,7 +8,10 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/shape/agenda.json
+  schema: null
+  staging: false
 inputs:
   hard: []
   soft: []

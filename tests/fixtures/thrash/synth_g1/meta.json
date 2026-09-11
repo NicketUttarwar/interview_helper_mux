@@ -1,0 +1,16 @@
+{
+  "description": "Synth-only G1 open with adjudicate seeded",
+  "gap_report": {
+    "interviewer_lines": [
+      {
+        "line_id": "vo_synth_001",
+        "delivery": "synthesize",
+        "text": "Bridge.",
+        "targets_segment_id": "seg_007"
+      }
+    ]
+  },
+  "expect": {
+    "resolve_g1_vo_open_resume": "vo_synthesize"
+  }
+}

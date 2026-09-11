@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-RR|vo_synthesize->vo_synthesize|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-RR",
+  "notes": [
+    "incompleteness_ok:mastering/vo_synthesize.json is pending",
+    "repeat_path"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:51Z"
+}

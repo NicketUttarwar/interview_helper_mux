@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-FANIN|boundary_topic_resplit+boundary_detection+segment_classification|M3_hollow_object",
+  "status": "PASS",
+  "tier": "D3-FANIN",
+  "notes": [
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

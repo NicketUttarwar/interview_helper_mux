@@ -120,7 +120,9 @@ def failure_in_active_remediation(
     cascade = {str(c) for c in (plan.get("cascade_error_classes") or [])}
     if producer in cascade:
         return True
-    invalidate = {str(s) for s in (plan.get("allowed_rerun_stages") or [])}
+    from interview_mux.refinement_passes import filter_retired_refine_stages
+
+    invalidate = set(filter_retired_refine_stages(plan.get("allowed_rerun_stages") or []))
     if failed_stage in invalidate:
         return True
     return False
@@ -310,6 +312,7 @@ def update_execution_health(
     remediation_in_progress: bool = False,
     predicate_count: int | None = None,
     automated_blocker: str = "",
+    esr_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prev: dict[str, Any] = {}
     if ctx.artifact_exists(EXECUTION_HEALTH_REL):
@@ -328,6 +331,9 @@ def update_execution_health(
         "remediation_in_progress": remediation_in_progress,
         "predicate_count": predicate_count if predicate_count is not None else prev.get("predicate_count", 0),
         "automated_blocker": automated_blocker or prev.get("automated_blocker") or "",
+        "esr": esr_summary
+        if esr_summary is not None
+        else (prev.get("esr") if isinstance(prev.get("esr"), dict) else {}),
     }
     ctx.write_json(EXECUTION_HEALTH_REL, row, skip_handoff=True)
     return row

@@ -35,6 +35,15 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
         "mmaudio_sfx",
         "assembly_preview",
         "master_finalize",
+        # A-01: key meaning producers — no hollow force-done.
+        "content_context",
+        "boundary_detection",
+        "content_brief_reanchor",
+        "gap_framing_compose",
+        "nugget_layup_compose",
+        "mastering_research_rollup",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
     }
 )
 
@@ -83,6 +92,74 @@ def premature_fail_key(label: str, resume: str) -> str:
     return f"{label}:premature_complete:{cls}"
 
 
+def _vo_synth_progress_suffix(ctx: RunContext) -> str:
+    """Wav progress so long chatterbox runs flip sticky predicates (not thrash)."""
+    try:
+        synth_dir = ctx.final_path("vo_pickup", "synthesized")
+        if not synth_dir.is_dir():
+            return "wavs=0"
+        n = sum(1 for p in synth_dir.glob("*.wav") if p.is_file() and p.stat().st_size > 0)
+        return f"wavs={n}"
+    except Exception:
+        return "wavs=?"
+
+
+def _disk_progress_suffix(ctx: RunContext, stage: str) -> str:
+    """Music/SFX/mix/junction/gui progress so long producers flip sticky tokens."""
+    import time
+
+    sid = str(stage or "").strip()
+    parts: list[str] = []
+    try:
+        if sid in {
+            "mmaudio_sfx",
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "sound_design_plan",
+        }:
+            assets = ctx.final_path("sound_design", "assets")
+            n = 0
+            newest = 0.0
+            if assets.is_dir():
+                for p in assets.rglob("*"):
+                    if not p.is_file():
+                        continue
+                    if p.suffix.lower() in {".wav", ".json"} or p.name.endswith(".gen.json"):
+                        n += 1
+                        newest = max(newest, p.stat().st_mtime)
+            parts.append(f"sfx={n}")
+            # Bucket age (60s) — wall-clock seconds would flip the sticky token every
+            # tick and perpetual-reset identical/sticky counts (Pillar A footgun).
+            if newest:
+                parts.append(f"sfx_age_bucket={int((time.time() - newest) // 60)}")
+        if sid in {"mix", "master_finalize", "assembly_preview", "junction_snip_qa"}:
+            for name in ("assembly.wav", "assembly_preview.wav", "master.wav"):
+                p = ctx.final_path("master", name)
+                if p.is_file() and p.stat().st_size > 0:
+                    parts.append(f"{name}:{int(p.stat().st_size)}:{int(p.stat().st_mtime)}")
+            seam = ctx.final_path("master", "seam_autopsy.json")
+            if seam.is_file():
+                parts.append(f"seam:{int(seam.stat().st_mtime)}")
+            nle = ctx.run_dir / "operator" / "nle_edits.json"
+            if nle.is_file():
+                parts.append(f"nle:{int(nle.stat().st_mtime)}")
+        # gui heartbeat age for any expensive pin
+        try:
+            from interview_mux.write_staging import read_gui_job
+
+            job = read_gui_job(ctx) or {}
+            if isinstance(job, dict) and str(job.get("status") or "").lower() in {
+                "running",
+                "starting",
+            }:
+                parts.append(f"job={job.get('current_stage') or job.get('stage') or sid}")
+        except Exception:
+            pass
+    except Exception:
+        return "disk=?"
+    return ":".join(parts) if parts else "disk=0"
+
+
 def stage_predicate_token(ctx: RunContext, stage: str) -> str:
     """Compact token for predicate-flip detection (seed complete / incompleteness)."""
     from interview_mux.delivery_guardrails import seed_stage_complete
@@ -96,9 +173,27 @@ def stage_predicate_token(ctx: RunContext, stage: str) -> str:
         inc = stage_artifact_incompleteness(ctx, sid)
     except Exception:
         inc = "err"
-    done = "1" if ctx.is_done(sid) else "0"
+    # Hollow done: incompleteness wins over done=1 for progress honesty
+    done = "1" if ctx.is_done(sid) and not inc else "0"
     seed = "1" if seed_stage_complete(ctx, sid) else "0"
-    return f"{sid}:{done}:{seed}:{inc or 'ok'}"
+    token = f"{sid}:{done}:{seed}:{inc or 'ok'}"
+    # Incomplete-after-conductor pin=vo_synthesize stays "json pending" for many
+    # minutes while chatterbox writes vo_pickup/synthesized/*.wav — without a
+    # progress signal sticky heal treats that as unchanged thrash (×3 halt).
+    if sid in {"vo_synthesize", "vo_line_adjudicate", "sound_design_vo_finalize"}:
+        token = f"{token}:{_vo_synth_progress_suffix(ctx)}"
+    if sid in {
+        "mmaudio_sfx",
+        "music_palette_compose",
+        "sfx_prompt_craft",
+        "sound_design_plan",
+        "mix",
+        "master_finalize",
+        "assembly_preview",
+        "junction_snip_qa",
+    }:
+        token = f"{token}:{_disk_progress_suffix(ctx, sid)}"
+    return token
 
 
 def predicate_flipped(ctx: RunContext, stage: str, prior_token: str | None) -> bool:
@@ -157,6 +252,8 @@ def clear_thrash_on_predicate_flip(
 
 def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
     """True while an expensive producer is actively running (forbid premature rewrite)."""
+    import time
+
     lease_stages = frozenset(
         {
             "mmaudio_sfx",
@@ -168,6 +265,7 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
             "transcribe",
             "audio_preclean",
             "junction_snip_qa",
+            "assembly_preview",
         }
     )
     try:
@@ -176,22 +274,126 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
         job = read_gui_job(ctx) or {}
     except Exception:
         job = {}
-    if not isinstance(job, dict):
-        return False, ""
-    status = str(job.get("status") or "").lower()
-    if status not in {"running", "starting"}:
-        return False, ""
-    stage = str(job.get("current_stage") or job.get("stage") or "").strip()
-    if stage in lease_stages:
-        return True, stage
-    try:
-        from interview_mux.delivery_guardrails import EXPENSIVE_STAGES
+    if isinstance(job, dict):
+        status = str(job.get("status") or "").lower()
+        stage = str(job.get("current_stage") or job.get("stage") or "").strip()
+        if status in {"running", "starting"}:
+            if stage in lease_stages:
+                return True, stage
+            try:
+                from interview_mux.delivery_guardrails import EXPENSIVE_STAGES
 
-        if stage in EXPENSIVE_STAGES:
-            return True, stage
+                if stage in EXPENSIVE_STAGES:
+                    return True, stage
+            except Exception:
+                pass
+            # a10: any running expensive-looking job holds lease (host_tools MusicGen
+            # may not map to lease_stages while still writing assets).
+            if stage:
+                try:
+                    pending = ctx.run_dir / ".pending_writes" / stage
+                    if pending.is_dir() and any(pending.rglob("*")):
+                        return True, stage
+                except Exception:
+                    pass
+    # gui_job can lag on error while chatterbox still writes wavs (forensics thrash).
+    try:
+        synth_dir = ctx.final_path("vo_pickup", "synthesized")
+        if synth_dir.is_dir():
+            newest = 0.0
+            for p in synth_dir.glob("*.wav"):
+                if p.is_file():
+                    newest = max(newest, p.stat().st_mtime)
+            if newest and (time.time() - newest) < 180.0:
+                return True, "vo_synthesize"
     except Exception:
         pass
-    return False, stage
+
+    # a10: host_tools / MusicGen wav growth even when gui_job stage drifted
+    try:
+        assets = ctx.final_path("sound_design", "assets")
+        newest = 0.0
+        if assets.is_dir():
+            for p in assets.rglob("*.wav"):
+                if p.is_file():
+                    newest = max(newest, p.stat().st_mtime)
+        if newest and (time.time() - newest) < 120.0:
+            return True, "music_palette_compose"
+    except Exception:
+        pass
+
+    def _producer_may_be_active(*stages: str) -> bool:
+        if isinstance(job, dict):
+            status = str(job.get("status") or "").lower()
+            stage = str(job.get("current_stage") or job.get("stage") or "").strip()
+            if status in {"running", "starting", "error"} and stage in stages:
+                return True
+        for sid in stages:
+            try:
+                if (ctx.run_dir / ".pending_writes" / sid).is_dir():
+                    return True
+            except Exception:
+                pass
+        return False
+
+    # MMAudio / MusicGen asset growth while gui_job lagged
+    try:
+        if _producer_may_be_active(
+            "mmaudio_sfx", "music_palette_compose", "sfx_prompt_craft"
+        ):
+            assets = ctx.final_path("sound_design", "assets")
+            newest = 0.0
+            if assets.is_dir():
+                for p in assets.rglob("*"):
+                    if p.is_file() and (
+                        p.suffix.lower() == ".wav" or p.name.endswith(".gen.json")
+                    ):
+                        newest = max(newest, p.stat().st_mtime)
+            cand = ctx.final_path("sound_design", "assets", "_candidates")
+            if cand.is_dir():
+                for p in cand.rglob("*.wav"):
+                    if p.is_file():
+                        newest = max(newest, p.stat().st_mtime)
+            if newest and (time.time() - newest) < 300.0:
+                return True, "mmaudio_sfx"
+    except Exception:
+        pass
+    # Mix / assembly growth
+    try:
+        if _producer_may_be_active("mix", "master_finalize", "assembly_preview"):
+            for name in ("assembly.wav", "assembly_preview.wav"):
+                p = ctx.final_path("master", name)
+                if p.is_file() and (time.time() - p.stat().st_mtime) < 300.0:
+                    return True, "mix"
+    except Exception:
+        pass
+    # Junction remaster / NLE activity
+    try:
+        if _producer_may_be_active("junction_snip_qa"):
+            nle = ctx.run_dir / "operator" / "nle_edits.json"
+            if nle.is_file() and (time.time() - nle.stat().st_mtime) < 240.0:
+                return True, "junction_snip_qa"
+            seam = ctx.final_path("master", "seam_autopsy.json")
+            if seam.is_file() and (time.time() - seam.stat().st_mtime) < 240.0:
+                return True, "junction_snip_qa"
+    except Exception:
+        pass
+    # Homunculus host_tools MusicGen / MMAudio wav growth
+    try:
+        if _producer_may_be_active(
+            "mmaudio_sfx", "music_palette_compose", "sfx_prompt_craft"
+        ):
+            host = ctx.final_path("mastering", "homunculus", "host")
+            newest = 0.0
+            if host.is_dir():
+                for p in host.rglob("*.wav"):
+                    if p.is_file():
+                        newest = max(newest, p.stat().st_mtime)
+            if newest and (time.time() - newest) < 300.0:
+                return True, "music_palette_compose"
+    except Exception:
+        pass
+    return False, ""
 
 
 def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str:
@@ -209,9 +411,15 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
         seed_stage_complete,
         vo_synthesize_stability_block,
     )
+    from interview_mux.refinement_passes import (
+        RETIRED_REFINE_GHOSTS,
+        remap_retired_refine_pin,
+    )
 
     intent_l = str(intent or "").strip().lower()
     hint_s = str(hint or "").strip()
+    if hint_s in RETIRED_REFINE_GHOSTS:
+        return remap_retired_refine_pin(ctx, hint_s)
 
     if intent_l in {"music_epoch", "music", FAIL_CLASS_MUSIC_EPOCH}:
         from interview_mux.delivery_guardrails import (
@@ -282,7 +490,14 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
                 except Exception:
                     pass
                 return "nugget_layup_compose"
-            return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
+            if block is None:
+                try:
+                    from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+                    return resolve_g1_vo_open_resume(ctx)
+                except Exception:
+                    return "vo_synthesize"
+            return resolve_vo_synth_seed_resume(block, ctx) or "vo_line_adjudicate"
         return hint_s if hint_s in DELIVERY_ORDER else "vo_synthesize"
 
     if intent_l in {"phase_a", "phase_a_edl", FAIL_CLASS_PHASE_A_EDL}:
@@ -444,21 +659,19 @@ def artifact_usable(
 
     # Seating consumers need a committed WAV/JSON unless *this* producer is
     # actively staging the write. Leftover pending from a crashed producer must
-    # not satisfy mix/edl/finalize completeness.
+    # not satisfy mix/edl/finalize completeness (pending_sid alone is not enough —
+    # orphan .pending_writes/<stage>/… after TypeError/abort looked "complete").
     final = ctx.final_path(*path.split("/"))
     pending_only = (not final.is_file()) and (".pending_writes" in str(resolved))
     if pending_only and consumer_s in seating_consumers:
         active = None
-        pending_sid = None
         try:
             if callable(active_stage_id):
                 active = active_stage_id()
-            if callable(pending_stage_for_path):
-                pending_sid = pending_stage_for_path(ctx, path)
         except Exception:
             pass
-        # Producer mid-flush / mid-stage may only have pending — allow.
-        if active != consumer_s and pending_sid != consumer_s:
+        # Producer mid-flush / mid-stage may only have pending — allow only while live.
+        if active != consumer_s:
             return False, "pending_only_seating"
 
     try:
@@ -607,6 +820,14 @@ def suppress_allowed(
     cls = str(fail_class or "unknown").strip() or "unknown"
     if is_hard_non_suppress_class(cls):
         return False
+    # ESR fresh progress: do not burn suppress budget (wait, not stuck).
+    try:
+        from interview_mux.execution_status import may_hard_halt
+
+        if not may_hard_halt(ctx, pin=cls[:80]):
+            return True
+    except Exception:
+        pass
     src = str(source or "forensics").strip() or "forensics"
     rel = "operator/suppress_budget.json"
     doc: dict[str, Any] = {}
@@ -811,6 +1032,33 @@ def note_sticky_heal_attempt(
         count = 1
     else:
         count = int(prev.get("count") or 0) + 1
+    # ESR: do not count toward HARD halt while producer progress is fresh
+    progress_stale = True
+    progress_why = ""
+    try:
+        from interview_mux.execution_status import may_hard_halt, sync_execution_status
+
+        if not may_hard_halt(
+            ctx, pin=pin_s, predicate_token=token_s, prior_token=prev_token
+        ):
+            progress_stale = False
+            progress_why = "esr_fresh"
+            # Treat as wait — keep count from escalating past halt-1
+            count = min(count, max(1, limit - 1))
+        sync_execution_status(
+            ctx,
+            pin=pin_s,
+            intent=intent_s,
+            predicate_token=token_s,
+            sticky={
+                "key": key,
+                "count": count,
+                "halt": False,
+                "progress_stale": progress_stale,
+            },
+        )
+    except Exception:
+        progress_stale = True
     row = {
         "kind": kind_s,
         "pin": pin_s,
@@ -819,8 +1067,10 @@ def note_sticky_heal_attempt(
         "count": count,
         "halt_after": limit,
         "updated_at": now,
+        "progress_stale": progress_stale,
+        "progress_why": progress_why,
     }
-    halt = count >= limit
+    halt = bool(progress_stale) and count >= limit
     row["halt"] = halt
     attempts[key] = row
     # Cap map size
@@ -861,6 +1111,43 @@ def note_sticky_heal_attempt(
 AUTHORITY_UNDO_REL = "operator/authority_undo.json"
 AUTHORITY_UNDO_HALT_AFTER = 3
 
+# Writers that update the same authority artifact under different stage_keys must
+# not count as A↔B oscillation (exec_10066: edl synth_transitions vs transitions).
+_AUTHORITY_ACTION_ALIASES: dict[str, dict[str, str]] = {
+    "master/transitions.json": {
+        "edl": "transitions",
+        "vo_synthesize": "transitions",
+        "mix": "transitions",
+        "assemble": "transitions",
+        "admit_sanitized": "transitions",
+        "commit_transitions_doc": "transitions",
+        "persist_transitions_doc": "transitions",
+        "write_json": "transitions",
+        "write_committed_json": "transitions",
+        "bridge_heal": "transitions",
+        "synth_transitions": "transitions",
+    },
+    "understanding/sound_design_plan.json": {
+        "write_json": "sound_design_plan",
+        "commit_sound_design_plan": "sound_design_plan",
+        "commit_sound_design_plan_doc": "sound_design_plan",
+        "sound_design_palettes": "sound_design_plan",
+        "admit_sanitized": "sound_design_plan",
+        "analysis_profile": "sound_design_plan",
+        "scaffold": "sound_design_plan",
+    },
+}
+
+# Empty SDP scaffold body hash (sanitary_content_hash of default_sound_design_plan).
+_SDP_EMPTY_SCAFFOLD_HASHES = frozenset({"4d59a639ec9a6a95a36e9cbc"})
+
+
+def _canonical_authority_action(artifact: str, action_class: str) -> str:
+    art = str(artifact or "").replace("\\", "/").strip("/")
+    action = str(action_class or "").strip() or "heal"
+    aliases = _AUTHORITY_ACTION_ALIASES.get(art) or {}
+    return aliases.get(action, action)
+
 
 def note_authority_undo_attempt(
     ctx: RunContext,
@@ -879,7 +1166,7 @@ def note_authority_undo_attempt(
 
     limit = int(halt_after if halt_after is not None else AUTHORITY_UNDO_HALT_AFTER)
     art = str(artifact or "").strip()[:120] or "unknown"
-    action = str(action_class or "").strip()[:80] or "heal"
+    action = _canonical_authority_action(art, action_class)[:80] or "heal"
     h = str(content_hash or "").strip()[:64] or "empty"
     now = time.time()
     doc: dict[str, Any] = {"version": 1, "artifacts": {}}
@@ -893,6 +1180,37 @@ def note_authority_undo_attempt(
     artifacts = dict(doc.get("artifacts") or {})
     prev = dict(artifacts.get(art) or {})
     history = list(prev.get("history") or [])
+    # Identical rewrite by the same canonical writer — not progress, not thrash.
+    if (
+        history
+        and str(history[-1].get("action") or "") == action
+        and str(history[-1].get("hash") or "") == h
+    ):
+        row = dict(prev.get("last") or {})
+        row.update(
+            {
+                "artifact": art,
+                "action": action,
+                "hash": h,
+                "count": int(row.get("count") or len(history)),
+                "halt": False,
+                "reason": "",
+                "updated_at": now,
+                "deduped": True,
+            }
+        )
+        artifacts[art] = {"history": history, "last": row}
+        doc["artifacts"] = artifacts
+        doc["updated_at"] = now
+        # Clear a stale active_halt on this artifact once writers coalesce.
+        active = doc.get("active_halt") if isinstance(doc.get("active_halt"), dict) else {}
+        if str((active or {}).get("artifact") or "") == art:
+            doc.pop("active_halt", None)
+        try:
+            ctx.write_json(AUTHORITY_UNDO_REL, doc, skip_handoff=True)
+        except Exception:
+            pass
+        return row
     history.append({"action": action, "hash": h, "ts": now})
     history = history[-8:]
     hashes = [str(x.get("hash") or "") for x in history]
@@ -905,10 +1223,36 @@ def note_authority_undo_attempt(
         if not uniq or uniq[-1] != x:
             uniq.append(x)
     if len(history) >= limit and len(set(hashes[-limit:])) <= 2:
+        # Scaffold empty → hardened content is progress, not thrash (SDP admit).
+        recent = hashes[-limit:]
+        if art.endswith("sound_design_plan.json") and any(
+            rh in _SDP_EMPTY_SCAFFOLD_HASHES for rh in recent
+        ):
+            nonempty = [rh for rh in recent if rh and rh not in _SDP_EMPTY_SCAFFOLD_HASHES]
+            if nonempty:
+                halt = False
+                reason = ""
+            elif len(uniq) >= 3 and uniq[-1] == uniq[-3]:
+                halt = True
+                reason = f"hash_oscillation:{uniq[-3]}↔{uniq[-2]}"
         # A→B→A pattern on actions or hashes
-        if len(uniq) >= 3 and uniq[-1] == uniq[-3]:
-            halt = True
-            reason = f"hash_oscillation:{uniq[-3]}↔{uniq[-2]}"
+        elif len(uniq) >= 3 and uniq[-1] == uniq[-3]:
+            distinct_actions = {a for a in actions[-limit:] if a}
+            # Same canonical writer flipping two content hashes during unfinished
+            # EDL is bridge-heal ↔ restamp refinement (exec_11130), not A↔B thrash.
+            if (
+                (
+                    art.endswith("transitions.json")
+                    or art.endswith("gap_report.json")
+                )
+                and len(distinct_actions) <= 1
+                and not ctx.is_done("edl")
+            ):
+                halt = False
+                reason = ""
+            else:
+                halt = True
+                reason = f"hash_oscillation:{uniq[-3]}↔{uniq[-2]}"
         elif (
             len(actions) >= 3
             and actions[-1] == actions[-3]
@@ -917,6 +1261,16 @@ def note_authority_undo_attempt(
         ):
             halt = True
             reason = f"action_oscillation:{actions[-1]}↔{actions[-2]}"
+    # ESR: oscillation while producer disk/lease progress is fresh → wait, not HARD.
+    if halt:
+        try:
+            from interview_mux.execution_status import may_hard_halt
+
+            if not may_hard_halt(ctx, pin=art.split("/")[-1].replace(".json", "")):
+                halt = False
+                reason = (reason + "|esr_wait") if reason else "esr_wait"
+        except Exception:
+            pass
     row = {
         "artifact": art,
         "action": action,
@@ -953,6 +1307,10 @@ def note_authority_undo_attempt(
             )
         except Exception:
             pass
+    else:
+        active = doc.get("active_halt") if isinstance(doc.get("active_halt"), dict) else {}
+        if str((active or {}).get("artifact") or "") == art:
+            doc.pop("active_halt", None)
     try:
         ctx.write_json(AUTHORITY_UNDO_REL, doc, skip_handoff=True)
     except Exception:
@@ -1127,6 +1485,12 @@ def heal_navigate(
                 pin = path_to_master_pin(ctx)
         except Exception:
             pass
+    try:
+        from interview_mux.refinement_passes import remap_retired_refine_pin
+
+        pin = remap_retired_refine_pin(ctx, pin)
+    except Exception:
+        pass
     out = {
         "intent": intent_l,
         "from_stage": pin,
@@ -1195,9 +1559,9 @@ def demote_incomplete_orphans(ctx: RunContext) -> list[str]:
     except Exception:
         pass
     # Downstream progress: demoting EDL/VO would thrash finalize/mix.
-    if ctx.artifact_exists("master/master.wav") or ctx.artifact_exists(
-        "master/assembly.wav"
-    ):
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if committed_master_wav(ctx) or ctx.artifact_exists("master/assembly.wav"):
         return []
 
     g3 = (
@@ -1469,6 +1833,14 @@ def record_thrash_hit(
         for h in hits
         if h.get("fail_class") == cls and str(h.get("predicate_token") or "") == token
     ]
+    # ESR: identical thrash while producer progress is fresh is not thrash_active.
+    try:
+        from interview_mux.execution_status import may_hard_halt
+
+        if not may_hard_halt(ctx, pin=str(pin or stage or ""), predicate_token=token):
+            same = same[: max(0, THRASH_HIT_THRESHOLD - 1)]
+    except Exception:
+        pass
     doc["hits"] = hits[-40:]
     thrash = None
     if len(same) >= THRASH_HIT_THRESHOLD:
@@ -1656,7 +2028,9 @@ def enforce_job_complete_honesty(ctx: RunContext, job: dict[str, Any]) -> dict[s
                 return job
         except Exception:
             pass
-    if ctx.artifact_exists("master/master.wav"):
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if committed_master_wav(ctx):
         return _enforce_ship_path_honesty(ctx, job)
     # Read-only honesty: do not restore/write artifacts from get_job.
     ship = set(SHIP_AFTER_MASTER)
@@ -1793,9 +2167,16 @@ def note_delivery_pin(
     source: str = "heal_navigate",
 ) -> dict[str, Any]:
     """Persist last resume pin for GUI 'why pinned' line."""
+    pin = str(from_stage or "").strip()
+    try:
+        from interview_mux.refinement_passes import remap_retired_refine_pin
+
+        pin = remap_retired_refine_pin(ctx, pin)
+    except Exception:
+        pass
     doc = {
         "version": 1,
-        "from_stage": str(from_stage or "").strip(),
+        "from_stage": pin,
         "intent": str(intent or "").strip(),
         "reason": str(reason or "")[:400],
         "source": str(source or "heal_navigate"),
@@ -1992,7 +2373,9 @@ def path_to_master_pin(ctx: RunContext) -> str:
             return "junction_snip_qa"
         # Junction seed-complete but seam missing → still junction.
         return "junction_snip_qa"
-    if not ctx.artifact_exists("master/master.wav"):
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if not committed_master_wav(ctx):
         pin = finalize_input_producer_pin(ctx, message="path_to_master")
         if pin in PATH_TO_MASTER or pin in {"edl", "vo_synthesize"}:
             # After music, edl pin only if EDL truly missing (restore first).
@@ -2385,6 +2768,21 @@ def note_junction_oscillation_halt(ctx: RunContext) -> None:
     doc["oscillation_halt_generation"] = _junction_seating_generation(ctx)
     doc["oscillation_halt_edl_hash"] = _junction_edl_hash(ctx)
     _write_junction_remaster_budget(ctx, doc)
+    try:
+        from interview_mux.delivery_guardrails import record_delivery_residual
+
+        record_delivery_residual(
+            ctx,
+            kind="junction_oscillation_halt",
+            severity="critical",
+            stage="junction_snip_qa",
+            detail={
+                "generation": doc.get("oscillation_halt_generation"),
+                "edl_hash": str(doc.get("oscillation_halt_edl_hash") or "")[:64],
+            },
+        )
+    except Exception:
+        pass
 
 
 def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
@@ -2417,6 +2815,21 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
             reason = "junction_oscillation_halt"
     except Exception:
         pass
+    # ESR: budget counter may fire while remaster disk still advances — wait.
+    try:
+        from interview_mux.execution_status import may_hard_halt, wait_vs_halt
+
+        if not may_hard_halt(ctx, pin="junction_snip_qa"):
+            wait_vs_halt(
+                ctx,
+                pin="junction_snip_qa",
+                intent="junction_budget",
+                reason=reason,
+            )
+            return "junction_snip_qa"
+    except Exception:
+        # a8 fail-closed for HARD: do not stamp needs_operator on ESR error
+        return "junction_snip_qa"
     try:
         if not ctx.artifact_exists("run_meta.json"):
             ctx.write_json(
@@ -2443,11 +2856,18 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
     except Exception:
         pass
     try:
-        from interview_mux.delivery_guardrails import record_wasted_work
+        from interview_mux.delivery_guardrails import record_delivery_residual, record_wasted_work
 
         record_wasted_work(
             ctx,
             event="junction_budget_exhaust",
+            stage="junction_snip_qa",
+            detail={"pin": "junction_snip_qa", "soft_pass": False, "reason": reason},
+        )
+        record_delivery_residual(
+            ctx,
+            kind="junction_budget_exhaust",
+            severity="critical",
             stage="junction_snip_qa",
             detail={"pin": "junction_snip_qa", "soft_pass": False, "reason": reason},
         )

@@ -118,6 +118,34 @@ def test_stamp_stale_skips_shared_brief_before_reanchor():
     assert "understanding/content_brief.json" not in stamped
 
 
+def test_stamp_stale_skips_shared_boundaries_from_boundary_detection():
+    """clear_from(boundary_detection) must not self-stale segments/boundaries.json
+    when producer_stage is the BTR alias (exec_10066 heal-spin)."""
+    from interview_mux.artifact_lifecycle import stamp_stale_and_archive
+    from interview_mux.run_context import RunContext
+
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "segments/boundaries.json",
+        {
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "proposed_split_reason": "pause",
+                }
+            ],
+            "_meta": {"producer_stage": "boundary_topic_resplit", "stale": False},
+        },
+        skip_handoff=True,
+    )
+    stamped = stamp_stale_and_archive(ctx, "boundary_detection")
+    doc = ctx.read_json("segments/boundaries.json")
+    assert not (doc.get("_meta") or {}).get("stale")
+    assert "segments/boundaries.json" not in stamped
+
+
 def test_read_stale_guard_ignores_self_invalidation():
     from interview_mux.artifact_lifecycle import read_stale_guard
     from interview_mux.run_context import RunContext

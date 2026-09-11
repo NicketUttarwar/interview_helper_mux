@@ -206,7 +206,33 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path: Path) -> None:
         skip_handoff=True,
     )
     write_fixture_vo_wav(ctx.path("vo_pickup/vo_layup_seg_002.wav"))
+    write_fixture_vo_wav(ctx.path("vo_pickup/tr_seg_001_seg_002.wav"))
     ctx.mark_done("vo_synthesize")
     removed = nuke_all_synth_wavs_on_adjudicate_change(ctx)
     assert removed >= 1
+    assert not ctx.path("vo_pickup/vo_layup_seg_002.wav").is_file()
+    # Transition bridges must survive adjudicate resynth (exec_11130).
+    assert ctx.path("vo_pickup/tr_seg_001_seg_002.wav").is_file()
     assert not ctx.is_done("vo_synthesize")
+
+
+def test_nuke_synth_wavs_selective_line_ids(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "adj_nuke_selective")
+    gap = _gap_with_body_line()
+    gap["interviewer_lines"].append(
+        {
+            "line_id": "vo_layup_seg_009",
+            "text": "Keep this wav.",
+            "delivery": "synthesize",
+            "targets_segment_id": "seg_009",
+        }
+    )
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+    write_fixture_vo_wav(ctx.path("vo_pickup/vo_layup_seg_002.wav"))
+    write_fixture_vo_wav(ctx.path("vo_pickup/vo_layup_seg_009.wav"))
+    removed = nuke_all_synth_wavs_on_adjudicate_change(
+        ctx, line_ids=["vo_layup_seg_002"]
+    )
+    assert removed >= 1
+    assert not ctx.path("vo_pickup/vo_layup_seg_002.wav").is_file()
+    assert ctx.path("vo_pickup/vo_layup_seg_009.wav").is_file()

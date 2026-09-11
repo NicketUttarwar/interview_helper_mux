@@ -619,8 +619,19 @@ def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[
         dur = float(row.get("duration_seconds") or 0)
         band = _ROLE_DURATION_BANDS.get(role)
         if band and dur:
-            if not (band[0] <= dur <= band[1]):
-                errors.append(f"duration {dur}s out of band for role {role}")
+            try:
+                from interview_mux.stages.sound_design_stages import (
+                    sdp_duration_allowed_for_role,
+                )
+
+                palette_kind = str(row.get("palette_kind") or "") or None
+                if not sdp_duration_allowed_for_role(
+                    role, dur, palette_kind=palette_kind, band=band
+                ):
+                    errors.append(f"duration {dur}s out of band for role {role}")
+            except Exception:
+                if not (band[0] <= dur <= band[1]):
+                    errors.append(f"duration {dur}s out of band for role {role}")
         elif dur and not (min_gen <= dur <= max_gen + 0.5):
             errors.append(f"duration {dur}s outside MMAudio plan clamp")
         cfg = row.get("cfg_strength")
@@ -835,12 +846,28 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
         from interview_mux.high_gap_vo import targeted_segment_ids
 
         targeted = targeted_segment_ids(lines, ctx)
+        # High gaps on segments not in the air-order selection are off-timeline —
+        # require neither fill nor demote for compose lint (exec_11130 seg_044).
+        air_ids: set[str] | None = None
+        if ctx.artifact_exists("master/selection.json"):
+            try:
+                sel = ctx.read_json("master/selection.json")
+                if isinstance(sel, dict):
+                    ordered = [
+                        str(s) for s in (sel.get("ordered_segment_ids") or []) if s
+                    ]
+                    if ordered:
+                        air_ids = set(ordered)
+            except Exception:
+                air_ids = None
         try:
             from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
         except Exception:
             _segment_is_blank_or_unusable = None  # type: ignore[assignment]
         for seg_id in high_segs:
             if not seg_id or seg_id in targeted:
+                continue
+            if air_ids is not None and seg_id not in air_ids:
                 continue
             if _segment_is_blank_or_unusable is not None and _segment_is_blank_or_unusable(ctx, seg_id):
                 continue

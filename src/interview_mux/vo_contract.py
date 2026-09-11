@@ -148,6 +148,12 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
     Air-script Pass B can omit every layup seat while orientation alone remains.
     Hosted framing still requires ``min_synthetic_vo_lines`` active gap lines —
     without a reseat, nugget_layup_compose thrash-fails the incompleteness floor.
+
+    C-04: no-op when G1 skip waived the hosted framing floor.
+
+    Soft/hard freeze normally blocks silent seat mutation, but an unmet
+    G-Framing synthetic floor is catastrophic — reseat without meta-gate so
+    air_contract omit-stamping cannot thrash layup/VO forever under freeze.
     """
     from interview_mux.gap_fill_eligibility import (
         hosted_framing_requires_synthetic_vo,
@@ -175,6 +181,45 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
             if delivery in {"synthesize", "record", "voice_clone", "chatterbox"}:
                 n += 1
         return n
+
+    try:
+        from interview_mux.seat_authority import (
+            hard_freeze_active,
+            seat_mutation_allowed,
+            soft_freeze_active,
+        )
+
+        floor_unmet = _active_count(lines_in) < need
+        if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+            if floor_unmet:
+                allowed, _why = seat_mutation_allowed(
+                    ctx,
+                    reason="catastrophe_hosted_vo_floor",
+                    require_meta_gate=False,
+                )
+            else:
+                allowed, _why = seat_mutation_allowed(
+                    ctx, reason="ensure_hosted_framing", require_meta_gate=True
+                )
+            if not allowed:
+                return []
+            if floor_unmet:
+                try:
+                    from interview_mux.seat_authority import bump_seat_rewrite_generation
+
+                    bump_seat_rewrite_generation(ctx)
+                except Exception:
+                    pass
+    except Exception:
+        # Fail-closed only when freeze may be active / unknown; else proceed.
+        try:
+            from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+
+            frozen = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+        except Exception:
+            frozen = True
+        if frozen:
+            return []
 
     for i, row in enumerate(lines_in):
         if not is_episode_orientation(row):
@@ -334,7 +379,33 @@ def clamp_hosted_seats_to_rendered_wavs(ctx: RunContext) -> list[str]:
     Heals and air-script passes can revive high-severity omitted lines into seats.
     Once enough pickup stems exist to meet ``min_synthetic_vo_lines``, prefer those
     and unseat the rest so G1/EDL do not demand fresh Chatterbox mid-delivery.
+
+    Under soft/hard freeze, clamp is a seat mutation — require gate / one-shot token.
     """
+    try:
+        from interview_mux.seat_authority import (
+            gate_seat_mutation,
+            hard_freeze_active,
+            soft_freeze_active,
+        )
+
+        if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+            if not gate_seat_mutation(
+                ctx,
+                reason="clamp_hosted_seats_to_rendered_wavs",
+                symptoms=["clamp"],
+            ):
+                return []
+    except Exception:
+        # Fail-closed when freeze may be active / unknown.
+        try:
+            from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+
+            frozen = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+        except Exception:
+            frozen = True
+        if frozen:
+            return []
     from interview_mux.gap_fill_eligibility import (
         hosted_framing_requires_synthetic_vo,
         min_synthetic_vo_lines,
@@ -515,6 +586,31 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
         out = dict(gap)
         out["interviewer_lines"] = lines
         ctx.write_json("understanding/gap_report.json", out)
+    # Unseat orphan ids that seats still cite but gap_report no longer has.
+    gap_ids = {
+        str(r.get("line_id") or "").strip()
+        for r in (gap.get("interviewer_lines") or [])
+        if isinstance(r, dict) and r.get("line_id")
+    }
+    orphan_seated = sorted(lid for lid in seated if lid and lid not in gap_ids)
+    if orphan_seated and ctx.artifact_exists("mastering/mastering_plan.json"):
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = dict(load_plan_raw(ctx) or {})
+        script = dict(plan.get("air_script") or {})
+        seats = dict(script.get("vo_seats") or {})
+        cur_seated = [str(x) for x in (seats.get("seated_line_ids") or []) if x]
+        cur_omitted = [str(x) for x in (seats.get("omitted_line_ids") or []) if x]
+        new_seated = [x for x in cur_seated if x not in set(orphan_seated)]
+        for lid in orphan_seated:
+            if lid not in cur_omitted:
+                cur_omitted.append(lid)
+            changed.append(lid)
+        seats["seated_line_ids"] = new_seated
+        seats["omitted_line_ids"] = [o for o in cur_omitted if o not in set(new_seated)]
+        script["vo_seats"] = seats
+        plan["air_script"] = script
+        ctx.write_json("mastering/mastering_plan.json", plan)
     # Rebuild vo_seats from gap so omitted lines are not synthesized downstream.
     try:
         reconcile_execution_contract(ctx, reason="repair_vo_contract_drift_omit_wins")

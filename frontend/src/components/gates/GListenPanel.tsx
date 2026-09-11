@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface GListenPayload {
@@ -14,9 +15,11 @@ interface GListenPayload {
 
 /** Optional pre-ship listen when listen_critic score is borderline. */
 export function GListenPanel() {
-  const { runId, refreshRun, appendClientLog, showToast } = useApp();
+  const { runId, run, refreshRun, appendClientLog, showToast, jobRunning, partialAutoGPublish } =
+    useApp();
   const [payload, setPayload] = useState<GListenPayload | null>(null);
   const [busy, setBusy] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   useEffect(() => {
     if (!runId) return;
@@ -28,6 +31,10 @@ export function GListenPanel() {
   if (!runId || !payload?.pending) return null;
 
   const continueListen = async (skipped: boolean) => {
+    if (jobBlocksUi) {
+      showToast("A pipeline job is running — wait until it pauses.", "warning");
+      return;
+    }
     setBusy(true);
     try {
       const path = skipped ? "g-listen/skip" : "g-listen/continue";
@@ -46,6 +53,8 @@ export function GListenPanel() {
       setBusy(false);
     }
   };
+
+  const mutatorBusy = busy || jobBlocksUi;
 
   return (
     <GatePanelShell
@@ -67,7 +76,7 @@ export function GListenPanel() {
         <button
           type="button"
           className="btn sm primary"
-          disabled={busy}
+          disabled={mutatorBusy}
           onClick={() => void continueListen(false)}
         >
           Continue — sounds good
@@ -75,7 +84,7 @@ export function GListenPanel() {
         <button
           type="button"
           className="btn sm ghost"
-          disabled={busy}
+          disabled={mutatorBusy}
           onClick={() => void continueListen(true)}
         >
           Skip G-Listen

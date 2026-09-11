@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from interview_mux.delivery_invariants import committed_master_wav
 from interview_mux.run_context import RunContext
 
 CATEGORIES = (
@@ -28,7 +29,31 @@ def _monologue_topology(topo: str) -> bool:
 
 
 def recommended_framing_action(ctx: RunContext) -> str:
-    """Whether framing is on. Hosted interviews auto-resolve Yes; clone stays least-spoken host."""
+    """Whether framing is on.
+
+    Precedence (D-07 / SYN-GFR): operator sticky > topology/native_only skip >
+    posture LLM ``no``/``sparse`` > eligibility > default Yes (auto_resolve) for hosted.
+    Never auto-Yes over explicit LLM ``no`` (unless a documented Full-auto/e2e_soft
+    path calls ``set_gate_decision`` / auto-accept separately).
+    """
+    # 1) Operator sticky from gate_decisions.json
+    try:
+        if ctx.artifact_exists(DECISIONS_REL):
+            raw_d = ctx.read_json(DECISIONS_REL)
+            decisions = {}
+            if isinstance(raw_d, dict):
+                decisions = raw_d.get("decisions") or raw_d
+            framing = decisions.get("framing_consent") if isinstance(decisions, dict) else None
+            if isinstance(framing, dict):
+                action = str(framing.get("action") or "").strip()
+            else:
+                action = str(framing or "").strip()
+            if action in {"skip", "auto_resolve", "present_operator"}:
+                return action
+    except Exception:
+        pass
+
+    # 2) native_only / monologue topology → skip
     try:
         from interview_mux.pipeline_mode import is_native_only
 
@@ -44,6 +69,35 @@ def recommended_framing_action(ctx: RunContext) -> str:
         posture = str(card.get("framing_posture") or "")
         if _monologue_topology(topo):
             return "skip"
+        if posture in {"sparse_omit", "native_only"}:
+            return "skip"
+    except Exception:
+        pass
+
+    # 3) LLM framing posture decision — never auto-Yes over explicit no/sparse
+    try:
+        if ctx.artifact_exists("understanding/framing_posture_decision.json"):
+            doc = ctx.read_json("understanding/framing_posture_decision.json")
+            if isinstance(doc, dict):
+                rec = str(doc.get("recommended_framing") or "").strip().lower()
+                if rec == "no":
+                    return "skip"
+                if rec == "sparse":
+                    return "present_operator"
+    except Exception:
+        pass
+
+    # 4) Hosted topologies that default to Yes (clone least-spoken host)
+    try:
+        from interview_mux.homunculus.source_card import read_source_card
+
+        card = read_source_card(ctx) or {}
+        topo = str(card.get("topology") or "").lower()
+        posture = str(card.get("framing_posture") or "")
+        if not topo and ctx.artifact_exists("understanding/source_topology.json"):
+            raw_topo = ctx.read_json("understanding/source_topology.json")
+            if isinstance(raw_topo, dict):
+                topo = str(raw_topo.get("topology_class") or "").lower()
         if posture == "least_spoken_host" or topo in {
             "one_on_one_asymmetric",
             "one_on_one_balanced",
@@ -53,6 +107,8 @@ def recommended_framing_action(ctx: RunContext) -> str:
             return "auto_resolve"
     except Exception:
         pass
+
+    # 5) Eligibility silent-skip / eligible
     try:
         from interview_mux.gap_fill_eligibility import (
             assess_gap_fill_eligibility,
@@ -125,7 +181,7 @@ def category_status(ctx: RunContext) -> dict[str, Any]:
         "listen_borderline": {"open": False},
         "optimizer_authority": {"open": False},
         "quality_ship": {"open": ctx.artifact_exists("mastering/homunculus/limit_exhausted.json")},
-        "publish_package": {"open": ctx.artifact_exists("master/master.wav")},
+        "publish_package": {"open": committed_master_wav(ctx)},
         "prompt_promotion": {"open": False},
     }
     return {"categories": list(CATEGORIES), **cats, "decisions": decisions}

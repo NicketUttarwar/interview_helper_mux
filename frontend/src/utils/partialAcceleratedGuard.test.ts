@@ -5,10 +5,12 @@ import {
   isPartialAcceleratedRun,
   isTranscriptReviewCheckpoint,
   resolveOperatorCover,
+  shouldAdvanceAfterGatePost,
   shouldBlockOperatorActionsForJob,
   shouldHoldJobRunningFlag,
   shouldShowAcceleratedRunOverlay,
 } from "./partialAcceleratedGuard";
+import { PARTIAL_MAY_PAUSE_GATES, PARTIAL_MUST_ACT_GATES } from "./partialOperatorGates";
 import type { RunData } from "../types";
 
 function run(partial: Record<string, unknown>): RunData {
@@ -148,6 +150,28 @@ describe("partialAcceleratedGuard", () => {
     expect(deliveryOrderViolation("vo_synthesize", "vo_line_adjudicate")).toBe(true);
     expect(deliveryOrderViolation("edl_narrative_audit", "vo_synthesize")).toBe(true);
     expect(deliveryOrderViolation("vo_line_adjudicate", "vo_synthesize")).toBe(false);
+  });
+
+  it("D-02: Manual advances after gate; Partial+driver does not", () => {
+    expect(shouldAdvanceAfterGatePost(run({ meta: { run_mode: "manual" } }))).toBe(true);
+    expect(
+      shouldAdvanceAfterGatePost(
+        run({ meta: { run_mode: "partially-accelerated", partial_auto_driver_active: true } }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldAdvanceAfterGatePost(
+        run({ meta: { run_mode: "partially-accelerated", partial_auto_driver_active: false } }),
+      ),
+    ).toBe(true);
+  });
+
+  it("D-01: must-act SSOT is G0 + g_publish; may-pause covers framing/G1/reuse/write-approval", () => {
+    expect([...PARTIAL_MUST_ACT_GATES]).toEqual(["transcript_review", "g_publish"]);
+    expect(PARTIAL_MAY_PAUSE_GATES).toContain("gap_framing");
+    expect(PARTIAL_MAY_PAUSE_GATES).toContain("g1_vo_pickup");
+    expect(PARTIAL_MAY_PAUSE_GATES).toContain("stage_reuse");
+    expect(PARTIAL_MAY_PAUSE_GATES).toContain("write_approval");
   });
 
   it("does not block operator actions at G0 despite stale job.running", () => {

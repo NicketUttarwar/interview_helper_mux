@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|selection_order_sanitize->air_script_compose|partial|M3_hollow_object|selection_order_sanitize_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:49Z"
+}

@@ -66,7 +66,29 @@ def record_stall(
     prev = read_stall(ctx)
     prev_fp = str(prev.get("product_fingerprint") or "")
     prev_key = str(prev.get("predicate") or "")
-    if key == prev_key and fingerprint == prev_fp:
+    # Soften when ESR shows artifact progress even if error hash repeats
+    esr_progress = False
+    try:
+        from interview_mux.execution_status import may_hard_halt, sync_execution_status
+        from interview_mux.thrash_hardening import stage_predicate_token
+
+        tok = stage_predicate_token(ctx, str(stage or ""))
+        prior_tok = str(prev.get("predicate_token") or "")
+        if prior_tok and tok and prior_tok != tok:
+            esr_progress = True
+        elif not may_hard_halt(ctx, pin=str(stage or ""), predicate_token=tok, prior_token=prior_tok):
+            esr_progress = True
+        sync_execution_status(
+            ctx,
+            pin=str(stage or ""),
+            predicate_token=tok,
+            forensics={"class": error_class, "reason": str(reason or "")[:120]},
+        )
+    except Exception:
+        tok = ""
+        prior_tok = ""
+
+    if key == prev_key and fingerprint == prev_fp and not esr_progress:
         count = int(prev.get("count") or 0) + 1
     else:
         count = 1
@@ -78,11 +100,16 @@ def record_stall(
         "reason": str(reason or "")[:400],
         "error_class": str(error_class or ""),
         "count": count,
-        "escalate_after": max(1, int(escalate_after)),
         "product_fingerprint": fingerprint,
+        "predicate_token": tok,
+        "esr_progress_reset": bool(esr_progress),
+        "escalate_after": max(1, int(escalate_after)),
         "fingerprint_changed": bool(prev_fp and fingerprint != prev_fp),
-        "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
-        "should_escalate": count >= max(1, int(escalate_after)),
+        "first_seen_at": str(prev.get("first_seen_at") or _utc_now())
+        if count > 1 and not esr_progress
+        else _utc_now(),
+        "should_escalate": (not esr_progress)
+        and count >= max(1, int(escalate_after)),
     }
     ctx.write_json(STALL_REL, row)
     return row

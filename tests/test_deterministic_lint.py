@@ -41,6 +41,32 @@ def test_lint_optimal_questions_high_gap_without_line(tmp_path, monkeypatch):
     errors = deterministic_lint("optimal_questions", {"artifacts": {"interviewer_lines": []}}, ctx)
     assert any("interviewer line" in e for e in errors)
 
+
+def test_lint_optimal_questions_skips_high_gap_off_selection(tmp_path, monkeypatch):
+    """Off-air high gaps must not lint-block compose (selection excludes them)."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "lint_oq_off_air")
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        minimal_gap_evaluations(
+            {
+                "segment_id": "seg_044",
+                "severity": "high",
+                "self_explanatory": False,
+                "gap_type": "missing_callback",
+            }
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_020"]},
+        skip_handoff=True,
+    )
+    errors = deterministic_lint(
+        "optimal_questions", {"artifacts": {"interviewer_lines": []}}, ctx
+    )
+    assert not any("seg_044" in e for e in errors)
+
 def test_lint_topic_coverage_missing_score(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "lint_tca")

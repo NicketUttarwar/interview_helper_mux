@@ -102,6 +102,8 @@ export interface RunSummary {
   blocking_message?: string | null;
   attention_count?: number;
   homunculus_version?: string;
+  /** Pillar A ESR — prefer over sticky when progress_stale === false */
+  execution_status?: ExecutionStatusSummary;
   homunculus_halt_plan?: {
     last_target?: string;
     blockers?: string[];
@@ -112,6 +114,22 @@ export interface RunSummary {
   } | null;
   podcast_id?: string;
   podcast_title?: string;
+}
+
+/** operator/execution_status.json summary folded into GUI run payloads */
+export interface ExecutionStatusSummary {
+  progress_stale?: boolean;
+  progress_why?: string;
+  current_pin?: string;
+  lease?: { active?: boolean; stage?: string; reason?: string };
+  sticky?: { key?: string; count?: number; halt?: boolean };
+  seat_freeze?: { soft?: boolean; hard?: boolean; fingerprint?: string };
+  reopen_gate?: {
+    allow?: boolean;
+    intent?: string;
+    refuse_reason?: string;
+    decision_id?: string;
+  };
 }
 
 export interface HomunculusBrainInfo {
@@ -525,6 +543,8 @@ export interface JobState {
   awaiting_write_approval?: boolean;
   pending_write_stage?: string;
   pending_write_paths?: string[];
+  /** Structured gate id when status=gate (G-01) — prefer over message substring hacks. */
+  gate?: string;
   itr_blocking_count?: number;
   can_fix_all?: boolean;
   bridge_eligible?: boolean;
@@ -537,6 +557,8 @@ export interface JobState {
 
 export interface RunData {
   run_id: string;
+  /** Pillar A ESR from GET /api/runs/{id} */
+  execution_status?: ExecutionStatusSummary;
   working_dir?: string;
   snapshot_version?: number;
   execution_number?: number;

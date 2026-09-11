@@ -297,6 +297,85 @@ def test_ensure_hosted_framing_reseats_omit_to_floor(
     assert "vo_layup_seg_001" not in seats["omitted_line_ids"]
 
 
+def test_ensure_hosted_floor_reseats_under_soft_hard_freeze(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unmet G-Framing floor is catastrophic — reseat even when freeze holds."""
+    from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+    from interview_mux.seat_authority import (
+        soft_freeze_active,
+        stamp_hard_seat_freeze,
+        stamp_soft_seat_freeze,
+    )
+    from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_preface_episode_orientation"],
+                    "omitted_line_ids": ["vo_layup_seg_001", "vo_layup_seg_002"],
+                    "orientation_id": "vo_preface_episode_orientation",
+                }
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "delivery": "synthesize",
+                    "episode_orientation": True,
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "text": "Welcome.",
+                },
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "First layup question for the guest.",
+                },
+                {
+                    "line_id": "vo_layup_seg_002",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_002",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "Second layup question for the guest.",
+                },
+            ]
+        },
+    )
+    stamp_soft_seat_freeze(ctx, reason="test")
+    stamp_hard_seat_freeze(ctx, reason="test")
+    assert soft_freeze_active(ctx)
+    assert count_active_gap_vo_lines(ctx) == 1
+    reseated = ensure_hosted_framing_vo_seats(ctx)
+    assert set(reseated) == {"vo_layup_seg_001", "vo_layup_seg_002"}
+    assert count_active_gap_vo_lines(ctx) == 3
+
+
 def test_ensure_hosted_prefers_wav_backed_omit_over_high_severity(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

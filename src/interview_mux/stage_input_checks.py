@@ -71,6 +71,29 @@ def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInpu
             )
     except Exception:
         pass
+    # Holistic seat review before transitions / adjudicate / edl — pin sanitize once.
+    if stage_id in {"transitions", "vo_line_adjudicate", "edl"}:
+        try:
+            from interview_mux.seat_authority import holistic_seat_review, soft_freeze_active
+
+            if soft_freeze_active(ctx) or stage_id in {"transitions", "edl"}:
+                report = holistic_seat_review(ctx)
+                if isinstance(report, dict) and report.get("ok") is False:
+                    fails = report.get("failures") or []
+                    msg = (
+                        "Holistic seat review failed: "
+                        + "; ".join(str(f) for f in fails[:4])
+                    )
+                    issues.append(
+                        StageInputIssue(
+                            msg,
+                            "Run air_contract_sanitize once to heal seats (not Pass B remutate).",
+                            kind="seat_review",
+                            related_stage="air_contract_sanitize",
+                        )
+                    )
+        except Exception:
+            pass
     issues.extend(_vo_contract_issues(ctx, stage_id))
     checker = _STAGE_CHECKERS.get(stage_id)
     if checker is not None:
@@ -179,9 +202,15 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
     except Exception:
         pass
     violations = validate_vo_contract(ctx)
-    # vo_synthesize / vo_line_adjudicate exist to prepare & render seated WAVs —
-    # missing WAV is not a preflight block for either stage.
-    if stage_id in {"vo_synthesize", "vo_line_adjudicate"}:
+    # Pre-render + render stages: missing WAV is expected until vo_synthesize
+    # finishes. Blocking nugget_layup_compose on absent WAVs unmarks layup, then
+    # premature-G1 resume picks layup as seed front → endless layup↔synth thrash.
+    if stage_id in {
+        "vo_synthesize",
+        "vo_line_adjudicate",
+        "nugget_layup_compose",
+        "air_script_seams",
+    }:
         violations = [v for v in violations if "missing WAV" not in v and "missing wav" not in v.lower()]
     if violations:
         result = run_vo_contract_ladder(ctx, consumer_stage=stage_id)
@@ -191,7 +220,12 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
         except Exception:
             pass
         violations = validate_vo_contract(ctx)
-        if stage_id in {"vo_synthesize", "vo_line_adjudicate"}:
+        if stage_id in {
+            "vo_synthesize",
+            "vo_line_adjudicate",
+            "nugget_layup_compose",
+            "air_script_seams",
+        }:
             violations = [
                 v for v in violations if "missing WAV" not in v and "missing wav" not in v.lower()
             ]

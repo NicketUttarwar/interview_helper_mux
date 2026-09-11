@@ -299,6 +299,20 @@ def _check_unseated_required_vo(
         lid = str(line.get("line_id") or "")
         if not lid or lid in edl_line_ids or lid in compensated:
             continue
+        # Pillar B: frozen omitted lines are intentional, not collateral strip
+        try:
+            from interview_mux.seat_authority import frozen_omitted_line_ids
+
+            if lid in frozen_omitted_line_ids(ctx):
+                continue
+        except Exception:
+            pass
+        if line_is_omitted is not None:
+            try:
+                if line_is_omitted(line):
+                    continue
+            except Exception:
+                pass
         out.append(
             PublishabilityViolation(
                 error_class="omit_collateral_vo_strip",
@@ -362,11 +376,26 @@ def _check_opening_orientation(
 
 def _check_pending_writes(ctx: RunContext) -> list[PublishabilityViolation]:
     try:
-        from interview_mux.write_staging import stages_with_pending_writes
+        from interview_mux.v2.config import DELIVERY_ORDER
+        from interview_mux.write_staging import active_stage_id, stages_with_pending_writes
 
-        pending = [
-            s for s in stages_with_pending_writes(ctx) if s in _PENDING_WRITE_STAGES
-        ]
+        # Own mid-stage staging is expected (mix runs pre_mix while writing).
+        active = None
+        try:
+            active = active_stage_id()
+        except Exception:
+            active = None
+        order = list(DELIVERY_ORDER)
+        active_i = order.index(active) if active in order else None
+        pending: list[str] = []
+        for s in stages_with_pending_writes(ctx):
+            if s not in _PENDING_WRITE_STAGES or s == active:
+                continue
+            # Abandoned staging from a later failed stage (e.g. junction) must not
+            # block an earlier remaster (forensics exec_11130 pre_mix barrier).
+            if active_i is not None and s in order and order.index(s) > active_i:
+                continue
+            pending.append(s)
     except Exception:
         return []
     if not pending:
@@ -381,26 +410,59 @@ def _check_pending_writes(ctx: RunContext) -> list[PublishabilityViolation]:
 
 
 def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
+    # Junction remaster calls run_mix → pre_mix. Blocking on the residuals
+    # junction is actively repairing is a self-deadlock (exec_11130 feel remaster).
+    try:
+        from interview_mux.write_staging import active_stage_id
+
+        if active_stage_id() == "junction_snip_qa":
+            return []
+    except Exception:
+        pass
     out: list[PublishabilityViolation] = []
-    qa_rel = "master/junction_snip_qa.json"
-    if ctx.artifact_exists(qa_rel):
-        try:
-            report = ctx.read_json(qa_rel)
-            if isinstance(report, dict):
-                critical = int(report.get("critical_residuals") or 0)
-                blocking = list(report.get("blocking_reasons") or [])
-                if critical > 0 or any(
-                    "critical" in str(b).lower() for b in blocking
-                ):
-                    out.append(
-                        PublishabilityViolation(
-                            error_class="incomplete_cut_unresolved",
-                            code="critical_junction_residual",
-                            detail=f"critical_residuals={critical} blocking={blocking[:3]}",
+    try:
+        from interview_mux.delivery_guardrails import critical_residual_view, has_critical_residuals
+
+        if has_critical_residuals(ctx):
+            view = critical_residual_view(ctx)
+            blocking: list[Any] = []
+            qa_rel = "master/junction_snip_qa.json"
+            if ctx.artifact_exists(qa_rel):
+                try:
+                    report = ctx.read_json(qa_rel)
+                    if isinstance(report, dict):
+                        blocking = list(report.get("blocking_reasons") or [])
+                except Exception:
+                    blocking = []
+            out.append(
+                PublishabilityViolation(
+                    error_class="incomplete_cut_unresolved",
+                    code="critical_junction_residual",
+                    detail=(
+                        f"critical_residuals={view.count} kinds={list(view.kinds)[:3]} "
+                        f"sources={list(view.sources)} blocking={blocking[:3]}"
+                    ),
+                )
+            )
+    except Exception:
+        # Fall back to legacy stamped int when SSOT import/path fails.
+        qa_rel = "master/junction_snip_qa.json"
+        if ctx.artifact_exists(qa_rel):
+            try:
+                report = ctx.read_json(qa_rel)
+                if isinstance(report, dict):
+                    critical = int(report.get("critical_residuals") or 0)
+                    blocking = list(report.get("blocking_reasons") or [])
+                    if critical > 0 or any("critical" in str(b).lower() for b in blocking):
+                        out.append(
+                            PublishabilityViolation(
+                                error_class="incomplete_cut_unresolved",
+                                code="critical_junction_residual",
+                                detail=f"critical_residuals={critical} blocking={blocking[:3]}",
+                            )
                         )
-                    )
-        except Exception:
-            pass
+            except Exception:
+                pass
     autopsy_rel = "mastering/seam_autopsy.json"
     if not out and ctx.artifact_exists(autopsy_rel):
         try:
@@ -688,11 +750,35 @@ def write_publishability_repair_plan(
             return plan
         if resume_stage in {"mix", "junction_snip_qa", "master_finalize"}:
             try:
-                from interview_mux.homunculus.agenda import invalidate_downstream
+                # C13: soft mix invalidate after assembly needs reopen allow.
+                allow_mix = True
+                try:
+                    asm = ctx.final_path("master", "assembly.wav")
+                    if asm.is_file() and asm.stat().st_size > 0:
+                        from interview_mux.timeline_reopen_meta_gate import (
+                            INTENT_PUB_SOFT_MIX,
+                            decide_timeline_reopen,
+                        )
 
-                invalidate_downstream(ctx, "mix")
-                plan["cleared_from"] = "mix"
-                plan["soft_clear_mode"] = "downstream_of_mix"
+                        gate = decide_timeline_reopen(
+                            ctx,
+                            intent=INTENT_PUB_SOFT_MIX,
+                            failed_dims=[primary.error_class],
+                            detail={"from_stage": resume_stage},
+                        )
+                        allow_mix = bool(gate.get("allow"))
+                        plan["gate"] = gate
+                except Exception:
+                    allow_mix = False  # c13 fail-closed
+                if allow_mix:
+                    from interview_mux.homunculus.agenda import invalidate_downstream
+
+                    invalidate_downstream(ctx, "mix")
+                    plan["cleared_from"] = "mix"
+                    plan["soft_clear_mode"] = "downstream_of_mix"
+                else:
+                    plan["cleared_from"] = None
+                    plan["soft_clear_mode"] = "refused_low_gain"
             except Exception:
                 pass
         else:
@@ -707,19 +793,57 @@ def write_publishability_repair_plan(
         "post_junction",
         "pre_mix",
     }
+    # C9: hard repair that invalidates edl/mix after assembly needs reopen allow.
     try:
-        from interview_mux.homunculus.agenda import invalidate_downstream
+        asm = ctx.final_path("master", "assembly.wav")
+        if asm.is_file() and asm.stat().st_size > 0:
+            from interview_mux.timeline_reopen_meta_gate import (
+                INTENT_PUB_HARD,
+                decide_timeline_reopen,
+            )
 
-        invalidate_downstream(ctx, resume_stage)
-        plan["cleared_from"] = resume_stage
+            gate = decide_timeline_reopen(
+                ctx,
+                intent=INTENT_PUB_HARD,
+                failed_dims=[primary.error_class],
+                detail={
+                    "from_stage": resume_stage,
+                    "checkpoint": report.checkpoint,
+                    "proposed_cost_stages": list(invalidate_set)[:12],
+                },
+            )
+            if not gate.get("allow"):
+                plan["cleared_from"] = None
+                plan["hard_clear_mode"] = "refused_low_gain"
+                plan["gate"] = gate
+                ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
+                return plan
     except Exception:
-        try:
-            from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER
+        # c9 fail-closed: refuse hard invalidate when gate errors after assembly
+        plan["cleared_from"] = None
+        plan["hard_clear_mode"] = "refused_fail_closed"
+        plan["gate"] = {"allow": False, "refuse_reason": "decide_error_fail_closed"}
+        ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
+        return plan
+    # B-06: hard repair via profiles only — never combined clear_from fallback.
+    try:
+        from interview_mux.execution_invalidation_profiles import (
+            apply_bounded_invalidation,
+            resolve_invalidation_profile,
+        )
 
-            ctx.clear_from(resume_stage, list(ANALYSIS_ORDER) + list(DELIVERY_ORDER))
-            plan["cleared_from"] = resume_stage
-        except Exception:
-            pass
+        resolved = resolve_invalidation_profile(ctx, primary.error_class)
+        profile_id = resolved.profile_id if resolved is not None else "structural_delivery"
+        apply_bounded_invalidation(
+            ctx,
+            profile_id,
+            reason=f"publishability:{primary.error_class}",
+        )
+        plan["cleared_from"] = resume_stage
+        plan["invalidation_profile"] = profile_id
+    except Exception as inv_exc:
+        plan["cleared_from"] = None
+        plan["invalidation_error"] = str(inv_exc)[:240]
     # Hard invalidate must not leave finalize without the just-committed EDL/ledger.
     # T6: always reemit from snapshot even if invalidate raised mid-way.
     if reemit_needed:

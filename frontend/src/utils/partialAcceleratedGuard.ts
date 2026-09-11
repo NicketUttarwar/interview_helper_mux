@@ -1,12 +1,18 @@
 import type { RunData } from "../types";
 import { isJobActivelyRunning } from "./jobStatus";
 import { gateOperatorMustAct } from "./operatorGates";
+import {
+  PARTIAL_MAY_PAUSE_GATES,
+  PARTIAL_MUST_ACT_GATES,
+} from "./partialOperatorGates";
+
+export { PARTIAL_MAY_PAUSE_GATES, PARTIAL_MUST_ACT_GATES } from "./partialOperatorGates";
 
 /** Mirrors backend DELIVERY_ORDER 5C slice for partial-auto guards. */
 export const DELIVERY_ORDER_5C: readonly string[] = [
-  "sound_design_vo_finalize",
   "vo_line_adjudicate",
   "vo_synthesize",
+  "sound_design_vo_finalize",
   "edl_narrative_audit",
   "edl",
   "assembly_preview",
@@ -176,4 +182,14 @@ export function shouldShowAcceleratedRunOverlay(
   opts?: { jobRunning?: boolean; peeking?: boolean },
 ): boolean {
   return resolveOperatorCover(run, gPublish, opts) === "accelerated";
+}
+
+/**
+ * D-02: After a successful gate POST, Manual keeps advance; Partial with an
+ * active driver refreshes only (driver owns resume).
+ */
+export function shouldAdvanceAfterGatePost(run: RunData | null | undefined): boolean {
+  if (!isPartialAcceleratedRun(run)) return true;
+  if (run?.meta?.partial_auto_driver_active) return false;
+  return true;
 }

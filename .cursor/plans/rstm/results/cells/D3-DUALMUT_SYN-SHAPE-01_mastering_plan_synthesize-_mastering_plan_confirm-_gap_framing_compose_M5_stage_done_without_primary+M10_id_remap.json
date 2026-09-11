@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-DUALMUT|SYN-SHAPE-01|mastering_plan_synthesize->mastering_plan_confirm->gap_framing_compose|M5_stage_done_without_primary+M10_id_remap",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "seed_block_ok:mastering_plan_synthesize"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

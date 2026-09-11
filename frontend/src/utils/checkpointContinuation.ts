@@ -16,6 +16,7 @@ import {
   isPipelineComplete,
   shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
+import { shouldAdvanceAfterGatePost } from "./partialAcceleratedGuard";
 import {
   markAutoNavConsumed,
   stageHadAutoNavigation,
@@ -486,7 +487,10 @@ export async function tryAutoContinuePipeline(
     const resolved = await tryAutopilotCheckpointResolution(opts);
     if (resolved) {
       refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
-      if (!autopilotBlocksAutoRun(refreshed, opts.config)) {
+      if (
+        !autopilotBlocksAutoRun(refreshed, opts.config) &&
+        shouldAdvanceAfterGatePost(refreshed)
+      ) {
         const started = await advancePipeline({
           ...continueOpts,
           run: refreshed,
@@ -505,6 +509,11 @@ export async function tryAutoContinuePipeline(
   }
 
   if (autopilotBlocksAutoRun(refreshed, opts.config)) {
+    return navigated;
+  }
+
+  // D-02: Partial + active driver owns resume — never dual-advance via autopilot.
+  if (!shouldAdvanceAfterGatePost(refreshed)) {
     return navigated;
   }
 

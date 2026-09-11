@@ -169,11 +169,36 @@ def _standards_for_pace(pace: str, underscore: str) -> dict[str, Any]:
     }
 
 
+# Invent gate is SDP-owned; operator overrides must never carry invent_* authority keys.
+_INVENT_OVERRIDE_DENY = frozenset(
+    {
+        "invent_gate",
+        "invent_obligation",
+        "invent_gate_reason",
+        "invent_waived",
+        "musical_direction_complete",
+    }
+)
+
+
+def _strip_invent_override_keys(overrides: dict[str, Any]) -> dict[str, Any]:
+    """Drop invent_* / musical_direction keys from operator override payloads."""
+    out: dict[str, Any] = {}
+    for key, val in overrides.items():
+        k = str(key)
+        if k in _INVENT_OVERRIDE_DENY or k.startswith("invent_"):
+            continue
+        out[k] = val
+    return out
+
+
 def _apply_operator_overrides(policy: dict[str, Any]) -> dict[str, Any]:
     overrides = policy.get("operator_overrides")
     if not isinstance(overrides, dict) or not overrides:
         return policy
     out = dict(policy)
+    overrides = _strip_invent_override_keys(overrides)
+    out["operator_overrides"] = overrides
     if overrides.get("underscore_policy"):
         out["underscore_policy"] = _norm_underscore(str(overrides["underscore_policy"]))
         mix = dict(out.get("mix_contract") or {})
@@ -193,6 +218,85 @@ def _apply_operator_overrides(policy: dict[str, Any]) -> dict[str, Any]:
         mix = dict(out.get("mix_contract") or {})
         mix.update(mix_ov)
         out["mix_contract"] = mix
+    return out
+
+
+def _clamp_density_after_overrides(policy: dict[str, Any]) -> dict[str, Any]:
+    """Desired dens clamps from underscore (before invent gate)."""
+    out = dict(policy)
+    underscore = str(out.get("underscore_policy") or "normal")
+    dens = dict(out.get("sfx_density") or {})
+    if underscore in {"skip", "sparse_or_skip"}:
+        dens["max_beds"] = 0
+        out["sfx_density"] = dens
+        mc = dict(out.get("mix_contract") or {})
+        mc["max_bed_coverage_ratio"] = 0.0
+        mc["underscore_policy"] = "skip" if underscore == "skip" else mc.get("underscore_policy", underscore)
+        out["mix_contract"] = mc
+        standards = dict(out.get("standards") or {})
+        standards["max_bed_coverage_ratio"] = 0.0
+        out["standards"] = standards
+    elif underscore == "sparse":
+        dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
+        out["sfx_density"] = dens
+    return out
+
+
+def beds_hard_zero(policy: dict[str, Any] | None) -> bool:
+    """True when policy forbids beds (skip underscore or max_beds≤0)."""
+    if not isinstance(policy, dict):
+        return False
+    underscore = str(policy.get("underscore_policy") or "")
+    if underscore in {"skip", "sparse_or_skip"}:
+        return True
+    dens = policy.get("sfx_density") if isinstance(policy.get("sfx_density"), dict) else {}
+    if dens.get("max_beds") is not None and int(dens.get("max_beds") or 0) <= 0:
+        return True
+    return False
+
+
+def musical_invent_blocked(policy: dict[str, Any] | None) -> bool:
+    """True when invent gate is blocked or beds are hard-zero."""
+    if not isinstance(policy, dict):
+        return False
+    if str(policy.get("invent_gate") or "") == "blocked":
+        return True
+    return beds_hard_zero(policy)
+
+
+def _finalize_policy(
+    ctx: RunContext,
+    policy: dict[str, Any],
+    *,
+    refresh_slots: bool,
+) -> dict[str, Any]:
+    """Apply desired sources → dens clamps → optional slots → invent gate LAST → hash.
+
+    Operator dens/underscore prefs are desired-only; invent_obligation always wins.
+    """
+    out = dict(policy)
+    ov = out.get("operator_overrides")
+    if isinstance(ov, dict):
+        out["operator_overrides"] = _strip_invent_override_keys(ov)
+    else:
+        out["operator_overrides"] = {}
+    out = _apply_operator_overrides(out)
+    out = _clamp_density_after_overrides(out)
+    if refresh_slots:
+        out["cue_slots"] = score_cue_slots(
+            ctx,
+            underscore=str(out.get("underscore_policy") or "normal"),
+            pace=str(out.get("pace_class") or "conversational"),
+            dens=dict(out.get("sfx_density") or {}),
+            mix_contract=dict(out.get("mix_contract") or {}),
+        )
+    invent_status = invent_obligation_status(ctx)
+    out = _apply_invent_obligation_gate(
+        out,
+        status=invent_status,
+        rationale=list(out.get("rationale") or []),
+    )
+    out["policy_hash"] = _policy_hash({k: v for k, v in out.items() if k != "policy_hash"})
     return out
 
 
@@ -318,6 +422,83 @@ def score_cue_slots(
     bed_slots = bed_slots[: dens.get("max_beds", 0)]
     other = other[: dens.get("max_punctuators", 0) + dens.get("max_foley", 0)]
     return bed_slots + other
+
+
+def invent_obligation_status(ctx: RunContext) -> dict[str, Any]:
+    """F-03: unpaid invent obligation blocks heuristic musical invent.
+
+    Returns keys: unpaid (bool), waived (bool), invent (str), pals (int), cues (int).
+    """
+    out: dict[str, Any] = {
+        "unpaid": False,
+        "waived": False,
+        "invent": "",
+        "pals": 0,
+        "cues": 0,
+    }
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return out
+    try:
+        sdp = ctx.read_json("understanding/sound_design_plan.json")
+    except Exception:
+        return out
+    if not isinstance(sdp, dict):
+        return out
+    coh = sdp.get("coherence") if isinstance(sdp.get("coherence"), dict) else {}
+    meta = sdp.get("_meta") if isinstance(sdp.get("_meta"), dict) else {}
+    invent = str(coh.get("invent_obligation") or meta.get("invent_obligation") or "").strip()
+    waived = bool(coh.get("invent_waived") or meta.get("invent_waived"))
+    pals = sdp.get("palettes") if isinstance(sdp.get("palettes"), list) else []
+    cues: list[Any] = []
+    fp = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    for key in ("podcast", "flow1"):
+        flow = fp.get(key) if isinstance(fp.get(key), dict) else {}
+        if isinstance(flow.get("cues"), list):
+            cues.extend(flow["cues"])
+    out.update(
+        {
+            "invent": invent,
+            "waived": waived,
+            "pals": len(pals),
+            "cues": len(cues),
+            "unpaid": bool(invent == "sound_design_plan" and not pals and not cues and not waived),
+        }
+    )
+    return out
+
+
+def _apply_invent_obligation_gate(
+    policy: dict[str, Any],
+    *,
+    status: dict[str, Any],
+    rationale: list[str],
+) -> dict[str, Any]:
+    """Strip invented musical direction while invent obligation is unpaid."""
+    if not status.get("unpaid"):
+        policy["invent_gate"] = "clear" if not status.get("invent") else "satisfied"
+        return policy
+    dens = dict(policy.get("sfx_density") or {})
+    dens["max_beds"] = 0
+    dens["max_punctuators"] = min(int(dens.get("max_punctuators") or 0), 0)
+    dens["max_foley"] = min(int(dens.get("max_foley") or 0), 0)
+    policy["sfx_density"] = dens
+    mix = dict(policy.get("mix_contract") or {})
+    mix["max_bed_coverage_ratio"] = 0.0
+    mix["underscore_policy"] = "skip"
+    policy["mix_contract"] = mix
+    policy["underscore_policy"] = "skip"
+    standards = dict(policy.get("standards") or {})
+    standards["max_bed_coverage_ratio"] = 0.0
+    policy["standards"] = standards
+    # Never present heuristic cue invent as success while obligation unpaid.
+    policy["cue_slots"] = []
+    policy["invent_gate"] = "blocked"
+    policy["invent_obligation"] = str(status.get("invent") or "sound_design_plan")
+    policy["invent_gate_reason"] = "unpaid_invent_obligation_empty_palettes_cues"
+    policy["musical_direction_complete"] = False
+    rationale.append("invent_gate=blocked:unpaid_sound_design_plan_obligation")
+    policy["rationale"] = list(rationale)
+    return policy
 
 
 def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, Any]:
@@ -470,26 +651,8 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     if plan_mode:
         policy["narrative_mode_hint"] = plan_mode
         policy["mastering_plan_bound"] = True
-    policy = _apply_operator_overrides(policy)
-    # Recompute dens beds if operator forced skip
-    if policy["underscore_policy"] in {"skip", "sparse_or_skip"}:
-        dens2 = dict(policy["sfx_density"])
-        dens2["max_beds"] = 0
-        policy["sfx_density"] = dens2
-        mc = dict(policy["mix_contract"])
-        mc["max_bed_coverage_ratio"] = 0.0
-        policy["mix_contract"] = mc
-
-    if refresh_slots:
-        policy["cue_slots"] = score_cue_slots(
-            ctx,
-            underscore=str(policy["underscore_policy"]),
-            pace=str(policy["pace_class"]),
-            dens=dict(policy["sfx_density"]),
-            mix_contract=dict(policy["mix_contract"]),
-        )
-    policy["policy_hash"] = _policy_hash(policy)
-    return policy
+    # F-03: invent gate always last via finalize (overrides → dens → slots → invent → hash).
+    return _finalize_policy(ctx, policy, refresh_slots=refresh_slots)
 
 
 def load_policy(ctx: RunContext) -> dict[str, Any] | None:
@@ -498,7 +661,8 @@ def load_policy(ctx: RunContext) -> dict[str, Any] | None:
     data = ctx.read_json(POLICY_PATH)
     if not isinstance(data, dict):
         return None
-    return _apply_operator_overrides(data)
+    # Re-gate on every load so corrupt disk (blocked + dens beds) cannot bypass invent.
+    return _finalize_policy(ctx, data, refresh_slots=False)
 
 
 def resolve_mix_contract(ctx: RunContext) -> dict[str, Any]:
@@ -599,15 +763,18 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
     if not policy:
         policy = build_policy(ctx, refresh_slots=True)
     else:
-        policy["cue_slots"] = score_cue_slots(
-            ctx,
-            underscore=str(policy.get("underscore_policy") or "normal"),
-            pace=str(policy.get("pace_class") or "conversational"),
-            dens=dict(policy.get("sfx_density") or {}),
-            mix_contract=dict(policy.get("mix_contract") or {}),
-        )
-        policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
+        # Rescore then invent-last (load_policy already re-gated without rescoring).
+        policy = _finalize_policy(ctx, policy, refresh_slots=True)
     policy = _annotate_slots_with_speaker_volleys(ctx, policy)
+    # Annotate may mutate slots; invent must still win if unpaid.
+    invent_status = invent_obligation_status(ctx)
+    if invent_status.get("unpaid"):
+        policy = _apply_invent_obligation_gate(
+            policy,
+            status=invent_status,
+            rationale=list(policy.get("rationale") or []),
+        )
+    policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
     # Commit even when called from sound_design_plan staging — that stage only
     # flushes SDP, so a staged policy write would be discarded on approve.
     try:
@@ -650,24 +817,11 @@ def _annotate_slots_with_speaker_volleys(ctx: RunContext, policy: dict[str, Any]
 def save_operator_overrides(ctx: RunContext, overrides: dict[str, Any]) -> dict[str, Any]:
     policy = load_policy(ctx) or build_policy(ctx, refresh_slots=False)
     merged = dict(policy.get("operator_overrides") or {})
-    merged.update(overrides if isinstance(overrides, dict) else {})
-    policy["operator_overrides"] = merged
-    policy = _apply_operator_overrides(policy)
-    if policy["underscore_policy"] in {"skip", "sparse"}:
-        dens = dict(policy.get("sfx_density") or {})
-        if policy["underscore_policy"] == "skip":
-            dens["max_beds"] = 0
-        else:
-            dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
-        policy["sfx_density"] = dens
-    policy["cue_slots"] = score_cue_slots(
-        ctx,
-        underscore=str(policy["underscore_policy"]),
-        pace=str(policy["pace_class"]),
-        dens=dict(policy["sfx_density"]),
-        mix_contract=dict(policy["mix_contract"]),
-    )
-    policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
+    incoming = _strip_invent_override_keys(overrides if isinstance(overrides, dict) else {})
+    merged.update(incoming)
+    policy["operator_overrides"] = _strip_invent_override_keys(merged)
+    # Desired prefs live in operator_overrides; invent gate applied last in finalize.
+    policy = _finalize_policy(ctx, policy, refresh_slots=True)
     ctx.write_json(POLICY_PATH, policy)
     return policy
 

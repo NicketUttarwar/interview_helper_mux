@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-SEED|soundscape_policy_build->episode_structure_compose|invariant|M8_seated_vo_no_wav",
+  "status": "PASS",
+  "tier": "D2-SEED",
+  "notes": [
+    "seed_block_ok:soundscape_policy_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:35Z"
+}

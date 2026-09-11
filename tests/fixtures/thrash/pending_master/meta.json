@@ -1,0 +1,8 @@
+{
+  "description": "Pending-only master.wav under master_finalize staging",
+  "pending_master_rel": ".pending_writes/master_finalize/master/master.wav",
+  "expect": {
+    "committed_master_wav": false,
+    "walk_to_master": true
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-FANIN|content_context+content_brief_reanchor+missing_framing|M6_pending_shadow",
+  "status": "PASS",
+  "tier": "D3-FANIN",
+  "notes": [
+    "seed_block_ok:content_context"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExecutionStatus",
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer" },
+    "run_id": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "current_pin": { "type": "string" },
+    "intent": { "type": "string" },
+    "predicate_token": { "type": "string" },
+    "last_progress_at": { "type": "string" },
+    "progress_sources": { "type": "array", "items": { "type": "string" } },
+    "progress_stale": { "type": "boolean" },
+    "progress_why": { "type": "string" },
+    "lease": { "type": "object", "additionalProperties": true },
+    "job": { "type": "object", "additionalProperties": true },
+    "seat_freeze": { "type": "object", "additionalProperties": true },
+    "reopen_gate": { "type": "object", "additionalProperties": true },
+    "sticky": { "type": "object", "additionalProperties": true },
+    "forensics": { "type": "object", "additionalProperties": true },
+    "blocker_class": { "type": "string" },
+    "blocker_human": { "type": "string" }
+  },
+  "additionalProperties": true
+}

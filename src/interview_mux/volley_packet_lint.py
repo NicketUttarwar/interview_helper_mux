@@ -9,6 +9,7 @@ _FORBIDDEN_KEY_SUBSTR = (
     "path_ok",
     "file_exists",
     "exists_on_disk",
+    "artifact_exists",
     "e2e_soft",
     "e2e_heal",
     "fingerprint_hash",
@@ -41,7 +42,7 @@ _TAPE_KEYS = (
 
 def _forbidden_key(key: str) -> bool:
     k = str(key or "").strip().lower()
-    if k in {"exists", "path_ok", "stage_done"}:
+    if k in {"exists", "path_ok", "stage_done", "artifact_exists"}:
         return True
     return any(s in k for s in _FORBIDDEN_KEY_SUBSTR)
 

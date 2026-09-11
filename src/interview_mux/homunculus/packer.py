@@ -56,27 +56,76 @@ _HOST_PACKET_MARKERS = (
 )
 
 
-def pack_conductor_context(
+def _prereq_content_hash(ctx: RunContext, rel: str) -> str | None:
+    """Short content fingerprint for LLM readiness (no path/stamp metadata)."""
+    if not ctx.artifact_exists(rel):
+        return None
+    try:
+        from interview_mux.mastering_context_compiler import content_hash
+
+        data = ctx.read_json(rel)
+        return str(content_hash(data))[:16]
+    except Exception:
+        return None
+
+
+def _seed_ready_legal_next(ctx: RunContext, candidates: list[str]) -> list[str]:
+    """Intersect delivery candidates with seed readiness (E-05)."""
+    try:
+        from interview_mux.homunculus.runtime import _seed_prereq_block
+    except Exception:
+        return list(candidates)
+    out: list[str] = []
+    for sid in candidates:
+        try:
+            if _seed_prereq_block(ctx, sid) is None:
+                out.append(sid)
+        except Exception:
+            # Fail-open for host listing only — dispatch still pins via _dispatch_tool.
+            out.append(sid)
+    return out
+
+
+def pack_conductor_context_views(
     ctx: RunContext,
     *,
     target_stage: str = "topic_coverage_audit",
-) -> str:
-    """1B + 11B: delivery prereq checklist, stage plan, readiness for each conductor turn."""
+) -> dict[str, Any]:
+    """Host stamps for legality vs tape/readiness-only view for the conductor LLM.
+
+    SYN-PACK-01: ``host_prereq_view`` may keep ``stage_done`` / ``artifact_exists``
+    for host filtering. ``llm_conductor_view`` must never contain denylist keys
+    (stage_done, artifact_exists, exists, run_meta) — only ready_bool, content
+    hashes, and tape/readiness summaries.
+    """
     from interview_mux.homunculus.agenda import (
         DELIVERY_ANALYSIS_PREREQS,
         resolve_stage_plan,
         stage_outputs_present,
     )
 
-    prereq_rows: list[dict[str, Any]] = []
+    host_prereq_rows: list[dict[str, Any]] = []
+    llm_prereq_rows: list[dict[str, Any]] = []
     for prereq_stage, rel in DELIVERY_ANALYSIS_PREREQS:
-        prereq_rows.append(
+        exists = ctx.artifact_exists(rel)
+        done = ctx.is_done(prereq_stage)
+        outputs = stage_outputs_present(ctx, prereq_stage)
+        host_prereq_rows.append(
             {
                 "stage": prereq_stage,
                 "artifact": rel,
-                "artifact_exists": ctx.artifact_exists(rel),
-                "stage_done": ctx.is_done(prereq_stage),
-                "outputs_present": stage_outputs_present(ctx, prereq_stage),
+                "artifact_exists": exists,
+                "stage_done": done,
+                "outputs_present": outputs,
+            }
+        )
+        llm_prereq_rows.append(
+            {
+                "stage": prereq_stage,
+                "artifact": rel,
+                "ready_bool": bool(outputs or (done and exists)),
+                "outputs_present": outputs,
+                "content_hash": _prereq_content_hash(ctx, rel),
             }
         )
     try:
@@ -106,17 +155,44 @@ def pack_conductor_context(
         from interview_mux.homunculus.agenda import remaining_stages
 
         rem = remaining_stages(ctx, "delivery")
-        legal_next = filter_delivery_candidates(ctx, rem)[:12]
+        legal_next = _seed_ready_legal_next(
+            ctx, filter_delivery_candidates(ctx, rem)[:24]
+        )[:12]
     except Exception:
         legal_next = []
-    blob = json.dumps(
+
+    host_prereq_view = {
+        "delivery_analysis_prereqs": host_prereq_rows,
+        "resolve_stage_plan": stage_plan,
+        "delivery_readiness": readiness,
+        "pipeline_mode": pipeline_mode,
+        "legal_next_stages": legal_next,
+    }
+    # LLM view: strip denylist keys; readiness uses ready_bool / hashes only.
+    llm_conductor_view = strip_forbidden_metadata(
         {
-            "delivery_analysis_prereqs": prereq_rows,
+            "delivery_analysis_prereqs": llm_prereq_rows,
             "resolve_stage_plan": stage_plan,
             "delivery_readiness": readiness,
             "pipeline_mode": pipeline_mode,
             "legal_next_stages": legal_next,
-        },
+        }
+    )
+    return {
+        "host_prereq_view": host_prereq_view,
+        "llm_conductor_view": llm_conductor_view,
+    }
+
+
+def pack_conductor_context(
+    ctx: RunContext,
+    *,
+    target_stage: str = "topic_coverage_audit",
+) -> str:
+    """1B + 11B: LLM-safe conductor context (no stage_done / artifact_exists)."""
+    views = pack_conductor_context_views(ctx, target_stage=target_stage)
+    blob = json.dumps(
+        views["llm_conductor_view"],
         ensure_ascii=False,
         default=str,
     )

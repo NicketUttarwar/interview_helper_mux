@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-PC|sfx_prompt_craft->mix|invariant|M10_id_remap",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:55Z"
+}

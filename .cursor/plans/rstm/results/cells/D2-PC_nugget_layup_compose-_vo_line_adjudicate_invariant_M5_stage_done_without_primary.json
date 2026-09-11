@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-PC|nugget_layup_compose->vo_line_adjudicate|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "incompleteness_ok:understanding/nugget_layup_plan.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:54Z"
+}

@@ -80,3 +80,20 @@ Default **`mastering.air_order_integrity.block_ranking_on_critical: false`** dur
 ## What stays decentralized
 
 Ranking LLM choices, hard-keep/topo, CTA, transitions copy, finale-tail / 051-signoff / late-intro / post-coda specialist repairs — unchanged internally. The constitution catches **gaps between** specialists (e.g. exec_188 mid-arc intro replay).
+
+---
+
+## VO seat freeze (Pillar B)
+
+Seat/omit fingerprint lives under `run_meta.delivery_epoch.vo_seats_freeze` (`seat_authority.py`):
+
+| Stamp | When |
+|-------|------|
+| **soft** | After successful `air_contract_sanitize` |
+| **hard** | After `vo_synthesize` + seated WAV parity |
+
+After soft freeze, writers that would change the seat fingerprint must **no-op**, take an **operator unlock** (G1 / gap CRUD), or pass the **seat rewrite meta-gate**. `unlock_delivery_epoch(..., unlock_seats=False)` leaves seats frozen by default.
+
+Holistic review (`holistic_seat_review`) gates `transitions` / `vo_line_adjudicate` / `edl` inputs and pins resume to `air_contract_sanitize` (not Pass B remutate).
+
+See also: [`execution-status.md`](execution-status.md) · `mastering/seat_rewrite_gate.jsonl` · `mastering/timeline_reopen_gate.jsonl`.

@@ -180,6 +180,15 @@ def optimizer_status_payload(ctx: RunContext) -> dict[str, Any]:
     state = load_optimizer_state(ctx)
     best = load_best(ctx)
     archive = load_archive(ctx)
+    auto_started = False
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict):
+            row = meta.get("timeline_optimizer")
+            if isinstance(row, dict) and row.get("auto_started"):
+                auto_started = True
+    except Exception:
+        auto_started = False
     return {
         "status": state.get("status"),
         "mode": state.get("mode"),
@@ -190,6 +199,7 @@ def optimizer_status_payload(ctx: RunContext) -> dict[str, Any]:
         "plateau_streak": state.get("plateau_streak"),
         "stop_requested": bool(state.get("stop_requested")),
         "running": state.get("status") == "running",
+        "auto_started": auto_started,
         "archive_count": len(archive.get("candidates") or []),
         "best": {
             "candidate_id": (best or {}).get("candidate_id"),

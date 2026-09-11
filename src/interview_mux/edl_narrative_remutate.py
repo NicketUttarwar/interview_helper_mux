@@ -347,6 +347,37 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
 
     Does not rewind ranking or recompose layup. Does not soft-pass the audit.
     """
+    try:
+        from interview_mux.seat_authority import soft_freeze_active, request_seat_rewrite
+
+        if soft_freeze_active(ctx):
+            dec = request_seat_rewrite(
+                ctx,
+                proposed_delta={"ops": [], "from": "edl_narrative_host_repair"},
+                reason="edl_narrative_host_repair",
+                symptoms=["narrative_host_repair"],
+            )
+            if not dec.get("allow"):
+                return {
+                    "notes": ["seat_freeze_blocked_host_repair"],
+                    "cleared": [],
+                    "from_stage": "edl_narrative_audit",
+                    "gate": dec,
+                }
+    except Exception:
+        # b10 fail-closed when freeze may be active / unknown
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            frozen = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+        except Exception:
+            frozen = True
+        if frozen:
+            return {
+                "notes": ["seat_freeze_blocked_host_repair_fail_closed"],
+                "cleared": [],
+                "from_stage": "edl_narrative_audit",
+            }
     notes: list[str] = []
     pending_adj: list[tuple[str, str]] = []
     try:
@@ -765,6 +796,39 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
 
 def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Clear mapped stage markers so delivery can re-enter. Does not soft-pass audit."""
+    try:
+        from interview_mux.timeline_reopen_meta_gate import (
+            INTENT_NARRATIVE,
+            decide_timeline_reopen,
+        )
+
+        gate = decide_timeline_reopen(
+            ctx,
+            intent=INTENT_NARRATIVE,
+            detail={"plan_actions": list((plan or {}).get("actions") or []) if isinstance(plan, dict) else []},
+        )
+        if not gate.get("allow"):
+            # Host-repair-only path still attempted; stage clears refused
+            host = apply_edl_narrative_host_repair(ctx)
+            return {
+                "ok": False,
+                "reason": "refused_low_gain",
+                "gate": gate,
+                "host_fixed": bool(host.get("notes")),
+                "notes": list(host.get("notes") or []) + ["timeline_reopen_refused"],
+                "cleared": [],
+            }
+    except Exception:
+        # c8 fail-closed: host-repair only, no stage clears
+        host = apply_edl_narrative_host_repair(ctx)
+        return {
+            "ok": False,
+            "reason": "refused_low_gain",
+            "gate": {"allow": False, "refuse_reason": "decide_error_fail_closed"},
+            "host_fixed": bool(host.get("notes")),
+            "notes": list(host.get("notes") or []) + ["timeline_reopen_fail_closed"],
+            "cleared": [],
+        }
     host = apply_edl_narrative_host_repair(ctx)
     doc = plan or (
         ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else None

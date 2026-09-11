@@ -332,6 +332,7 @@ def hosted_framing_requires_synthetic_vo(ctx: RunContext) -> bool:
     """Min-3 cloned host questions — hosted 1:1 with G-Framing Yes only.
 
     Panels / co-host / sparse-host stay auto-Yes but are not held to this floor.
+    C-04: G1 optional skip sticky-waives this floor (XOR with seat floor).
     """
     try:
         from interview_mux.gap_vo_gates import gap_framing_enabled
@@ -342,6 +343,18 @@ def hosted_framing_requires_synthetic_vo(ctx: RunContext) -> bool:
         return False
     if gap_fill_was_skipped(ctx):
         return False
+    # C-04: sticky XOR — skip ⇒ floor waived.
+    try:
+        if ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            if isinstance(meta, dict) and meta.get("hosted_framing_floor_waived"):
+                return False
+        from interview_mux.gates import g1_vo_was_skipped_optional
+
+        if g1_vo_was_skipped_optional(ctx):
+            return False
+    except Exception:
+        pass
     return _topology_class(ctx) in _ELIGIBLE_TOPOLOGY_CLASSES
 
 

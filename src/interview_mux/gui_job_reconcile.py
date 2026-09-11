@@ -219,6 +219,33 @@ def reconcile_sticky_needs_operator_job(
         meta = {}
     from interview_mux.operator_gates import should_stamp_needs_operator
 
+    # ESR: clear sticky needs_operator while producer progress is fresh
+    try:
+        from interview_mux.execution_status import may_hard_halt, read_execution_status
+
+        esr = read_execution_status(ctx)
+        pin = str(esr.get("current_pin") or stage or "")
+        if esr.get("progress_stale") is False or (
+            pin and not may_hard_halt(ctx, pin=pin)
+        ):
+            if meta.get("needs_operator"):
+                try:
+
+                    def _clear_esr(m: dict[str, Any]) -> None:
+                        m.pop("needs_operator", None)
+                        m.pop("needs_operator_stage", None)
+                        m.pop("needs_operator_reason", None)
+
+                    ctx.mutate_run_meta(_clear_esr)
+                except Exception:
+                    pass
+            out = dict(job)
+            out["status"] = "running" if str(job.get("status")) == "needs_operator" else job.get("status")
+            out["message"] = "ESR progress fresh — cleared sticky needs_operator"
+            return out
+    except Exception:
+        pass
+
     if should_stamp_needs_operator(stage, reason, meta=meta):
         return job
     if meta.get("needs_operator"):

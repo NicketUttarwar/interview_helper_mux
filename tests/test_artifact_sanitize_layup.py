@@ -86,3 +86,48 @@ def test_sanitize_layup_no_fake_freshness_via_adopt_order_alone() -> None:
     assert result.doc.get("ordered_segment_ids") == before_ids
     assert result.doc.get("_meta", {}).get("needs_recompose") is True
     assert not result.ok
+
+
+def test_sanitize_layup_justified_skips_not_stuffed() -> None:
+    """High justified skip ratio must not force endless recompose."""
+    ctx = RunContext(create=True)
+    ids = [f"seg_{i:03d}" for i in range(1, 11)]
+    _write_selection(ctx, ids)
+    layups = []
+    for i, sid in enumerate(ids):
+        if i < 2:
+            layups.append(
+                {
+                    "target_segment_id": sid,
+                    "line_id": f"vo_layup_{sid}",
+                    "text": f"Host unlocks the next beat for {sid} with a concrete cue.",
+                    "skip": False,
+                    "target_beat": "beat",
+                    "listener_need_entering_T": "need",
+                    "forward_unlock": "unlock",
+                }
+            )
+        else:
+            layups.append(
+                {
+                    "target_segment_id": sid,
+                    "line_id": f"vo_layup_{sid}",
+                    "skip": True,
+                    "skip_reason_code": "self_explanatory_native",
+                    "compensating_path": "native_self_orients",
+                    "target_beat": "beat",
+                    "listener_need_entering_T": "need",
+                    "forward_unlock": "unlock",
+                }
+            )
+    result = sanitize_nugget_layup_plan(
+        ctx,
+        {
+            "ordered_segment_ids": ids,
+            "layups": layups,
+            "status": "ok",
+            "_meta": {"needs_recompose": True},
+        },
+    )
+    assert "layup_skip_stuffed_needs_recompose" not in result.errors
+    assert not (result.doc.get("_meta") or {}).get("needs_recompose")

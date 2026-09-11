@@ -157,6 +157,35 @@ def invalidate_after_preclean_accept(ctx: RunContext, scope: str) -> None:
     if scope == "vo_pickup":
         for stage in ("audio_preclean", "vo_ingest"):
             ctx.path(".stage_done", stage).unlink(missing_ok=True)
+        # Pillar C: refuse post-assembly edl clear when gain gate says no.
+        try:
+            asm = ctx.final_path("master", "assembly.wav")
+            if asm.is_file() and asm.stat().st_size > 0:
+                from interview_mux.timeline_reopen_meta_gate import (
+                    INTENT_MIX_REWALK,
+                    decide_timeline_reopen,
+                )
+
+                gate = decide_timeline_reopen(
+                    ctx,
+                    intent=INTENT_MIX_REWALK,
+                    detail={"from_stage": "edl", "source": "preclean_vo_pickup"},
+                )
+                if not gate.get("allow"):
+                    ctx.log(
+                        "preclean vo_pickup: edl clear refused by timeline reopen gate "
+                        f"({gate.get('refuse_reason')})",
+                        level="warning",
+                        stage="audio_preclean",
+                    )
+                    return
+        except Exception:
+            ctx.log(
+                "preclean vo_pickup: edl clear fail-closed refuse on gate error",
+                level="warning",
+                stage="audio_preclean",
+            )
+            return
         ctx.clear_from("edl", DELIVERY_ORDER)
         ctx.log(
             "Invalidated vo_ingest and downstream flow stages after pickup pre-clean accept.",

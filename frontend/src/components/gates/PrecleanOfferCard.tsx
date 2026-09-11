@@ -89,10 +89,41 @@ export function PrecleanOfferCard({
     }
   };
 
+  const skipCleaning = async () => {
+    if (!runId || submitting || jobBlocksUi || actionBusy) return;
+    setSubmitting(true);
+    try {
+      await api(`/api/runs/${runId}/preclean-offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkpoint: offer.checkpoint,
+          action: "dismiss",
+          scope: offer.scope,
+        }),
+      });
+      showToast("Skipped audio cleaning.");
+      appendClientLog(
+        isBeforeIngest
+          ? "Optional pre-clean skipped — continuing without DeepFilterNet."
+          : "Optional pickup cleaning skipped.",
+        "info",
+        "audio_preclean",
+      );
+      await refreshRun();
+      closeActionModal();
+    } catch (e) {
+      const msg = formatApiError(e, "Skip audio cleaning");
+      appendClientLog(msg, "error", "audio_preclean");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="quality-offer-card preclean-offer-card">
       <h4 className="quality-offer-title">
-        {isBeforeIngest ? "Audio pre-clean" : "Optional pickup cleaning"}
+        {isBeforeIngest ? "Optional audio pre-clean" : "Optional pickup cleaning"}
       </h4>
       <p className="hint">{offer.prompt}</p>
       {run?.journey?.source_readiness?.band ? (
@@ -103,12 +134,21 @@ export function PrecleanOfferCard({
             : ""}
         </p>
       ) : null}
-      {isBeforeIngest ? (
-        <p className="muted">Required before ingest — reduces background noise on the source recording.</p>
-      ) : (
-        <p className="muted">Optional — clean new pickup recordings before VO ingest.</p>
-      )}
+      <p className="muted">
+        {isBeforeIngest
+          ? "Optional — reduces background noise on the source recording. You can Skip and ingest as-is."
+          : "Optional — clean new pickup recordings before VO ingest, or Skip."}
+      </p>
       <div className="flow-choice preclean-offer-actions">
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={submitting || jobBlocksUi || actionBusy}
+          data-testid={`preclean-skip-${offer.checkpoint}`}
+          onClick={() => void skipCleaning()}
+        >
+          Skip
+        </button>
         <button
           type="button"
           className="btn primary"

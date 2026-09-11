@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-DUALMUT|XC-SHIP-02|master_finalize->master_finalize->master_transcript_build|M5_stage_done_without_primary+M8_seated_vo_no_wav",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "incompleteness_ok:master/master.wav is pending",
+    "repeat_path"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

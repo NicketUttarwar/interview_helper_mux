@@ -1265,33 +1265,36 @@ def line_has_approved_vo_backend(ctx: RunContext, line_id: str) -> bool:
     return True
 
 
-def nuke_all_synth_wavs_on_adjudicate_change(ctx: RunContext) -> int:
-    """1A: delete synth WAVs and invalidate synthesis so vo_synthesize must re-run."""
+def nuke_all_synth_wavs_on_adjudicate_change(
+    ctx: RunContext,
+    *,
+    line_ids: list[str] | None = None,
+) -> int:
+    """Delete gap-VO pickup WAVs so vo_synthesize re-runs for changed lines.
+
+    Never glob-deletes ``vo_pickup/*.wav`` (that wiped transition ``tr_*`` bridges
+    and every untouched layup WAV — exec_11130 thrash). Only script line ids from
+    gap_report (or an explicit ``line_ids`` subset) are removed.
+    """
+    script_lines = _vo_pickup_script_lines(ctx)
+    if line_ids is None:
+        targets = list(script_lines.keys())
+    else:
+        targets = [str(x) for x in line_ids if str(x).strip()]
     deleted = 0
-    pickup = ctx.path("vo_pickup")
-    if pickup.is_dir():
-        for sub in ("", "synthesized"):
-            root = pickup if not sub else pickup / sub
-            if not root.is_dir():
-                continue
-            for path in root.glob("*.wav"):
-                try:
-                    path.unlink(missing_ok=True)
-                    deleted += 1
-                except OSError:
-                    pass
-    lines = _vo_pickup_script_lines(ctx)
-    line_ids = list(lines.keys())
-    if line_ids:
-        invalidate_synthesis_entries(ctx, line_ids)
+    for lid in targets:
+        deleted += int(_delete_pickup_wavs_for_line(ctx, lid) or 0)
+    if targets:
+        invalidate_synthesis_entries(ctx, targets)
     unmarked = _unmark_spoken_text_cascade_stages(ctx)
     _clear_g1_complete_milestone(ctx)
-    if deleted or line_ids:
+    if deleted or targets:
         ctx.log(
             f"Adjudicate mutation: removed {deleted} synth WAV(s); "
-            f"invalidated {len(line_ids)} synthesis row(s); "
+            f"invalidated {len(targets)} synthesis row(s); "
             f"unmarked={unmarked[:6]}",
             level="warning",
             stage="vo_line_adjudicate",
+            detail={"line_ids": targets[:24]},
         )
     return deleted

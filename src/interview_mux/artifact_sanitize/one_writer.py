@@ -370,7 +370,7 @@ def commit_sound_design_plan_doc(
             skip_handoff=skip_handoff,
             write_committed=False,
             refuse_if_unsanitary=False,
-            action_class=reason or "commit_sound_design_plan",
+            action_class="sound_design_plan",
         )
         return ctx.final_path(*SDP_REL.split("/"))
     finally:

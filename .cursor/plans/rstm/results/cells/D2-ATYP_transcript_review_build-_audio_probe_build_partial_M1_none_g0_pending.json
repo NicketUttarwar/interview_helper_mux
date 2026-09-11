@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|transcript_review_build->audio_probe_build|partial|M1_none|g0_pending",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:transcript_review_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:46Z"
+}

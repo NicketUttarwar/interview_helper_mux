@@ -44,6 +44,16 @@ def fast_gpu_exclusive_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "0")
 
 
+@pytest.fixture(autouse=True)
+def clear_write_staging_context() -> None:
+    """ContextVar staging must not leak across tests (writes route into .pending_writes)."""
+    from interview_mux.write_staging import exit_stage_staging
+
+    exit_stage_staging()
+    yield
+    exit_stage_staging()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: live / long-running integration (MusicGen weights)")
     config.addinivalue_line("markers", "allow_network: permit outbound sockets")

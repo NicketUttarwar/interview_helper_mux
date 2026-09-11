@@ -183,8 +183,15 @@ def validate_or_degrade(
     if not accepted:
         plan = demote_hybrid(plan)
 
-    status = plan.get("plan_status") or "complete"
-    if status not in ("complete", "degraded", "forced_sparse", "absent_legacy"):
+    status = plan.get("plan_status")
+    if not status:
+        # A-03: missing plan_status must not default to authoritative complete.
+        plan["plan_status"] = "degraded"
+        reasons = list(plan.get("degradation_reasons") or [])
+        if "missing_plan_status" not in reasons:
+            reasons.append("missing_plan_status")
+        plan["degradation_reasons"] = reasons
+    elif status not in ("complete", "degraded", "forced_sparse", "absent_legacy"):
         plan["plan_status"] = "degraded"
         reasons = list(plan.get("degradation_reasons") or [])
         reasons.append("unknown_plan_status")
@@ -249,6 +256,53 @@ def soft_gate_enabled(cfg: dict[str, Any] | None = None) -> bool:
     if not isinstance(shape, dict):
         return True
     return shape.get("enable", True) is not False
+
+
+def research_llm_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    """A-03: mastering.research.llm.enabled — wire prompts when true."""
+    from interview_mux.config import merged_config
+
+    root = cfg if isinstance(cfg, dict) else merged_config()
+    research = (root.get("mastering") or {}).get("research") or {}
+    llm = research.get("llm") if isinstance(research, dict) else None
+    if not isinstance(llm, dict):
+        return False
+    return llm.get("enabled") is True
+
+
+def shape_llm_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    """A-03: mastering.shape.llm.enabled — authoritative complete requires LLM acceptance."""
+    from interview_mux.config import merged_config
+
+    root = cfg if isinstance(cfg, dict) else merged_config()
+    shape = (root.get("mastering") or {}).get("shape") or {}
+    llm = shape.get("llm") if isinstance(shape, dict) else None
+    if not isinstance(llm, dict):
+        return False
+    return llm.get("enabled") is True
+
+
+def soft_gate_may_claim_complete(cfg: dict[str, Any] | None = None) -> bool:
+    """A-03: soft_gate/heuristic is never authoritative — always False.
+
+    Decoupled from research.llm / shape.llm: plan authority is Shape-LLM-only
+    via claim_plan_complete(source=\"llm\"). Research flag only gates routing.
+    """
+    _ = cfg  # reserved for future policy; soft-gate never claims complete
+    return False
+
+
+def claim_plan_complete(
+    *,
+    source: Literal["llm", "soft_gate"],
+    cfg: dict[str, Any] | None = None,
+) -> PlanStatus:
+    """Authoritative complete only from LLM when shape.llm enabled; soft_gate always degraded."""
+    if source == "llm":
+        return "complete" if shape_llm_enabled(cfg) else "degraded"
+    if source == "soft_gate":
+        return "degraded"
+    return "degraded"
 
 
 def clear_rebuild_scope(ctx: RunContext, scope: str) -> list[str]:

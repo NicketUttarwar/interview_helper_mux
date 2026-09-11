@@ -71,6 +71,16 @@ export function findPendingFocusStage(
   if (run.transcript_review_pending) return "transcript_review";
   if (run.gap_framing_decision_pending) return "missing_framing";
 
+  // ESR: if progress is fresh, do not pin sticky needs_operator_stage
+  const esr = (run.meta as { execution_status?: { progress_stale?: boolean; lease?: { active?: boolean }; current_pin?: string } } | undefined)
+    ?.execution_status
+    ?? (run as { execution_status?: { progress_stale?: boolean; lease?: { active?: boolean }; current_pin?: string } }).execution_status;
+  if (esr && esr.progress_stale === false) {
+    // Prefer live job stage over sticky halt while progress is fresh (lease optional)
+    const live = run.job?.current_stage || run.job?.stage || esr.current_pin;
+    if (live) return String(live);
+  }
+
   if (run.meta?.needs_operator && run.meta?.needs_operator_stage) {
     return String(run.meta.needs_operator_stage);
   }

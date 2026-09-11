@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-PC|connector_fuse_pass_pre_ranking->sound_design_plan|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "incompleteness_ok:analysis/connector_fuse_rounds.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:53Z"
+}

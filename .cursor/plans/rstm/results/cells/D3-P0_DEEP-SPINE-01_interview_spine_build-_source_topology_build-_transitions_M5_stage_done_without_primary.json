@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-P0|DEEP-SPINE-01|interview_spine_build->source_topology_build->transitions|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "seed_block_ok:interview_spine_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:03Z"
+}

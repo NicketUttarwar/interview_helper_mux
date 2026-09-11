@@ -28,7 +28,40 @@ def _next_line_id(lines: list[dict[str, Any]]) -> str:
     return f"line_{n:03d}"
 
 
+def _operator_unlock_if_frozen(ctx: RunContext, *, reason: str) -> bool:
+    """B12: gap CRUD after soft freeze is an explicit operator unlock path."""
+    try:
+        from interview_mux.seat_authority import (
+            operator_seat_unlock_note,
+            soft_freeze_active,
+        )
+
+        if soft_freeze_active(ctx):
+            # Operator unlock note — mutation proceeds; caller re-stamps after write.
+            operator_seat_unlock_note(ctx, reason=reason)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _operator_restamp_after_mutation(
+    ctx: RunContext, *, reason: str, was_frozen: bool
+) -> None:
+    if not was_frozen:
+        return
+    try:
+        from interview_mux.seat_authority import stamp_soft_seat_freeze
+        from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+        clamp_hosted_seats_to_rendered_wavs(ctx)
+        stamp_soft_seat_freeze(ctx, reason=f"post_{reason}")
+    except Exception:
+        pass
+
+
 def add_line(ctx: RunContext, body: dict[str, Any]) -> dict[str, Any]:
+    was_frozen = _operator_unlock_if_frozen(ctx, reason="gap_report_api_add")
     report = _load_report(ctx)
     lines = list(report.get("interviewer_lines") or [])
     eligible = pickup_eligible_speaker_id(ctx)
@@ -55,10 +88,12 @@ def add_line(ctx: RunContext, body: dict[str, Any]) -> dict[str, Any]:
     write_validated_artifact(
         ctx, "understanding/gap_report.json", report, merge_from_disk=False, stage_key="optimal_questions"
     )
+    _operator_restamp_after_mutation(ctx, reason="gap_report_api_add", was_frozen=was_frozen)
     return line
 
 
 def update_line(ctx: RunContext, line_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    was_frozen = _operator_unlock_if_frozen(ctx, reason="gap_report_api_update")
     report = _load_report(ctx)
     lines = list(report.get("interviewer_lines") or [])
     eligible = pickup_eligible_speaker_id(ctx)
@@ -81,14 +116,21 @@ def update_line(ctx: RunContext, line_id: str, body: dict[str, Any]) -> dict[str
         write_validated_artifact(
             ctx, "understanding/gap_report.json", report, merge_from_disk=False, stage_key="optimal_questions"
         )
+        _operator_restamp_after_mutation(
+            ctx, reason="gap_report_api_update", was_frozen=was_frozen
+        )
         return updated
     raise KeyError(line_id)
 
 
 def delete_line(ctx: RunContext, line_id: str) -> None:
+    was_frozen = _operator_unlock_if_frozen(ctx, reason="gap_report_api_delete")
     report = _load_report(ctx)
     lines = [ln for ln in (report.get("interviewer_lines") or []) if str(ln.get("line_id")) != line_id]
     report["interviewer_lines"] = lines
     write_validated_artifact(
         ctx, "understanding/gap_report.json", report, merge_from_disk=False, stage_key="optimal_questions"
+    )
+    _operator_restamp_after_mutation(
+        ctx, reason="gap_report_api_delete", was_frozen=was_frozen
     )

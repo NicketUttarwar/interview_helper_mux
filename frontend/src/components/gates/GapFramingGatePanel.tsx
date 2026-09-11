@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
+import {
+  shouldAdvanceAfterGatePost,
+  shouldBlockOperatorActionsForJob,
+} from "../../utils/partialAcceleratedGuard";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 
@@ -15,9 +19,19 @@ interface GapGatePayload {
 }
 
 export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
-  const { runId, run, refreshRun, showToast, advanceFromCheckpoint, closeActionModal } = useApp();
+  const {
+    runId,
+    run,
+    refreshRun,
+    showToast,
+    advanceFromCheckpoint,
+    closeActionModal,
+    jobRunning,
+    partialAutoGPublish,
+  } = useApp();
   const [busy, setBusy] = useState(false);
   const [payload, setPayload] = useState<GapGatePayload | null>(null);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -34,7 +48,7 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
   }, [load, run?.gap_framing_enabled, run?.gap_framing_decision_pending]);
 
   const choose = async (enabled: boolean) => {
-    if (!runId || busy) return;
+    if (!runId || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction(
       enabled ? "gui.gap_framing.enable" : "gui.gap_framing.disable",
@@ -56,7 +70,9 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
       await load();
       await refreshRun();
       closeActionModal();
-      await advanceFromCheckpoint();
+      if (shouldAdvanceAfterGatePost(run)) {
+        await advanceFromCheckpoint();
+      }
     } catch (e) {
       showToast(formatApiError(e, "Gap framing choice"), "error");
     } finally {
@@ -115,7 +131,7 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
           type="button"
           className="btn primary sm"
           data-testid="gap-framing-yes"
-          disabled={busy}
+          disabled={busy || jobBlocksUi}
           onClick={() => void choose(true)}
         >
           Yes — add framing audio
@@ -124,7 +140,7 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
           type="button"
           className="btn ghost sm"
           data-testid="gap-framing-no"
-          disabled={busy}
+          disabled={busy || jobBlocksUi}
           onClick={() => void choose(false)}
         >
           No — source only

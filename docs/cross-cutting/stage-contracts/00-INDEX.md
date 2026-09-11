@@ -41,15 +41,15 @@
 | `junction_thought_complete` | llm_full | master/junction_thought_complete.json |
 | `listen_delight_audit` | process | mastering/listen_delight_audit.json |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json |
-| `master_finalize` | process | — |
+| `master_finalize` | process | master/master.wav |
 | `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt |
-| `mastering_plan_confirm` | process | — |
-| `mastering_plan_synthesize` | process | — |
+| `mastering_plan_confirm` | process | mastering/mastering_plan.json |
+| `mastering_plan_synthesize` | process | mastering/mastering_plan.json |
 | `mastering_research_rollup` | process | mastering/research/rollup.json |
 | `mastering_research_routing` | process | mastering/research/routing.json |
 | `mastering_research_waves` | process | mastering/research/waves.json |
-| `mastering_shape_agenda` | process | — |
-| `mastering_shape_candidates` | process | — |
+| `mastering_shape_agenda` | process | mastering/shape/agenda.json |
+| `mastering_shape_candidates` | process | mastering/shape/candidates.json |
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | master/assembly.wav |
 | `mmaudio_sfx` | process | sound_design/mmaudio_qa.json |
@@ -67,7 +67,7 @@
 | `sdp_intent_refine` | deterministic | — |
 | `segment_classification` | llm_full | segments/manifest.json |
 | `selection_framing_apply` | deterministic | — |
-| `selection_order_sanitize` | process | master/selection.json |
+| `selection_order_sanitize` | process | — |
 | `sfx_brief` | llm_full | REMOVED_flow2/sfx_brief.json |
 | `sfx_prompt_craft` | llm_full | sound_design/sfx_prompts.json |
 | `sfx_prompt_refine` | llm_full | sound_design/sfx_prompts.json |

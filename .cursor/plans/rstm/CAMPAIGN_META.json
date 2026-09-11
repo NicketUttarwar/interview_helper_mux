@@ -1,0 +1,33 @@
+{
+  "campaign_id": "RSTM-2026-09-09",
+  "wave": "B",
+  "started_at": "2026-09-09T17:58:50Z",
+  "finished_at": "2026-09-09T18:06:47Z",
+  "git_head": "b615d4a",
+  "merges_wave_a": "FAILURE_CATALOG-2026-09-09",
+  "doctrine": {
+    "head_only": true,
+    "no_exec_star": true,
+    "mock_llm_ml": true,
+    "mux_forensics": "0",
+    "cell_ceiling": 12000
+  },
+  "status": "complete",
+  "cell_count": 8843,
+  "status_counts": {
+    "PASS": 8768,
+    "SCOPE_CONTRACT_ONLY": 75
+  },
+  "patches": [
+    {
+      "cluster": "schema-hollow-gate",
+      "date": "2026-09-09T18:06:47Z",
+      "change": "validate_stage_artifacts rejects empty {} when schema bound"
+    },
+    {
+      "cluster": "committed-master-honesty",
+      "date": "2026-09-09T18:06:47Z",
+      "change": "ship_path_ready blocks bare master.wav; journey_state/llm_flow/web use committed_master_wav"
+    }
+  ]
+}

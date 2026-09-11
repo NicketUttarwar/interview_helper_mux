@@ -374,6 +374,12 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
                     # Shared disk paths (content_brief, boundaries) must not
                     # stale an upstream producer when a later alias is downstream.
                     continue
+                # Never self-stale the from_stage's own disk path. Shared aliases
+                # (boundary_detection / boundary_topic_resplit → boundaries.json)
+                # otherwise stamp invalidated_by:boundary_detection while the
+                # agenda skips BD and walks segment_classification first.
+                if STAGE_ARTIFACT_DISK_PATHS.get(from_stage) == rel:
+                    continue
                 if (
                     rel == "understanding/content_brief.json"
                     and "content_brief_reanchor" in order
@@ -401,9 +407,17 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
             if sid == "transitions" and rel in stamped:
                 (Path(ctx.run_dir) / ".stage_done" / "transitions").unlink(missing_ok=True)
                 try:
+                    from interview_mux.seat_authority import (
+                        hard_freeze_active,
+                        soft_freeze_active,
+                    )
                     from interview_mux.transition_vo import clear_transitions_pair_freeze
 
-                    clear_transitions_pair_freeze(ctx)
+                    # b9: do not blind-clear pair freeze while seats are frozen
+                    if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                        pass
+                    else:
+                        clear_transitions_pair_freeze(ctx)
                 except Exception:
                     pass
                 try:

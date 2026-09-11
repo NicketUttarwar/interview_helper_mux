@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-DUALMUT|DEEP-RESPLIT-01|boundary_topic_resplit->vernacular_segment_sanitize->low_conf_island_scan|M6_pending_shadow+M8_seated_vo_no_wav",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "seed_block_ok:boundary_topic_resplit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

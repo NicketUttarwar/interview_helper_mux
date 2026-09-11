@@ -1,4 +1,11 @@
-"""Persisted identical-failure supervisor — stop the same heal at 3, survive restarts."""
+"""Persisted identical-failure supervisor — stop the same heal at 3, survive restarts.
+
+Progress ledger (Wave 0.3): telemetry always; hard halt only when
+``not forensics_mode()`` **and** ``is_structural_halt_class``. Advisory classes
+sanitize/skip-with-ledger and continue other axes. Driver fail keys upsert via
+``upsert_fail_key`` / ``record_failure_unified`` — the in-memory driver map is
+a cache only.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +30,50 @@ PRODUCT_FINGERPRINT_META_KEY = "identical_halts_product_fingerprint"
 
 FailureKind = Literal["reason", "class", "fail_key"]
 
+# Ship-critical / structural — ×3 may hard-halt outside forensics.
+STRUCTURAL_HALT_CLASSES: frozenset[str] = frozenset(
+    {
+        "vo_seated_coverage",
+        "edl_vo_coverage_repair",
+        "vo_contract_repair",
+        "fingerprint_mismatch",
+        "assembly_not_rendered_from_current_edl",
+        "finalize_input_missing",
+        "post_master_quality_missing",
+        "incomplete_cut_unresolved",
+        "layup_coverage",
+        "layup_stale",
+        "missing_g1_pickup",
+        "framing_vo_unseated",
+        "seed_order_prereq",
+        "pmq_incomplete_ship_walk",
+        "never_touch_cta",
+        "never_touch_zeroed_keep",
+        "overlapping_source_range",
+        "selection_edl_order_drift",
+        "opening_slot_conflict",
+        "high_gap_unframed",
+    }
+)
+
+# Advisory — ledger + continue other axes; never hard-halt on class alone.
+ADVISORY_FAILURE_CLASSES: frozenset[str] = frozenset(
+    {
+        "listen_delight_floors",
+        "hitch_listen_restage",
+        "mmaudio_qa_missing",
+        "sdp_theme_wavs_missing",
+        "musicgen_theme_failed",
+        "redundant_framing_transitions",
+        "pending_write_barrier",
+        "upstream_stale_rerun",
+        "air_script_omit_sync",
+        "episode_close_outro",
+        "vo_audibility_drift",
+        "opening_orientation_inaudible",
+    }
+)
+
 _COUNT_SUFFIX_RE = re.compile(r"\sx\d+\b", flags=re.IGNORECASE)
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
 _HEX_RE = re.compile(r"\b[a-f0-9]{8,}\b", flags=re.IGNORECASE)
@@ -41,6 +92,22 @@ def forensics_mode() -> bool:
     """Forensics runs patch product code and re-run EDL — ×3 halt is telemetry only."""
     raw = str(os.environ.get("MUX_FORENSICS") or "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
+
+def is_structural_halt_class(error_class: str) -> bool:
+    """True when ×3 of this class may hard-halt outside forensics.
+
+    Unknown / empty classes default to structural (fail-closed for halt honesty).
+    Advisory classes never hard-halt — sanitize/skip-with-ledger and continue.
+    """
+    ec = str(error_class or "").strip().lower()
+    if not ec:
+        return True
+    if ec in ADVISORY_FAILURE_CLASSES:
+        return False
+    if ec in STRUCTURAL_HALT_CLASSES:
+        return True
+    return True
 
 
 def halt_after(*, cfg: dict[str, Any] | None = None) -> int:
@@ -164,14 +231,32 @@ def failure_signature_by_class(
     *,
     failed_stage: str,
     error_class: str,
+    predicate_token: str = "",
 ) -> str:
-    key = "|".join(
-        [
-            str(failed_stage or "").strip(),
-            str(error_class or "").strip(),
-        ]
-    )
+    """B-04: signature = predicate + class + stage when predicate present."""
+    parts = [
+        str(failed_stage or "").strip(),
+        str(error_class or "").strip(),
+    ]
+    pred = str(predicate_token or "").strip()
+    if pred:
+        parts = [pred, *parts]
+    key = "|".join(parts)
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def structural_failure_signature(
+    ctx: RunContext,
+    *,
+    failed_stage: str,
+    error_class: str,
+) -> str:
+    """Unified structural signature helper (predicate_token + class + stage)."""
+    return failure_signature_by_class(
+        failed_stage=failed_stage,
+        error_class=error_class,
+        predicate_token=_predicate_token_for(ctx, failed_stage),
+    )
 
 
 def _predicate_token_for(ctx: RunContext, stage: str) -> str:
@@ -237,7 +322,11 @@ def record_failure(
             if failure_in_active_policy_cascade(
                 ctx, failed_stage=failed_stage, producer=cls
             ):
-                sig = failure_signature_by_class(failed_stage=failed_stage, error_class=cls)
+                sig = failure_signature_by_class(
+                    failed_stage=failed_stage,
+                    error_class=cls,
+                    predicate_token=predicate_token,
+                )
                 doc = read_identical_failures(ctx)
                 prev = dict((doc.get("signatures") or {}).get(sig) or {})
                 return _cascade_suppressed_row(
@@ -248,13 +337,19 @@ def record_failure(
                 )
         except Exception:
             pass
-        sig = failure_signature_by_class(failed_stage=failed_stage, error_class=cls)
+        sig = failure_signature_by_class(
+            failed_stage=failed_stage,
+            error_class=cls,
+            predicate_token=predicate_token
+            or _predicate_token_for(ctx, failed_stage),
+        )
         doc = read_identical_failures(ctx)
         signatures = dict(doc.get("signatures") or {})
         prev = dict(signatures.get(sig) or {})
         n = int(prev.get("count") or 0) + 1
         limit = halt_after()
         stage = str(failed_stage or "")
+        structural = is_structural_halt_class(cls)
         row = {
             "signature": sig,
             "kind": "class",
@@ -264,7 +359,9 @@ def record_failure(
             "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
             "count": n,
             "halt_after": limit,
-            "halt": n >= limit,
+            # Advisory classes: telemetry only — never hard-halt (Wave 0.3).
+            "halt": bool(structural and n >= limit),
+            "structural": structural,
             "updated_at": _utc_now(),
             "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
             "predicate_token": str(
@@ -403,6 +500,23 @@ def record_failure(
             or ""
         ).strip(),
     }
+    # a8: do not stamp HARD while ESR says producers are still progressing
+    if row["halt"]:
+        try:
+            from interview_mux.execution_status import may_hard_halt
+
+            if not may_hard_halt(
+                ctx,
+                pin=stage,
+                predicate_token=str(row.get("predicate_token") or ""),
+            ):
+                row["halt"] = False
+                row["esr_softened"] = True
+        except Exception:
+            # Fail-closed for HARD: prefer wait over false sticky
+            row["halt"] = False
+            row["esr_softened"] = True
+            row["esr_error"] = True
     signatures[sig] = row
     order = [s for s in (doc.get("order") or []) if s != sig]
     order.append(sig)
@@ -515,23 +629,96 @@ def upsert_fail_key(
     )
 
 
+def record_failure_unified(
+    ctx: RunContext,
+    *,
+    fail_key: str = "",
+    failed_stage: str = "",
+    error_class: str = "",
+    producer: str = "",
+    reason: str = "",
+    resume_attempted: str = "",
+    predicate_token: str = "",
+    count: int | None = None,
+) -> dict[str, Any]:
+    """Unified ledger write — prefer fail_key upsert; else class / reason record.
+
+    Driver and recovery paths should call this (or ``upsert_fail_key``) so the
+    on-disk ledger stays the SSOT; in-memory driver maps are caches only.
+    """
+    key = str(fail_key or "").strip()
+    if key:
+        n = int(count) if count is not None else None
+        if n is None:
+            # Increment relative to prior fail_key row.
+            sig = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+            prev = dict((read_identical_failures(ctx).get("signatures") or {}).get(sig) or {})
+            n = int(prev.get("count") or 0) + 1
+        return upsert_fail_key(
+            ctx,
+            key,
+            n,
+            failed_stage=failed_stage,
+            producer=producer or error_class,
+            reason=reason or key,
+            resume_attempted=resume_attempted,
+            predicate_token=predicate_token,
+        )
+    cls = str(error_class or "").strip()
+    if cls:
+        return record_failure(
+            ctx,
+            kind="class",
+            failed_stage=failed_stage,
+            error_class=cls,
+            producer=producer or cls,
+            resume_attempted=resume_attempted,
+            predicate_token=predicate_token,
+        )
+    return record_failure(
+        ctx,
+        kind="reason",
+        failed_stage=failed_stage,
+        producer=producer,
+        reason=reason,
+        resume_attempted=resume_attempted,
+        predicate_token=predicate_token,
+    )
+
+
 def is_halted(ctx: RunContext, signature: str) -> bool:
-    """Halt authority is operator/identical_failures.json only (never legacy mirror)."""
+    """Halt authority is operator/identical_failures.json only (never legacy mirror).
+
+    Forensics mode → always False (campaign patch-and-resume). Advisory
+    ``error_class`` rows stay telemetry-only even at ×3.
+    """
     if forensics_mode():
         return False
     doc = read_identical_failures(ctx)
     row = (doc.get("signatures") or {}).get(signature) or {}
     if row.get("cascade_suppressed"):
         return False
+    error_class = str(row.get("error_class") or "").strip()
+    if error_class and not is_structural_halt_class(error_class):
+        return False
     # RC3: also honor live policy cascade (in-memory suppress never persisted).
     try:
         from interview_mux.execution_contract import failure_in_active_policy_cascade
 
         failed_stage = str(row.get("failed_stage") or "")
-        error_class = str(row.get("error_class") or row.get("producer") or "")
-        if failed_stage and error_class and failure_in_active_policy_cascade(
-            ctx, failed_stage=failed_stage, producer=error_class
+        cascade_cls = error_class or str(row.get("producer") or "")
+        if failed_stage and cascade_cls and failure_in_active_policy_cascade(
+            ctx, failed_stage=failed_stage, producer=cascade_cls
         ):
+            return False
+    except Exception:
+        pass
+    # ESR: do not treat as halted while producer progress is fresh
+    try:
+        from interview_mux.execution_status import may_hard_halt
+
+        pin = str(row.get("failed_stage") or row.get("resume_attempted") or "")
+        if pin and not may_hard_halt(ctx, pin=pin):
             return False
     except Exception:
         pass

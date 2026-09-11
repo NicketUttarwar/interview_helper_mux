@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-FANIN|nugget_layup_compose+air_script_seams+air_contract_sanitize|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D3-FANIN",
+  "notes": [
+    "incompleteness_ok:understanding/nugget_layup_plan.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

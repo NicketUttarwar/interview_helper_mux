@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-SEED|gap_framing_recompose->selection_framing_apply|invariant|M9_uncommitted_master",
+  "status": "PASS",
+  "tier": "D2-SEED",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:36Z"
+}

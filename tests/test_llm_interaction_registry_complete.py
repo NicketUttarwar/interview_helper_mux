@@ -35,11 +35,13 @@ def test_registry_has_all_catalog_ids():
     expected = {
         "OA-01", "OA-02", "OA-03", "OA-04", "OA-05", "OA-06", "OA-07", "OA-08", "OA-09",
         "OF-01", "OF-02", "OF-03", "OF-04", "OF-05", "OF-06", "OF-07",
+        "OF-08", "OF-08b", "OF-09", "OF-MT",
         "OF-L1", "OF-L3",
-        "OM-01", "OM-F01", "OM-SAFE",
+        "OM-01", "OM-F01", "OM-SAFE", "OM-TG", "OM-SR",
         "OS-01", "OS-02", "OS-03", "OS-04", "OS-05",
         "LX-01", "LX-01a", "LX-01b", "LX-01c", "LX-01d",
         "OH-02", "OH-03", "OH-A1", "OH-J1", "OH-J2",
+        "OH-R1", "OH-S0", "OH-S2", "OH-FS",
         "OH-C1", "OH-C2", "OH-C3", "OH-C4", "OH-C5", "OH-C6",
     }
     assert expected.issubset(registry_ids())

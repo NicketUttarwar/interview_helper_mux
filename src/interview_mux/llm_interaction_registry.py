@@ -35,7 +35,10 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "island_cluster_structure_adjudicate": "OF-02b",
     "nugget_corpus_mine": "OF-03a",
     "nugget_layup_compose": "OF-03b",
+    "air_script_compose": "OF-08",
+    "air_script_seams": "OF-08b",
     "transitions": "OF-04",
+    "synthetic_framing_plan": "OF-09",
     "sound_design_plan": "OF-05",
     "edl_narrative_audit": "OF-06",
     "vo_line_adjudicate": "OF-06a",
@@ -45,9 +48,24 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "podcast_sfx_brief": "OF-L1",
     "sfx_brief": "OF-L2",
     "sfx_prompt_refine": "OF-L3",
+    "master_transcript_build": "OF-MT",
     "junction_feel_audit": "OH-J1",
     "junction_thought_complete": "OH-J2",
+    # A-03 Shape/research LLM cutover (flag-gated; OH-01 research_router id stays dropped)
+    "mastering_research_routing": "OH-R1",
+    "mastering_shape_agenda": "OH-S0",
+    "mastering_shape_candidates": "OH-S2",
+    "mastering_plan_synthesize": "OH-FS",
+    "mastering_plan_confirm": "OH-FS",
 }
+
+# Schema-registered stages that are not OpenAI/LLM volleys (local audio QA, etc.).
+# PSM-LLM-NO-PRIMARY: do not invent fake OA/OF ids for these.
+NON_LLM_SCHEMA_STAGES: frozenset[str] = frozenset(
+    {
+        "mmaudio_sfx",
+    }
+)
 
 SPECIALIST_IDS: dict[str, str] = {
     "comprehension_risk_blind": "OS-01",
@@ -160,7 +178,22 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         "full_master_ranking": ("selection.run_full_master_ranking", "selection/full-master-ranking", "full/shard/collate"),
         "nugget_corpus_mine": ("analysis_extended.run_nugget_corpus_mine", "nugget_layup/nugget-corpus-mine", "full"),
         "nugget_layup_compose": ("analysis_extended.run_nugget_layup_compose", "nugget_layup/nugget-layup-compose", "full"),
+        "air_script_compose": (
+            "air_script.run_air_script_compose",
+            "mastering/flagship-synthesize",
+            "full",
+        ),
+        "air_script_seams": (
+            "air_script.run_air_script_seams",
+            "mastering/flagship-synthesize",
+            "full",
+        ),
         "transitions": ("selection.run_transitions", "assembly/transitions", "full"),
+        "synthetic_framing_plan": (
+            "synthetic_framing.run_synthetic_framing_plan",
+            "assembly/synthetic-framing-plan",
+            "full",
+        ),
         "sound_design_plan": ("sound_design_stages.run_sound_design_plan", "sound_design/plan-flow1", "full"),
         "edl_narrative_audit": ("edl_narrative_audit.run_edl_narrative_audit", "selection/edl-narrative-audit", "full"),
         "vo_line_adjudicate": (
@@ -181,6 +214,11 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         "sfx_prompt_craft": ("sound_design_stages.run_sfx_prompt_craft", "sound_design/sfx-prompt-craft", "full"),
         "podcast_sfx_brief": ("selection.run_podcast_sfx_brief", "selection/podcast-sfx-brief", "full"),
         "sfx_prompt_refine": ("sound_design_stages.run_sfx_prompt_refine", "sound_design/sfx-prompt-refine", "full"),
+        "master_transcript_build": (
+            "asset_transcripts.run_master_transcript_build",
+            "transcription/README",
+            "full",
+        ),
     }
     for sk, (ep, prompt, volley) in _OF_META.items():
         cid = STAGE_PRIMARY_IDS[sk]
@@ -251,6 +289,40 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         on_verify_fail="rewrite then omit last",
         goal="Succinct VO covering one high-severity gap",
         model_tier="standard",
+    )
+
+    reg["OM-TG"] = _entry(
+        id="OM-TG",
+        provider="openai",
+        interaction="timeline_reopen_meta_gate",
+        stage_key="timeline_reopen_meta_gate",
+        task_kind="advisory",
+        trigger="Pillar C contested timeline reopen after prefilter",
+        entrypoint="timeline_reopen_meta_gate._try_llm_gain",
+        prompt_rel="docs/prompts/timeline_reopen_meta_gate.md",
+        volley_profile="none",
+        response_schema="timeline_reopen_meta_gate.schema.json",
+        verify="boolean allow + expected_gain",
+        on_verify_fail="refuse reopen (fail-closed)",
+        goal="Allow timeline reopen only for significant master.wav listener gain",
+        model_tier="economy",
+    )
+
+    reg["OM-SR"] = _entry(
+        id="OM-SR",
+        provider="openai",
+        interaction="seat_rewrite_meta_gate",
+        stage_key="seat_rewrite_meta_gate",
+        task_kind="advisory",
+        trigger="Pillar B contested seat rewrite after soft freeze",
+        entrypoint="timeline_reopen_meta_gate._try_llm_seat",
+        prompt_rel="docs/prompts/seat_rewrite_meta_gate.md",
+        volley_profile="none",
+        response_schema="seat_rewrite_meta_gate.schema.json",
+        verify="boolean allow + opportunity_score",
+        on_verify_fail="refuse rewrite (fail-closed)",
+        goal="Allow seat/omit rewrite only for high listener opportunity",
+        model_tier="economy",
     )
 
     reg["LX-01"] = _entry(
@@ -330,6 +402,38 @@ def _build_registry() -> dict[str, dict[str, Any]]:
 # Mastering quality-hardening interactions (docs/cross-cutting/mastering-quality-hardening.md).
 # id -> (entrypoint, prompt_rel, response_schema, model_tier, goal, interaction)
 _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
+    "OH-R1": (
+        "mastering_research.run_mastering_research_routing",
+        "mastering/research-router.system.txt",
+        "mastering_research_routing.schema.json",
+        "economy",
+        "Route research field depth for this source",
+        "research_router",
+    ),
+    "OH-S0": (
+        "mastering_shape_runtime.run_mastering_shape_agenda",
+        "mastering/shape-meta-architect.system.txt",
+        "mastering_shape_agenda.schema.json",
+        "flagship",
+        "L0 per-podcast Shape agenda (+ eval-rubric-mint companion)",
+        "shape_meta_architect",
+    ),
+    "OH-S2": (
+        "mastering_shape_runtime.run_mastering_shape_candidates",
+        "mastering/shape-l2-candidates.system.txt",
+        "mastering_shape_candidates.schema.json",
+        "standard",
+        "L2 competitive Shape candidates",
+        "shape_l2_candidates",
+    ),
+    "OH-FS": (
+        "mastering_shape_runtime.run_mastering_plan_synthesize",
+        "mastering/flagship-synthesize.system.txt",
+        "mastering_plan.schema.json",
+        "flagship",
+        "Authoritative mastering_plan synthesize/confirm",
+        "flagship_synthesize",
+    ),
     "OH-02": (
         "mastering_shape_gates.emit_eval_rubric",
         "mastering/eval-rubric-mint.system.txt",
@@ -444,9 +548,13 @@ _OF_GOALS: dict[str, str] = {
     "full_master_ranking": "Ordered segment_ids",
     "nugget_corpus_mine": "Full-tape grounded nuggets",
     "nugget_layup_compose": "Per-native before-VO layups",
+    "air_script_compose": "Pass A air membership/order/energy curve",
+    "air_script_seams": "Pass B montage moves + VO seats",
     "transitions": "Short bridge VO",
+    "synthetic_framing_plan": "Synthetic VO lines between selected natives",
     "sound_design_plan": "Cues + assets flow1",
     "edl_narrative_audit": "Narrative QC verdict (heard WAV flow)",
+    "master_transcript_build": "Master-timeline transcript cues",
     "vo_line_adjudicate": "Per-line VO flow adjudication before synth",
     "nugget_intro_compose": "Gap-to-85% intro preface mint",
     "music_palette_compose": "Place/reuse fixed palette cues",
@@ -485,13 +593,19 @@ def resolve_interaction_id(
     if task_kind == "safe_prune_extract":
         return "OM-SAFE"
 
+    parent = record_stage_key or stage_key
+    if parent in {"timeline_reopen_meta_gate", "seat_rewrite_meta_gate"}:
+        return {
+            "timeline_reopen_meta_gate": "OM-TG",
+            "seat_rewrite_meta_gate": "OM-SR",
+        }[parent]
+
     if task_kind == "specialist":
         sk = resolve_specialist_key_from_stage(stage_key)
         if sk and sk in SPECIALIST_IDS:
             return SPECIALIST_IDS[sk]
         return "OS-01"
 
-    parent = record_stage_key or stage_key
     if parent in STAGE_PRIMARY_IDS:
         return STAGE_PRIMARY_IDS[parent]
     return "OM-01"
@@ -501,8 +615,13 @@ def resolve_specialist_key_from_stage(stage_key: str) -> str | None:
         return None
     return stage_key.split("__", 1)[1]
 
+def llm_bound_schema_stages() -> frozenset[str]:
+    """STAGE_ARTIFACT_SCHEMAS keys that require a STAGE_PRIMARY_IDS entry."""
+    return frozenset(STAGE_ARTIFACT_SCHEMAS.keys()) - NON_LLM_SCHEMA_STAGES
+
+
 def all_openai_stage_keys() -> frozenset[str]:
-    return frozenset(STAGE_ARTIFACT_SCHEMAS.keys())
+    return llm_bound_schema_stages()
 
 def registry_ids() -> frozenset[str]:
     return frozenset(LLM_INTERACTION_REGISTRY.keys())
@@ -521,6 +640,10 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "thought_complete_recut",
             "high_gap_vo",
             "safe_pruning",
+            "mastering_llm",
+            "timeline_reopen_meta_gate",
+            "order_reconcile",
+            "island_cluster_structure",
         ),
         "generate_local_chat": (
             "local_volley_framer",

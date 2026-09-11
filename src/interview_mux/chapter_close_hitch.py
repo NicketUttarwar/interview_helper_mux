@@ -74,6 +74,24 @@ def arm_hitch_listen_restage(ctx: RunContext) -> bool:
         count = 0
     if count >= 1:
         return False
+    # C14: after assembly, restage must pass timeline reopen gain gate.
+    try:
+        asm = ctx.final_path("master", "assembly.wav")
+        if asm.is_file() and asm.stat().st_size > 0:
+            from interview_mux.timeline_reopen_meta_gate import (
+                INTENT_HITCH_RESTAGE,
+                decide_timeline_reopen,
+            )
+
+            gate = decide_timeline_reopen(
+                ctx,
+                intent=INTENT_HITCH_RESTAGE,
+                detail={"from_stage": "chapter_close_hitch"},
+            )
+            if not gate.get("allow"):
+                return False
+    except Exception:
+        return False  # c14 fail-closed: do not arm restage on gate error
     payload = dict(prior) if prior else {"version": 1}
     payload["version"] = 1
     payload["status"] = "running"
@@ -868,6 +886,24 @@ def _resolve_snapshot_wav(ctx: RunContext, line: dict[str, Any], mapping: dict[s
 
 def reattach_vo_to_gap_report(ctx: RunContext, mapping: dict[str, str]) -> dict[str, Any]:
     """Keep recorded/synthesized G1 lines attached after gap_report is rebuilt."""
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="hitch_reattach_vo",
+            symptoms=["hitch_remap"],
+        ):
+            return {"copied": 0, "injected": 0, "stamped_skips": 0, "seat_freeze_blocked": True}
+    except Exception:
+        # Fail-closed: never remap VO under unknown gate/freeze error.
+        return {
+            "copied": 0,
+            "injected": 0,
+            "stamped_skips": 0,
+            "seat_freeze_blocked": True,
+            "seat_freeze_fail_closed": True,
+        }
     snapshot: dict[str, Any] = {}
     if ctx.artifact_exists(VO_SNAPSHOT_REL):
         loaded = ctx.read_json(VO_SNAPSHOT_REL)
@@ -1627,8 +1663,62 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         )
         mapping = _mapping_from_remap_doc(remap_doc)
 
-        combined = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
-        ctx.clear_from("boundary_detection", combined)
+        # B-05: never nuclear clear_from(boundary_detection, ANALYSIS+DELIVERY).
+        # Prefer bounded hitch_id_churn / hitch_listen_restage; after Phase A
+        # without listen_restage → remap-only (refs already rewritten below).
+        phase_a = False
+        assembly_seated = False
+        try:
+            from interview_mux.delivery_guardrails import assembly_wav_present, phase_a_sealed
+
+            phase_a = bool(phase_a_sealed(ctx))
+            assembly_seated = bool(assembly_wav_present(ctx))
+        except Exception:
+            pass
+        late_forbid = {
+            "edl",
+            "edl_narrative_audit",
+            "assembly_preview",
+            "mix",
+            "mmaudio_sfx",
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "junction_snip_qa",
+            "master_finalize",
+            "vo_synthesize",
+        }
+        if listen_restage or not (phase_a or assembly_seated):
+            profile_id = (
+                "hitch_listen_restage" if listen_restage else "hitch_id_churn"
+            )
+            try:
+                from interview_mux.execution_invalidation_profiles import (
+                    apply_bounded_invalidation,
+                )
+
+                apply_bounded_invalidation(
+                    ctx, profile_id, reason="chapter_close_hitch"
+                )
+            except Exception as inv_exc:
+                ctx.log(
+                    f"chapter_close_hitch: bounded invalidation failed ({inv_exc}) — "
+                    "unmark restage order only",
+                    level="warning",
+                    stage=STAGE_ID,
+                )
+            # Inner walk needs restage-window markers cleared (never late edl/mix).
+            for sid in hitch_restage_order():
+                if sid in late_forbid or sid == STAGE_ID:
+                    continue
+                marker = ctx.final_path(".stage_done", sid)
+                if marker.is_file():
+                    marker.unlink(missing_ok=True)
+        else:
+            ctx.log(
+                "chapter_close_hitch: Phase A / assembly seated — remap-only (no clear)",
+                level="info",
+                stage=STAGE_ID,
+            )
         ctx.write_json(INTENT_REL, intent, skip_handoff=True, stage_key=STAGE_ID)
         ctx.write_json(REMAP_REL, remap_doc, skip_handoff=True, stage_key=STAGE_ID)
         ctx.write_json(

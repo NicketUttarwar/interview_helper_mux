@@ -1,0 +1,13 @@
+{
+  "description": "Leftover edl.json with active listen-delight remutate",
+  "remutate": {
+    "attempt": 1,
+    "max_attempts": 3,
+    "from_stages": ["edl", "transitions"],
+    "exhausted": false
+  },
+  "expect": {
+    "orphan_promote_edl": false,
+    "remaining_includes_edl": true
+  }
+}

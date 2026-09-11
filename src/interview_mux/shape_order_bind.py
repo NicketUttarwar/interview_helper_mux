@@ -21,6 +21,9 @@ def shape_order_bindable(
     """Return (ok, ordered_ids, reason)."""
     if not isinstance(plan, dict):
         return False, [], "no_plan"
+    # A-03: hybrid bind requires authoritative complete (soft-gate emit alone must not bind).
+    if str(plan.get("plan_status") or "") != "complete":
+        return False, [], "plan_not_complete"
     from interview_mux.air_script import (
         load_air_script,
         omitted_segment_ids,

@@ -100,15 +100,44 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
     if name.startswith("run_stage_"):
         stage = spec.identity
         from interview_mux.delivery_guardrails import filter_delivery_candidates
+        from interview_mux.homunculus.packer import _seed_ready_legal_next
+        from interview_mux.homunculus.runtime import _seed_prereq_block
 
-        legal = filter_delivery_candidates(ctx, [stage])
+        legal = _seed_ready_legal_next(ctx, filter_delivery_candidates(ctx, [stage]))
         if stage not in legal:
+            pin = None
+            reason = "illegal_stage"
+            try:
+                blocked = _seed_prereq_block(ctx, stage)
+            except Exception:
+                blocked = None
+            if blocked:
+                pin = blocked
+                reason = "seed_prereq"
+            else:
+                pin = legal[0] if legal else None
+            # H010-DISPATCH-01: structured pin before check_dispatch / stage LLM burn.
             return {
                 "ok": False,
-                "error": "illegal_stage",
+                "error": reason,
+                "reason": reason,
                 "stage": stage,
                 "legal_next": legal,
-                "pin": legal[0] if legal else None,
+                "pin": pin,
+            }
+        # Seed ∩ exceptions already applied in legal_next; re-check for races.
+        try:
+            blocked = _seed_prereq_block(ctx, stage)
+        except Exception:
+            blocked = None
+        if blocked:
+            return {
+                "ok": False,
+                "error": "seed_prereq",
+                "reason": "seed_prereq",
+                "stage": stage,
+                "pin": blocked,
+                "legal_next": legal,
             }
         from interview_mux.pipeline import run_single_stage as _orig
 

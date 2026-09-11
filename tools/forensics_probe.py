@@ -129,16 +129,48 @@ def build_probe(run_id: str) -> dict[str, Any]:
     elif pending:
         producer_hint = pending[0]
 
+    esr: dict[str, Any] = {}
+    try:
+        if ctx.artifact_exists("operator/execution_status.json"):
+            loaded = ctx.read_json("operator/execution_status.json")
+            if isinstance(loaded, dict):
+                esr = loaded
+                # Prefer ESR pin / lease over hollow progress guesses.
+                pin = str(esr.get("current_pin") or "").strip()
+                lease = esr.get("lease") if isinstance(esr.get("lease"), dict) else {}
+                if lease.get("active") and lease.get("stage"):
+                    producer_hint = str(lease.get("stage"))
+                elif pin:
+                    producer_hint = pin
+                # Fresh ESR progress → do not recommend intervene on sticky alone.
+                if esr.get("progress_stale") is False:
+                    intervene = False
+    except Exception:
+        esr = {}
+
     return {
         "version": 1,
         "run_id": run_id,
         "product_fingerprint": product_code_fingerprint(),
         "job": job,
+        "execution_status": {
+            "present": bool(esr),
+            "current_pin": esr.get("current_pin"),
+            "progress_stale": esr.get("progress_stale"),
+            "progress_why": esr.get("progress_why"),
+            "lease": esr.get("lease"),
+            "sticky": esr.get("sticky"),
+            "reopen_gate": esr.get("reopen_gate"),
+            "seat_freeze": esr.get("seat_freeze"),
+        }
+        if esr
+        else {"present": False},
         "progress": {
             "stages_done": len(done),
             "stages_total": len(all_stages),
             "first_pending": pending[0] if pending else None,
             "master_exists": ctx.artifact_exists("master/master.wav"),
+            "esr_progress_stale": esr.get("progress_stale") if esr else None,
         },
         "stall": stall,
         "escalation": escalation,
@@ -160,6 +192,7 @@ def build_probe(run_id: str) -> dict[str, Any]:
             "4. pytest affected tests",
             "5. Restart driver: MUX_RUN_ID=<run_id> MUX_FRESH=0 MUX_FORENSICS=1",
             "6. Re-run this probe; confirm predicate_flipped before trusting progress",
+            "7. Prefer operator/execution_status.json over sticky alone",
         ],
     }
 

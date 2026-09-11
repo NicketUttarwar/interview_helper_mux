@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
+import {
+  shouldAdvanceAfterGatePost,
+  shouldBlockOperatorActionsForJob,
+} from "../../utils/partialAcceleratedGuard";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 
@@ -11,9 +15,19 @@ interface GapDeliveryPayload {
 }
 
 export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
-  const { runId, run, refreshRun, showToast, advanceFromCheckpoint, closeActionModal } = useApp();
+  const {
+    runId,
+    run,
+    refreshRun,
+    showToast,
+    advanceFromCheckpoint,
+    closeActionModal,
+    jobRunning,
+    partialAutoGPublish,
+  } = useApp();
   const [payload, setPayload] = useState<GapDeliveryPayload | null>(null);
   const [busy, setBusy] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -30,7 +44,7 @@ export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
   }, [load, run?.gap_vo_delivery]);
 
   const choose = async (delivery: "chatterbox" | "record") => {
-    if (!runId || busy) return;
+    if (!runId || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction("gui.gap_delivery.choose", `Gap delivery: ${delivery}`, { stage: stage.id });
     try {
@@ -52,7 +66,9 @@ export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
         );
       }
       closeActionModal();
-      await advanceFromCheckpoint();
+      if (shouldAdvanceAfterGatePost(run)) {
+        await advanceFromCheckpoint();
+      }
     } catch (e) {
       showToast(formatApiError(e, "Gap delivery choice"), "error");
     } finally {
@@ -82,7 +98,7 @@ export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
           type="button"
           className="btn primary sm"
           data-testid="gap-delivery-chatterbox"
-          disabled={busy}
+          disabled={busy || jobBlocksUi}
           onClick={() => void choose("chatterbox")}
         >
           Chatterbox clone
@@ -90,7 +106,7 @@ export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
         <button
           type="button"
           className="btn ghost sm"
-          disabled={busy}
+          disabled={busy || jobBlocksUi}
           onClick={() => void choose("record")}
         >
           Record with mic

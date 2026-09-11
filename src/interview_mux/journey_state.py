@@ -196,7 +196,13 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     ok, _ = can_run_sfx_generation(ctx)
     sfx_approved = ok
 
-    master_exported = ctx.artifact_exists("master/master.wav")
+    master_exported = False
+    try:
+        from interview_mux.delivery_invariants import committed_master_wav
+
+        master_exported = committed_master_wav(ctx)
+    except Exception:
+        master_exported = ctx.artifact_exists("master/master.wav")
 
     computed = {
         "g0_complete": g0_complete,

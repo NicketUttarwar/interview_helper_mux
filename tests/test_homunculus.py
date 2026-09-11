@@ -21,7 +21,7 @@ from interview_mux.homunculus.values import should_hard_omit_cta
 from interview_mux.homunculus.version import normalize_version
 from interview_mux.run_context import RunContext
 from interview_mux.volley_packet_lint import strip_forbidden_metadata
-from run_fixtures import mark_done_raw
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def _ctx_010() -> RunContext:
@@ -722,10 +722,55 @@ def test_resolve_ears_wav_falls_back_to_assembly() -> None:
     assert resolve_ears_wav_rel(ctx) == "master/master.wav"
 
 
+def test_resolve_ears_ignores_pending_master(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "ears_pending_master")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+    )
+    from interview_mux.homunculus.ears import resolve_ears_wav_rel
+
+    assembly = ctx.path("master/assembly.wav")
+    assembly.parent.mkdir(parents=True, exist_ok=True)
+    assembly.write_bytes(b"RIFF")
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "master_finalize"
+        / "master"
+        / "master.wav"
+    )
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_bytes(b"RIFF")
+    assert resolve_ears_wav_rel(ctx) == "master/assembly.wav"
+
+
 def test_end_judgment_defers_accept_without_wav() -> None:
     ctx = _ctx_010()
     from interview_mux.homunculus.judge import after_complete_master
 
+    out = after_complete_master(ctx)
+    assert out["verdict"] == "pending"
+    assert not ctx.artifact_exists("mastering/homunculus/end_judgment.json")
+
+
+def test_end_judgment_ignores_pending_master(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "judge_pending_master")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+    )
+    from interview_mux.homunculus.judge import after_complete_master
+
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "master_finalize"
+        / "master"
+        / "master.wav"
+    )
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_bytes(b"RIFF" + b"\x00" * 64)
     out = after_complete_master(ctx)
     assert out["verdict"] == "pending"
     assert not ctx.artifact_exists("mastering/homunculus/end_judgment.json")
@@ -739,6 +784,28 @@ def test_gate_cannot_skip_g0() -> None:
         set_gate_decision(ctx, "transcript_integrity", "skip")
     doc = set_gate_decision(ctx, "framing_consent", "present_operator")
     assert doc["decisions"]["framing_consent"]["action"] == "present_operator"
+
+
+def test_publish_gate_ignores_pending_master(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "gate_pending_master")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+    )
+    from interview_mux.gates import check_g_publish_pending
+    from interview_mux.homunculus.gates import category_status
+
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "master_finalize"
+        / "master"
+        / "master.wav"
+    )
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_bytes(b"RIFF" + b"\x00" * 64)
+    assert check_g_publish_pending(ctx) is False
+    assert category_status(ctx)["publish_package"]["open"] is False
 
 
 def test_perspective_attaches_only_on_010() -> None:
@@ -1238,6 +1305,151 @@ def test_pending_analysis_for_delivery_lists_missing_gap_artifacts() -> None:
     assert "missing_framing" in pending
     assert "gap_framing_compose" in pending
     assert "delivery_brief_build" in pending
+
+
+def test_pending_analysis_pins_content_context_when_brief_missing() -> None:
+    """Brief hole after seg_resplit must pin content_context before missing_framing."""
+    from interview_mux.homunculus.agenda import pending_analysis_for_delivery
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"topology_class": "one_on_one_asymmetric", "speaker_stats": [{"speaker_id": "spk_0"}]},
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    for sid in (
+        "source_topology_build",
+        "boundary_detection",
+        "segment_classification",
+        "framing_posture_decide",
+    ):
+        (ctx.run_dir / ".stage_done" / sid).write_text("", encoding="utf-8")
+    bpath = ctx.path("segments/boundaries.json")
+    bpath.parent.mkdir(parents=True, exist_ok=True)
+    bpath.write_text(
+        '{"boundaries":[{"segment_id":"seg_001","start_ms":0,"end_ms":8000,'
+        '"proposed_split_reason":"pause"}]}',
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "speaker_id": "spk_1",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/framing_posture_decision.json",
+        {"posture": "hosted_interview", "rationale": "test"},
+        skip_handoff=True,
+    )
+    assert not ctx.artifact_exists("understanding/content_brief.json")
+    pending = pending_analysis_for_delivery(ctx)
+    assert pending[0] == "content_context"
+    assert "content_brief_reanchor" in pending
+    assert pending.index("content_context") < pending.index("missing_framing")
+
+
+def test_delivery_allows_content_context_when_brief_missing() -> None:
+    """Classified tape must not block content_context when the brief is gone."""
+    from interview_mux.homunculus.agenda import _refuse_delivery_timeline_rewind
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert not ctx.artifact_exists("understanding/content_brief.json")
+    # Must not raise — allow producer re-run to restore the brief.
+    _refuse_delivery_timeline_rewind(ctx, "content_context", action="run")
+
+
+
+def test_pending_analysis_for_delivery_includes_stale_boundaries() -> None:
+    """Stale boundaries must keep boundary_detection pending before SC (exec_10066)."""
+    from interview_mux.homunculus.agenda import pending_analysis_for_delivery
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {
+            "topology_class": "one_on_one_asymmetric",
+            "speaker_stats": [{"speaker_id": "spk_0"}],
+        },
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "source_topology_build").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "segments/boundaries.json",
+        {
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "proposed_split_reason": "pause",
+                }
+            ],
+            "_meta": {
+                "producer_stage": "boundary_topic_resplit",
+                "stale": True,
+                "stale_reason": "invalidated_by:boundary_detection",
+            },
+        },
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done" / "boundary_detection").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "speaker_id": "spk_1",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done" / "segment_classification").write_text("", encoding="utf-8")
+    pending = pending_analysis_for_delivery(ctx)
+    assert "boundary_detection" in pending
+    # Stale BD must appear; SC may be absent if its own artifact looks complete.
+    if "segment_classification" in pending:
+        assert pending.index("boundary_detection") < pending.index(
+            "segment_classification"
+        )
 
 
 def test_pending_analysis_for_delivery_restores_skipped_gap_artifacts() -> None:

@@ -408,3 +408,57 @@ def test_nugget_retention_after_assembly_resumes_mix_not_ranking(tmp_path):
     assert "full_master_ranking" not in plan["from_stages"]
     assert plan["from_stage"] in {"mmaudio_sfx", "mix", "listen_delight_audit", "master_finalize"}
     assert plan["exhausted"] is False
+
+
+def test_conversation_story_remutate_leads_transitions_not_mix(tmp_path):
+    """After assembly, conversation/story floors must remutate VO/transitions — not remix-only."""
+    from interview_mux.listen_delight_remutate import plan_listen_delight_remutate
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_conversation_lead")
+    (ctx.run_dir / ".stage_done" / "edl").write_text("done\n", encoding="utf-8")
+    (ctx.run_dir / ".stage_done" / "mmaudio_sfx").write_text("done\n", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    plan = plan_listen_delight_remutate(
+        ctx, failed_dimensions=["conversation_fit", "story_followability"]
+    )
+    assert plan["from_stage"] == "air_script_seams"
+    assert plan["from_stages"][:3] == [
+        "air_script_seams",
+        "transitions",
+        "vo_line_adjudicate",
+    ]
+    assert "edl" in plan["from_stages"]
+    assert plan["exhausted"] is False
+
+
+def test_remaining_stages_keeps_active_remutate_despite_leftover_outputs(tmp_path):
+    """exec_10066: remutate cleared markers but leftover JSON must stay on the agenda."""
+    import json
+
+    from interview_mux.homunculus.agenda import remaining_stages
+    from interview_mux.listen_delight_remutate import REMUTATE_REL
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_remaining_force")
+    master = ctx.run_dir / "master"
+    master.mkdir(parents=True, exist_ok=True)
+    (master / "edl.json").write_text("{}", encoding="utf-8")
+    (ctx.run_dir / "mastering").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / REMUTATE_REL).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "attempt": 3,
+                "max_attempts": 3,
+                "failed_dimensions": ["conversation_fit"],
+                "from_stages": ["air_script_seams", "transitions", "edl", "mix"],
+                "from_stage": "air_script_seams",
+                "exhausted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    remaining = remaining_stages(ctx, "delivery")
+    assert "air_script_seams" in remaining
+    assert "transitions" in remaining
+    assert remaining.index("air_script_seams") < remaining.index("mix")

@@ -48,6 +48,9 @@ DELIVERY_ANALYSIS_PREREQS: tuple[tuple[str, str], ...] = (
     ("source_topology_build", "understanding/source_topology.json"),
     ("boundary_detection", "segments/boundaries.json"),
     ("segment_classification", "segments/manifest.json"),
+    # content_context before reanchor: shared brief path; seed-order for
+    # missing_framing requires content_context when the brief is gone.
+    ("content_context", "understanding/content_brief.json"),
     ("content_brief_reanchor", "understanding/content_brief.json"),
     ("framing_posture_decide", "understanding/framing_posture_decision.json"),
     ("missing_framing", "understanding/gap_evaluations.json"),
@@ -169,15 +172,27 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
         gap_skipped = True
     if gap_skipped:
         _restore_skipped_gap_prereqs(ctx)
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
     for stage, rel in DELIVERY_ANALYSIS_PREREQS:
         if gap_skipped and stage in _GAP_FILL_ANALYSIS_PREREQS:
             if ctx.artifact_exists(rel):
                 if not ctx.is_done(stage):
                     heal_or_refuse_mark(ctx, stage, force=True)
                 continue
-        if ctx.artifact_exists(rel) and ctx.is_done(stage):
-            continue
-        if ctx.artifact_exists(rel) and not ctx.is_done(stage):
+        if ctx.artifact_exists(rel):
+            # Stale shared producers (e.g. boundaries.json stamped by
+            # clear_from(boundary_detection)) must stay pending even when
+            # stage_done is set — else delivery walks SC first.
+            try:
+                inc = stage_artifact_incompleteness(ctx, stage)
+            except Exception:
+                inc = None
+            if inc and "stale" in str(inc).lower():
+                pending.append(stage)
+                continue
+            if ctx.is_done(stage):
+                continue
             heal_or_refuse_mark(ctx, stage, force=True)
             continue
         pending.append(stage)
@@ -203,10 +218,11 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
         return
     needed = PROTECTED_CORE_STAGES.get(stage) or ()
     has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
-    classified = _manifest_has_classified_segments(ctx)
-    if not has_art and not classified:
+    # Missing protected artifact → allow producer re-run even when classified
+    # (e.g. content_brief archived by a heal; seed-order still needs content_context).
+    if not has_art:
         return
-    if has_art and not ctx.is_done(stage):
+    if not ctx.is_done(stage):
         heal_or_refuse_mark(ctx, stage, force=True)
     raise RuntimeError(
         f"cannot {action} {stage}: timeline artifacts exist after G0; "
@@ -255,7 +271,13 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
     "mmaudio_sfx": ("sound_design/mmaudio_qa.json",),
     "mix": ("master/assembly.wav",),
-    "junction_snip_qa": ("master/seam_autopsy.json",),
+    # QA report is the stage authority — autopsy alone let heal remake
+    # .stage_done while critical incomplete residuals stayed pending-only
+    # (forensics exec_11130: false ship_path_ready → skip to finalize).
+    "junction_snip_qa": (
+        "master/junction_snip_qa.json",
+        "master/seam_autopsy.json",
+    ),
     "master_finalize": ("master/master.wav", "master/post_master_quality.json"),
     "master_transcript_build": ("master/transcript.json",),
     "episode_meta_build": ("publish/episode_meta.json",),
@@ -630,6 +652,9 @@ def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
     Bare mtime skew (assembly touched after autopsy rewrite of identical
     content) must not look like missing junction outputs — that was the
     exec_5404 master_finalize ↔ junction seed thrash.
+
+    Requires size match and, when present, sha match (aligned with
+    ``verify_commitment`` fingerprints).
     """
     if not ctx.artifact_exists("master/seam_autopsy.json"):
         return False
@@ -655,6 +680,28 @@ def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
     claimed = int(asm_info.get("size") or 0)
     if claimed <= 0 or claimed != live_size:
         return False
+    claimed_sha = str(
+        asm_info.get("sha256")
+        or asm_info.get("sha")
+        or asm_info.get("fingerprint")
+        or ""
+    ).strip()
+    if claimed_sha:
+        try:
+            from interview_mux.seam_autopsy import _file_fingerprint
+
+            live_fp = _file_fingerprint(asm_path)
+            live_sha = ""
+            if isinstance(live_fp, dict):
+                live_sha = str(
+                    live_fp.get("sha256") or live_fp.get("sha") or live_fp.get("fingerprint") or ""
+                ).strip()
+            elif isinstance(live_fp, str):
+                live_sha = live_fp.strip()
+            if live_sha and live_sha != claimed_sha:
+                return False
+        except Exception:
+            pass
     return True
 
 
@@ -967,8 +1014,25 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
         return [s for s in _order_for(phase) if not ctx.is_done(s)]
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
+    remutate_force: set[str] = set()
+    try:
+        from interview_mux.delivery_invariants import active_remutate_stages
+
+        # Cleared markers with leftover artifacts must still walk (exec_10066:
+        # remutate dropped air/transitions/edl off remaining → mix seed thrash).
+        remutate_force = {
+            sid
+            for sid in active_remutate_stages(ctx)
+            if not ctx.is_done(sid)
+        }
+    except Exception:
+        remutate_force = set()
+
     out: list[str] = []
     for sid in _order_for(phase):
+        if sid in remutate_force:
+            out.append(sid)
+            continue
         if stage_outputs_present(ctx, sid):
             if stage_artifact_incompleteness(ctx, sid) is None:
                 continue
@@ -988,7 +1052,9 @@ def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
     already mixed/finalized must not rewind; persist a pair-gap report from
     on-disk transition WAVs and close the marker.
     """
-    if not ctx.artifact_exists("master/master.wav") or not ctx.is_done("master_finalize"):
+    if not ctx.final_path("master", "master.wav").is_file() or not ctx.is_done(
+        "master_finalize"
+    ):
         return []
     filled: list[str] = []
     for stage in DELIVERY_ORDER:
@@ -1285,7 +1351,11 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
 
         if policy_remediation_active(ctx):
             plan = read_active_remediation_plan(ctx)
-            allowed = {str(s) for s in (plan or {}).get("allowed_rerun_stages") or []}
+            from interview_mux.refinement_passes import filter_retired_refine_stages
+
+            allowed = set(
+                filter_retired_refine_stages((plan or {}).get("allowed_rerun_stages") or [])
+            )
             if allowed and str(stage) not in allowed:
                 from interview_mux.execution_invalidation_profiles import (
                     resolve_invalidation_profile,
@@ -1308,6 +1378,56 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
                 return {"ok": True, "cleared_from": stage, "mode": "remediation_heal_only"}
     except Exception:
         pass
+    # C12: post-assembly/master mix|edl rewalk needs reopen allow.
+    if str(stage) in {"edl", "mix"}:
+        try:
+            asm = ctx.final_path("master", "assembly.wav")
+            master = ctx.final_path("master", "master.wav")
+            if (asm.is_file() and asm.stat().st_size > 0) or (
+                master.is_file() and master.stat().st_size > 0
+            ):
+                from interview_mux.timeline_reopen_meta_gate import (
+                    INTENT_MIX_REWALK,
+                    decide_timeline_reopen,
+                )
+
+                gate = decide_timeline_reopen(
+                    ctx,
+                    intent=INTENT_MIX_REWALK,
+                    detail={"from_stage": stage},
+                )
+                if not gate.get("allow"):
+                    append_ledger(
+                        ctx,
+                        {
+                            "kind": "invalidate_downstream",
+                            "identity": "invalidate_downstream",
+                            "stage": stage,
+                            "mode": "refused_low_gain",
+                            "gate": gate,
+                        },
+                    )
+                    return {
+                        "ok": False,
+                        "cleared_from": None,
+                        "mode": "refused_low_gain",
+                        "gate": gate,
+                    }
+        except Exception:
+            append_ledger(
+                ctx,
+                {
+                    "kind": "invalidate_downstream",
+                    "identity": "invalidate_downstream",
+                    "stage": stage,
+                    "mode": "refused_fail_closed",
+                },
+            )
+            return {
+                "ok": False,
+                "cleared_from": None,
+                "mode": "refused_fail_closed",
+            }
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")
     try:
@@ -1343,17 +1463,49 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
         raise
     except Exception:
         pass
-    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     try:
         from interview_mux.journey_state import reconcile_milestones_after_invalidation
 
         reconcile_milestones_after_invalidation(ctx)
     except Exception:
         pass
-    ctx.clear_from(stage, order)
+    # B-06: structural heals use profiles only — never combined clear_from.
+    profile_id = "structural_delivery"
+    try:
+        from interview_mux.execution_invalidation_profiles import (
+            apply_bounded_invalidation,
+            resolve_invalidation_profile,
+        )
+        from interview_mux.remediation_framework import read_active_remediation_plan
+
+        plan = read_active_remediation_plan(ctx)
+        if isinstance(plan, dict):
+            ec = str(plan.get("error_class") or "").strip()
+            resolved = resolve_invalidation_profile(ctx, ec) if ec else None
+            if resolved is not None:
+                profile_id = resolved.profile_id
+        result = apply_bounded_invalidation(
+            ctx,
+            profile_id,
+            reason=f"invalidate_downstream:{stage}",
+        )
+    except Exception as inv_exc:
+        ctx.log(
+            f"invalidate_downstream: bounded invalidation failed ({inv_exc})",
+            level="warning",
+            stage=stage,
+        )
+        result = {"profile_id": profile_id, "cleared": [], "error": str(inv_exc)[:240]}
     append_ledger(
         ctx,
-        {"kind": "invalidate_downstream", "identity": "invalidate_downstream", "stage": stage},
+        {
+            "kind": "invalidate_downstream",
+            "identity": "invalidate_downstream",
+            "stage": stage,
+            "mode": "structural",
+            "profile_id": profile_id,
+            "cleared": list(result.get("cleared") or [])[:40],
+        },
     )
     _append_invalidation_log(ctx, stage=stage, mode="structural")
     # Remaster/invalidate of pre-mix producers must not leave assembly looking seated.
@@ -1371,7 +1523,13 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
         reconcile_invalidated_bundle(ctx, [stage], reason="invalidate_downstream")
     except Exception:
         pass
-    return {"ok": True, "cleared_from": stage}
+    return {
+        "ok": True,
+        "cleared_from": stage,
+        "mode": "structural",
+        "profile_id": profile_id,
+        "cleared": list(result.get("cleared") or []),
+    }
 
 
 def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
@@ -1730,7 +1888,9 @@ def run_homunculus_phase(
         remaining = pinned
     write_agenda(ctx, phase, remaining, source="conductor")
     if phase == "delivery":
-        if ctx.artifact_exists("master/master.wav") and ctx.is_done("master_finalize"):
+        from interview_mux.delivery_invariants import committed_master_wav
+
+        if committed_master_wav(ctx) and ctx.is_done("master_finalize"):
             filled = backfill_delivery_holes_after_master(ctx)
             if filled:
                 remaining = [s for s in remaining if s not in filled and not ctx.is_done(s)]
@@ -1849,6 +2009,8 @@ def run_homunculus_phase(
                 },
             )
     still = [s for s in remaining_stages(ctx, phase) if s in allow]
+    from interview_mux.delivery_invariants import committed_master_wav as _committed_master
+
     if still:
         ctx.log(
             f"homunculus {phase} incomplete after conductor "
@@ -1856,7 +2018,7 @@ def run_homunculus_phase(
             level="info",
             stage=still[0],
         )
-    if still and phase == "delivery" and not ctx.artifact_exists("master/master.wav"):
+    if still and phase == "delivery" and not _committed_master(ctx):
         try:
             from interview_mux.thrash_hardening import (
                 ensure_phase_a_seal_deadline,
@@ -1880,7 +2042,7 @@ def run_homunculus_phase(
     elif (
         still
         and phase == "delivery"
-        and not ctx.artifact_exists("master/master.wav")
+        and not _committed_master(ctx)
     ):
         try:
             from interview_mux.delivery_guardrails import filter_delivery_candidates
@@ -1930,24 +2092,67 @@ def run_homunculus_phase(
             walk_seed_agenda(ctx, filtered, reason="delivery_walk_to_master")
         elif still:
             # T2: filter empty with pre-master holes — never silent complete.
-            # Pin via delivery_blocked (Phase-A aware) — NOT path_to_master_pin,
-            # which previously named music producers and drove a heal thrash.
+            # Prefer remutate / seed-front pin when remutate active (Wave 8).
             try:
+                from interview_mux.delivery_invariants import active_remutate_stages
                 from interview_mux.thrash_hardening import (
                     FAIL_CLASS_DELIVERY_BLOCKED,
                     canonical_resume_pin,
                 )
 
-                pin = canonical_resume_pin(
-                    ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=still[0]
-                )
+                rem = active_remutate_stages(ctx)
+                if rem:
+                    pin = next(
+                        (s for s in still if s in rem),
+                        next(iter(rem), still[0]),
+                    )
+                    # Force seed-front constrain rather than silent complete.
+                    pinned = constrain_conductor_to_seed_front(ctx, phase, still)
+                    if pinned:
+                        pin = pinned[0]
+                else:
+                    pin = canonical_resume_pin(
+                        ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=still[0]
+                    )
             except Exception:
                 pin = still[0]
+            try:
+                from interview_mux.execution_status import (
+                    should_wait_incomplete_after_conductor,
+                )
+
+                wait_row = should_wait_incomplete_after_conductor(
+                    ctx, pin=pin, remaining=still
+                )
+                if wait_row is not None:
+                    lease = str(wait_row.get("lease_stage") or pin or still[0])
+                    ctx.log(
+                        "homunculus delivery ESR wait "
+                        f"({wait_row.get('why')}); resume={lease}",
+                        level="warning",
+                        stage=lease,
+                    )
+                    walk_seed_agenda(
+                        ctx, [lease], reason="esr_wait_incomplete_after_conductor"
+                    )
+                    return {
+                        "conductor": conductor_out,
+                        "remaining_after": [
+                            s for s in remaining_stages(ctx, phase) if s in allow
+                        ],
+                        "esr_wait": True,
+                        "resume": lease,
+                    }
+            except Exception:
+                pass
             raise RuntimeError(
                 "Delivery incomplete after conductor — remaining stages "
                 f"(filter empty): {', '.join(still[:12])}; resume={pin}"
             )
-    elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
+    elif still and phase == "delivery" and ctx.final_path("master", "master.wav").is_file():
+        # Committed master only — pending finalize WAVs must not look shipped
+        # (exec_10066: orphaned .pending_writes/master_finalize/master/master.wav
+        # skipped junction via ship_path_ready + filter).
         pmq: dict[str, Any] | None = None
         pmq_missing = not ctx.artifact_exists("master/post_master_quality.json")
         if not pmq_missing:

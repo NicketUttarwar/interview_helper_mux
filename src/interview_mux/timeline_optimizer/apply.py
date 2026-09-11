@@ -103,6 +103,31 @@ def _guard_candidate_spoken_copy(
 
 def remaster_sync(ctx: RunContext, *, until_mix: bool = True) -> None:
     """Synchronously rebuild EDL→mix after promoting a new order (no JobRunner)."""
+    try:
+        from interview_mux.timeline_reopen_meta_gate import (
+            INTENT_OPTIMIZER,
+            decide_timeline_reopen,
+        )
+
+        gate = decide_timeline_reopen(
+            ctx,
+            intent=INTENT_OPTIMIZER,
+            detail={"until_mix": until_mix},
+        )
+        if not gate.get("allow"):
+            ctx.log(
+                f"optimizer remaster_sync refused: {gate.get('refuse_reason')}",
+                level="info",
+                stage="timeline_optimizer",
+            )
+            return
+    except Exception as exc:
+        ctx.log(
+            f"optimizer remaster_sync fail-closed refuse: {exc}",
+            level="info",
+            stage="timeline_optimizer",
+        )
+        return
     from interview_mux.stages import assembly
     from interview_mux.v2.config import DELIVERY_ORDER
 
@@ -213,7 +238,35 @@ def take_best_candidate(
         if isinstance(best.get("transitions"), dict):
             ctx.write_json("master/transitions.json", best["transitions"])
         if isinstance(best.get("gap_report"), dict):
-            ctx.write_json("understanding/gap_report.json", best["gap_report"])
+            # B13: promoting a candidate that reseats gap_report under freeze needs allow.
+            allow_gap = True
+            try:
+                from interview_mux.seat_authority import (
+                    gate_seat_mutation,
+                    hard_freeze_active,
+                    soft_freeze_active,
+                )
+
+                if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                    allow_gap = gate_seat_mutation(
+                        ctx,
+                        reason="optimizer_promote_gap_report",
+                        symptoms=["timeline_optimizer"],
+                    )
+            except Exception:
+                # Fail-closed under freeze: refuse gap promote on gate error
+                try:
+                    from interview_mux.seat_authority import (
+                        hard_freeze_active,
+                        soft_freeze_active,
+                    )
+
+                    if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                        allow_gap = False
+                except Exception:
+                    allow_gap = False
+            if allow_gap:
+                ctx.write_json("understanding/gap_report.json", best["gap_report"])
         if isinstance(best.get("sound_design_plan"), dict):
             ctx.write_json(
                 "understanding/sound_design_plan.json", best["sound_design_plan"]

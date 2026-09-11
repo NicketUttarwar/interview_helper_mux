@@ -41,13 +41,25 @@ def air_script_cfg() -> dict[str, Any]:
     raw = ((merged_config().get("mastering") or {}).get("air_script") or {})
     defaults = {
         "enable": True,
+        # Default True for Manual; full-auto/homunculus override below.
         "fail_open": True,
         "bed_coverage_aim_lo": 0.55,
         "bed_coverage_aim_hi": 0.88,
     }
     if isinstance(raw, dict):
-        return {**defaults, **raw}
-    return defaults
+        out = {**defaults, **raw}
+    else:
+        out = dict(defaults)
+    # DEEP-AIR-01: under automation/homunculus, fail closed unless config forces open.
+    if "fail_open" not in (raw if isinstance(raw, dict) else {}):
+        try:
+            from interview_mux.automation_run import automation_driver_env_enabled
+
+            if automation_driver_env_enabled():
+                out["fail_open"] = False
+        except Exception:
+            pass
+    return out
 
 
 def air_script_enabled() -> bool:
@@ -79,25 +91,48 @@ def load_air_script(plan: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def ordered_ids_from_air_script(plan: dict[str, Any] | None) -> list[str]:
-    script = load_air_script(plan)
+    """Air order for Pass B / lint — prefer plan.ordered_segment_ids.
+
+    ``air_script.beats`` may be a thin hosted-framing reseat stub (3 VO seats).
+    Using that as order shrinks Pass B to a three-clip show, trips ``vo_wall``,
+    and delight-remutates forever (forensics exec_11130).
+    """
+    plan_dict = plan if isinstance(plan, dict) else {}
+    plan_ordered = [str(s) for s in (plan_dict.get("ordered_segment_ids") or []) if s]
+    script = load_air_script(plan_dict)
     if not script:
-        return []
-    ordered: list[str] = []
+        return plan_ordered
+    beat_ordered: list[str] = []
     seen: set[str] = set()
     for beat in script.get("beats") or []:
         if not isinstance(beat, dict):
             continue
         sid = str(beat.get("segment_id") or "")
         if sid and sid not in seen and str(beat.get("montage_move") or "") != "episode_close":
-            ordered.append(sid)
+            beat_ordered.append(sid)
             seen.add(sid)
-    return ordered
+    if plan_ordered and (not beat_ordered or len(plan_ordered) >= len(beat_ordered)):
+        return plan_ordered
+    return beat_ordered
 
 
 def requested_vo_line_ids(plan: dict[str, Any] | None) -> set[str]:
+    """VO line ids claimed by beats — never revive seats listed as omitted.
+
+    Pass B can stamp ``line_id`` onto ``vo_then_clip`` beats from gap rows that
+    are already air_script_omit. Those beat refs must not expand the EDL seat
+    set via ``filter_gap_lines_for_air_script`` (forensics exec_11130 pre_mix
+    omit_collateral thrash on vo_layup_seg_019).
+    """
     script = load_air_script(plan)
     if not script:
         return set()
+    seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+    omitted = {
+        str(x)
+        for x in (seats.get("omitted_line_ids") or [])
+        if x
+    }
     out: set[str] = set()
     for beat in script.get("beats") or []:
         if not isinstance(beat, dict):
@@ -105,7 +140,7 @@ def requested_vo_line_ids(plan: dict[str, Any] | None) -> set[str]:
         if str(beat.get("montage_move") or "") not in VO_SEAT_MOVES:
             continue
         lid = str(beat.get("line_id") or "")
-        if lid:
+        if lid and lid not in omitted:
             out.add(lid)
     return out
 
@@ -500,7 +535,9 @@ def lint_story_clarity(
         if not isinstance(beat, dict):
             continue
         move = str(beat.get("montage_move") or "")
-        if move in VO_SEAT_MOVES:
+        role = str(beat.get("role") or "")
+        # Hosted-framing reseat stubs are seat markers, not a listener VO wall.
+        if move in VO_SEAT_MOVES and role != "hosted_framing_reseat":
             vo_run += 1
             if vo_run >= 3:
                 warnings.append("vo_wall")
@@ -510,7 +547,11 @@ def lint_story_clarity(
             orientation_count += 1
         entering = str(beat.get("know_entering") or "").strip()
         leaving = str(beat.get("know_leaving") or "").strip()
-        if move not in {"episode_close", "air_breathe", "music_face_out"} and (not entering or not leaving):
+        if (
+            role != "hosted_framing_reseat"
+            and move not in {"episode_close", "air_breathe", "music_face_out"}
+            and (not entering or not leaving)
+        ):
             warnings.append(f"missing_know_{beat.get('id') or beat.get('segment_id')}")
     if orientation_count > 1:
         errors.append("multiple_orientation")
@@ -770,6 +811,24 @@ def compose_pass_a(ctx: RunContext) -> dict[str, Any]:
 
 def compose_pass_b(ctx: RunContext) -> dict[str, Any]:
     """Per-seam montage moves; VO seats only where the listener would be lost."""
+    try:
+        from interview_mux.seat_authority import seat_mutation_allowed, soft_freeze_active
+
+        if soft_freeze_active(ctx):
+            allowed, why = seat_mutation_allowed(
+                ctx, reason="compose_pass_b", require_meta_gate=True
+            )
+            if not allowed:
+                # No-op: return existing plan under freeze
+                plan = load_plan_raw(ctx) or {}
+                ctx.log(
+                    f"compose_pass_b: frozen no-op ({why})",
+                    level="info",
+                    stage="air_script_seams",
+                )
+                return plan if isinstance(plan, dict) else {}
+    except Exception:
+        pass
     plan = load_plan_raw(ctx) or {}
     script = load_air_script(plan) or empty_air_script(pass_name="pass_b")
     ordered = ordered_ids_from_air_script(plan) or _selection_ordered(ctx)
@@ -826,6 +885,8 @@ def compose_pass_b(ctx: RunContext) -> dict[str, Any]:
         prev = by_id.get(ordered[i - 1]) if i else None
         cur = by_id.get(sid)
         line = _gap_line_for(gap_report if isinstance(gap_report, dict) else None, sid, "before")
+        if line and not gap_line_air_eligible(line):
+            line = None
         orient = _is_orientation_line(line) and not omitted_orientation
         move = "native_handoff"
         line_id = None
@@ -1131,6 +1192,26 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
     Required orientation stays live; native-open omit does not. Always republishes
     ``air_script.vo_seats``. Returns how many lines were newly omitted.
     """
+    try:
+        from interview_mux.seat_authority import (
+            seat_fingerprint,
+            seat_mutation_allowed,
+            soft_freeze_active,
+            read_seat_freeze,
+        )
+
+        if soft_freeze_active(ctx):
+            fr = read_seat_freeze(ctx)
+            fp = seat_fingerprint(ctx)
+            if fr.get("fingerprint") and fr["fingerprint"] == fp:
+                return 0
+            allowed, _why = seat_mutation_allowed(
+                ctx, reason="persist_air_script_omits", require_meta_gate=True
+            )
+            if not allowed:
+                return 0
+    except Exception:
+        pass
     if not air_script_enabled():
         return 0
     plan = load_plan_raw(ctx)

@@ -49,6 +49,18 @@ def automation_driver_run(meta: dict[str, Any] | None) -> bool:
     return is_full_auto_run(meta) or is_partially_accelerated_run(meta)
 
 
+# Partial-auto operator gate SSOT (Cluster D / SYN-MODE) — mirror of
+# frontend/src/utils/partialOperatorGates.ts
+PARTIAL_MUST_ACT_GATES: tuple[str, ...] = ("transcript_review", "g_publish")
+PARTIAL_MAY_PAUSE_GATES: tuple[str, ...] = (
+    "gap_framing",
+    "missing_framing",
+    "g1_vo_pickup",
+    "stage_reuse",
+    "write_approval",
+)
+
+
 def automation_driver_env_enabled() -> bool:
     """True when the current process was launched by the automation driver."""
     for key in _AUTOMATION_ENV_KEYS:

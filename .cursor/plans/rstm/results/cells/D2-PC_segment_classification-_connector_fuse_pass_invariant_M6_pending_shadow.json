@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-PC|segment_classification->connector_fuse_pass|invariant|M6_pending_shadow",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "seed_block_ok:segment_classification"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:51Z"
+}

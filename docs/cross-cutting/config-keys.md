@@ -1473,3 +1473,15 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/dr
 - `src/interview_mux/config.py` — merge rules
 - `config/templates/secrets.env.example` — secret key names
 - [config/README.md](../../config/README.md) — resolution order
+
+## `thrash_spine` — ESR / seat freeze / meta-gates
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `thrash_spine.progress_sla.*` | see defaults | `execution_status` | Too low → false sticky; too high → slow halt |
+| `thrash_spine.seat_freeze.max_rewrites_post_soft` | `2` | `seat_authority` | Unlimited seat thrash after soft freeze |
+| `thrash_spine.seat_freeze.max_rewrites_post_hard` | `1` | `seat_authority` | Seat thrash after VO synth |
+| `thrash_spine.meta_gate.min_opportunity` | `0.65` | seat rewrite gate | Too low → thrashy rewrites |
+| `thrash_spine.meta_gate.min_expected_gain` | `0.15` | timeline reopen gate | Too low → useless remasters |
+
+See [execution-status.md](./execution-status.md).

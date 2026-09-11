@@ -3,6 +3,7 @@ import { useApp } from "../context/AppContext";
 import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { resolveOperatorCover } from "../utils/partialAcceleratedGuard";
+import { partialMustActOverlayCopy } from "../utils/partialOperatorGates";
 
 function formatPhaseLabel(phase: string | undefined): string | null {
   if (!phase) return null;
@@ -70,8 +71,7 @@ export function ActionOverlay({ placement = "app" }: { placement?: ActionOverlay
             Accelerated run in progress
           </p>
           <p className="accelerated-run-overlay-message hint">
-            You&apos;ll be prompted when your input is needed — transcript review and S3 upload
-            are the only planned manual steps. Watch the stage list and Logs for progress.
+            {partialMustActOverlayCopy()}
           </p>
           <button
             type="button"

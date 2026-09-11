@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-RR|information_package_plan->information_package_plan|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-RR",
+  "notes": [
+    "repeat_path"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:51Z"
+}

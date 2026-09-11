@@ -264,6 +264,36 @@ def test_detects_incomplete_vo_micro_impact_and_dead_air(tmp_path):
     assert "dead_air_stack" in kinds
 
 
+def test_opening_music_not_flagged_as_dead_air_stack(tmp_path):
+    ctx, _ = _base_ctx(tmp_path)
+    clips = [
+        {
+            "type": "silence",
+            "air_kind": "opening_music",
+            "timeline_start_ms": 0,
+            "duration_ms": 14400,
+        },
+        {
+            "type": "speech",
+            "segment_id": "seg_002",
+            "source_start_ms": 60000,
+            "source_end_ms": 94140,
+            "timeline_start_ms": 14400,
+            "duration_ms": 34140,
+        },
+    ]
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_002"],
+            "clips": clips,
+            "timeline_duration_ms": 48540,
+        }
+    )
+    findings = detect_junction_findings(ctx, edl)
+    assert not any(f.get("kind") == "dead_air_stack" for f in findings)
+
+
 def test_apply_repairs_excludes_micro_and_inserts_hold(tmp_path):
     ctx, _ = _base_ctx(tmp_path)
     clips = [
@@ -920,6 +950,96 @@ def test_on_a_roll_emits_extend_and_cut_before_thought_complete(tmp_path) -> Non
         assert actions  # at least one repair action for incomplete seg_004
 
 
+
+
+def test_short_hanging_tail_emits_cut_alongside_extend(tmp_path):
+    """exec_11130: 50ms 'Well,' tail must emit cut_earlier even when extend wins priority."""
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_short_tail")
+    segments = [
+        _seg(
+            "seg_a",
+            start_ms=87_000,
+            end_ms=98_000,
+            text="to reshape clinical trials, drug development, and diagnostics. Well,",
+        ),
+        _seg(
+            "seg_b",
+            start_ms=98_000,
+            end_ms=106_000,
+            text="before we begin, I want to remind our audience.",
+        ),
+    ]
+    words = [
+        {"text": "diagnostics.", "start_ms": 97120, "end_ms": 97920, "speaker_id": "spk_0"},
+        {"text": "Well,", "start_ms": 97920, "end_ms": 98320, "speaker_id": "spk_0"},
+        {"text": "before", "start_ms": 98580, "end_ms": 98780, "speaker_id": "spk_0"},
+        {"text": "we", "start_ms": 98780, "end_ms": 99000, "speaker_id": "spk_0"},
+        {"text": "begin,", "start_ms": 99000, "end_ms": 99220, "speaker_id": "spk_0"},
+        {"text": "button.", "start_ms": 105420, "end_ms": 105840, "speaker_id": "spk_0"},
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": words, "text": " ".join(w["text"] for w in words)},
+        skip_handoff=True,
+    )
+    selection = stamp_order_hash({"ordered_segment_ids": ["seg_a", "seg_b"], "chapters": []})
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_a", "seg_b"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_a",
+                    "source_start_ms": 87320,
+                    "source_end_ms": 97970,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 10650,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_b",
+                    "source_start_ms": 98580,
+                    "source_end_ms": 105840,
+                    "timeline_start_ms": 10650,
+                    "duration_ms": 7260,
+                },
+            ],
+            "timeline_duration_ms": 17910,
+        }
+    )
+    ctx.write_json("master/selection.json", selection, skip_handoff=True)
+    ctx.write_json("master/edl.json", edl, skip_handoff=True)
+    findings = detect_junction_findings(ctx, edl)
+    seg_a = [f for f in findings if f.get("segment_id") == "seg_a"]
+    actions = {str(f.get("action") or "") for f in seg_a}
+    assert "cut_earlier" in actions
+    assert any(
+        f.get("action") == "cut_earlier"
+        and int((f.get("detail") or {}).get("recommended_ms") or 0) == 97920
+        for f in seg_a
+    )
+    _edl, applied, changed = apply_junction_repairs(ctx, edl, findings)
+    assert changed
+    assert any(
+        a.get("segment_id") == "seg_a"
+        and a.get("action") == "cut_earlier"
+        and a.get("status") == "applied"
+        for a in applied
+    )
+    clip = next(c for c in _edl["clips"] if c.get("segment_id") == "seg_a")
+    assert int(clip["source_end_ms"]) == 97920
+
+
+def test_junction_protected_outputs_require_qa_json():
+    from interview_mux.homunculus.agenda import PROTECTED_DELIVERY_OUTPUTS
+
+    outs = PROTECTED_DELIVERY_OUTPUTS["junction_snip_qa"]
+    assert "master/junction_snip_qa.json" in outs
+    assert "master/seam_autopsy.json" in outs
+
+
 def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "exec_junction_music_xf")
     sdp_path = ctx.path("understanding", "sound_design_plan.json")
@@ -980,3 +1100,34 @@ def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monke
     cue = plan["flow_plans"]["podcast"]["cues"][0]
     assert int(cue.get("crossfade_ms") or 0) >= 180
     assert ctx.artifact_exists("sound_design/placement_adjustments.json")
+
+
+def test_sync_edl_speech_bounds_from_nle_overrides(tmp_path):
+    from interview_mux.junction_snip_qa import _sync_edl_speech_bounds_from_nle
+    from interview_mux.nle_state import save_nle
+
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_nle_sync")
+    save_nle(
+        ctx,
+        {
+            "segment_overrides": {
+                "seg_a": {"start_ms": 1000, "end_ms": 5000},
+            }
+        },
+    )
+    edl = {
+        "version": 1,
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 1000,
+                "source_end_ms": 6000,
+                "duration_ms": 5000,
+            }
+        ],
+        "timeline_duration_ms": 5000,
+    }
+    out, changed = _sync_edl_speech_bounds_from_nle(ctx, edl)
+    assert changed is True
+    assert int(out["clips"][0]["source_end_ms"]) == 5000

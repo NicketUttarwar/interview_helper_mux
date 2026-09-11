@@ -50,6 +50,25 @@ def record_execution_stall(
         count = int(prev.get("count") or 0) + 1
     else:
         count = 1
+    # ESR: identical predicate while producer progress is fresh is not escalate.
+    esr_softened = False
+    try:
+        from interview_mux.execution_status import may_hard_halt, sync_execution_status
+        from interview_mux.thrash_hardening import stage_predicate_token
+
+        tok = stage_predicate_token(ctx, str(stage or ""))
+        if not may_hard_halt(ctx, pin=str(stage or ""), predicate_token=tok):
+            esr_softened = True
+            count = min(count, max(1, int(escalate_after) - 1))
+        sync_execution_status(
+            ctx,
+            pin=str(stage or ""),
+            intent="execution_stall",
+            predicate_token=tok,
+            extra={"execution_stall_count": count, "esr_softened": esr_softened},
+        )
+    except Exception:
+        pass
     row: dict[str, Any] = {
         "version": 1,
         "updated_at": now,
@@ -62,7 +81,9 @@ def record_execution_stall(
         "product_fingerprint": fingerprint,
         "fingerprint_changed": bool(prev_fp and fingerprint != prev_fp),
         "first_seen_at": str(prev.get("first_seen_at") or now),
-        "should_escalate": count >= max(1, int(escalate_after)),
+        "should_escalate": (not esr_softened)
+        and count >= max(1, int(escalate_after)),
+        "esr_softened": esr_softened,
         "prev_tier": prev.get("last_tier") or "",
     }
     ctx.write_json(STALL_REL, row, skip_handoff=True)

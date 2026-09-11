@@ -77,3 +77,15 @@ def run_vo_synthesize(ctx: RunContext) -> None:
     from interview_mux.vo_contract import assert_seated_vo_rendered
 
     assert_seated_vo_rendered(ctx)
+    try:
+        from interview_mux.seat_authority import stamp_hard_seat_freeze
+
+        stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    except Exception as exc:
+        # Hard freeze is load-bearing for Pillar B — never mark synth complete ungated.
+        ctx.log(
+            f"vo_synthesize: hard seat freeze stamp FAILED: {exc}",
+            level="error",
+            stage=STAGE_ID,
+        )
+        raise

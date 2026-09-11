@@ -46,12 +46,28 @@ def enforce_mix_completeness(
     soft_sfx = bool(cfg.get("soft_fail_sfx_placeholder", True)) or allow_placeholder_mix()
     last_chance = bool((merged_config().get("mix") or {}).get("missing_vo_retry_once", True))
 
-    vo = sorted({str(x) for x in (missing_vo or []) if x})
-    sfx = sorted({str(x) for x in (missing_sfx or []) if x})
-    retried = sorted({str(x) for x in (retried_vo or []) if x})
+    def _id_list(raw: Any) -> list[str]:
+        """Accept id sequences; ignore int counts / other non-iterables (DEEP-MIX)."""
+        if raw is None or isinstance(raw, bool):
+            return []
+        if isinstance(raw, (int, float)):
+            return []
+        if isinstance(raw, str):
+            return [raw] if raw.strip() else []
+        try:
+            return [str(x) for x in raw if x]
+        except TypeError:
+            return []
+
+    vo = sorted({str(x) for x in _id_list(missing_vo) if x})
+    sfx = sorted({str(x) for x in _id_list(missing_sfx) if x})
+    retried = sorted({str(x) for x in _id_list(retried_vo) if x})
     qa_missing = _missing_sfx_from_mmaudio_qa(ctx)
     if qa_missing:
         sfx = sorted(set(sfx) | qa_missing)
+    omitted = _music_omitted_asset_ids(ctx)
+    if omitted:
+        sfx = sorted(a for a in sfx if a not in omitted)
 
     if empty_speech and hard_speech:
         msg = f"{stage}: mix completeness — empty speech assembly (hard fail)"
@@ -91,6 +107,29 @@ def enforce_mix_completeness(
     ctx.log(message, level="warning", stage=stage, detail=f"flow={flow} mode=warn soft_sfx={soft_sfx} retried_once={bool(retried)}")
 
 
+def _music_omitted_asset_ids(ctx: RunContext) -> set[str]:
+    """Honest limbo / fail-closed music omits are not completeness blockers."""
+    out: set[str] = set()
+    try:
+        if ctx.artifact_exists("operator/music_omitted.json"):
+            doc = ctx.read_json("operator/music_omitted.json")
+            for row in (doc.get("omitted") or []) if isinstance(doc, dict) else []:
+                if isinstance(row, dict) and row.get("asset_id"):
+                    out.add(str(row["asset_id"]))
+    except Exception:
+        pass
+    try:
+        if ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            if isinstance(meta, dict):
+                for aid in meta.get("music_omitted_asset_ids") or []:
+                    if aid:
+                        out.add(str(aid))
+    except Exception:
+        pass
+    return out
+
+
 def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:
     rel = "sound_design/mmaudio_qa.json"
     if not ctx.artifact_exists(rel):
@@ -98,11 +137,12 @@ def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:
     doc = ctx.read_json(rel)
     rows = doc.get("assets") if isinstance(doc, dict) else []
     out: set[str] = set()
+    omitted = _music_omitted_asset_ids(ctx)
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         aid = str(row.get("asset_id") or "").strip()
-        if not aid:
+        if not aid or aid in omitted:
             continue
         status = str(row.get("generation_status") or "").lower()
         if status in {"failed", "placeholder"}:

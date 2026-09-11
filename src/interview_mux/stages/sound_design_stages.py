@@ -55,7 +55,13 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             seed = atlas or (tags[0] if tags else "")
             coherence["sonic_identity"] = seed or "deferred_to_sound_design_plan"
             coherence["deferred_early_palettes"] = True
+            coherence["invent_obligation"] = "sound_design_plan"
+            coherence["deferred_ok"] = True
         sdp["coherence"] = coherence
+        sdp.setdefault("_meta", {})
+        if isinstance(sdp["_meta"], dict):
+            sdp["_meta"]["deferred_early_palettes"] = True
+            sdp["_meta"]["invent_obligation"] = "sound_design_plan"
         _validate_sound_design_plan(sdp)
         write_validated_artifact(
             ctx, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_palettes"
@@ -385,21 +391,20 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
                 band = (max(float(band[0]), float(lint_lo)), max(float(band[1]), float(lint_hi)))
             else:
                 band = (float(lint_lo), float(lint_hi))
+        clamped = float(dur)
         if band:
-            # Soft bands: raise short clips to lo; allow stretch above hi for full beds.
             lo, hi = float(band[0]), float(band[1])
             val = float(dur)
             if val < lo:
                 clamped = lo
-            elif val > hi and role not in {
-                "theme_cold_open",
-                "theme_outro",
-                "full_bed",
-                "motif",
-            }:
-                clamped = hi
-            else:
-                clamped = val
+            elif val > hi:
+                # Soft stretch for long beds/opens — keep as-is (preflight must match).
+                if role in _SDP_DURATION_SOFT_STRETCH_ROLES or str(
+                    asset.get("palette_kind") or ""
+                ) in {"full_bed", "motif"}:
+                    clamped = val
+                else:
+                    clamped = hi
         else:
             clamped = clamp_duration_seconds(float(dur), role=role, ctx=ctx)
         if clamped != float(dur):
@@ -413,6 +418,40 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
             stage="sfx_prompt_craft",
         )
     return changed
+
+
+# Roles allowed to exceed the configured hi band (MusicGen theme stems / beds).
+_SDP_DURATION_SOFT_STRETCH_ROLES: frozenset[str] = frozenset(
+    {
+        "theme_cold_open",
+        "theme_outro",
+        "full_bed",
+        "motif",
+    }
+)
+
+
+def sdp_duration_allowed_for_role(
+    role: str,
+    duration_sec: float,
+    *,
+    palette_kind: str | None = None,
+    band: tuple[float, float] | None = None,
+) -> bool:
+    """True when duration is inside the role band or a soft-stretch bed/open."""
+    if band is None:
+        return True
+    lo, hi = float(band[0]), float(band[1])
+    d = float(duration_sec)
+    if d < lo - 0.1:
+        return False
+    if d <= hi + 0.1:
+        return True
+    if str(role or "") in _SDP_DURATION_SOFT_STRETCH_ROLES:
+        return True
+    if str(palette_kind or "") in {"full_bed", "motif"}:
+        return True
+    return False
 
 
 def run_sfx_prompt_craft(ctx: RunContext) -> None:

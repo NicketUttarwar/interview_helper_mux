@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -148,6 +149,43 @@ def _source_profile(ctx: RunContext, meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _timeline_reopen_gate_summary(ctx: RunContext) -> list[dict[str, Any]]:
+    """Last N timeline reopen / seat rewrite gate decisions from jsonl."""
+    out: list[dict[str, Any]] = []
+    for rel in (
+        "mastering/timeline_reopen_gate.jsonl",
+        "mastering/seat_rewrite_gate.jsonl",
+    ):
+        path = Path(ctx.run_dir) / rel
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines[-16:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(row, dict):
+                out.append(
+                    {
+                        "intent": row.get("intent") or row.get("kind") or "",
+                        "allow": row.get("allow"),
+                        "expected_gain": row.get("expected_gain")
+                        or row.get("opportunity_score"),
+                        "refuse_reason": row.get("refuse_reason") or "",
+                        "decision_id": row.get("decision_id") or "",
+                        "source": rel,
+                    }
+                )
+    return out[-16:]
+
+
 def _research_next(
     *,
     outcome: str,
@@ -228,6 +266,7 @@ def build_execution_report(
     identical = _identical_summary(ctx)
     homunculus = _homunculus_summary(ctx)
     source = _source_profile(ctx, meta)
+    reopen_gates = _timeline_reopen_gate_summary(ctx)
     producer = ""
     if identical:
         last = identical[-1]
@@ -247,6 +286,7 @@ def build_execution_report(
         "source_profile": source,
         "ship": ship,
         "identical_failures": identical,
+        "timeline_reopen_gates": reopen_gates,
         "decisions": list(decisions or [])[-80:],
         "homunculus_issues": homunculus,
         "needs_operator": bool(meta.get("needs_operator")),
@@ -326,6 +366,19 @@ def render_execution_report_md(report: dict[str, Any]) -> str:
                 f"- `{row.get('failed_stage')}` x{row.get('count')}{flag} "
                 f"producer={row.get('producer') or '—'} — {row.get('reason')}"
             )
+    reopen = report.get("timeline_reopen_gates") or []
+    lines.extend(["", "## Timeline reopen gates", ""])
+    if not reopen:
+        lines.append("(none)")
+    else:
+        for row in reopen[-12:]:
+            if not isinstance(row, dict):
+                continue
+            allow = "ALLOW" if row.get("allow") else "REFUSE"
+            lines.append(
+                f"- {allow} `{row.get('intent')}` gain={row.get('expected_gain')} "
+                f"— {row.get('refuse_reason') or row.get('decision_id') or ''}"
+            )
     lines.extend(["", "## Research next", ""])
     nxt = report.get("research_next") or []
     if not nxt:
@@ -392,6 +445,21 @@ def stamp_needs_operator(
     reason: str,
     producer: str = "",
 ) -> None:
+    # ESR: do not HARD-pause operator while producer progress / lease is fresh.
+    try:
+        from interview_mux.execution_status import may_hard_halt, wait_vs_halt
+
+        if not may_hard_halt(ctx, pin=str(stage or "")):
+            wait_vs_halt(
+                ctx,
+                pin=str(stage or ""),
+                intent="needs_operator",
+                reason=str(reason or "")[:200],
+            )
+            return
+    except Exception:
+        pass
+
     def _mark(meta: dict[str, Any]) -> None:
         meta["needs_operator"] = True
         meta["needs_operator_stage"] = str(stage or "")[:80]

@@ -312,6 +312,76 @@ def test_competing_host_and_vo_wall_penalize():
     assert lint["story_followability"] < 0.9
 
 
+
+def test_requested_vo_line_ids_excludes_omitted_seats():
+    from interview_mux.air_script import requested_vo_line_ids
+
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_keep"],
+                "omitted_line_ids": ["vo_omit"],
+            },
+            "beats": [
+                {"montage_move": "vo_then_clip", "line_id": "vo_keep", "segment_id": "s1"},
+                {"montage_move": "vo_then_clip", "line_id": "vo_omit", "segment_id": "s2"},
+            ],
+        }
+    }
+    assert requested_vo_line_ids(plan) == {"vo_keep"}
+
+
+def test_ordered_ids_prefers_plan_over_thin_reseat_beats():
+    from interview_mux.air_script import ordered_ids_from_air_script
+
+    plan = {
+        "ordered_segment_ids": ["seg_a", "seg_b", "seg_c", "seg_d"],
+        "air_script": {
+            "beats": [
+                {
+                    "segment_id": "seg_b",
+                    "montage_move": "vo_then_clip",
+                    "role": "hosted_framing_reseat",
+                    "line_id": "vo_1",
+                },
+                {
+                    "segment_id": "seg_c",
+                    "montage_move": "vo_then_clip",
+                    "role": "hosted_framing_reseat",
+                    "line_id": "vo_2",
+                },
+            ]
+        },
+    }
+    assert ordered_ids_from_air_script(plan) == ["seg_a", "seg_b", "seg_c", "seg_d"]
+
+
+def test_hosted_framing_reseat_beats_do_not_trip_vo_wall():
+    beats = [
+        {
+            "segment_id": "s1",
+            "montage_move": "vo_then_clip",
+            "role": "hosted_framing_reseat",
+            "line_id": "vo_1",
+        },
+        {
+            "segment_id": "s2",
+            "montage_move": "vo_then_clip",
+            "role": "hosted_framing_reseat",
+            "line_id": "vo_2",
+        },
+        {
+            "segment_id": "s3",
+            "montage_move": "vo_then_clip",
+            "role": "hosted_framing_reseat",
+            "line_id": "vo_3",
+        },
+    ]
+    lint = lint_story_clarity(beats=beats, ordered=["s1", "s2", "s3"])
+    assert "vo_wall" not in lint["warnings"]
+    assert not any(str(w).startswith("missing_know_") for w in lint["warnings"])
+
+
 def test_circumstance_card_diversity(tmp_path):
     fireside = isolated_run_ctx(tmp_path, "exec_air_card_fire")
     _seed_plan(fireside, ordered=["seg_001", "seg_002"])

@@ -336,8 +336,16 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
                     s["audio_tags"] = tags
 
         try:
-            ctx.write_json("segments/manifest.json", result["manifest"])
-            ctx.write_json("vernacular/resplit_report.json", result["resplit_report"])
+            ctx.write_json(
+                "segments/manifest.json",
+                result["manifest"],
+                stage_key="vernacular_segment_sanitize",
+            )
+            ctx.write_json(
+                "vernacular/resplit_report.json",
+                result["resplit_report"],
+                stage_key="vernacular_segment_sanitize",
+            )
         except Exception as exc:  # noqa: BLE001
             ctx.log(
                 f"Sanitize write failed: {exc}",

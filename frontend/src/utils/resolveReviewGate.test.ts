@@ -66,11 +66,59 @@ describe("resolveReviewGateSpec", () => {
       job: {
         status: "gate",
         stage: "transcript_review",
+        gate: "transcript_review",
         message: "Transcript review required.",
       },
     };
     expect(resolveReviewGateSpec(run, run.stages[0], false)).toEqual({
       kind: "transcript_review",
     });
+  });
+
+  it("G-01: kind from structured blocking.reason, not message substring", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [stage("vo_line_adjudicate", "ready")],
+      journey: {
+        phase: "delivery",
+        milestones: {},
+        next_action: "",
+        blocking: {
+          blocked: true,
+          reason: "vo_contract",
+          stage_id: "vo_line_adjudicate",
+          message: "unrelated wording that used to drive substring hacks",
+        },
+      },
+      job: { status: "gate", stage: "vo_line_adjudicate", gate: "vo_contract" },
+    };
+    expect(resolveReviewGateSpec(run, run.stages[0], false)).toEqual({
+      kind: "vo_contract",
+    });
+  });
+
+  it("G-01: never hide when job.status==gate even if autopilot would hide", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      stages: [stage("gap_framing_compose", "ready")],
+      job: {
+        status: "gate",
+        stage: "gap_framing_compose",
+        gate: "llm_gate",
+        can_fix_all: true,
+        message: "LLM gate",
+      },
+      journey: {
+        phase: "analysis",
+        milestones: {},
+        next_action: "",
+        blocking: { blocked: true, reason: "llm_gate", stage_id: "gap_framing_compose" },
+      },
+    };
+    expect(
+      resolveReviewGateSpec(run, run.stages[0], false, {
+        journey_ui: { auto_advance_pipeline: true, enabled: true },
+      }),
+    ).toEqual({ kind: "llm_gate" });
   });
 });

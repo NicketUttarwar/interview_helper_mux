@@ -173,7 +173,12 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
     if stage in {"mix", "mmaudio_sfx"} and "mmaudio_qa" in msg:
         return "mmaudio_qa_missing"
     if stage in {"mix", "mmaudio_sfx", "sfx_prompt_craft"} and (
-        "missing wav for asset_id" in msg or "missing wav for asset" in msg
+        "missing wav for asset_id" in msg
+        or "missing wav for asset" in msg
+        or "speech-free theme" in msg
+        or "opening_music reserved" in msg
+        or "pin mmaudio_sfx" in msg
+        or "refusing silent duration" in msg
     ):
         return "sdp_theme_wavs_missing"
     if stage in {"master_finalize", "mix"} and (
@@ -294,6 +299,8 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
     # Narrow producer pins — seed/finalize before catch-alls.
     if "seed order:" in msg and "complete " in msg and "before running" in msg:
         return "seed_order_prereq"
+    if "redundant with framing" in msg or "redundant_framing" in msg:
+        return "redundant_framing_transitions"
     if stage in {"master_finalize", "mix", "junction_snip_qa"} and (
         ("assembly_ledger" in msg and "missing" in msg)
         or ("seam_autopsy" in msg and "missing" in msg)
@@ -352,6 +359,7 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "air_script_omit_sync",
         "seed_order_prereq",
         "finalize_input_missing",
+        "redundant_framing_transitions",
     }
 )
 
@@ -812,25 +820,78 @@ def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
 
 
 def playbook_seed_order_prereq(ctx: RunContext, exc: BaseException) -> str:
-    """Unmark the named seed-order prereq and return the resume stage.
+    """Unmark or restamp the named seed-order prereq and return the resume stage.
 
-    ``g1_vo_open`` is pickup-only: never unmark ``vo_line_adjudicate``. Re-running
-    adjudicate rewrites gap text and purges freshly promoted WAVs
-    (``wav_content_mismatch``), then G1 synth hits ``run_busy`` under the same
-    execute lock — forensics thrash on the same campaign run.
+    ``g1_vo_open`` is pickup-only for *record* holes: never unmark adjudicate into
+    a synth loop. Synth-only G1 resumes ``vo_synthesize``.
+
+    Live producers (SDP, music epoch, assembly WAV, sealed adjudicate): restamp
+    the done marker and resume the consumer — never replan/regenerate and orphan
+    downstream assets (forensics exec_10066 MusicGen thrash).
+
+    Seed A↔B cycles with unchanged fingerprints refuse after detect_seed_cycle.
     """
     import re
 
     from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
+    from interview_mux.delivery_invariants import (
+        apply_seed_order_heal,
+        detect_seed_cycle,
+        note_seed_resume,
+        record_invariant_heal,
+        resolve_g1_vo_open_resume,
+    )
 
-    m = re.search(r"complete\s+(\S+)\s+before", str(exc), flags=re.IGNORECASE)
+    msg = str(exc)
+    m = re.search(r"complete\s+(\S+)\s+before", msg, flags=re.IGNORECASE)
     raw = m.group(1).strip() if m else ""
     if raw == "g1_vo_open":
-        return "vo_synthesize"
-    pin = resolve_vo_synth_seed_resume(raw) or raw
-    if pin:
-        _unmark_stages(ctx, pin)
-    return pin
+        resume = resolve_g1_vo_open_resume(ctx)
+        fp = ""
+        try:
+            if ctx.artifact_exists("understanding/vo_line_adjudication.json"):
+                fp = str(
+                    ctx.final_path(
+                        "understanding", "vo_line_adjudication.json"
+                    ).stat().st_size
+                )
+        except Exception:
+            pass
+        note_seed_resume(ctx, from_stage=resume, because_of="g1_vo_open", fingerprint=fp)
+        if detect_seed_cycle(
+            ctx, from_stage=resume, because_of="g1_vo_open", fingerprint=fp
+        ):
+            record_invariant_heal(
+                ctx,
+                kind="seed_cycle_refuse",
+                stage=resume,
+                detail={"raw": raw},
+            )
+            # Stay on synth when cycle involves adjudicate↔synth.
+            return "vo_synthesize"
+        return resume
+    pin = resolve_vo_synth_seed_resume(raw, ctx) or raw
+    if not pin:
+        return pin
+    fp = ""
+    try:
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        rel = STAGE_ARTIFACT_DISK_PATHS.get(pin)
+        if rel and ctx.artifact_exists(rel):
+            fp = str(ctx.final_path(*rel.split("/")).stat().st_size)
+    except Exception:
+        pass
+    note_seed_resume(ctx, from_stage=pin, because_of=raw or pin, fingerprint=fp)
+    if detect_seed_cycle(ctx, from_stage=pin, because_of=raw or pin, fingerprint=fp):
+        record_invariant_heal(
+            ctx, kind="seed_cycle_refuse", stage=pin, detail={"raw": raw, "msg": msg[:120]}
+        )
+        m_consumer = re.search(r"before running\s+(\S+)", msg, flags=re.IGNORECASE)
+        return (m_consumer.group(1).strip() if m_consumer else pin)
+    return apply_seed_order_heal(
+        ctx, pin, message=msg, unmark_fn=lambda c, s: _unmark_stages(c, s)
+    )
 
 
 def playbook_finalize_input_missing(ctx: RunContext, exc: BaseException) -> str:
@@ -1001,6 +1062,17 @@ def playbook_vo_contract_repair(ctx: RunContext) -> list[str]:
     return artifacts
 
 
+def playbook_redundant_framing_transitions(ctx: RunContext) -> list[str]:
+    from interview_mux.gap_framing import heal_redundant_framing_transitions
+
+    out = heal_redundant_framing_transitions(ctx)
+    if out.get("ok") and out.get("dropped"):
+        marker = ctx.run_dir / ".stage_done" / "transitions"
+        marker.unlink(missing_ok=True)
+        return ["master/transitions.json"]
+    return []
+
+
 def playbook_upstream_stale_rerun(ctx: RunContext, *, consumer_stage: str = "") -> list[str]:
     from interview_mux.delivery_guardrails import upstream_stale_blockers
 
@@ -1158,11 +1230,20 @@ def handle_stage_failure(
             reason=str(exc)[:400],
         )
     if is_halted(ctx, halt_sig):
+        resume = stage_id
+        try:
+            from interview_mux.heal_routing import PLAYBOOK_REGISTRY
+
+            spec = PLAYBOOK_REGISTRY.get(error_class)
+            if spec and spec.resume_stage:
+                resume = spec.resume_stage
+        except Exception:
+            pass
         return _result(
             status="escalate",
             playbook_id="identical_failure_halt",
             signature=signature_key(stage_id, error_class),
-            resume_stage=stage_id,
+            resume_stage=resume,
             detail="identical_failures_halted",
         )
     sig = signature_key(stage_id, error_class)
@@ -1192,7 +1273,7 @@ def handle_stage_failure(
             return result
     elif budget_exhausted(ctx, sig, error_class):
         resume_on_budget = (
-            "music_palette_compose" if error_class == "sdp_theme_wavs_missing" else stage_id
+            "mmaudio_sfx" if error_class == "sdp_theme_wavs_missing" else stage_id
         )
         result = _result(
             status="escalate",
@@ -1270,13 +1351,14 @@ def handle_stage_failure(
             playbook_id = "generate_sdp_theme_wavs"
             artifacts = playbook_generate_sdp_theme_wavs(ctx)
             recovered = True
-            resume_stage = "music_palette_compose"
+            resume_stage = "mmaudio_sfx"
         elif error_class == "episode_close_outro":
             playbook_id = "place_episode_close_cue"
             artifacts = playbook_place_episode_close(ctx)
             recovered = bool(artifacts)
             if recovered:
-                resume_stage = "mix"
+                # Cue seeded in music epoch — generate WAV before mix.
+                resume_stage = "mmaudio_sfx"
         elif error_class == "missing_g1_pickup":
             playbook_id = "ensure_g1_pickups"
             artifacts = playbook_ensure_g1(ctx)
@@ -1286,7 +1368,7 @@ def handle_stage_failure(
             playbook_id = "adopt_layup_to_selection"
             artifacts = playbook_adopt_layup(ctx)
             recovered = bool(artifacts)
-            resume_stage = "edl"
+            resume_stage = "edl" if recovered else "nugget_layup_compose"
         elif error_class == "hitch_listen_restage":
             playbook_id = "hitch_listen_restage"
             artifacts = playbook_hitch_listen_restage(ctx)
@@ -1369,6 +1451,11 @@ def handle_stage_failure(
             resume_stage = playbook_seed_order_prereq(ctx, exc) or stage_id
             artifacts = [resume_stage] if resume_stage else []
             recovered = bool(resume_stage)
+        elif error_class == "redundant_framing_transitions":
+            playbook_id = "redundant_framing_transitions"
+            artifacts = playbook_redundant_framing_transitions(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "transitions"
         elif error_class == "finalize_input_missing":
             playbook_id = "finalize_input_missing"
             resume_stage = playbook_finalize_input_missing(ctx, exc) or stage_id
@@ -1480,12 +1567,20 @@ def handle_stage_failure(
             playbook_id = "listen_delight_remutate"
             artifacts = playbook_listen_delight_remutate(ctx)
             recovered = bool(artifacts)
-            resume_stage = "mix"
+            resume_stage = "air_script_seams"
             try:
                 if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
                     plan = ctx.read_json("mastering/listen_delight_remutate.json")
                     if isinstance(plan, dict) and plan.get("from_stage"):
-                        resume_stage = str(plan.get("from_stage") or "mix")
+                        resume_stage = str(plan.get("from_stage") or "air_script_seams")
+            except Exception:
+                pass
+            # B5: refuse air_script_seams pin under hard freeze + assembly.
+            try:
+                from interview_mux.seat_authority import may_rewind_to_air_script_seams
+
+                if resume_stage == "air_script_seams" and not may_rewind_to_air_script_seams(ctx):
+                    resume_stage = "transitions"
             except Exception:
                 pass
         else:

@@ -87,21 +87,112 @@ def sanitize_air_contract(ctx: Any, docs: dict[str, dict[str, Any]] | None = Non
     plan = dict(plan)
     plan["air_script"] = air
 
-    # Sync omit flags onto gap lines for omitted seats
+    # Sync omit flags onto gap lines for omitted seats — but never stamp an omit
+    # that would drop active synthetic VO below the G-Framing floor. Prefer
+    # reseating those ids so sanitize cannot thrash under soft/hard freeze.
     lines = gap.get("interviewer_lines")
     if isinstance(lines, list) and omitted:
         omit_set = set(omitted)
+        protect_floor: set[str] = set()
+        try:
+            from interview_mux.gap_fill_eligibility import (
+                hosted_framing_requires_synthetic_vo,
+                min_synthetic_vo_lines,
+            )
+
+            if hosted_framing_requires_synthetic_vo(ctx):
+                need = min_synthetic_vo_lines(ctx)
+                synth = {
+                    "synthesize",
+                    "record",
+                    "voice_clone",
+                    "chatterbox",
+                }
+
+                def _is_active(row: dict[str, Any]) -> bool:
+                    if row.get("skipped_optional") or row.get("omit") or row.get(
+                        "air_script_omit"
+                    ):
+                        return False
+                    delivery = (
+                        str(row.get("delivery") or "synthesize").strip().lower()
+                        or "synthesize"
+                    )
+                    return delivery in synth
+
+                active_now = sum(
+                    1 for row in lines if isinstance(row, dict) and _is_active(row)
+                )
+                would_stamp = [
+                    str(row.get("line_id") or "")
+                    for row in lines
+                    if isinstance(row, dict)
+                    and str(row.get("line_id") or "") in omit_set
+                    and _is_active(row)
+                    and str(row.get("line_id") or "")
+                ]
+                # Prefer keeping orientation + any WAV-backed lines on air.
+                def _protect_rank(lid: str) -> tuple[int, str]:
+                    row = next(
+                        (
+                            r
+                            for r in lines
+                            if isinstance(r, dict) and str(r.get("line_id") or "") == lid
+                        ),
+                        {},
+                    )
+                    orient = 0 if (
+                        row.get("episode_orientation")
+                        or "orientation" in lid.lower()
+                    ) else 1
+                    return (orient, lid)
+
+                would_stamp_sorted = sorted(set(would_stamp), key=_protect_rank)
+                active_after = active_now - len(would_stamp_sorted)
+                if active_after < need:
+                    protect_n = need - active_after
+                    protect_floor = set(would_stamp_sorted[:protect_n])
+                if protect_floor:
+                    omitted = [o for o in omitted if o not in protect_floor]
+                    for lid in sorted(protect_floor):
+                        if lid not in seated:
+                            seated.append(lid)
+                    omit_set = set(omitted)
+                    seats["seated_line_ids"] = seated
+                    seats["omitted_line_ids"] = omitted
+                    air["vo_seats"] = seats
+                    plan = dict(plan)
+                    plan["air_script"] = air
+                    actions.append(
+                        {
+                            "action": "protect_hosted_vo_floor_reseat",
+                            "ids": sorted(protect_floor)[:24],
+                        }
+                    )
+        except Exception as exc:
+            actions.append(
+                {"action": "protect_hosted_vo_floor_failed", "error": str(exc)[:120]}
+            )
+
         new_lines = []
         stamped = 0
         for row in lines:
             if not isinstance(row, dict):
                 continue
             lid = str(row.get("line_id") or "")
-            if lid in omit_set and not (row.get("skipped_optional") or row.get("omit")):
+            if lid in omit_set and not (
+                row.get("skipped_optional")
+                or row.get("omit")
+                or row.get("air_script_omit")
+            ):
                 row = dict(row)
                 row["skipped_optional"] = True
                 row["omit"] = True
+                row["air_script_omit"] = True
                 row["skip_reason"] = row.get("skip_reason") or "air_contract_omit"
+                row["skip_reason_code"] = (
+                    row.get("skip_reason_code") or "air_script_omit_sync"
+                )
                 stamped += 1
             new_lines.append(row)
         if stamped:
@@ -109,22 +200,36 @@ def sanitize_air_contract(ctx: Any, docs: dict[str, dict[str, Any]] | None = Non
             gap["interviewer_lines"] = new_lines
             actions.append({"action": "stamp_gap_omit_flags", "count": stamped})
 
-    # Orientation protect — never strip required orientation from omit ledger
+    # Orientation protect — never strip required orientation from omit ledger.
+    # Durably waived orientation (air_script_omit / omit meta) must stay omitable
+    # so sanitize does not thrash protect_orientation_from_omit forever (exec_10066).
     try:
+        from interview_mux.air_script import _orientation_line_waived
         from interview_mux.opening_orientation import is_episode_orientation
 
         orient_ids: set[str] = set()
+        waived_orient: set[str] = set()
         for row in gap.get("interviewer_lines") or []:
-            if isinstance(row, dict) and (
+            if not isinstance(row, dict):
+                continue
+            if not (
                 row.get("episode_orientation")
                 or is_episode_orientation(row)
                 or "orientation" in str(row.get("line_id") or "").lower()
             ):
-                lid = str(row.get("line_id") or "")
-                if lid:
-                    orient_ids.add(lid)
+                continue
+            lid = str(row.get("line_id") or "")
+            if not lid:
+                continue
+            orient_ids.add(lid)
+            try:
+                if _orientation_line_waived(row, gap):
+                    waived_orient.add(lid)
+            except Exception:
+                pass
         if seats.get("orientation_id"):
             orient_ids.add(str(seats.get("orientation_id")))
+        orient_ids -= waived_orient
     except Exception:
         orient_ids = set()
         for row in gap.get("interviewer_lines") or []:
@@ -179,12 +284,31 @@ def sanitize_air_contract(ctx: Any, docs: dict[str, dict[str, Any]] | None = Non
     except Exception as exc:
         actions.append({"action": "clamp_failed", "error": str(exc)[:120]})
 
-    # Refuse: seated synthesize missing from gap
+    # Drop seated synthesize lines missing from gap (orphan seats after layup
+    # recompose) instead of refusing — resume VO synth for remaining seats.
     gap_ids = {
         str(r.get("line_id") or "")
         for r in (gap.get("interviewer_lines") or [])
         if isinstance(r, dict)
     }
+    if gap_ids:
+        kept_seated: list[str] = []
+        for sid in seated:
+            if sid not in gap_ids:
+                actions.append({"action": "drop_seated_missing_from_gap", "line_id": sid})
+                if sid not in omitted:
+                    omitted.append(sid)
+                continue
+            kept_seated.append(sid)
+        if len(kept_seated) != len(seated):
+            seated = kept_seated
+            seats["seated_line_ids"] = seated
+            seats["omitted_line_ids"] = [o for o in omitted if o not in set(seated)]
+            air["vo_seats"] = seats
+            plan = dict(plan)
+            plan["air_script"] = air
+
+    # Refuse only if seats still cite ids absent from an empty gap (no lines at all).
     for sid in seated:
         if gap_ids and sid not in gap_ids:
             errors.append(f"seated_missing_from_gap:{sid}")
@@ -387,3 +511,18 @@ def run_air_contract_sanitize(ctx: Any) -> None:
                 ctx.mark_done("air_contract_sanitize")
             except Exception:
                 pass
+        try:
+            from interview_mux.seat_authority import stamp_soft_seat_freeze
+
+            stamp_soft_seat_freeze(ctx, reason="air_contract_sanitize")
+        except Exception as exc:
+            # Soft freeze is load-bearing for Pillar B — never continue ungated.
+            try:
+                ctx.log(
+                    f"air_contract_sanitize: soft seat freeze stamp FAILED: {exc}",
+                    level="error",
+                    stage="air_contract_sanitize",
+                )
+            except Exception:
+                pass
+            raise

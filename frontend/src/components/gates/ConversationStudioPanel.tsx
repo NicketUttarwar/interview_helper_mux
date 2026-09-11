@@ -2,14 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import type { VoLine } from "../../types";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 
 export function ConversationStudioPanel() {
-  const { run, runId, refreshRun, showToast } = useApp();
+  const { run, runId, refreshRun, showToast, jobRunning, partialAutoGPublish } = useApp();
   const [lines, setLines] = useState<VoLine[]>([]);
   const [newText, setNewText] = useState("");
   const [busy, setBusy] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const gapVoEligible = Boolean(run?.refinement_agenda?.eligible_classes?.includes("gap_vo"));
 
@@ -28,7 +30,7 @@ export function ConversationStudioPanel() {
   }, [load]);
 
   const addLine = async () => {
-    if (!runId || !newText.trim() || busy) return;
+    if (!runId || !newText.trim() || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction("gui.gap_report.add_line", "Adding pickup line from studio", {
       stage: "optimal_questions",
@@ -51,7 +53,7 @@ export function ConversationStudioPanel() {
   };
 
   const removeLine = async (lineId: string) => {
-    if (!runId || busy) return;
+    if (!runId || busy || jobBlocksUi) return;
     setBusy(true);
     try {
       await api(`/api/runs/${runId}/gap-report/lines/${lineId}`, { method: "DELETE" });
@@ -64,6 +66,8 @@ export function ConversationStudioPanel() {
       setBusy(false);
     }
   };
+
+  const mutatorBusy = busy || jobBlocksUi;
 
   return (
     <section className="conversation-studio panel-inset">
@@ -89,7 +93,7 @@ export function ConversationStudioPanel() {
             <button
               type="button"
               className="btn ghost sm"
-              disabled={busy}
+              disabled={mutatorBusy}
               onClick={() => void removeLine(ln.line_id)}
             >
               Remove
@@ -99,9 +103,18 @@ export function ConversationStudioPanel() {
       </ul>
       <label className="field">
         New pickup line
-        <input value={newText} onChange={(e) => setNewText(e.target.value)} />
+        <input
+          value={newText}
+          onChange={(e) => setNewText(e.target.value)}
+          disabled={mutatorBusy}
+        />
       </label>
-      <button type="button" className="btn sm" disabled={busy || !newText.trim()} onClick={() => void addLine()}>
+      <button
+        type="button"
+        className="btn sm"
+        disabled={mutatorBusy || !newText.trim()}
+        onClick={() => void addLine()}
+      >
         Add line
       </button>
     </section>

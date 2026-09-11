@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.mastering_context_compiler import compile_packet, content_hash, make_item, write_packet
+from interview_mux.mastering_plan_loader import research_llm_enabled
 from interview_mux.run_context import RunContext
 
 RESEARCH_DIR = "mastering/research"
@@ -70,18 +71,45 @@ WAVE_FIELDS: dict[int, tuple[str, ...]] = {
     ),
 }
 
+# A-01: Pass1 Shape readiness — Waves 1–3 only (W4–W8 expected thin at Shape time).
+SHAPE_CORE_WAVES: frozenset[int] = frozenset({1, 2, 3})
+SHAPE_CORE_REQUIRED_FIELDS: frozenset[str] = frozenset(
+    {
+        "thesis_claims",
+        "source_topology",
+        "g0_transcript_fidelity",
+        "speaker_roles",
+    }
+)
+
 # Artifact probes per field (first existing wins for thin evidence)
 FIELD_PROBES: dict[str, tuple[str, ...]] = {
     "preclean_lineage": ("preclean/lineage.json",),
     "ingest_normalization": ("ingest/normalized.wav", "ingest/source_meta.json"),
     "source_acoustic_profile": ("understanding/source_acoustic_profile.json",),
     "source_readiness_band": ("run_meta.json",),
-    "g0_transcript_fidelity": ("transcript/review.json", "transcript/words.json"),
-    "speaker_roles": ("understanding/speaker_roles.json",),
+    # Canon paths (G0 / roles / spine) — legacy aliases kept as fallbacks.
+    "g0_transcript_fidelity": (
+        "transcript/review_queue.json",
+        "transcript/full.json",
+        "transcript/corrections.json",
+        "transcript/review.json",
+        "transcript/words.json",
+    ),
+    "speaker_roles": (
+        "understanding/speakers.json",
+        "understanding/speaker_roles.json",
+    ),
     "source_topology": ("understanding/source_topology.json",),
-    "speaker_volleys": ("understanding/episode_structure.json",),
+    "speaker_volleys": (
+        "understanding/interview_spine.json",
+        "understanding/episode_structure.json",
+    ),
     "pickup_speaker_voice": ("understanding/source_topology.json",),
-    "interview_spine_windows": ("understanding/interview_spine/windows.json",),
+    "interview_spine_windows": (
+        "understanding/interview_spine.json",
+        "understanding/interview_spine/windows.json",
+    ),
     "thesis_claims": ("understanding/content_brief.json",),
     "value_features": ("understanding/value_features.json", "understanding/content_brief.json"),
     "coherence_risks": ("understanding/coherence_report.json",),
@@ -166,15 +194,112 @@ def run_research_wave(ctx: RunContext, wave: int) -> dict[str, Any]:
     }
 
 
-def run_research_routing(ctx: RunContext) -> None:
-    routing = {
+def _field_catalog() -> list[dict[str, Any]]:
+    return [
+        {"field_id": fid, "wave": wave}
+        for wave, fields in sorted(WAVE_FIELDS.items())
+        for fid in fields
+    ]
+
+
+def _probe_presence_map(ctx: RunContext) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for fid, probes in FIELD_PROBES.items():
+        present: list[str] = []
+        for rel in probes:
+            if rel == ".stage_done":
+                if ctx.path(rel).exists():
+                    present.append(rel)
+            elif ctx.artifact_exists(rel):
+                present.append(rel)
+        out[fid] = {
+            "present_artifacts": present,
+            "status": "present" if present else "absent",
+        }
+    return out
+
+
+def _routing_user_payload(ctx: RunContext) -> dict[str, Any]:
+    """Tape-leaning packet for research-router (fail-open if lint rejects)."""
+    payload: dict[str, Any] = {
+        "goal": (
+            "Route mastering research fields for this source; allocate attention only — "
+            "emit dispositions per field from the catalog and presence map."
+        ),
+        "field_catalog": _field_catalog(),
+        "probe_presence_map": _probe_presence_map(ctx),
+        "waves": sorted(WAVE_FIELDS.keys()),
+    }
+    # Prefer real tape slices when present so volley lint accepts the packet.
+    for rel, key in (
+        ("understanding/content_brief.json", "content_brief"),
+        ("understanding/source_topology.json", "source_topology"),
+        ("segments/manifest.json", "manifest"),
+    ):
+        if ctx.artifact_exists(rel):
+            try:
+                doc = ctx.read_json(rel)
+            except Exception:
+                continue
+            if isinstance(doc, dict) and doc:
+                payload[key] = doc
+    return payload
+
+
+def _routing_from_llm_artifacts(arts: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(arts, dict):
+        return None
+    candidate = arts
+    nested = arts.get("routing") or arts.get("mastering_research_routing")
+    if isinstance(nested, dict):
+        candidate = nested
+    fields = candidate.get("fields")
+    if not isinstance(fields, list) or not fields:
+        return None
+    out = dict(candidate)
+    out.setdefault("version", 1)
+    out.setdefault("mode", "advisory")
+    out["source"] = "llm"
+    out.setdefault("generated_at", _now())
+    return out
+
+
+def _sequential_stub_routing(*, llm_failed: bool = False) -> dict[str, Any]:
+    routing: dict[str, Any] = {
         "version": 1,
         "mode": "sequential_waves",
         "waves": sorted(WAVE_FIELDS.keys()),
         "field_count": sum(len(v) for v in WAVE_FIELDS.values()),
+        "source": "stub",
         "generated_at": _now(),
     }
-    ctx.write_json(ROUTING_REL, routing)
+    if llm_failed:
+        routing["notes"] = ["llm_failed"]
+        routing["mode"] = "advisory"
+    return routing
+
+
+def run_research_routing(ctx: RunContext) -> None:
+    if research_llm_enabled():
+        try:
+            from interview_mux.mastering_llm import invoke_mastering_prompt
+
+            arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_research_routing",
+                "mastering/research-router.system.txt",
+                _routing_user_payload(ctx),
+                max_attempts=2,
+            )
+            routing = _routing_from_llm_artifacts(arts)
+            if routing is not None:
+                ctx.write_json(ROUTING_REL, routing)
+                return
+        except Exception:
+            pass
+        ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=True))
+        return
+    ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=False))
 
 
 def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
@@ -196,6 +321,7 @@ def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
         "fields": fields_out,
         "complete_fields": [k for k, v in fields_out.items() if v.get("status") == "complete"],
         "thin_fields": [k for k, v in fields_out.items() if v.get("status") != "complete"],
+        "shape_core": _shape_core_status_from_fields(fields_out),
         "generated_at": _now(),
     }
     ctx.write_json(DOSSIER_REL, dossier)
@@ -208,6 +334,54 @@ def load_dossier(ctx: RunContext) -> dict[str, Any] | None:
         return None
     doc = ctx.read_json(DOSSIER_REL)
     return doc if isinstance(doc, dict) else None
+
+
+def shape_core_field_ids() -> frozenset[str]:
+    """Field ids in Waves 1–3 (Pass1 Shape readiness floor)."""
+    ids: set[str] = set()
+    for wave in SHAPE_CORE_WAVES:
+        ids.update(WAVE_FIELDS.get(wave) or ())
+    return frozenset(ids)
+
+
+def _shape_core_status_from_fields(fields: dict[str, Any] | None) -> dict[str, Any]:
+    fields = fields if isinstance(fields, dict) else {}
+    core_ids = shape_core_field_ids()
+    thin: list[str] = []
+    complete: list[str] = []
+    for fid in sorted(core_ids):
+        doc = fields.get(fid)
+        status = str(doc.get("status") or "") if isinstance(doc, dict) else ""
+        if status == "complete":
+            complete.append(fid)
+        else:
+            thin.append(fid)
+    missing_required: list[str] = []
+    for fid in sorted(SHAPE_CORE_REQUIRED_FIELDS):
+        doc = fields.get(fid)
+        if not isinstance(doc, dict) or str(doc.get("status") or "") != "complete":
+            missing_required.append(fid)
+    majority_thin = len(thin) >= max(1, (len(core_ids) + 1) // 2)
+    ready = (not majority_thin) and (not missing_required)
+    return {
+        "thin": thin,
+        "complete": complete,
+        "missing_required": missing_required,
+        "majority_thin": majority_thin,
+        "ready": ready,
+    }
+
+
+def research_shape_core_status(ctx: RunContext) -> dict[str, Any]:
+    """W1–3 readiness: majority thin or any hard-required missing ⇒ not ready."""
+    dossier = load_dossier(ctx)
+    fields = dossier.get("fields") if isinstance(dossier, dict) else None
+    return _shape_core_status_from_fields(fields if isinstance(fields, dict) else None)
+
+
+def research_shape_core_thin(ctx: RunContext) -> bool:
+    """True when Waves 1–3 are not ready for Shape/gap consumers (A-01)."""
+    return not bool(research_shape_core_status(ctx).get("ready"))
 
 
 def compile_shape_evidence(ctx: RunContext, *, consumer_id: str, pass_name: str) -> dict[str, Any]:

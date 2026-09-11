@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|edl_narrative_audit->edl|manual|M8_seated_vo_no_wav|edl_narrative_audit_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:45Z"
+}

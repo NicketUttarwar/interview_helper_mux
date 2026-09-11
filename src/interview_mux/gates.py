@@ -236,16 +236,14 @@ def require_disfluency_review_clear(ctx: RunContext) -> None:
 
 
 def g1_vo_was_skipped_optional(ctx: RunContext) -> bool:
-    """True when the operator skipped optional G1 VO pickup for this run."""
+    """True when the operator skipped optional G1 VO pickup for this run.
+
+    Trust run_meta only — ambient ``skipped_optional`` on air-script preface
+    lines must not cascade-wipe every nugget layup (forensics exec_11130).
+    """
     if ctx.artifact_exists("run_meta.json"):
         meta = ctx.read_json("run_meta.json")
         if isinstance(meta, dict) and meta.get("g1_vo_skipped_optional"):
-            return True
-    if not ctx.artifact_exists("understanding/gap_report.json"):
-        return False
-    report = ctx.read_json("understanding/gap_report.json")
-    for line in report.get("interviewer_lines") or []:
-        if isinstance(line, dict) and line.get("skipped_optional"):
             return True
     return False
 
@@ -738,8 +736,10 @@ def check_g_publish_pending(ctx: RunContext) -> bool:
         return False
     if meta.get("g_publish_pending"):
         return True
-    # Pending once master exists and local package not finalized
-    if ctx.artifact_exists("master/master.wav") and not ctx.is_done("podcast_publish"):
+    # Pending once a committed master exists and local package not finalized.
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if committed_master_wav(ctx) and not ctx.is_done("podcast_publish"):
         return True
     return False
 

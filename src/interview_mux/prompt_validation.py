@@ -103,6 +103,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "assembly_preview": "master/assembly_preview.wav",
     "listen_delight_audit": "mastering/listen_delight_audit.json",
     "mix": "master/assembly.wav",
+    "master_finalize": "master/master.wav",
     "air_script_compose": "mastering/mastering_plan.json",
     "air_script_seams": "mastering/mastering_plan.json",
     "transitions": "master/transitions.json",
@@ -113,13 +114,18 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "sfx_prompt_craft": "sound_design/sfx_prompts.json",
     "sfx_prompt_refine": "sound_design/sfx_prompts.json",
     "mmaudio_sfx": "sound_design/mmaudio_qa.json",
-    "junction_snip_qa": "master/seam_autopsy.json",
+    "junction_snip_qa": "master/junction_snip_qa.json",
     "junction_feel_audit": "master/junction_feel_audit.json",
     "junction_thought_complete": "master/junction_thought_complete.json",
     "master_transcript_build": "master/transcript.json",
     "mastering_research_routing": "mastering/research/routing.json",
     "mastering_research_waves": "mastering/research/waves.json",
     "mastering_research_rollup": "mastering/research/rollup.json",
+    "mastering_shape_agenda": "mastering/shape/agenda.json",
+    "mastering_shape_candidates": "mastering/shape/candidates.json",
+    "mastering_plan_synthesize": "mastering/mastering_plan.json",
+    "mastering_plan_confirm": "mastering/mastering_plan.json",
+    "sfx_brief": "master/podcast_sfx_brief.json",
 }
 
 def _schemas_dir() -> Path:
@@ -255,8 +261,14 @@ def clean_stage_artifacts_for_persist(stage_key: str, artifacts: dict[str, Any])
 def validate_stage_artifacts(stage_key: str, artifacts: dict[str, Any]) -> list[str]:
     """Return human-readable validation errors (empty if OK or no schema)."""
     filename = STAGE_ARTIFACT_SCHEMAS.get(stage_key)
-    if not filename or not artifacts:
+    if not filename:
         return []
+    # RSTM / SYN-SCHEMA-01: empty {} must not skip schema when a stage schema exists.
+    if not artifacts:
+        return [
+            f"(root): empty artifacts for stage {stage_key!r} "
+            f"(schema {filename} requires a non-empty artifact object)"
+        ]
     schema = _load_schema(filename)
     if not schema:
         return []
@@ -472,6 +484,21 @@ def validate_soundscape_policy(data: dict[str, Any]) -> list[str]:
 def validate_episode_structure(data: dict[str, Any]) -> list[str]:
     """Validate `understanding/episode_structure.json` (root schema, not STAGE_ARTIFACT_SCHEMAS)."""
     return _validate_dict(data, _load_root_schema("episode_structure.schema.json"))
+
+
+def validate_timeline_reopen_meta_gate(data: dict[str, Any]) -> list[str]:
+    """Validate Pillar C timeline reopen LLM/heuristic decision payloads."""
+    return _validate_dict(data, _load_root_schema("timeline_reopen_meta_gate.schema.json"))
+
+
+def validate_seat_rewrite_meta_gate(data: dict[str, Any]) -> list[str]:
+    """Validate Pillar B seat rewrite LLM/heuristic decision payloads."""
+    return _validate_dict(data, _load_root_schema("seat_rewrite_meta_gate.schema.json"))
+
+
+def validate_execution_status(data: dict[str, Any]) -> list[str]:
+    """Validate `operator/execution_status.json` (Pillar A ESR)."""
+    return _validate_dict(data, _load_root_schema("execution_status.schema.json"))
 
 
 def validate_source_readiness(data: dict[str, Any]) -> list[str]:

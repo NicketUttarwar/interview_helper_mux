@@ -248,11 +248,9 @@ def _normalize_arrangement(
             non_beds.append(dict(cue))
 
     pol = policy if isinstance(policy, dict) else {}
-    density = pol.get("sfx_density") if isinstance(pol.get("sfx_density"), dict) else {}
-    underscore_policy = str(pol.get("underscore_policy") or "normal")
-    hard_zero_bed = underscore_policy in {"skip", "sparse_or_skip"} or (
-        density.get("max_beds") is not None and int(density.get("max_beds") or 0) <= 0
-    )
+    from interview_mux.soundscape_policy import beds_hard_zero, musical_invent_blocked
+
+    hard_zero_bed = beds_hard_zero(pol) or musical_invent_blocked(pol)
     primary = loop_assets.get("underscore_loop")
     if hard_zero_bed or not primary or not ordered:
         return non_beds
@@ -351,6 +349,7 @@ def _normalize_arrangement(
 
     # With one loop, musical hinges help reset the ear between bedded chapters.
     if not optional and stingers and chapters:
+        density = pol.get("density") if isinstance(pol.get("density"), dict) else {}
         max_punctuators = density.get("max_punctuators")
         budget = len(stingers)
         if max_punctuators is not None:
@@ -620,6 +619,46 @@ def run_music_palette_compose(ctx: RunContext) -> None:
             level="info",
             stage="music_palette_compose",
         )
+        # Seed cold_open + outro cues in music epoch (before MusicGen / mix).
+        try:
+            from interview_mux.theme_slot_integrity import ensure_theme_bookend_cues
+
+            seeded = ensure_theme_bookend_cues(c)
+            if seeded:
+                c.log(
+                    f"music_palette_compose: seeded theme bookend cues via {seeded}",
+                    level="info",
+                    stage="music_palette_compose",
+                )
+                # Refresh used-asset list after seed.
+                sdp2 = (
+                    c.read_json(_SOUND_DESIGN_PLAN_REL)
+                    if c.artifact_exists(_SOUND_DESIGN_PLAN_REL)
+                    else {}
+                )
+                if isinstance(sdp2, dict):
+                    compose_out["asset_ids_used"] = sorted(
+                        {
+                            str(cu.get("asset_id"))
+                            for cu in (
+                                ((sdp2.get("flow_plans") or {}).get("podcast") or {}).get(
+                                    "cues"
+                                )
+                                or []
+                            )
+                            if isinstance(cu, dict) and cu.get("asset_id")
+                        }
+                    )
+                    compose_out["cue_count"] = len(
+                        (((sdp2.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+                    )
+                    c.write_json(_COMPOSE_REL, compose_out)
+        except Exception as exc:
+            c.log(
+                f"music_palette_compose: bookend seed skipped: {exc}",
+                level="warning",
+                stage="music_palette_compose",
+            )
 
     with logged_step("music_palette_compose/llm_stage", ctx=ctx, stage="music_palette_compose"):
         run_flow_llm_stage(

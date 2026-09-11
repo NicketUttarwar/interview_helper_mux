@@ -17,15 +17,18 @@ MINIMAL_WAV_BYTES = b"RIFF" + b"\x00" * 64
 
 
 def mark_done_raw(ctx: RunContext, *stages: str) -> None:
-    """TH1b: fixture hollow stamp — bypass heal_or_refuse via ``_mark_done_raw``."""
-    prev = getattr(ctx, "_mark_done_raw", False)
-    ctx._mark_done_raw = True
-    try:
-        for sid in stages:
-            if sid:
-                ctx.mark_done(str(sid), force=True)
-    finally:
-        ctx._mark_done_raw = prev
+    """TH1b: fixture hollow stamp — touch ``.stage_done`` markers without heal/completeness gates.
+
+    Prefer this over ``mark_done(..., force=True)`` in fixtures so partial/incomplete
+    artifacts (e.g. bare master.wav) do not block the stamp, while production
+    ``mark_done`` still refuses incomplete artifacts.
+    """
+    for sid in stages:
+        if not sid:
+            continue
+        marker = ctx.final_path(".stage_done", str(sid))
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
 
 
 def write_fixture_vo_wav(path: Path, *, duration_sec: float = 0.6) -> None:
@@ -204,16 +207,32 @@ def minimal_coherence_report(**patch: Any) -> dict[str, Any]:
 
 
 def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
-    """Patch merged_config in every imported module that binds it at load time."""
+    """Patch merged_config in every imported module that binds it at load time.
+
+    Pre-import all targets *before* patching ``interview_mux.config`` so modules
+    that ``from interview_mux.config import merged_config`` bind the real
+    function. Otherwise monkeypatch undoes to the fake and leaks absolute
+    ``assets_root`` across tests (homunculus create-run failures).
+    """
     import importlib
 
+    mods: list[Any] = []
+    seen: set[str] = set()
     for mod_name in _MERGED_CONFIG_MODULES:
+        if mod_name in seen:
+            continue
+        seen.add(mod_name)
         try:
-            mod = importlib.import_module(mod_name)
+            mods.append(importlib.import_module(mod_name))
         except ImportError:
             continue
+
+    def _fake_merged_config(_cfg: dict[str, Any] = cfg) -> dict[str, Any]:
+        return _cfg
+
+    for mod in mods:
         if hasattr(mod, "merged_config"):
-            monkeypatch.setattr(mod, "merged_config", lambda c=cfg: c)
+            monkeypatch.setattr(mod, "merged_config", _fake_merged_config)
 
 
 def patch_write_approval_enabled(monkeypatch, *, enabled: bool = True) -> None:

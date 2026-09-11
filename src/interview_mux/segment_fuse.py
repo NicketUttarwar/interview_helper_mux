@@ -60,10 +60,15 @@ Return JSON only:
 "rationale":"one short sentence","confidence":0.0}]}}
 """
 
+# Finite defaults when config uses 0 ("unset"). Use -1 only for explicit unlimited
+# (forensics). DEEP-FUSE-01: 0 must never mean 10_000 / 10_000_000.
+_FINITE_DEFAULT_FUSES_PER_PASS = 24
+_FINITE_DEFAULT_FUSE_ROUNDS = 8
+
 _DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    "max_fuses_per_pass": 0,
-    "max_fuse_rounds": 0,
+    "max_fuses_per_pass": _FINITE_DEFAULT_FUSES_PER_PASS,
+    "max_fuse_rounds": _FINITE_DEFAULT_FUSE_ROUNDS,
     "allow_cross_speaker_fuse": False,
     "tail_words": 16,
     "head_words": 16,
@@ -827,9 +832,14 @@ def apply_connector_fuses(
     """Rewrite boundaries + manifest so each fused pair becomes one complete thought."""
     conf = connector_fuse_cfg(cfg)
     raw_cap = max_fuses if max_fuses is not None else conf.get("max_fuses_per_pass")
-    cap = int(raw_cap or 0)
-    if cap <= 0:
-        cap = 10_000_000
+    try:
+        cap = int(raw_cap)
+    except (TypeError, ValueError):
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    if cap == 0:
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    elif cap < 0:
+        cap = 10_000_000  # explicit unlimited (-1)
     segments = _load_segments(ctx)
     by_id = {str(s["segment_id"]): dict(s) for s in segments}
     order = [str(s["segment_id"]) for s in segments]
@@ -1718,6 +1728,23 @@ def run_high_value_cluster_fuse_rounds(
             break
         if sig and sig == last_sig:
             rounds[-1]["oscillation_halt"] = True
+            try:
+                from interview_mux.delivery_guardrails import record_delivery_residual
+
+                record_delivery_residual(
+                    ctx,
+                    kind="fuse_oscillation",
+                    severity="critical",
+                    stage="connector_fuse_pass",
+                    detail={
+                        "pass_id": pass_id,
+                        "sig": sig[:200],
+                        "round": round_index,
+                        "mode": "per_cluster",
+                    },
+                )
+            except Exception:
+                pass
             break
         last_sig = sig
 
@@ -1768,10 +1795,23 @@ def run_connector_fuse_pass(
     hv_applied = int(hv_rounds.get("total_applied") or 0)
     rounds_doc["high_value_cluster_fuse"] = hv_rounds
 
-    raw_rounds = int(conf.get("max_fuse_rounds") or 0)
-    max_rounds = raw_rounds if raw_rounds > 0 else 10_000
-    cap = int(conf.get("max_fuses_per_pass") or 0)
-    if cap <= 0:
+    try:
+        raw_rounds = int(conf.get("max_fuse_rounds") or 0)
+    except (TypeError, ValueError):
+        raw_rounds = 0
+    if raw_rounds == 0:
+        max_rounds = _FINITE_DEFAULT_FUSE_ROUNDS
+    elif raw_rounds < 0:
+        max_rounds = 10_000  # explicit unlimited
+    else:
+        max_rounds = raw_rounds
+    try:
+        cap = int(conf.get("max_fuses_per_pass") or 0)
+    except (TypeError, ValueError):
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    if cap == 0:
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    elif cap < 0:
         cap = 10_000_000
 
     from interview_mux.diarization_suspicion import forced_diarization_fuse_verdicts
@@ -1845,6 +1885,23 @@ def run_connector_fuse_pass(
         if sig and sig == last_sig:
             rounds_doc["oscillation_halt"] = True
             rounds_doc["fixed_point"] = False
+            try:
+                from interview_mux.delivery_guardrails import record_delivery_residual
+
+                record_delivery_residual(
+                    ctx,
+                    kind="fuse_oscillation",
+                    severity="critical",
+                    stage="connector_fuse_pass",
+                    detail={
+                        "pass_id": pass_id,
+                        "sig": sig[:200],
+                        "round": round_index,
+                        "mode": "connector_fuse",
+                    },
+                )
+            except Exception:
+                pass
             break
         last_sig = sig
         if total_applied >= cap:

@@ -352,11 +352,14 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
     return issues
 
 
-def place_episode_close_cue(ctx: Any) -> list[str]:
+def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]:
     """Bind a theme_outro cue after the last native. Fade at least 180 ms.
 
     Native verbal goodbye does not replace this cue unless Shape recorded
     ``kind=none`` with a rationale.
+
+    ``allow_create=False`` (mix): only rebind existing outro cues — never invent
+    a new asset reservation after MusicGen has finished (exec_11130 footgun).
     """
     from interview_mux.run_context import RunContext
 
@@ -447,8 +450,18 @@ def place_episode_close_cue(ctx: Any) -> list[str]:
             cue["placement"] = "after_segment"
             changed = True
         if outro_aid and str(cue.get("asset_id") or "") != outro_aid:
-            cue["asset_id"] = outro_aid
-            changed = True
+            # Mix must not retarget to a missing bed (would invent silent duration).
+            can_retarget = allow_create
+            if not can_retarget:
+                try:
+                    from interview_mux.theme_slot_integrity import theme_asset_audible
+
+                    can_retarget = theme_asset_audible(ctx, outro_aid)
+                except Exception:
+                    can_retarget = False
+            if can_retarget:
+                cue["asset_id"] = outro_aid
+                changed = True
         cue["role"] = "theme_outro"
         cue["skip"] = False
         cue["preserve_full_duration"] = True
@@ -474,6 +487,9 @@ def place_episode_close_cue(ctx: Any) -> list[str]:
             ctx.write_json(sdp_rel, sdp)
             written.append(sdp_rel)
         return written or [sdp_rel]
+
+    if not allow_create:
+        return written
 
     cue = {
         "cue_id": "theme_outro_seed",

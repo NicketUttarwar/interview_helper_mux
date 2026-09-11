@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 
 interface OptimizerPayload {
@@ -10,6 +11,7 @@ interface OptimizerPayload {
   best_score?: number | null;
   plateau_streak?: number;
   archive_count?: number;
+  auto_started?: boolean;
   last_mutation?: { op?: string; score?: number; source?: string } | null;
   best?: {
     candidate_id?: string;
@@ -21,9 +23,11 @@ interface OptimizerPayload {
 
 /** Endless mid-mix timeline optimizer (mode C) — Take best / Keep going / Stop. */
 export function TimelineOptimizerPanel() {
-  const { runId, refreshRun, appendClientLog, showToast } = useApp();
+  const { runId, run, refreshRun, appendClientLog, showToast, jobRunning, partialAutoGPublish } =
+    useApp();
   const [payload, setPayload] = useState<OptimizerPayload | null>(null);
   const [busy, setBusy] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const refresh = async () => {
     if (!runId) return;
@@ -51,6 +55,10 @@ export function TimelineOptimizerPanel() {
   if (!active && !payload?.best) return null;
 
   const act = async (path: string, label: string, body?: object) => {
+    if (jobBlocksUi) {
+      showToast("A pipeline job is running — wait until it pauses.", "warning");
+      return;
+    }
     setBusy(true);
     try {
       await api(`/api/runs/${runId}/timeline-optimizer/${path}`, {
@@ -68,6 +76,8 @@ export function TimelineOptimizerPanel() {
     }
   };
 
+  const mutatorBusy = busy || jobBlocksUi;
+
   return (
     <GatePanelShell complete={false} title="Timeline optimizer (endless)">
       <p className="hint">
@@ -77,6 +87,9 @@ export function TimelineOptimizerPanel() {
       <p className="hint">
         Status: {payload?.status ?? "—"} · gen {payload?.generation ?? 0} · best{" "}
         {payload?.best_score ?? "—"} · archive {payload?.archive_count ?? 0}
+        {payload?.auto_started
+          ? " · auto-started after mix (daemon began without a Keep optimizing click)"
+          : ""}
         {payload?.last_mutation?.op
           ? ` · last ${payload.last_mutation.op} (${payload.last_mutation.score ?? "—"})`
           : ""}
@@ -85,7 +98,7 @@ export function TimelineOptimizerPanel() {
         <button
           type="button"
           className="btn sm primary"
-          disabled={busy || !payload?.best}
+          disabled={mutatorBusy || !payload?.best}
           onClick={() => void act("take-best", "Took optimizer best", { remaster: true })}
         >
           Take best + remaster
@@ -93,7 +106,7 @@ export function TimelineOptimizerPanel() {
         <button
           type="button"
           className="btn sm ghost"
-          disabled={busy || payload?.running}
+          disabled={mutatorBusy || payload?.running}
           onClick={() => void act("start", "Started timeline optimizer")}
         >
           Keep optimizing
@@ -101,7 +114,7 @@ export function TimelineOptimizerPanel() {
         <button
           type="button"
           className="btn sm ghost"
-          disabled={busy || !payload?.running}
+          disabled={mutatorBusy || !payload?.running}
           onClick={() => void act("stop", "Stopped timeline optimizer")}
         >
           Stop
@@ -109,7 +122,7 @@ export function TimelineOptimizerPanel() {
         <button
           type="button"
           className="btn sm ghost"
-          disabled={busy}
+          disabled={mutatorBusy}
           onClick={() => void act("skip", "Skipped timeline optimizer")}
         >
           Skip / ship current

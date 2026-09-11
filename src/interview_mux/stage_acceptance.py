@@ -10,6 +10,12 @@ from interview_mux.config import merged_config
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
 from interview_mux.run_context import RunContext
 
+_BINARY_SUFFIXES = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+
+
+def _is_binary_artifact_rel(rel: str | None) -> bool:
+    return bool(rel) and str(rel).lower().endswith(_BINARY_SUFFIXES)
+
 
 @dataclass
 class AcceptanceResult:
@@ -35,11 +41,34 @@ class AcceptanceResult:
         )
 
 
+def _binary_artifact_payload(path: Any, *, rel: str) -> dict[str, Any] | None:
+    try:
+        size = int(path.stat().st_size) if path.is_file() else 0
+    except OSError:
+        return None
+    # Align with artifact_completeness: >1024 bytes (not header-only WAV).
+    if size <= 1024:
+        return None
+    return {"_binary": True, "path": rel, "size": size}
+
+
 def _read_artifact(ctx: RunContext, stage_key: str, *, staged: bool) -> tuple[str | None, dict[str, Any] | None]:
     from interview_mux.write_staging import read_pending_json, staged_path
 
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)
     if not rel:
+        return None, None
+    # mix / assembly_preview → *.wav; never read_json binary producers.
+    if _is_binary_artifact_rel(rel):
+        if staged:
+            pending = staged_path(ctx, rel, stage_id=stage_key)
+            payload = _binary_artifact_payload(pending, rel=rel)
+            if payload:
+                return rel, payload
+        if ctx.artifact_exists(rel):
+            payload = _binary_artifact_payload(ctx.final_path(*rel.split("/")), rel=rel)
+            if payload:
+                return rel, payload
         return None, None
     if staged and staged_path(ctx, rel, stage_id=stage_key).is_file():
         return rel, read_pending_json(ctx, stage_key, rel)
@@ -75,6 +104,18 @@ def stage_acceptance_ok(
     if not rel or not artifact:
         label = "staged" if staged else "committed"
         result.errors.append(f"no_{label}_artifact")
+        return result
+
+    if artifact.get("_binary"):
+        if include_cross_validate:
+            checkpoint = STAGE_CHECKPOINTS.get(stage_key)
+            if checkpoint:
+                result.cross_validate_errors = list(
+                    validate_cross_artifacts_for_stage(ctx, stage_key, staged=staged) or []
+                )
+                if result.cross_validate_errors:
+                    return result
+        result.ok = True
         return result
 
     schema_errors = validate_artifact_write(rel, artifact)

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
+import {
+  shouldAdvanceAfterGatePost,
+  shouldBlockOperatorActionsForJob,
+} from "../../utils/partialAcceleratedGuard";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 import { ArtifactAudio } from "../shared/ArtifactAudio";
@@ -28,9 +32,19 @@ interface VoiceReferencePayload {
 }
 
 export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
-  const { runId, run, refreshRun, showToast, advanceFromCheckpoint, closeActionModal } = useApp();
+  const {
+    runId,
+    run,
+    refreshRun,
+    showToast,
+    advanceFromCheckpoint,
+    closeActionModal,
+    jobRunning,
+    partialAutoGPublish,
+  } = useApp();
   const [data, setData] = useState<VoiceReferencePayload | null>(null);
   const [busy, setBusy] = useState(false);
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -47,7 +61,7 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
   }, [load, run?.voice_reference_approved]);
 
   const toggle = async (index: number) => {
-    if (!runId || !data?.segments || busy) return;
+    if (!runId || !data?.segments || busy || jobBlocksUi) return;
     const selected = data.segments
       .map((seg, i) => (seg.selected || i === index ? i : -1))
       .filter((i) => i >= 0);
@@ -63,7 +77,7 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
   };
 
   const approve = async () => {
-    if (!runId || busy) return;
+    if (!runId || busy || jobBlocksUi) return;
     setBusy(true);
     traceAction("gui.voice_reference.approve", "Approving voice reference", { stage: stage.id });
     try {
@@ -71,7 +85,9 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
       showToast("Voice reference approved — choose Chatterbox or record next.");
       await refreshRun();
       closeActionModal();
-      await advanceFromCheckpoint();
+      if (shouldAdvanceAfterGatePost(run)) {
+        await advanceFromCheckpoint();
+      }
     } catch (e) {
       showToast(formatApiError(e, "Approve voice reference"), "error");
     } finally {
@@ -122,7 +138,7 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
                 <input
                   type="checkbox"
                   checked={Boolean(seg.selected)}
-                  disabled={busy}
+                  disabled={busy || jobBlocksUi}
                   onChange={() => void toggle(i)}
                 />
                 <span className="muted sm">{seg.quote || `Candidate ${i + 1}`}</span>
@@ -138,7 +154,7 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
         type="button"
         className="btn primary sm"
         data-testid="approve-voice-reference"
-        disabled={busy}
+        disabled={busy || jobBlocksUi}
         onClick={() => void approve()}
       >
         Approve voice reference

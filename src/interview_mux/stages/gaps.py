@@ -176,7 +176,13 @@ def ensure_gap_fill_skipped(
     report_doc = {
         "interviewer_lines": [],
         "gaps": [],
-        "_meta": {"producer": "gap_fill_skip", "producer_stage": "optimal_questions"},
+        "skipped": True,
+        "empty_ok": True,
+        "_meta": {
+            "producer": "gap_fill_skip",
+            "producer_stage": "optimal_questions",
+            "empty_allowlist": True,
+        },
     }
 
     write_validated_artifact(
@@ -195,7 +201,8 @@ def ensure_gap_fill_skipped(
         merge_from_disk=False,
         stage_key="missing_framing",
     )
-    ctx.write_json("understanding/gap_report.json", report_doc, skip_handoff=True)
+    # Do not double-write via bare write_json — that oscillates authority
+    # action_class missing_framing↔write_json and trips authority_undo_thrash.
     script_path = ctx.path("understanding", "interviewer_script.txt")
     script_path.parent.mkdir(parents=True, exist_ok=True)
     script_path.write_text(
@@ -804,6 +811,61 @@ def _compact_gap_compose_packet(payload: dict[str, Any]) -> dict[str, Any]:
 def run_gap_framing_compose(ctx: RunContext) -> None:
     """Compose full gap framing script (questions, summaries, prefaces, bridges)."""
     from interview_mux.llm_simple import run_llm_stage_simple
+
+    # Nugget Layup owns contentful before-VO. Re-running the interviewer-script
+    # LLM under layup authority (or after seat freeze) rewrites gap_report,
+    # invalidates WAVs, and thrash-rewinds past EDL (forensics exec_11136).
+    try:
+        from interview_mux.nugget_layup import (
+            PLAN_REL,
+            gap_report_has_layup_authority,
+            nugget_layup_enabled,
+            publish_layup_plan_to_gap_report,
+        )
+        from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+        from interview_mux.write_staging import heal_or_refuse_mark
+
+        gap = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
+        layup_owns = bool(
+            nugget_layup_enabled()
+            and (
+                gap_report_has_layup_authority(gap if isinstance(gap, dict) else None)
+                or ctx.artifact_exists(PLAN_REL)
+            )
+        )
+        frozen = soft_freeze_active(ctx) or hard_freeze_active(ctx)
+        if layup_owns or frozen:
+            why = "layup_authority" if layup_owns else "seat_freeze"
+            try:
+                if ctx.artifact_exists(PLAN_REL):
+                    publish_layup_plan_to_gap_report(ctx)
+            except Exception as pub_exc:
+                ctx.log(
+                    f"gap_framing_compose: {why} no-op publish skipped: {pub_exc}",
+                    level="warning",
+                    stage="gap_framing_compose",
+                )
+            ctx.log(
+                f"gap_framing_compose: no-op under {why}",
+                level="info",
+                stage="gap_framing_compose",
+            )
+            if not ctx.is_done("gap_framing_compose"):
+                try:
+                    heal_or_refuse_mark(ctx, "gap_framing_compose", force=True)
+                except Exception:
+                    pass
+            return
+    except Exception as exc:
+        ctx.log(
+            f"gap_framing_compose: authority/freeze guard error (continuing): {exc}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
 
     required_ids = _gap_segment_ids(ctx)
     batch_size = _gap_pass_batch_size()

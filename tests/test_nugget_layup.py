@@ -2095,6 +2095,64 @@ def test_spoken_copy_keeps_nugget_body_and_appends_cue(monkeypatch):
     assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
 
 
+def test_spoken_copy_heals_last_sentence_restatement_low_full_overlap(monkeypatch):
+    """Last-sentence restatement must soft-heal even when full-text overlap < 0.75."""
+    from interview_mux.gap_vo_prior_context import last_sentence_restates_target, vo_target_overlap_ratio
+
+    ctx = RunContext("exec_nugget_last_sent", create=True)
+    target = (
+        "Blood tests can find cancer early by looking at circulating tumour cells."
+    )
+    text = (
+        "We already covered the screening idea. "
+        "Blood tests can find cancer early by looking at circulating tumour cells."
+    )
+    assert last_sentence_restates_target(text, target)
+    assert vo_target_overlap_ratio(text, target) <= 0.75
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_038"],
+        {
+            "seg_002": "Welcome to the conversation about screening.",
+            "seg_038": target,
+        },
+    )
+    _set_host_guest_speakers(ctx)
+    monkeypatch.setattr(
+        "interview_mux.source_topology.pickup_eligible_speaker_id",
+        lambda _ctx: "spk_0",
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.apply_clear_native_handoff_skips",
+        lambda _ctx, plan: (plan, []),
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup._opening_owned_targets",
+        lambda _ctx: set(),
+    )
+    plan = {
+        "layups": [
+            {
+                "line_id": "vo_layup_seg_038",
+                "target_segment_id": "seg_038",
+                "line_category": "extracted_context",
+                "text": text,
+                "nugget_ids": [],
+                "target_beat": "CTC screening",
+                "listener_need_entering_T": "Need a bridge into the clip.",
+                "forward_unlock": "What should we listen for next?",
+                "skip": False,
+            }
+        ],
+    }
+    fixed, _notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("line_id") == "vo_layup_seg_038")
+    assert row.get("skip") is not True, row
+    healed = str(row.get("text") or "")
+    assert healed != text
+    assert not last_sentence_restates_target(healed, target)
+
+
 def test_spoken_copy_rejects_cue_only_when_nuggets_exist(monkeypatch):
     ctx = RunContext("exec_nugget_heal_no_hinge", create=True)
     _seed_air_order(
@@ -2349,4 +2407,106 @@ def test_layup_qc_spoken_copy_no_invalidate():
     healed, _repairs = repair_or_skip_spoken_copy_layups(ctx, recovered)
     qc = evaluate_layup_qc(ctx, healed, corpus)
     assert "nug_003" not in (qc.get("open_high_salience_nugget_ids") or [])
+    assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+
+
+def test_publish_refuses_hollow_gap_under_g_framing(monkeypatch):
+    """compose_restart / empty layups must not wipe prior host lines under G-Framing Yes."""
+    ctx = RunContext("exec_layup_hollow_publish_guard", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012", "seg_020", "seg_030"],
+        {
+            "seg_002": "Welcome.",
+            "seg_012": "Guest on CTCs.",
+            "seg_020": "More science.",
+            "seg_030": "Closing.",
+        },
+    )
+    prior_lines = [
+        {
+            "line_id": f"vo_layup_seg_{sid}",
+            "gap_type": "nugget_layup",
+            "placement": "before",
+            "targets_segment_id": f"seg_{sid}",
+            "delivery": "synthesize",
+            "origin": "nugget_layup",
+            "text": f"Host question for {sid} that unlocks the next beat clearly.",
+        }
+        for sid in ("012", "020", "030")
+    ]
+    ctx.write_json(
+        GAP_REL,
+        {"interviewer_lines": prior_lines, "nugget_layup_authority": True},
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    hollow = {
+        "ordered_segment_ids": ["seg_002", "seg_012", "seg_020", "seg_030"],
+        "layups": [],
+        "warnings": ["compose_restart"],
+    }
+    report = publish_layup_plan_to_gap_report(ctx, hollow)
+    kept = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict) and not ln.get("skipped_optional")
+    ]
+    assert len(kept) >= 3
+    disk = ctx.read_json(GAP_REL)
+    assert len(disk.get("interviewer_lines") or []) >= 3
+
+
+def test_park_open_high_salience_on_orientation_clears_qc():
+    from interview_mux.nugget_layup import park_open_high_salience_on_orientation
+
+    ctx = RunContext("exec_layup_orient_park", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {"seg_002": "Welcome.", "seg_012": "Guest explains CTCs."},
+    )
+    ctx.write_json(
+        CORPUS_REL,
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "nug_park",
+                    "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                    "evidence_quote": "one in a billion",
+                    "in_selection": False,
+                    "salience": "high",
+                    "already_aired_in_selection": False,
+                }
+            ]
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_012",
+                    "line_id": "vo_layup_seg_012",
+                    "nugget_ids": ["nug_park"],
+                    "value_forgone": ["nug_park"],
+                    **_ANALYSIS,
+                },
+                reason_code="spoken_copy_unhealable",
+            )
+        ],
+        "open_high_salience_nugget_ids": ["nug_park"],
+        "discharged_nugget_ids": [],
+    }
+    parked, notes = park_open_high_salience_on_orientation(ctx, plan)
+    assert any(n.startswith("orientation_park:nug_park") for n in notes)
+    assert "nug_park" in (parked.get("orientation_nugget_recovery_ids") or [])
+    qc = evaluate_layup_qc(ctx, parked)
+    assert "nug_park" not in (qc.get("open_high_salience_nugget_ids") or [])
     assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))

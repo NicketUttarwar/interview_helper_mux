@@ -66,6 +66,19 @@ When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** rema
 | `master_finalize` / G-Publish | `pre_finalize` PMQ envelope | Tier-0 PMQ failures still block; rubric advisories logged only |
 | Cover / package / S3 | Operator G-Publish (optional) | S3 requires operator consent when `quality_advisories` non-empty |
 
+### Committed vs pending master (thrash invariant)
+
+Agenda walk-to-master / remaster / ship-stage unlock, and `filter_delivery_candidates` for `SHIP_AFTER_MASTER`, must use **committed** `master/master.wav` only (`final_path(...).is_file()` via `delivery_invariants.committed_master_wav`). A pending finalize write under `.pending_writes/master_finalize/` must not look shipped.
+
+Ship/PMQ heal may promote pending finalize **only when**:
+1. `junction_snip_qa` is seed-complete, and
+2. seam autopsy commitment matches live assembly (size + sha when present), and
+3. PMQ is publishable **or** listen-delight remutate is not exhausted.
+
+Otherwise refuse promote and remutate / resume junction. Soft `e2e_soft` flags must not mark `ship_path_ready` or waive authoritative delight/PMQ floors.
+
+Helpers: `src/interview_mux/delivery_invariants.py`.
+
 ---
 
 ## Violation catalog
@@ -81,7 +94,7 @@ When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** rema
 | `pending_write_barrier` | Staged writes not committed | `junction_snip_qa` | `approve_or_rerun_producer` |
 | `musicgen_theme_failed` | Theme bed missing after ladder | `music_palette_compose` | `generate_or_omit_bed` |
 | `post_master_quality_missing` | PMQ JSON absent at finalize | `master_finalize` | `run_pmq` |
-| `pmq_incomplete_ship_walk` | `publish_allowed: false` | `mix` | `listen_delight_remutate` |
+| `pmq_incomplete_ship_walk` | `publish_allowed: false` | remutate `from_stage` (narrative → `air_script_seams`) | `listen_delight_remutate` |
 
 Full-auto routes from `operator/publishability_report.json` and PMQ `failed_checks` via `PLAYBOOK_REGISTRY` — not driver error substrings.
 

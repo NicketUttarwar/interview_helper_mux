@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-DUALMUT|DEEP-SPINE-01|interview_spine_build->speaker_roles->content_context|M5_stage_done_without_primary+M8_seated_vo_no_wav",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "seed_block_ok:interview_spine_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

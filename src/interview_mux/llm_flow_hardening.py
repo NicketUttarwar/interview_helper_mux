@@ -400,10 +400,11 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
     (e.g. vo_synthesize inserted after edl/mix already finished).
     """
     from interview_mux.v2.config import SHIP_AFTER_MASTER
+    from interview_mux.delivery_invariants import committed_master_wav
 
     post_master_ship = (
         stage_key in SHIP_AFTER_MASTER
-        and ctx.artifact_exists("master/master.wav")
+        and committed_master_wav(ctx)
         and ctx.is_done("master_finalize")
     )
     for order in (ANALYSIS_ORDER, DELIVERY_ORDER):

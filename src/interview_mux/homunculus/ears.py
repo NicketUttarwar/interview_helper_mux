@@ -14,7 +14,9 @@ def resolve_ears_wav_rel(ctx: RunContext, rel: str | None = None) -> str:
     requested = str(rel or "").strip()
     if requested and ctx.artifact_exists(requested):
         return requested
-    if ctx.artifact_exists("master/master.wav"):
+    from interview_mux.delivery_invariants import committed_master_wav
+
+    if committed_master_wav(ctx):
         return "master/master.wav"
     if ctx.artifact_exists("master/assembly.wav"):
         return "master/assembly.wav"

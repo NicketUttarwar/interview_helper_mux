@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|gap_framing_recompose->selection_framing_apply|partial|M3_hollow_object|artifact_missing:gap_framing_recompose",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:41Z"
+}

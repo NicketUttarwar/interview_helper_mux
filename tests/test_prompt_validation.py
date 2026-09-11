@@ -175,3 +175,11 @@ def test_validate_envelope_accepts_null_need_stage() -> None:
     assert env["needs"][0]["stage"] == ""
     assert env["needs"][0]["blocking"] is False
     assert env["needs"][0]["params"] == {}
+
+
+def test_validate_stage_artifacts_rejects_empty_object_when_schema_bound():
+    """RSTM / SYN-SCHEMA-01: empty {} must not skip validation."""
+    stage_key = next(iter(STAGE_ARTIFACT_SCHEMAS))
+    errors = validate_stage_artifacts(stage_key, {})
+    assert errors, "empty artifacts must produce validation errors when schema exists"
+    assert "empty artifacts" in errors[0].lower() or "empty" in errors[0].lower()

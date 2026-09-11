@@ -81,7 +81,11 @@ def test_orientation_never_stripped_from_omit_ledger() -> None:
     assert any(a.get("action") == "protect_orientation_from_omit" for a in result.actions)
 
 
-def test_omit_gap_sync_via_sanitize_air_contract() -> None:
+def test_omit_gap_sync_via_sanitize_air_contract(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
     ctx = RunContext(create=True)
     gap = _base_gap()
     plan = {
@@ -103,6 +107,53 @@ def test_omit_gap_sync_via_sanitize_air_contract() -> None:
     assert by_id["vo_b"].get("omit") is True
     assert by_id["vo_b"].get("skipped_optional") is True
     assert not by_id["vo_a"].get("omit")
+
+
+def test_sanitize_protects_hosted_vo_floor_instead_of_stamp(monkeypatch) -> None:
+    """Omit-ledger sync must not collapse G-Framing synthetic floor."""
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": ["vo_orient", "vo_b"],
+                "orientation_id": "vo_orient",
+            }
+        }
+    }
+    result = sanitize_air_contract(ctx, {"plan": plan, "gap": gap, "omit": {}})
+    assert any(
+        a.get("action") == "protect_hosted_vo_floor_reseat" for a in result.actions
+    )
+    seats = (result.doc.get("air_script") or {}).get("vo_seats") or {}
+    seated = set(seats.get("seated_line_ids") or [])
+    assert "vo_orient" in seated
+    assert "vo_b" in seated or "vo_a" in seated
+    gap_out = result.doc.get("_air_contract_gap") or {}
+    active = 0
+    for row in gap_out.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped_optional") or row.get("omit") or row.get("air_script_omit"):
+            continue
+        if str(row.get("delivery") or "").lower() in {
+            "synthesize",
+            "record",
+            "voice_clone",
+            "chatterbox",
+            "",
+        }:
+            active += 1
+    assert active >= 3
 
 
 def test_seats_le_wavs_when_clamp_fixture_allows(monkeypatch) -> None:
@@ -167,7 +218,11 @@ def test_w1_gap_sanitize_does_not_stamp_seats() -> None:
     assert plan["air_script"]["vo_seats"] == seats
 
 
-def test_commit_air_contract_persists_omit_gap_sync() -> None:
+def test_commit_air_contract_persists_omit_gap_sync(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
     ctx = RunContext(create=True)
     gap = _base_gap()
     plan = {

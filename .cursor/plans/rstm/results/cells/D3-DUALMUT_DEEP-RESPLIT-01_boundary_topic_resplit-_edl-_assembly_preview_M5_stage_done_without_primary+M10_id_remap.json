@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-DUALMUT|DEEP-RESPLIT-01|boundary_topic_resplit->edl->assembly_preview|M5_stage_done_without_primary+M10_id_remap",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "incompleteness_ok:segments/boundaries.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

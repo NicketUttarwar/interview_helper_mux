@@ -230,8 +230,9 @@ def analysis_palette_counts(ctx: RunContext) -> dict[str, int]:
     # Cue-slot / density budget when policy exists.
     max_beds = 2
     max_punct = 4
+    pol: dict[str, Any] | None = None
     try:
-        from interview_mux.soundscape_policy import load_policy
+        from interview_mux.soundscape_policy import beds_hard_zero, load_policy, musical_invent_blocked
 
         pol = load_policy(ctx)
         if isinstance(pol, dict):
@@ -255,7 +256,7 @@ def analysis_palette_counts(ctx: RunContext) -> dict[str, int]:
                 if punct_slots > 0:
                     max_punct = min(max_punct, punct_slots) if max_punct else punct_slots
     except Exception:
-        pass
+        pol = None
 
     dens_l = str(dens or "").lower()
     mode_l = str(mode or "").lower()
@@ -275,13 +276,16 @@ def analysis_palette_counts(ctx: RunContext) -> dict[str, int]:
         counts["stingers"] = max(2, min(5, chapters or 2))
         counts["full_beds"] = 2 if ordered_n >= 10 else 1
 
-    hard_zero_bed = max_beds <= 0
-    if ctx.artifact_exists("understanding/soundscape_policy.json"):
-        raw_policy = ctx.read_json("understanding/soundscape_policy.json")
-        if isinstance(raw_policy, dict):
-            hard_zero_bed = hard_zero_bed or str(
-                raw_policy.get("underscore_policy") or ""
-            ) in {"skip", "sparse_or_skip"}
+    if isinstance(pol, dict):
+        hard_zero_bed = beds_hard_zero(pol) or musical_invent_blocked(pol)
+    else:
+        hard_zero_bed = max_beds <= 0
+        if ctx.artifact_exists("understanding/soundscape_policy.json"):
+            raw_policy = ctx.read_json("understanding/soundscape_policy.json")
+            if isinstance(raw_policy, dict):
+                hard_zero_bed = hard_zero_bed or str(
+                    raw_policy.get("underscore_policy") or ""
+                ) in {"skip", "sparse_or_skip"}
     if hard_zero_bed:
         counts["optional_loop"] = 0
     elif chapters >= 2 or ordered_n >= 8:

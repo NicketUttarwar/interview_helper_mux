@@ -111,17 +111,18 @@ PHASES: list[dict[str, Any]] = [
     {
         "id": "sound",
         "label": "Sound",
-        "description": "Sound design plan and VO finalize (palette inventory).",
-        "stages": ["sound_design_plan", "sound_design_vo_finalize"],
+        "description": "Sound design plan (VO finalize measures seated WAVs after synth).",
+        "stages": ["sound_design_plan", "vo_line_adjudicate"],
         "gate": None,
     },
     {
         "id": "build",
         "label": "Build",
-        "description": "Spoken VO synth, EDL, preview, listen delight, palette compose, MusicGen, mix, junction QA.",
+        "description": "Spoken VO synth, VO finalize, EDL, preview, listen delight, palette compose, MusicGen, mix, junction QA.",
         "stages": [
-            "edl_narrative_audit",
             "vo_synthesize",
+            "sound_design_vo_finalize",
+            "edl_narrative_audit",
             "edl",
             "assembly_preview",
             "listen_delight_audit",

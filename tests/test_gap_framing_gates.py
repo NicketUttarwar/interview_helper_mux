@@ -352,6 +352,49 @@ def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None
     assert evals["evaluations"][0]["severity_demotion_reason"] == "uncovered_after_fill"
 
 
+def test_demote_uncovered_high_gaps_refuses_below_hosted_floor(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Under G-Framing Yes, demote must not clear high pressure while active VO < floor."""
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.count_active_gap_vo_lines",
+        lambda _ctx: 0,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_003",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "ok_with_light_bridge",
+                    "listener_confusion": "who is speaking",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        skip_handoff=True,
+    )
+    assert demote_uncovered_high_gaps(ctx, origin="e2e_heal_lint_dirty") == 0
+    evals = ctx.read_json("understanding/gap_evaluations.json")
+    assert evals["evaluations"][0]["severity"] == "high"
+
+
 def test_fill_uncovered_high_gaps_sets_schema_fields(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

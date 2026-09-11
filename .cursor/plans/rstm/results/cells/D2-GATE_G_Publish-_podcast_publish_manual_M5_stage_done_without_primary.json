@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-GATE|G_Publish->podcast_publish|manual|M5_stage_done_without_primary",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "D2-GATE",
+  "notes": [
+    "gate_or_inv_symbolic"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:56Z"
+}

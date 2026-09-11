@@ -959,12 +959,19 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
             ) from exc
         path2 = resolve_vo_pickup_path(ctx, line)
         matches2, reason2 = synthesis_entry_matches_line(ctx, line)
-        if path2 is None or not path2.is_file() or not matches2:
-            raise RuntimeError(
-                f"edl: synthesize WAV stale/missing (line_id={lid} "
-                f"reason={reason2} path={path2} "
-                f"script_hash={script_hash(str(line.get('text') or ''))})"
-            )
+        # Audit match already proves script+bytes on disk (incl. pending). Do not
+        # also require resolve_vo_pickup_path — that gate includes speech-QA and
+        # can false-fail mid-stage while the take is still under .pending_writes
+        # (exec_10066: reason=match path=None → raise → orphan 019 WAV).
+        if matches2:
+            continue
+        if path2 is not None and path2.is_file():
+            continue
+        raise RuntimeError(
+            f"edl: synthesize WAV stale/missing (line_id={lid} "
+            f"reason={reason2} path={path2} "
+            f"script_hash={script_hash(str(line.get('text') or ''))})"
+        )
     return notes
 
 
@@ -1309,11 +1316,16 @@ def run_edl(ctx: RunContext) -> None:
                 active_framing_lines
                 or orientation_omitted(gap_report if isinstance(gap_report, dict) else None)
             ):
+                from interview_mux.gates import vo_gap_line_effectively_optional
                 from interview_mux.spoken_copy_guard import script_hash
 
                 missing = set((edl.get("warnings") or {}).get("missing_vo_files") or [])
                 for line in active_framing_lines:
                     if not is_episode_orientation(line):
+                        continue
+                    # Omitted / optional orientation must not hard-fail EDL when the
+                    # WAV was intentionally not seated (exec_11130 preface wipe).
+                    if vo_gap_line_effectively_optional(ctx, line):
                         continue
                     lid = str(line.get("line_id") or "")
                     if lid in missing:
@@ -1498,18 +1510,21 @@ def run_mix(ctx: RunContext) -> Path:
             stage="mix",
         )
 
-    try:
-        from interview_mux.listen_quality import place_episode_close_cue
+    from interview_mux.listen_quality import place_episode_close_cue
+    from interview_mux.theme_slot_integrity import assert_theme_bookends_ready_for_mix
 
-        placed = place_episode_close_cue(ctx)
+    # Mix may rebind outro anchors only — never invent a new outro cue.
+    try:
+        placed = place_episode_close_cue(ctx, allow_create=False)
         if placed:
             ctx.log(
-                f"mix: placed episode_close cue via {placed}",
+                f"mix: rebound episode_close cue via {placed}",
                 level="info",
                 stage="mix",
             )
     except Exception as exc:
-        ctx.log(f"mix: episode_close place skipped: {exc}", level="warning", stage="mix")
+        ctx.log(f"mix: episode_close rebind skipped: {exc}", level="warning", stage="mix")
+    assert_theme_bookends_ready_for_mix(ctx)
 
     # Restore or generate MMAudio QA before mix loud-fail.
     try:
@@ -1607,18 +1622,46 @@ def run_preview(ctx: RunContext) -> Path:
             level="warning",
             stage="assembly_preview",
         )
+        # C13: after assembly exists, EDL heal writeback that forces remaster needs allow.
+        allow_write = True
         try:
-            from interview_mux.write_staging import write_committed_json
+            asm = ctx.final_path("master", "assembly.wav")
+            if asm.is_file() and asm.stat().st_size > 0:
+                from interview_mux.timeline_reopen_meta_gate import (
+                    INTENT_PUB_SOFT_MIX,
+                    decide_timeline_reopen,
+                )
 
-            write_committed_json(
-                ctx, "master/edl.json", edl, stage_key="assembly_preview"
-            )
-        except Exception as exc:
-            ctx.log(
-                f"assembly_preview: could not persist healed EDL: {exc}",
-                level="warning",
-                stage="assembly_preview",
-            )
+                gate = decide_timeline_reopen(
+                    ctx,
+                    intent=INTENT_PUB_SOFT_MIX,
+                    detail={
+                        "from_stage": "assembly_preview",
+                        "healed_line_ids": healed_ids[:12],
+                    },
+                )
+                allow_write = bool(gate.get("allow"))
+                if not allow_write:
+                    ctx.log(
+                        f"assembly_preview: EDL heal write refused ({gate.get('refuse_reason')})",
+                        level="info",
+                        stage="assembly_preview",
+                    )
+        except Exception:
+            allow_write = False  # c13 fail-closed
+        if allow_write:
+            try:
+                from interview_mux.write_staging import write_committed_json
+
+                write_committed_json(
+                    ctx, "master/edl.json", edl, stage_key="assembly_preview"
+                )
+            except Exception as exc:
+                ctx.log(
+                    f"assembly_preview: could not persist healed EDL: {exc}",
+                    level="warning",
+                    stage="assembly_preview",
+                )
 
     source = ctx.read_path("ingest", "normalized.wav")
     work = ctx.path("master", "_preview_clips")

@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-DUALMUT|DEEP-FUSE-01|connector_fuse_pass->sound_design_palettes->mastering_research_routing|M6_pending_shadow+M10_id_remap",
+  "status": "PASS",
+  "tier": "D3-DUALMUT",
+  "notes": [
+    "seed_block_ok:connector_fuse_pass"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:17Z"
+}

@@ -36,7 +36,7 @@ def test_validate_pre_mix_missing_assets(tmp_path, monkeypatch):
 
 
 def test_missing_sdp_wavs_ignores_unreferenced_lazy_slots(tmp_path, monkeypatch):
-    """E3: cue-unreferenced palette rows must not block music epoch / pre-mix."""
+    """Lazy E3 still skips unreferenced underscore; speech-free bookends stay required."""
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_sdp_lazy")
     seed_analysis_ready_artifacts(ctx)
@@ -49,10 +49,16 @@ def test_missing_sdp_wavs_ignores_unreferenced_lazy_slots(tmp_path, monkeypatch)
                 "duration_seconds": 8,
             },
             {
-                "asset_id": "theme_unused",
+                "asset_id": "theme_outro_required",
                 "role": "theme_outro",
-                "description": "Palette-only outro",
+                "description": "Preferred outro (required even if not yet cued)",
                 "duration_seconds": 10,
+            },
+            {
+                "asset_id": "theme_lazy_underscore",
+                "role": "theme_underscore",
+                "description": "Unreferenced loop — must not block",
+                "duration_seconds": 12,
             },
         ]
     )
@@ -70,7 +76,73 @@ def test_missing_sdp_wavs_ignores_unreferenced_lazy_slots(tmp_path, monkeypatch)
     ctx.write_json("understanding/sound_design_plan.json", plan, skip_handoff=True)
     assets = ctx.final_path("sound_design", "assets")
     assets.mkdir(parents=True, exist_ok=True)
-    (assets / "theme_used.wav").write_bytes(b"RIFF")
+    from pydub.generators import Sine
+
+    for aid in ("theme_used", "theme_outro_required"):
+        Sine(220).to_audio_segment(duration=800, volume=-12).set_frame_rate(16000).export(
+            str(assets / f"{aid}.wav"), format="wav"
+        )
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    # Unreferenced underscore is ignored; bookends with audible WAVs are complete.
+    assert missing_sdp_asset_wavs(ctx) == []
+    (assets / "theme_outro_required.wav").unlink()
+    assert missing_sdp_asset_wavs(ctx) == ["theme_outro_required"]
+
+
+def test_missing_sdp_wavs_respects_music_limbo_omit(tmp_path, monkeypatch):
+    """Limbo-omitted theme beds must not clear mmaudio / block mix as missing WAV."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "run_sdp_omit")
+    seed_analysis_ready_artifacts(ctx)
+    plan = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "theme_keep",
+                "role": "theme_underscore",
+                "description": "keep",
+                "duration_seconds": 8,
+            },
+            {
+                "asset_id": "theme_omitted",
+                "role": "theme_outro",
+                "description": "omitted bed",
+                "duration_seconds": 10,
+            },
+        ]
+    )
+    flow = (plan.get("flow_plans") or {}).setdefault("podcast", {})
+    flow["cues"] = [
+        {
+            "cue_id": "c_keep",
+            "asset_id": "theme_keep",
+            "role": "theme_underscore",
+            "placement": "under_segment",
+            "description": "bed",
+            "duration_seconds": 8,
+        },
+        {
+            "cue_id": "c_omit",
+            "asset_id": "theme_omitted",
+            "role": "theme_outro",
+            "placement": "after_segment",
+            "description": "close",
+            "duration_seconds": 10,
+        },
+    ]
+    ctx.write_json("understanding/sound_design_plan.json", plan, skip_handoff=True)
+    assets = ctx.final_path("sound_design", "assets")
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "theme_keep.wav").write_bytes(b"RIFF")
+    ctx.write_json(
+        "operator/music_omitted.json",
+        {
+            "omitted": [
+                {"asset_id": "theme_omitted", "reason": "music_limbo_omit"},
+            ]
+        },
+        skip_handoff=True,
+    )
     from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
     assert missing_sdp_asset_wavs(ctx) == []

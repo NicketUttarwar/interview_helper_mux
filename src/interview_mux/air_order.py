@@ -599,7 +599,10 @@ def mix_outputs_seated(ctx: RunContext) -> bool:
 
 def mix_stale_versus_live(ctx: RunContext) -> bool:
     """True when assembly is not the mix of the live AirOrder generation."""
-    if not ctx.artifact_exists("master/assembly.wav") or not ctx.artifact_exists(EDL_REL):
+    # Committed assembly only — orphan .pending_writes/mix/… after abort must not
+    # look like a live mix that drifted from EDL (blocks mmaudio/mix as stale).
+    asm = ctx.final_path("master", "assembly.wav")
+    if not asm.is_file() or not ctx.artifact_exists(EDL_REL):
         return False
     if not live_generation_matches(ctx):
         return True
@@ -618,7 +621,7 @@ def mix_stale_versus_live(ctx: RunContext) -> bool:
 
 
 def mix_committed_for_live_gen(ctx: RunContext) -> bool:
-    if not ctx.artifact_exists("master/assembly.wav"):
+    if not ctx.final_path("master", "assembly.wav").is_file():
         return False
     if mix_stale_versus_live(ctx):
         return False

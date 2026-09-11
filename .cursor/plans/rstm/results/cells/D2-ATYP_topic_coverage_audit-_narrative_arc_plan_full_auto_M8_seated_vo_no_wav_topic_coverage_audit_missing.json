@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|topic_coverage_audit->narrative_arc_plan|full_auto|M8_seated_vo_no_wav|topic_coverage_audit_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:50Z"
+}

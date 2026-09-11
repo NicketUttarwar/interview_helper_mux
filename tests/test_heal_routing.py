@@ -46,12 +46,12 @@ def _edl(ids: list[str]) -> dict:
     }
 
 
-def test_layup_stale_routes_to_adopt_then_edl(tmp_path: Path) -> None:
+def test_layup_stale_routes_to_adopt_then_layup(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "heal_layup")
     route = classify_heal_error("nugget_layup_plan_stale vs selection", ctx, stage="edl")
     assert route is not None
     assert route.family == FAMILY_LAYUP_STALE
-    assert route.from_stage == "edl"
+    assert route.from_stage == "nugget_layup_compose"
     assert route.action == "adopt_layup"
     assert classify_error_class("edl", RuntimeError("nugget_layup_plan_stale")) == "layup_stale"
 
@@ -109,6 +109,24 @@ def test_g1_vo_open_with_seeded_adjudicate_skips_readjudicate(tmp_path: Path) ->
     assert route.action == "synthesize_g1"
     assert route.from_stage == "vo_synthesize"
     assert "re-adjudicate" in (route.detail or "")
+
+
+def test_seated_bind_stale_routes_to_vo_synthesize_not_layup(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "heal_seated_bind")
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"gaps": [], "interviewer_lines": []},
+        skip_handoff=True,
+    )
+    mark_done_raw(ctx, "vo_line_adjudicate")
+    route = classify_heal_error(
+        "vo_unsanitary: seated_bind_stale:vo_layup_seg_019",
+        ctx,
+        stage="edl",
+    )
+    assert route is not None
+    assert route.from_stage == "vo_synthesize"
+    assert route.from_stage != "nugget_layup_compose"
 
 
 def test_vo_adjudicate_stale_routes_to_adjudicate(tmp_path: Path) -> None:

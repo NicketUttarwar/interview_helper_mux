@@ -171,23 +171,31 @@ def _cut_integrity(ctx: RunContext) -> float:
 
     Missing junction artifact is no longer a free pass when EDL + words exist:
     illegal hanging ends degrade the score the same way as critical residuals.
+    Uses residual SSOT so ledger-only criticals also degrade cut integrity.
     """
     score = 1.0
     residual_n = 0
-    if ctx.artifact_exists("master/junction_snip_qa.json"):
-        try:
-            doc = ctx.read_json("master/junction_snip_qa.json")
-        except Exception:
-            doc = None
-        if isinstance(doc, dict):
-            residual = [
-                f
-                for f in (doc.get("residual_findings") or [])
-                if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
-            ]
-            residual_n = len(residual)
-            if residual_n:
-                score = _clamp(1.0 - 0.15 * residual_n)
+    try:
+        from interview_mux.delivery_guardrails import critical_residual_view
+
+        residual_n = int(critical_residual_view(ctx).count)
+        if residual_n:
+            score = _clamp(1.0 - 0.15 * residual_n)
+    except Exception:
+        if ctx.artifact_exists("master/junction_snip_qa.json"):
+            try:
+                doc = ctx.read_json("master/junction_snip_qa.json")
+            except Exception:
+                doc = None
+            if isinstance(doc, dict):
+                residual = [
+                    f
+                    for f in (doc.get("residual_findings") or [])
+                    if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
+                ]
+                residual_n = len(residual)
+                if residual_n:
+                    score = _clamp(1.0 - 0.15 * residual_n)
 
     # Authoritative lookahead floor even when junction is missing/soft.
     hang_hits = 0

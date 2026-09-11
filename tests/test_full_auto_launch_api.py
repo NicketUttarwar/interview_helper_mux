@@ -206,7 +206,8 @@ def test_shutdown_automation_stack_passes_keep_driver(monkeypatch) -> None:
     assert calls[-1]["kill_e2e"] is True
 
 
-def test_create_run_skips_launch_when_driver_already_running(tmp_path, monkeypatch) -> None:
+def test_create_run_refuses_when_driver_already_running(tmp_path, monkeypatch) -> None:
+    """D-04 / GUI-START: cross-run dual driver → 409 (not silent wrong launch)."""
     client = _seed_client(tmp_path, monkeypatch)
     launched: list[dict] = []
 
@@ -222,6 +223,65 @@ def test_create_run_skips_launch_when_driver_already_running(tmp_path, monkeypat
         "interview_mux.full_auto_launch.automation_driver_alive",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.automation_driver_bound_run_id",
+        lambda: "exec_other_alive",
+    )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.alive_driver_run_mode",
+        lambda _bound=None: "full-auto",
+    )
+
+    res = client.post(
+        "/api/runs",
+        json={
+            "input_audio_path": "ASSETS/input/interview.wav",
+            "run_mode": "full-auto",
+            "full_auto": True,
+        },
+    )
+    assert res.status_code == 409, res.text
+    assert launched == []
+    assert "driver" in res.text.lower() or "Automation" in res.text
+
+
+def test_refuse_dual_driver_allows_unbound_fresh_create(monkeypatch) -> None:
+    """CLI ensure_run is pgrep-alive before POST /api/runs binds a pointer."""
+    import interview_mux.full_auto_launch as fal
+
+    monkeypatch.setattr(fal, "automation_driver_alive", lambda: True)
+    monkeypatch.setattr(fal, "automation_driver_bound_run_id", lambda: None)
+    monkeypatch.setattr(fal, "alive_driver_run_mode", lambda _bound=None: None)
+
+    assert fal.refuse_dual_driver_launch(requested_run_id="__new__", requested_mode="full-auto") is None
+    assert fal.refuse_dual_driver_launch(requested_run_id="", requested_mode="full-auto") is None
+
+
+def test_create_run_allows_unbound_cli_driver_fresh(tmp_path, monkeypatch) -> None:
+    """Fresh kickoff must not 409 when the launching CLI driver is already visible."""
+    client = _seed_client(tmp_path, monkeypatch)
+    launched: list[dict] = []
+
+    def _fake_launch(**kwargs):
+        launched.append(kwargs)
+        return {"ok": True, "driver_pid": 99}
+
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.launch_full_auto_for_run",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.automation_driver_alive",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.automation_driver_bound_run_id",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.alive_driver_run_mode",
+        lambda _bound=None: None,
+    )
 
     res = client.post(
         "/api/runs",
@@ -233,8 +293,9 @@ def test_create_run_skips_launch_when_driver_already_running(tmp_path, monkeypat
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["full_auto_launch"] == {"driver_already_running": True}
-    assert launched == []
+    assert body.get("run_id")
+    assert len(launched) == 1
+    assert launched[0]["run_id"] == body["run_id"]
 
 
 def test_env_keepalive_requested(monkeypatch) -> None:

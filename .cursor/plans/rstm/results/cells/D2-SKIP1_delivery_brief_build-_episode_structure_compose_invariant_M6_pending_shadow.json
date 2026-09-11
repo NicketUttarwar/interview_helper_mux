@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-SKIP1|delivery_brief_build->episode_structure_compose|invariant|M6_pending_shadow",
+  "status": "PASS",
+  "tier": "D2-SKIP1",
+  "notes": [
+    "seed_block_ok:delivery_brief_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:38Z"
+}

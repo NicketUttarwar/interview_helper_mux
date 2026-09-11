@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,6 +154,22 @@ class RunContext:
                     reason=stage_key or "write_json",
                 )
                 if admitted is not None:
+                    # Admit returns before the shared-path hook below — stamp now.
+                    if (
+                        stage_key
+                        and isinstance(payload, dict)
+                        and not getattr(self, "_shared_path_stamping", False)
+                    ):
+                        try:
+                            from interview_mux.post_decision_sanitize import (
+                                SHARED_PATH_CO_PRODUCERS,
+                                after_shared_path_write,
+                            )
+
+                            if rel in SHARED_PATH_CO_PRODUCERS:
+                                after_shared_path_write(self, rel, stage_key)
+                        except Exception:
+                            pass
                     return admitted
             except ImportError:
                 pass
@@ -170,6 +187,22 @@ class RunContext:
             path = self.path(rel)
             fs_write_json(path, data)
             self._homunculus_admit_write(rel, data)
+        # A-05: shared brief/boundaries/SDP — stamp authoritative_producer + reconcile.
+        if (
+            stage_key
+            and isinstance(data, dict)
+            and not getattr(self, "_shared_path_stamping", False)
+        ):
+            try:
+                from interview_mux.post_decision_sanitize import (
+                    SHARED_PATH_CO_PRODUCERS,
+                    after_shared_path_write,
+                )
+
+                if rel in SHARED_PATH_CO_PRODUCERS:
+                    after_shared_path_write(self, rel, stage_key)
+            except Exception:
+                pass
         if rel == "understanding/gap_report.json" and isinstance(data, dict):
             # VO5: suppress cascade while vo_synthesize holds the expensive lease.
             if int(getattr(self, "_vo_synth_lease", 0) or 0) > 0:
@@ -487,8 +520,12 @@ class RunContext:
         from interview_mux.artifact_completeness import artifact_status
         from interview_mux.v2.config import ALL_LLM_STAGES
 
+        # Fixture hollow-stamp (`_mark_done_raw`) bypasses disk/semantic completeness —
+        # heal_or_refuse / FORCE_DONE_GUARDED gate real force marks instead.
+        raw_stamp = bool(getattr(self, "_mark_done_raw", False))
+
         rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
-        if rel:
+        if rel and not raw_stamp:
             if self.artifact_exists(rel):
                 st = artifact_status(rel, self)
                 if st != "complete":
@@ -514,7 +551,7 @@ class RunContext:
             from interview_mux.thrash_hardening import FORCE_DONE_GUARDED
             from interview_mux.stage_completion import stage_artifact_incompleteness
 
-            if stage in FORCE_DONE_GUARDED and not force:
+            if stage in FORCE_DONE_GUARDED and not force and not raw_stamp:
                 hollow = stage_artifact_incompleteness(self, stage)
                 if hollow:
                     skip_stub = False
@@ -590,11 +627,48 @@ class RunContext:
     def is_done(self, stage: str) -> bool:
         return self.final_path(".stage_done", stage).is_file()
 
+    @staticmethod
+    def _combined_clear_allowed() -> bool:
+        """Pytest-only escape — production / normal CLI must never bypass.
+
+        Requires both an explicit hatch (env or class flag) **and** an active
+        pytest session (``PYTEST_CURRENT_TEST``). Accidental ``MUX_ALLOW_COMBINED_CLEAR=1``
+        in a forensics shell will not reopen nuclear clears.
+        """
+        if not str(os.environ.get("PYTEST_CURRENT_TEST") or "").strip():
+            return False
+        if os.environ.get("MUX_ALLOW_COMBINED_CLEAR", "").strip() == "1":
+            return True
+        return bool(getattr(RunContext, "_ALLOW_COMBINED_CLEAR", False))
+
+    @staticmethod
+    def _is_combined_pipeline_order(order: list[str]) -> bool:
+        """True when ``order`` mixes ANALYSIS_ORDER and DELIVERY_ORDER stages."""
+        try:
+            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+        except Exception:
+            return False
+        analysis = set(ANALYSIS_ORDER)
+        delivery = set(DELIVERY_ORDER)
+        seen = set(order)
+        return bool(seen & analysis) and bool(seen & delivery)
+
+    def _refuse_combined_pipeline_order(self, order: list[str]) -> None:
+        if not self._is_combined_pipeline_order(order):
+            return
+        if self._combined_clear_allowed():
+            return
+        raise ValueError(
+            "combined ANALYSIS+DELIVERY clear_from forbidden; "
+            "use apply_bounded_invalidation or single-order operator clear"
+        )
+
     def clear_from(
         self, stage: str, order: list[str], *, blast_source: str | None = None
     ) -> None:
         if stage not in order:
             return
+        self._refuse_combined_pipeline_order(order)
         from interview_mux.execution_invalidation import (
             archive_artifacts_from,
             clear_pending_writes_from,

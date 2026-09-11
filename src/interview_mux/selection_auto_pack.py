@@ -202,16 +202,75 @@ def pack_selection_to_duration(
         return selection
 
     # Shadow advisory: vernacular must_keep that would have been protected if authoritative.
+    # F-02: discover → ledger → log → soft residual on ledger fail → meta → optional block.
+    # No outer bare except: pack always continues; visibility never dies silently.
     shadow_vernacular: list[str] = []
+    vernacular_ids: set[str] = set()
+    policy = "ledger"
     try:
-        from interview_mux.stages.audio_probes import (
-            enforcement_mode_for_ctx,
-            load_must_keep_segment_ids,
+        from interview_mux.stages.audio_probes import load_must_keep_segment_ids
+
+        vernacular_ids = set(load_must_keep_segment_ids(ctx) or set())
+    except Exception as exc:
+        ctx.log(
+            f"Shadow vernacular discover failed: {exc}",
+            level="warning",
+            stage=stage,
+            action_id="vernacular.shadow.discover_failed",
+            detail={"error": str(exc)[:240], "meta_key": meta_key},
         )
 
-        vernacular_ids = load_must_keep_segment_ids(ctx)
+    if vernacular_ids:
+        mode = "shadow"
+        try:
+            from interview_mux.stages.audio_probes import enforcement_mode_for_ctx
+
+            mode = str(enforcement_mode_for_ctx(ctx) or "shadow")
+        except Exception as exc:
+            ctx.log(
+                f"Shadow vernacular mode lookup failed: {exc}",
+                level="warning",
+                stage=stage,
+                action_id="vernacular.shadow.mode_failed",
+                detail={"error": str(exc)[:240]},
+            )
         shadow_vernacular = [sid for sid in dropped if sid in vernacular_ids]
-        if shadow_vernacular and enforcement_mode_for_ctx(ctx) != "authoritative":
+        if shadow_vernacular and mode != "authoritative":
+            try:
+                from interview_mux.config import merged_config
+
+                probes = merged_config().get("audio_probes") or {}
+                policy = str(probes.get("shadow_must_keep_policy") or "ledger").strip().lower()
+            except Exception:
+                policy = "ledger"
+
+            ledger_ok = False
+            try:
+                from interview_mux.delivery_guardrails import record_wasted_work
+
+                ledger_ok = bool(
+                    record_wasted_work(
+                        ctx,
+                        event="vernacular_shadow_drop",
+                        stage=stage or "selection_auto_pack",
+                        detail={
+                            "dropped_must_keep": shadow_vernacular[:20],
+                            "enforcement_mode": "shadow",
+                            "meta_key": meta_key,
+                            "policy": policy,
+                        },
+                    )
+                )
+            except Exception as exc:
+                ledger_ok = False
+                ctx.log(
+                    f"Shadow vernacular ledger failed: {exc}",
+                    level="warning",
+                    stage=stage,
+                    action_id="vernacular.shadow.ledger_failed",
+                    detail={"error": str(exc)[:240], "dropped_must_keep": shadow_vernacular[:20]},
+                )
+
             ctx.log(
                 f"Shadow vernacular: {meta_key} dropped {len(shadow_vernacular)} must_keep id(s)",
                 level="warning",
@@ -221,10 +280,82 @@ def pack_selection_to_duration(
                     "event": "vernacular_shadow_drop",
                     "dropped_must_keep": shadow_vernacular[:20],
                     "enforcement_mode": "shadow",
+                    "policy": policy,
+                    "ledger_ok": ledger_ok,
                 },
             )
-    except Exception:
-        pass
+
+            residual_ok = True
+            if not ledger_ok:
+                try:
+                    from interview_mux.delivery_guardrails import record_delivery_residual
+
+                    record_delivery_residual(
+                        ctx,
+                        kind="vernacular_shadow_ledger_fail",
+                        severity="soft",
+                        stage=stage or "selection_auto_pack",
+                        detail={
+                            "dropped_must_keep": shadow_vernacular[:20],
+                            "meta_key": meta_key,
+                            "policy": policy,
+                        },
+                        mirror_junction=False,
+                    )
+                except Exception as exc:
+                    residual_ok = False
+                    ctx.log(
+                        f"Shadow vernacular soft residual failed: {exc}",
+                        level="warning",
+                        stage=stage,
+                        action_id="vernacular.shadow.residual_failed",
+                        detail={"error": str(exc)[:240]},
+                    )
+
+            if not ledger_ok and not residual_ok:
+                try:
+
+                    def _blackout(meta: dict[str, Any]) -> None:
+                        meta["needs_operator"] = True
+                        meta["needs_operator_stage"] = str(stage or "selection_auto_pack")[:80]
+                        meta["needs_operator_reason"] = "vernacular_shadow_visibility_blackout"
+
+                    if ctx.artifact_exists("run_meta.json"):
+                        ctx.mutate_run_meta(_blackout)
+                    else:
+                        ctx.write_json(
+                            "run_meta.json",
+                            {
+                                "needs_operator": True,
+                                "needs_operator_stage": str(stage or "selection_auto_pack")[:80],
+                                "needs_operator_reason": "vernacular_shadow_visibility_blackout",
+                            },
+                            skip_handoff=True,
+                        )
+                except Exception as exc:
+                    ctx.log(
+                        f"Shadow vernacular visibility blackout stamp failed: {exc}",
+                        level="error",
+                        stage=stage,
+                        action_id="vernacular.shadow.blackout_failed",
+                        detail={"error": str(exc)[:240]},
+                    )
+
+            if policy == "block":
+                try:
+                    restore = set(shadow_vernacular)
+                    keep = set(remaining) | restore
+                    remaining = [sid for sid in ordered if sid in keep]
+                    dropped = [sid for sid in dropped if sid not in restore]
+                    shadow_vernacular = []
+                except Exception as exc:
+                    ctx.log(
+                        f"Shadow vernacular block restore failed: {exc}",
+                        level="warning",
+                        stage=stage,
+                        action_id="vernacular.shadow.block_failed",
+                        detail={"error": str(exc)[:240]},
+                    )
 
     out = dict(selection)
     out["ordered_segment_ids"] = remaining

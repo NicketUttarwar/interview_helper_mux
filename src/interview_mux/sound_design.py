@@ -240,6 +240,28 @@ def _speech_slice_start_ms(ctx: RunContext, start_ms: int, words: list[dict[str,
     return snap_cut_to_word_boundary(start_ms, words, margin_ms=0, max_shift_ms=max_shift)
 
 
+def _clamp_speech_slice_to_intentional(
+    orig_start: int,
+    orig_end: int,
+    start: int,
+    end: int,
+    *,
+    expand_tol_ms: int = 20,
+) -> tuple[int, int]:
+    """Keep word-boundary snap from expanding past intentional EDL/NLE bounds.
+
+    Mix persists snapped source_* back into the live EDL; expanding past a
+    producer cut (e.g. 97920→97970) reopens incomplete hanging tails.
+    """
+    if start < orig_start - expand_tol_ms:
+        start = orig_start
+    if end > orig_end + expand_tol_ms:
+        end = orig_end
+    if end < start:
+        end = start
+    return int(start), int(end)
+
+
 def _append_mix_clip(
     base: AudioSegment,
     clip: AudioSegment,
@@ -512,10 +534,13 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             ctype = str(clip.get("type") or "")
             t_before = len(base)
             if ctype == "speech":
-                start = _speech_slice_start_ms(ctx, int(clip.get("source_start_ms", 0)), words)
-                end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
-                if end < start:
-                    end = start
+                orig_start = int(clip.get("source_start_ms", 0))
+                orig_end = int(clip.get("source_end_ms", orig_start))
+                start = _speech_slice_start_ms(ctx, orig_start, words)
+                end = _speech_slice_end_ms(ctx, orig_end, words)
+                start, end = _clamp_speech_slice_to_intentional(
+                    orig_start, orig_end, start, end
+                )
                 audio = source[max(0, start) : max(start, end)]
                 seg_id = str(clip.get("segment_id") or "")
                 spk = speaker_id_for_segment(ctx, seg_id) if seg_id else None
@@ -609,9 +634,21 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 opening_music = (
                     str(clip.get("air_kind") or "") == "opening_music"
                     and bool(clip.get("preserve_planned_music"))
+                    and not clip.get("omitted_theme_slot")
                 )
+                # Never expand opening_music air without an audible cold_open WAV.
                 if opening_music and cold_bridge_ms > 0:
-                    pad = max(pad, cold_bridge_ms)
+                    try:
+                        from interview_mux.theme_slot_integrity import (
+                            hollow_opening_music_finding,
+                        )
+
+                        if hollow_opening_music_finding(ctx) is None:
+                            pad = max(pad, cold_bridge_ms)
+                        else:
+                            pad = 0
+                    except Exception:
+                        pad = max(pad, cold_bridge_ms)
                 # After show-open preface, reserve air for a speech-free cold-open bridge
                 # before the first question VO (hook → theme → question).
                 if last_vo_kind == "preface" and cold_bridge_ms > 0:
@@ -801,7 +838,15 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         realized_music_assets = {
             str(cue.get("asset_id") or "")
             for cue in overlays
-            if isinstance(cue, dict) and str(cue.get("asset_id") or "")
+            if isinstance(cue, dict)
+            and str(cue.get("asset_id") or "")
+            and not cue.get("missing_asset")
+        }
+        # Realized requires audible bytes on disk (exec_11130: coverage lied).
+        from interview_mux.theme_slot_integrity import theme_asset_audible
+
+        realized_music_assets = {
+            aid for aid in realized_music_assets if theme_asset_audible(ctx, aid)
         }
         missing_music_assets = sorted(planned_music_assets - realized_music_assets)
         # Lane exclusivity / stinger-cap may omit a generated stem from overlays.
@@ -987,12 +1032,31 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 raise RuntimeError(
                     "soundscape_verify fail_closed: " + "; ".join(report.get("failures") or [])
                 )
+        # overlay_stats["missing_assets"] is a count (int); completeness wants ids.
+        # Honest limbo omits (operator/music_omitted.json) are not missing SFX.
+        omitted_music: set[str] = set()
+        try:
+            if ctx.artifact_exists("operator/music_omitted.json"):
+                doc = ctx.read_json("operator/music_omitted.json")
+                for row in (doc.get("omitted") or []) if isinstance(doc, dict) else []:
+                    if isinstance(row, dict) and row.get("asset_id"):
+                        omitted_music.add(str(row["asset_id"]))
+        except Exception:
+            pass
+        missing_sfx_ids = [
+            str(o.get("asset_id") or "")
+            for o in overlays
+            if isinstance(o, dict)
+            and o.get("missing_asset")
+            and o.get("asset_id")
+            and str(o.get("asset_id") or "") not in omitted_music
+        ]
         enforce_mix_completeness(
             ctx,
             flow="podcast",
             stage="mix",
             missing_vo=missing_vo,
-            missing_sfx=list(overlay_stats.get("missing_assets") or []),
+            missing_sfx=missing_sfx_ids,
             retried_vo=retried_vo,
         )
         from interview_mux.listenability_guards import (
@@ -1054,19 +1118,29 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             )
             ctx.write_json("master/listen_critic.json", critic)
             if critic.get("g_listen_recommended"):
-                def _glisten(m: dict) -> None:
-                    if m.get("g_listen_skipped") or m.get("g_listen_cleared"):
-                        return
-                    m["g_listen_pending"] = True
-                    m["g_listen_quality_score"] = critic.get("quality_score")
+                # C14: do not re-arm G-Listen after refused_low_gain remutate.
+                refuse_rearm = False
+                try:
+                    if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                        rem = ctx.read_json("mastering/listen_delight_remutate.json")
+                        if isinstance(rem, dict) and str(rem.get("status") or "") == "refused_low_gain":
+                            refuse_rearm = True
+                except Exception:
+                    refuse_rearm = False
+                if not refuse_rearm:
+                    def _glisten(m: dict) -> None:
+                        if m.get("g_listen_skipped") or m.get("g_listen_cleared"):
+                            return
+                        m["g_listen_pending"] = True
+                        m["g_listen_quality_score"] = critic.get("quality_score")
 
-                ctx.mutate_run_meta(_glisten)
-                ctx.log(
-                    f"G-Listen recommended (score={critic.get('quality_score')}) — "
-                    "optional operator listen before master_finalize",
-                    level="warning",
-                    stage="mix",
-                )
+                    ctx.mutate_run_meta(_glisten)
+                    ctx.log(
+                        f"G-Listen recommended (score={critic.get('quality_score')}) — "
+                        "optional operator listen before master_finalize",
+                        level="warning",
+                        stage="mix",
+                    )
             if critic.get("verdict") == "warn":
                 ctx.log(
                     f"listen_critic warn: {critic.get('warning_count')} issue(s)",
@@ -1212,7 +1286,15 @@ def build_flow1_overlays(
     speech_stem: AudioSegment | None = None,
     vo_landmarks: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Build mix overlays. Authority: SDP when plan has cues; legacy only when no SDP plan.
+
+    Never invent legacy beds when SDP planned cues but assets are missing — use
+    placeholders and report missing_assets truthfully (DEEP-MIX-01).
+    """
     contract = contract or mix_contract(ctx)
+    plan = load_sound_design_plan(ctx)
+    sdp_cues = _flow_plan_cues(plan) if plan else []
+    has_sdp_plan = bool(plan) and bool(sdp_cues)
     overlays = flow1_overlays_from_sdp(
         ctx,
         segment_timing=segment_timing,
@@ -1222,12 +1304,21 @@ def build_flow1_overlays(
         vo_landmarks=vo_landmarks,
     )
     stats = count_overlay_roles(overlays)
+    missing = sum(1 for o in overlays if isinstance(o, dict) and o.get("missing_asset"))
+    stats["missing_assets"] = int(missing)
     if overlays:
-        stats["missing_assets"] = 0
+        stats["overlay_authority"] = "sdp_placeholders" if missing else "sdp_realized"
         return overlays, stats
+    if has_sdp_plan:
+        # SDP existed but realized empty (assets missing / all skipped) — no legacy invent.
+        stats["overlay_authority"] = "none"
+        return [], stats
     legacy = flow1_overlays_legacy(ctx, segment_timing=segment_timing, timeline_ms=timeline_ms)
     stats = count_overlay_roles(legacy)
-    stats["missing_assets"] = 0
+    stats["missing_assets"] = sum(
+        1 for o in legacy if isinstance(o, dict) and o.get("missing_asset")
+    )
+    stats["overlay_authority"] = "legacy_fallback" if legacy else "none"
     return legacy, stats
 
 
@@ -1455,14 +1546,35 @@ def flow1_overlays_from_sdp(
             continue
 
         if wav is None:
+            from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
+
+            silent_err = refuse_silent_theme_overlay(
+                role=asset_role_early,
+                asset_id=asset_id,
+                missing_asset=True,
+            )
+            if silent_err:
+                raise RuntimeError(silent_err)
             base = placeholder_audio(asset, cue=cue)
             ctx.log(
                 f"mix: missing asset {asset_id!r} — placeholder silence",
                 level="warning",
                 stage="mix",
             )
+            missing_asset = True
         else:
             base = load_audio(wav)
+            missing_asset = False
+            from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
+
+            silent_err = refuse_silent_theme_overlay(
+                role=asset_role_early,
+                asset_id=asset_id,
+                missing_asset=False,
+                audio=base,
+            )
+            if silent_err:
+                raise RuntimeError(silent_err)
 
         if placement in {"under_segment", "under_segment_span"}:
             span_ids = [str(x) for x in (cue.get("segment_ids") or []) if x]
@@ -1543,6 +1655,7 @@ def flow1_overlays_from_sdp(
                     "level_db": level_db,
                     "duck_db": 0.0,
                     "underbed_eq": eq_settings,
+                    "missing_asset": bool(missing_asset),
                 }
             )
             continue
@@ -1685,6 +1798,14 @@ def flow1_overlays_from_sdp(
             role = "theme_punctuator"
         else:
             role = "bridge" if placement == "before_segment" else "stinger"
+        if asset_role in {"theme_cold_open", "theme_outro"} and missing_asset:
+            from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
+
+            err = refuse_silent_theme_overlay(
+                role=asset_role, asset_id=asset_id, missing_asset=True
+            )
+            if err:
+                raise RuntimeError(err)
         out.append(
             {
                 "audio": cue_audio,
@@ -1695,7 +1816,9 @@ def flow1_overlays_from_sdp(
                 "source_duration_ms": body_ms,
                 "rendered_duration_ms": len(cue_audio),
                 "preserve_full_duration": asset_role
-                in {"theme_cold_open", "theme_outro"},
+                in {"theme_cold_open", "theme_outro"}
+                and not missing_asset,
+                "missing_asset": bool(missing_asset),
             }
         )
         # Chapter-hinge breathe: dry micro-gap after resolve before speech resumes.

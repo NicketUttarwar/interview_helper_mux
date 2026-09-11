@@ -1,0 +1,10 @@
+{
+  "cell_id": "D3-GATEMID|transcript_review_build->G0->audio_probe_build->source_acoustic_profile|full_auto|M1_none",
+  "status": "PASS",
+  "tier": "D3-GATEMID",
+  "notes": [
+    "seed_block_ok:transcript_review_build"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

@@ -398,6 +398,7 @@ def apply_adjudicate_results(
     plan = layup_plan if isinstance(layup_plan, dict) else _load_layup_plan(ctx)
     actions: list[dict[str, Any]] = []
     mutated = False
+    mutated_line_ids: list[str] = []
     deferred_nuggets: set[str] = set()
 
     for row in results:
@@ -427,6 +428,8 @@ def apply_adjudicate_results(
                 line["text"] = new_text
                 line["origin"] = "vo_line_adjudicate"
                 mutated = True
+                if lid:
+                    mutated_line_ids.append(lid)
                 log_step(
                     f"adjudicate rewrite: {lid}",
                     ctx=ctx,
@@ -441,6 +444,8 @@ def apply_adjudicate_results(
                 line["nugget_ids"] = nugget_ids
                 line["origin"] = "vo_line_adjudicate"
                 mutated = True
+                if lid:
+                    mutated_line_ids.append(lid)
                 log_step(
                     f"adjudicate move_nugget: {lid}",
                     ctx=ctx,
@@ -458,6 +463,8 @@ def apply_adjudicate_results(
                 line["text"] = str(row.get("final_text"))
             line["origin"] = "vo_line_adjudicate"
             mutated = True
+            if lid:
+                mutated_line_ids.append(lid)
             log_step(
                 f"adjudicate defer_to_intro: {lid}",
                 ctx=ctx,
@@ -470,6 +477,8 @@ def apply_adjudicate_results(
         if target_seg and str(target_seg) != str(line.get("targets_segment_id") or ""):
             line["targets_segment_id"] = str(target_seg)
             mutated = True
+            if lid and lid not in mutated_line_ids:
+                mutated_line_ids.append(lid)
 
     if deferred_nuggets:
         gap_report.setdefault("_adjudicate_deferred_nuggets", [])
@@ -477,7 +486,11 @@ def apply_adjudicate_results(
         gap_report["_adjudicate_deferred_nuggets"] = sorted(existing | deferred_nuggets)
 
     if mutated and adjudicate_cfg().get("full_resynth_on_adjudicate_change", True):
-        nuke_all_synth_wavs_on_adjudicate_change(ctx)
+        # Only purge lines whose spoken copy / seating actually changed — never
+        # wipe transition bridges or untouched layup WAVs (exec_11130).
+        nuke_all_synth_wavs_on_adjudicate_change(
+            ctx, line_ids=mutated_line_ids or None
+        )
 
     return gap_report, actions
 

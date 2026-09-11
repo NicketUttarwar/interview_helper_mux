@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-FANIN|content_context+content_brief_reanchor+missing_framing|M9_uncommitted_master",
+  "status": "PASS",
+  "tier": "D3-FANIN",
+  "notes": [
+    "seed_block_ok:content_context",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:06:18Z"
+}

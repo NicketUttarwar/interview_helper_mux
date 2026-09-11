@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-PC|content_context->segment_classification|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "incompleteness_ok:understanding/content_brief.json is pending",
+    "seed_block_ok:content_context"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:51Z"
+}

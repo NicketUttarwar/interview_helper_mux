@@ -1008,6 +1008,45 @@ def test_handle_seed_order_prereq_pins_named_stage(tmp_path: Path) -> None:
     assert not ctx.is_done("air_script_seams")
 
 
+def test_handle_seed_order_sound_design_plan_restamps_when_sdp_live(tmp_path: Path) -> None:
+    """Missing SDP marker with live delivery SDP → restamp, resume mix (no replan)."""
+    import json
+
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "seed_order_sdp_restamp")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    # Write raw so schema sanitize does not expand a minimal fixture into a new plan.
+    sdp_path = ctx.final_path("understanding", "sound_design_plan.json")
+    sdp_path.parent.mkdir(parents=True, exist_ok=True)
+    sdp_path.write_text(
+        json.dumps(
+            {
+                "assets": {"show_theme_v2_full_bed_open": {"role": "theme_cold_open"}},
+                "_meta": {"producer_stage": "sound_design_plan"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json("master/transitions.json", {"transitions": []}, skip_handoff=True)
+    # Intentionally no .stage_done/sound_design_plan — the failure mode under test.
+    result = handle_stage_failure(
+        ctx,
+        "mix",
+        RuntimeError("seed order: complete sound_design_plan before running mix"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "seed_order_prereq"
+    assert result.resume_stage == "mix"
+    assert ctx.is_done("sound_design_plan")
+    doc = json.loads(sdp_path.read_text(encoding="utf-8"))
+    assert "show_theme_v2_full_bed_open" in (doc.get("assets") or {})
+
+
 def test_handle_g1_vo_open_seed_order_does_not_unmark_adjudicate(tmp_path: Path) -> None:
     """g1_vo_open → resume vo_synthesize; leave adjudicate markers intact."""
     from run_fixtures import isolated_run_ctx

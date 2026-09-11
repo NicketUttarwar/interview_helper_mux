@@ -115,6 +115,35 @@ def test_finish_complete_run_full_auto_syncs(monkeypatch: pytest.MonkeyPatch) ->
     assert sync_called == [True]
 
 
+def test_write_terminal_report_logs_invariant_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import full_auto_driver as driver
+
+    from interview_mux.run_context import RunContext
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path / "ASSETS"))
+    ctx = RunContext("exec_invariant_summary", create=True)
+    path = ctx.final_path("operator", "invariant_heals.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"kind":"seed_cycle_detected"}\n', encoding="utf-8")
+    monkeypatch.setattr(driver, "RUN_ID", ctx.run_id)
+    logs: list[str] = []
+    monkeypatch.setattr(driver, "log", lambda msg: logs.append(str(msg)))
+
+    with patch(
+        "interview_mux.execution_report.write_execution_report",
+        return_value={"run_dir": str(ctx.run_dir), "ship": {"master": {"present": False}}},
+    ):
+        driver._write_terminal_report(
+            outcome="halted_needs_operator",
+            halt_stage="transitions",
+            root_cause="fixture",
+        )
+
+    assert any("[INVARIANT summary]" in line for line in logs)
+
+
 def test_g_publish_operator_done_detects_upload() -> None:
     import full_auto_driver as driver
 
@@ -126,6 +155,8 @@ def test_g_publish_operator_done_detects_upload() -> None:
 
 def test_automation_driver_run_includes_partial_and_full() -> None:
     from interview_mux.automation_run import (
+        PARTIAL_MAY_PAUSE_GATES,
+        PARTIAL_MUST_ACT_GATES,
         automation_driver_run,
         is_full_auto_run,
         is_partially_accelerated_run,
@@ -138,6 +169,77 @@ def test_automation_driver_run_includes_partial_and_full() -> None:
     assert automation_driver_run({"run_mode": "partially-accelerated", "partial_auto": True})
     assert automation_driver_run({"run_mode": "full-auto", "full_auto": True})
     assert not automation_driver_run({"run_mode": "manual"})
+    # D-01 SSOT
+    assert PARTIAL_MUST_ACT_GATES == ("transcript_review", "g_publish")
+    assert "gap_framing" in PARTIAL_MAY_PAUSE_GATES
+    assert "g1_vo_pickup" in PARTIAL_MAY_PAUSE_GATES
+
+
+def test_partial_never_syncs_s3_without_g_publish_consent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-06 / GATE-GPUB: Partial finish path never calls sync without operator wait."""
+    import full_auto_driver as driver
+
+    monkeypatch.setattr(driver, "is_partial_auto", lambda: True)
+    monkeypatch.setattr(driver, "assert_fresh_layer_contract", lambda: None)
+
+    wait_called: list[bool] = []
+
+    def fake_wait() -> bool:
+        wait_called.append(True)
+        return False  # operator never consented / timed out
+
+    sync_called: list[bool] = []
+
+    def fake_sync() -> dict:
+        sync_called.append(True)
+        return {}
+
+    monkeypatch.setattr(driver, "wait_for_operator_g_publish", fake_wait)
+    monkeypatch.setattr(driver, "sync_publish_to_s3", fake_sync)
+    monkeypatch.setattr(driver, "finish_partial_complete_run", lambda: 0)
+    # When wait returns False, finish_complete_run should not sync.
+    # Driver may return non-zero; still must not sync.
+    try:
+        driver.finish_complete_run()
+    except Exception:
+        pass
+    assert wait_called == [True]
+    assert sync_called == []
+
+
+def test_recommended_framing_honors_llm_no_and_sparse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-07 / SYN-GFR: never auto-Yes over explicit LLM no/sparse."""
+    from interview_mux.homunculus.gates import recommended_framing_action, set_gate_decision
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "framing_posture_d07")
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"topology_class": "one_on_one_balanced", "pickup_eligible_speaker_id": "spk_1"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/framing_posture_decision.json",
+        {"recommended_framing": "no", "rationale": "fixture"},
+        skip_handoff=True,
+    )
+    assert recommended_framing_action(ctx) == "skip"
+
+    ctx.write_json(
+        "understanding/framing_posture_decision.json",
+        {"recommended_framing": "sparse", "rationale": "fixture"},
+        skip_handoff=True,
+    )
+    assert recommended_framing_action(ctx) == "present_operator"
+
+    # Operator sticky wins over LLM
+    set_gate_decision(ctx, "framing_consent", "auto_resolve")
+    assert recommended_framing_action(ctx) == "auto_resolve"
 
 
 def test_unattended_defaults_enabled_for_partial_run_meta(

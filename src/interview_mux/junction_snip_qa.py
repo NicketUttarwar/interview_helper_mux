@@ -44,6 +44,13 @@ _BACKCHANNEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+def critical_residuals_may_soften(*, meta: dict[str, Any] | None = None) -> bool:
+    """CFG-01: quality waivers only — ``e2e_soft`` never softens critical residuals."""
+    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+    return bool(e2e_quality_waivers_enabled(meta=meta))
+
+
 ALLOWED_FEEL_ACTIONS = frozenset(
     {
         "nudge_source_bounds",
@@ -543,10 +550,10 @@ def arm_incomplete_cut_producer_heals(
     ]
     if not incomplete:
         return False
-    diverged = str(commitment.get("status") or "") != "committed"
-    unresolved = bool(commitment.get("unresolved_repair_keys"))
-    if not diverged and not unresolved:
-        return False
+    # Incomplete mid-clause residuals can remain after a "committed" autopsy
+    # with empty unresolved keys (extend blocked by never-touch while cut lost
+    # the edge-winner race). Always arm producer heals when those residuals
+    # are still critical.
     report["incomplete_cut_producer_heals_armed"] = True
     armed = False
     try:
@@ -675,13 +682,22 @@ def detect_junction_findings(
         if isinstance(nle.get("junction_nudge_history"), dict)
         else {}
     )
+    overrides = (
+        nle.get("segment_overrides")
+        if isinstance(nle.get("segment_overrides"), dict)
+        else {}
+    )
 
     clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
     findings: list[dict[str, Any]] = []
-    # One winner per (segment_id, edge) — incomplete/extend/cut > mid_word > silence.
-    edge_winners: dict[tuple[str, str], dict[str, Any]] = {}
+    # One winner per (segment_id, edge, action). Extend and cut must coexist:
+    # never-touch often no-ops extend while cut_earlier still clears "Well," /
+    # mid-word hinges (forensics exec_11130 seg_003f).
+    edge_winners: dict[tuple[Any, ...], dict[str, Any]] = {}
 
-    def _edge_key(segment_id: str | None, action: str, detail: dict[str, Any]) -> tuple[str, str] | None:
+    def _edge_key(
+        segment_id: str | None, action: str, detail: dict[str, Any]
+    ) -> tuple[Any, ...] | None:
         if not segment_id:
             return None
         if action in {
@@ -691,9 +707,9 @@ def detect_junction_findings(
             "thought_complete_recut",
             "exclude_micro",
         }:
-            return (segment_id, "end")
+            return (segment_id, "end", action)
         if action == "nudge_source_bounds":
-            return (segment_id, str(detail.get("edge") or "end"))
+            return (segment_id, str(detail.get("edge") or "end"), action)
         return None
 
     def add(
@@ -763,14 +779,20 @@ def detect_junction_findings(
                 next_start = _next_speech_source_start(clips, i)
                 snapped_end = _clamp_end_before_next_speech(snapped_end, next_start)
                 if snapped_end > src_start + 300 and abs(snapped_end - src_end) >= 25:
-                    add(
-                        "mid_word_end",
-                        segment_id=sid,
-                        clip_index=i,
-                        action="nudge_source_bounds",
-                        detail={"edge": "end", "recommended_ms": snapped_end},
-                        evidence=f"end {src_end} → word snap {snapped_end}",
-                    )
+                    ov_end = overrides.get(sid) if isinstance(overrides.get(sid), dict) else {}
+                    locked_end = ov_end.get("end_ms") if isinstance(ov_end, dict) else None
+                    # Intentional NLE trim (incomplete-cut phrase end) is not mid-word.
+                    if locked_end is not None and abs(int(locked_end) - src_end) < 20:
+                        pass
+                    else:
+                        add(
+                            "mid_word_end",
+                            segment_id=sid,
+                            clip_index=i,
+                            action="nudge_source_bounds",
+                            detail={"edge": "end", "recommended_ms": snapped_end},
+                            evidence=f"end {src_end} → word snap {snapped_end}",
+                        )
 
             lead, trail = _leading_trailing_silence(
                 ctx, src_start, src_end, search_ms=micro_nudge
@@ -879,7 +901,11 @@ def detect_junction_findings(
                 can_cut = bool(
                     earlier is not None
                     and earlier > src_start + 300
-                    and earlier < src_end - 80
+                    # Align with apply noop Δ (20ms): short hanging tails like
+                    # "Well," / "It" often sit 40–60ms past the last complete
+                    # phrase — the old 80ms floor dropped cut_earlier entirely
+                    # while extend lost to never-touch (forensics exec_11130).
+                    and earlier < src_end - 20
                 )
                 # Invasion would leave incomplete — prefer cut/merge over fake extend.
                 if (
@@ -937,7 +963,7 @@ def detect_junction_findings(
                     can_cut = bool(
                         earlier is not None
                         and earlier > src_start + 300
-                        and earlier < src_end - 80
+                        and earlier < src_end - 20
                     )
                     action = _phrase_action_for_incomplete(
                         can_extend=extended is not None,
@@ -969,7 +995,7 @@ def detect_junction_findings(
                     can_cut = bool(
                         earlier is not None
                         and earlier > src_start + 300
-                        and earlier < src_end - 80
+                        and earlier < src_end - 20
                     )
                     action = "cut_earlier" if can_cut else ("exclude_micro" if is_micro else "cut_earlier")
                     add(
@@ -999,7 +1025,11 @@ def detect_junction_findings(
                 can_cut = bool(
                     earlier is not None
                     and earlier > src_start + 300
-                    and earlier < src_end - 80
+                    # Align with apply noop Δ (20ms): short hanging tails like
+                    # "Well," / "It" often sit 40–60ms past the last complete
+                    # phrase — the old 80ms floor dropped cut_earlier entirely
+                    # while extend lost to never-touch (forensics exec_11130).
+                    and earlier < src_end - 20
                 )
                 if (
                     extended is not None
@@ -1080,7 +1110,25 @@ def detect_junction_findings(
         elif ctype == "silence":
             air = str(clip.get("air_kind") or "")
             dur = int(clip.get("duration_ms") or 0)
-            if air != "impact_hold" and dur > dead_air_clamp:
+            # opening_music is a cold-open bed reservation (often ~12–14s), not pad —
+            # but only when an audible cold_open WAV exists (exec_11130 hollow pad).
+            if air == "opening_music":
+                from interview_mux.theme_slot_integrity import hollow_opening_music_finding
+
+                hollow = hollow_opening_music_finding(ctx)
+                if hollow:
+                    add(
+                        "hollow_opening_music",
+                        severity="critical",
+                        clip_index=i,
+                        action="regenerate_theme_cold_open",
+                        detail=hollow.get("detail") or {},
+                        evidence=str(hollow.get("evidence") or "hollow opening_music"),
+                    )
+                continue
+            if air == "impact_hold":
+                continue
+            if dur > dead_air_clamp:
                 add(
                     "dead_air_stack",
                     clip_index=i,
@@ -1298,12 +1346,19 @@ def apply_junction_repairs(
         else:
             applied.append({**f, "status": "skipped_no_recommendation"})
 
-    # Bound nudges / extend / cut
-    for f in findings:
+    # Bound nudges first, then incomplete extend/cut so mid-word snaps cannot
+    # overwrite a cut that landed on the last complete phrase (exec_11130).
+    bound_findings = [
+        f
+        for f in findings
+        if str(f.get("action") or "") in {"nudge_source_bounds", "extend_later", "cut_earlier"}
+    ]
+    bound_findings.sort(
+        key=lambda f: 0 if str(f.get("action") or "") == "nudge_source_bounds" else 1
+    )
+    for f in bound_findings:
         action = str(f.get("action") or "")
         sid = str(f.get("segment_id") or "")
-        if action not in {"nudge_source_bounds", "extend_later", "cut_earlier"}:
-            continue
         if not sid or sid in excluded:
             continue
         detail = f.get("detail") if isinstance(f.get("detail"), dict) else {}
@@ -1318,12 +1373,65 @@ def apply_junction_repairs(
         else:
             edge = "end"
 
+        # Respect intentional NLE trims — mid-word nudge must not reopen "Well,"/"It".
+        if action == "nudge_source_bounds" and edge == "end":
+            ov_lock = overrides.get(sid) if isinstance(overrides.get(sid), dict) else {}
+            if "end_ms" in ov_lock and abs(rec - int(ov_lock["end_ms"])) >= 20:
+                applied.append(
+                    {
+                        **f,
+                        "status": "skipped_nle_trim_locked",
+                        "locked_end_ms": int(ov_lock["end_ms"]),
+                    }
+                )
+                continue
+
+        # C5: cosmetic mid_word end writebacks after assembly need INTENT_EDL_EDGE allow.
+        kind = str(f.get("kind") or "")
+        if kind in {"mid_word_end", "mid_word_start"} and action == "nudge_source_bounds":
+            try:
+                asm = ctx.final_path("master", "assembly.wav")
+                if asm.is_file() and asm.stat().st_size > 0:
+                    from interview_mux.timeline_reopen_meta_gate import (
+                        INTENT_EDL_EDGE,
+                        decide_timeline_reopen,
+                    )
+
+                    gate = decide_timeline_reopen(
+                        ctx,
+                        intent=INTENT_EDL_EDGE,
+                        detail={
+                            "cosmetic_mid_word": True,
+                            "segment_id": sid,
+                            "edge": edge,
+                            "kind": kind,
+                        },
+                    )
+                    if not gate.get("allow"):
+                        applied.append(
+                            {
+                                **f,
+                                "status": "skipped_cosmetic_mid_word",
+                                "gate": gate,
+                            }
+                        )
+                        continue
+            except Exception:
+                applied.append(
+                    {
+                        **f,
+                        "status": "skipped_cosmetic_mid_word_fail_closed",
+                    }
+                )
+                continue
+
         target_idx = f.get("clip_index")
         try:
             target_idx_i = int(target_idx) if target_idx is not None else None
         except (TypeError, ValueError):
             target_idx_i = None
 
+        matched_clip = False
         for i, c in enumerate(clips):
             if str(c.get("type") or "") != "speech" or str(c.get("segment_id") or "") != sid:
                 continue
@@ -1331,6 +1439,7 @@ def apply_junction_repairs(
             # always honor clip_index when the detector stamped one.
             if target_idx_i is not None and i != target_idx_i:
                 continue
+            matched_clip = True
             ss = int(c.get("source_start_ms") or 0)
             se = int(c.get("source_end_ms") or ss)
             phrase_max = int(conf.get("phrase_extend_max_ms") or 8000)
@@ -1349,6 +1458,7 @@ def apply_junction_repairs(
                 except Exception:
                     pass
                 if abs(new_ss - ss) < 20:
+                    applied.append({**f, "status": "skipped_noop_bound", "edge": edge})
                     continue
                 c["source_start_ms"] = new_ss
                 ov = dict(overrides.get(sid) or {})
@@ -1378,6 +1488,19 @@ def apply_junction_repairs(
                     )
                 except Exception:
                     _nt_notes = []
+                # Never-touch partial extends (e.g. 97920→97970 onto the NT
+                # shoulder) re-open incomplete "Well," after cut_earlier landed
+                # on the last complete phrase (forensics exec_11130).
+                if _nt_notes and action == "extend_later":
+                    applied.append(
+                        {
+                            **f,
+                            "status": "skipped_never_touch_extend",
+                            "edge": edge,
+                            "notes": list(_nt_notes)[:4],
+                        }
+                    )
+                    continue
                 if new_se <= ss + 300:
                     status = (
                         "skipped_never_touch_clamp"
@@ -1387,6 +1510,14 @@ def apply_junction_repairs(
                     applied.append({**f, "status": status, "edge": edge})
                     continue
                 if abs(new_se - se) < 20:
+                    # Extend often no-ops under never-touch; cut_earlier for the
+                    # same segment still applies when edge keys no longer collapse.
+                    status = (
+                        "skipped_never_touch_noop"
+                        if _nt_notes
+                        else "skipped_noop_bound"
+                    )
+                    applied.append({**f, "status": status, "edge": edge})
                     continue
                 c["source_end_ms"] = new_se
                 ov = dict(overrides.get(sid) or {})
@@ -1417,7 +1548,7 @@ def apply_junction_repairs(
             changed = True
             break
         else:
-            if target_idx_i is not None:
+            if target_idx_i is not None and not matched_clip:
                 applied.append({**f, "status": "skipped_clip_index_mismatch"})
 
     # Impact holds — insert after speech clip before next VO
@@ -1474,7 +1605,7 @@ def apply_junction_repairs(
         for c in clips:
             if str(c.get("type") or "") != "silence":
                 continue
-            if str(c.get("air_kind") or "") == "impact_hold":
+            if str(c.get("air_kind") or "") in {"impact_hold", "opening_music"}:
                 continue
             dur = int(c.get("duration_ms") or 0)
             if dur > rec:
@@ -1809,6 +1940,54 @@ def _patch_sdp_cue_crossfade(ctx: RunContext, asset_id: str, crossfade_ms: int) 
         )
 
 
+def _sync_edl_speech_bounds_from_nle(
+    ctx: RunContext, edl: dict[str, Any]
+) -> tuple[dict[str, Any], bool]:
+    """Re-seat speech clip bounds from NLE trim overrides.
+
+    Junction repairs write both EDL clips and ``segment_overrides``. Remaster /
+    mix paths can reload an older EDL while NLE keeps the cut — audible
+    assembly then still ends on hanging ``Well,`` / ``It`` (exec_11130).
+    """
+    try:
+        nle = load_nle(ctx)
+    except Exception:
+        return edl, False
+    overrides = nle.get("segment_overrides") if isinstance(nle, dict) else None
+    if not isinstance(overrides, dict) or not overrides:
+        return edl, False
+    clips = [dict(c) for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    changed = False
+    for clip in clips:
+        if str(clip.get("type") or "") != "speech":
+            continue
+        sid = str(clip.get("segment_id") or "")
+        if not sid:
+            continue
+        ov = overrides.get(sid)
+        if not isinstance(ov, dict) or ov.get("excluded"):
+            continue
+        ss = int(clip.get("source_start_ms") or 0)
+        se = int(clip.get("source_end_ms") or ss)
+        if "start_ms" in ov:
+            new_ss = int(ov["start_ms"])
+            if abs(new_ss - ss) >= 20:
+                clip["source_start_ms"] = new_ss
+                ss = new_ss
+                changed = True
+        if "end_ms" in ov:
+            new_se = int(ov["end_ms"])
+            if abs(new_se - se) >= 20 and new_se > ss + 300:
+                clip["source_end_ms"] = new_se
+                changed = True
+    if not changed:
+        return edl, False
+    out = dict(edl)
+    out["clips"] = clips
+    out["timeline_duration_ms"] = _recompute_timeline(clips)
+    return out, True
+
+
 def remaster_mix_only(ctx: RunContext) -> None:
     """Rebuild mix from current EDL (and placement adjustments) without wiping EDL."""
     from interview_mux.assembly_ledger import write_assembly_ledger
@@ -1834,6 +2013,26 @@ def remaster_mix_only(ctx: RunContext) -> None:
             level="warning",
             stage=STAGE_ID,
         )
+    if ctx.artifact_exists("master/edl.json"):
+        try:
+            edl_sync = ctx.read_json("master/edl.json")
+            if isinstance(edl_sync, dict):
+                edl_sync, synced = _sync_edl_speech_bounds_from_nle(ctx, edl_sync)
+                if synced:
+                    from interview_mux.air_order import write_live_edl
+
+                    write_live_edl(ctx, edl_sync, source=STAGE_ID)
+                    ctx.log(
+                        "junction remaster: re-seated EDL bounds from NLE overrides",
+                        level="info",
+                        stage=STAGE_ID,
+                    )
+        except Exception as sync_exc:
+            ctx.log(
+                f"junction remaster NLE bound sync: {sync_exc}",
+                level="warning",
+                stage=STAGE_ID,
+            )
     ledger = write_assembly_ledger(ctx)
     if not ledger.get("complete", True):
         clips = []
@@ -1900,6 +2099,33 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
         note_junction_remaster,
     )
 
+    # Pillar C gain gate for non-critical remasters
+    try:
+        from interview_mux.timeline_reopen_meta_gate import (
+            INTENT_JUNCTION,
+            decide_timeline_reopen,
+        )
+
+        path_l = str(path or "").lower()
+        critical = any(
+            x in path_l for x in ("incomplete_clause", "on_a_roll", "critical", "naked")
+        )
+        if not critical:
+            gate = decide_timeline_reopen(
+                ctx,
+                intent=INTENT_JUNCTION,
+                detail={"path": path, "incomplete_kinds": [path]},
+            )
+            if not gate.get("allow"):
+                ctx.log(
+                    f"junction_snip_qa: remaster refused low_gain ({path})",
+                    level="info",
+                    stage=STAGE_ID,
+                )
+                return False, 0
+    except Exception:
+        return False, 0
+
     ok_budget, used = junction_remaster_budget_ok(ctx)
     if not ok_budget:
         pin = junction_budget_exhaust_hard_pin(ctx)
@@ -1917,6 +2143,14 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
 def _set_g_listen_pending_after_remaster(ctx: RunContext) -> None:
     """Refresh listen critic and set g_listen_pending when recommended."""
     try:
+        # C14: do not re-arm G-Listen after a refused_low_gain remutate decision.
+        try:
+            if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                rem = ctx.read_json("mastering/listen_delight_remutate.json")
+                if isinstance(rem, dict) and str(rem.get("status") or "") == "refused_low_gain":
+                    return
+        except Exception:
+            pass
         if not ctx.artifact_exists("master/listen_critic.json"):
             return
         critic = ctx.read_json("master/listen_critic.json")
@@ -2094,10 +2328,17 @@ def run_junction_feel_audit(
 
     from interview_mux.homunculus.budget import LimitExhausted, mark_identity_exhausted
     from interview_mux.stages.llm_runner import run_prompt_envelope
+    from interview_mux.v2.config import v2_cfg
 
     user_content = json.dumps(packet, indent=2, ensure_ascii=False)
-    max_attempts = 3
-    tiers = ("standard", "standard", "flagship")
+    # SYN-RETRY-01: LLM volley budget = v2.llm_max_attempts (default 2).
+    # Escalate tier within that budget (standard → flagship). Remaster rounds
+    # and listen_delight remutate MAX_ATTEMPTS are separate non-volley budgets.
+    max_attempts = max(1, int(v2_cfg().get("llm_max_attempts", 2)))
+    if max_attempts == 1:
+        tiers: tuple[str, ...] = ("standard",)
+    else:
+        tiers = tuple(["standard"] * (max_attempts - 1) + ["flagship"])
     for attempt in range(1, max_attempts + 1):
         try:
             envelope = run_prompt_envelope(
@@ -2105,7 +2346,7 @@ def run_junction_feel_audit(
                 FEEL_PROMPT,
                 user_content,
                 ctx=ctx,
-                explicit_tier=tiers[attempt - 1],
+                explicit_tier=tiers[min(attempt, len(tiers)) - 1],
                 bump_tier=attempt > 1,
                 record_stage_key=FEEL_STAGE_KEY,
             )
@@ -2226,24 +2467,24 @@ def _persist_terminal_autopsy(
     report: dict[str, Any] | None = None,
     edl: dict[str, Any] | None = None,
 ) -> None:
-    """Always leave a seam_autopsy that is not older than assembly.wav."""
+    """Always leave a seam_autopsy whose commitment matches live assembly.wav.
+
+    Mtime-only freshness is not enough: mix can rewrite assembly to a new size
+    while an older autopsy file is later touched, which left seed_stage_complete
+    false and thrashed junction↔finalize (forensics exec_10066).
+    """
     from interview_mux.homunculus.agenda import (
         _junction_commitment_matches_assembly,
         _producer_older_than_assembly,
     )
 
-    seam_ok = ctx.artifact_exists("master/seam_autopsy.json") and (
-        not _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
-        or _junction_commitment_matches_assembly(ctx)
-    )
-    if seam_ok:
-        # Still bump mtime when commitment matches but file looks older so
-        # hollow-done / seed_stage_complete stay stable across mix touches.
-        if (
-            ctx.artifact_exists("master/seam_autopsy.json")
-            and _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
-            and _junction_commitment_matches_assembly(ctx)
-        ):
+    if (
+        ctx.artifact_exists("master/seam_autopsy.json")
+        and _junction_commitment_matches_assembly(ctx)
+    ):
+        # Commitment matches — bump mtime when the file still looks older than
+        # assembly so hollow-done / seed_stage_complete stay stable.
+        if _producer_older_than_assembly(ctx, "master", "seam_autopsy.json"):
             try:
                 from interview_mux.seam_autopsy import refresh_autopsy_commitment
 
@@ -2452,11 +2693,10 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                             stage=STAGE_ID,
                         )
                     else:
-                        # Observational-only residuals: e2e soft flag allowed.
+                        # Observational-only residuals: quality waivers only
+                        # (CFG-01 — e2e_soft is gate auto-progress, not quality).
                         try:
-                            from interview_mux.e2e_soft import e2e_soft_enabled
-
-                            if e2e_soft_enabled():
+                            if critical_residuals_may_soften():
 
                                 def _e2e_only(meta: dict) -> None:
                                     meta["e2e_soft_junction_residuals"] = True
@@ -2762,9 +3002,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             and str(f.get("severity") or "") == "critical"
             and not _is_incomplete_cut_residual(f)
         ]
-        from interview_mux.e2e_soft import e2e_soft_enabled
-
-        if softenable and e2e_soft_enabled():
+        # CFG-01: severity downgrade only under quality waivers — not e2e_soft.
+        if softenable and critical_residuals_may_soften():
             report["critical_residuals_softened"] = True
             report["critical_residual_soft_reason"] = (
                 "commitment_committed_and_feel_soft_pass_after_budget"
@@ -2858,6 +3097,10 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         pass
     report["commitment"] = commitment
     report["blocking_reasons"] = sorted(set(blocking_reasons))
+    # B-02 Wave 9: stamp both dialects so ship / PMQ / publishability share SSOT.
+    report["critical_residual_count"] = len(critical_left)
+    report["critical_residuals"] = len(critical_left)
+    report["critical_count"] = len(critical_left)
     ctx.write_json(QA_REL, report)
 
     # Surface the authoritative result in run_meta.

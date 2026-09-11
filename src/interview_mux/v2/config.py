@@ -65,9 +65,10 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "air_contract_sanitize",
     "transitions",
     "sound_design_plan",
-    "sound_design_vo_finalize",
     "vo_line_adjudicate",
     "vo_synthesize",
+    # C-02: finalize measures seated WAVs — must run after vo_synthesize.
+    "sound_design_vo_finalize",
     "edl_narrative_audit",
     "edl",
     "assembly_preview",

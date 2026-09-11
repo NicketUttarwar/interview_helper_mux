@@ -865,6 +865,41 @@ class JobRunner:
                     stage_id = ""
                 if not stage_id or stage_id in {"analysis", "delivery", "gui", "None"}:
                     stage_id = str(stage or label or "").strip()
+                # ESR: incomplete-after-conductor while producer progress fresh → wait, not error.
+                if "incomplete after conductor" in err_msg.lower():
+                    try:
+                        from interview_mux.execution_status import (
+                            should_wait_incomplete_after_conductor,
+                        )
+
+                        wait_row = should_wait_incomplete_after_conductor(
+                            ctx, pin=stage_id or "delivery"
+                        )
+                        if wait_row is not None:
+                            lease = str(
+                                wait_row.get("lease_stage") or stage_id or "delivery"
+                            )
+                            wait_msg = (
+                                f"Producer active — waiting ({wait_row.get('why')}); "
+                                f"resume={lease}"
+                            )
+                            ctx.log(wait_msg, level="warning", stage=lease)
+                            refresh_journey_meta(ctx)
+                            self._release_run_locks(run_id, dir_lock, lock)
+                            self._write_job(
+                                ctx,
+                                {
+                                    "status": "running",
+                                    "mode": mode,
+                                    "stage": lease,
+                                    "current_stage": lease,
+                                    "message": wait_msg,
+                                    "esr_wait": True,
+                                },
+                            )
+                            return
+                    except Exception:
+                        pass
                 if stage_id:
                     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
@@ -1105,6 +1140,64 @@ class JobRunner:
                 "stage": reuse_pending.stage_id,
                 "reuse_candidates": [c.to_dict() for c in reuse_pending.candidates],
             }
+
+        # D-05 / GUI-PIPE: Manual stage|delivery — pin to producer instead of
+        # silently running a consumer while its producer is incomplete.
+        pin_modes = {"stage", "delivery", "delivery_until_preview", "delivery_polish"}
+        resume_target = from_stage or stage
+        if mode in pin_modes and resume_target:
+            try:
+                from interview_mux.automation_run import automation_driver_run
+                from interview_mux.delivery_guardrails import premature_cap_hard_pin
+                from interview_mux.homunculus.runtime import _seed_prereq_block
+                from interview_mux.v2.config import DELIVERY_ORDER
+
+                meta_doc = (
+                    ctx_pre.read_json("run_meta.json")
+                    if ctx_pre.artifact_exists("run_meta.json")
+                    else {}
+                )
+                if not automation_driver_run(meta_doc if isinstance(meta_doc, dict) else {}):
+                    if resume_target in DELIVERY_ORDER:
+                        pinned = premature_cap_hard_pin(ctx_pre, resume_target)
+                        if pinned and pinned != resume_target:
+                            reason = (
+                                f"Producer incomplete — pinned to {pinned} "
+                                f"(requested {resume_target})."
+                            )
+                            ctx_pre.log(reason, level="action", stage=pinned)
+                            self._clear_pipeline_start_reservation(run_id)
+                            return {
+                                "ok": False,
+                                "pinned_to": pinned,
+                                "reason": reason,
+                                "requested_stage": resume_target,
+                                "error": reason,
+                            }
+                    seed_block = _seed_prereq_block(ctx_pre, resume_target)
+                    if seed_block and seed_block != resume_target:
+                        reason = (
+                            f"Seed prerequisite incomplete — pinned to {seed_block} "
+                            f"(requested {resume_target})."
+                        )
+                        ctx_pre.log(reason, level="action", stage=seed_block)
+                        self._clear_pipeline_start_reservation(run_id)
+                        return {
+                            "ok": False,
+                            "pinned_to": seed_block,
+                            "reason": reason,
+                            "requested_stage": resume_target,
+                            "error": reason,
+                        }
+            except Exception as pin_exc:
+                try:
+                    ctx_pre.log(
+                        f"Manual producer pin check failed: {pin_exc}",
+                        level="warning",
+                        stage=resume_target,
+                    )
+                except Exception:
+                    pass
 
         if consent_err:
             ctx_pre.log(consent_err, level="action", stage=stage or mode)
@@ -1455,6 +1548,38 @@ class JobRunner:
 
     def invalidate_from(self, run_id: str, stage_id: str) -> None:
         ctx = RunContext(run_id, create=False)
+        sid = str(stage_id or "").strip()
+        # Pillar C: post-assembly nuclear edl/mix clears go through timeline reopen gate.
+        if sid in {"edl", "mix"}:
+            try:
+                asm = ctx.final_path("master", "assembly.wav")
+                if asm.is_file() and asm.stat().st_size > 0:
+                    from interview_mux.timeline_reopen_meta_gate import (
+                        INTENT_MIX_REWALK,
+                        decide_timeline_reopen,
+                    )
+
+                    gate = decide_timeline_reopen(
+                        ctx,
+                        intent=INTENT_MIX_REWALK,
+                        detail={"from_stage": sid, "source": "job_runner_invalidate_from"},
+                    )
+                    if not gate.get("allow"):
+                        ctx.log(
+                            f"invalidate_from({sid}) refused by timeline reopen gate "
+                            f"({gate.get('refuse_reason')})",
+                            level="warning",
+                            stage=sid,
+                        )
+                        return
+            except Exception:
+                # c12 fail-closed
+                ctx.log(
+                    f"invalidate_from({sid}) fail-closed refuse on gate error",
+                    level="warning",
+                    stage=sid,
+                )
+                return
         orders: list[list[str]] = []
         for order in EXECUTABLE_ORDER.values():
             if stage_id in order:

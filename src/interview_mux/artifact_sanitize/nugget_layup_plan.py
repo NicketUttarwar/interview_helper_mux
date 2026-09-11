@@ -149,18 +149,35 @@ def sanitize_nugget_layup_plan(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                 f"layup_coverage_below_floor:{len(aired) / max(1, len(order)):.3f}"
             )
 
-    # Adopt-only / skip-stuffed detection
+    # Adopt-only / skip-stuffed detection — only when skips lack justification.
+    # Sparse justified plans (self-orient / spoken-copy / CTA) pass QC with high
+    # skip ratios; treating them as stuffed forced endless recompose thrash.
     if layups and order:
-        skips = sum(
-            1
+        skips = [
+            r
             for r in layups
             if isinstance(r, dict) and (r.get("skip") or r.get("skipped") or r.get("omit"))
-        )
-        if skips >= max(1, int(0.8 * len(layups))) and len(layups) >= 5:
-            errors.append("layup_skip_stuffed_needs_recompose")
-            meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
-            meta["needs_recompose"] = True
-            out["_meta"] = meta
+        ]
+        if len(skips) >= max(1, int(0.8 * len(layups))) and len(layups) >= 5:
+            justified = 0
+            try:
+                from interview_mux.nugget_layup import is_justified_skip_row
+
+                justified = sum(
+                    1 for r in skips if is_justified_skip_row(r, soft_migrate=True)
+                )
+            except Exception:
+                justified = 0
+            if justified < int(0.8 * len(skips)):
+                errors.append("layup_skip_stuffed_needs_recompose")
+                meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+                meta["needs_recompose"] = True
+                out["_meta"] = meta
+            else:
+                meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+                if meta.pop("needs_recompose", None) is not None:
+                    out["_meta"] = meta
+                    actions.append({"action": "clear_needs_recompose_justified_skips"})
 
     ok = not errors
     out = stamp_sanitize_meta(

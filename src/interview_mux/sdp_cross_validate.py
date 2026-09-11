@@ -293,7 +293,13 @@ def _role_duration_gate_error(
     lo, hi = float(band[0]), float(band[1])
 
     def in_band(value: float) -> bool:
-        return lo - 1e-9 <= value <= hi + 1e-9
+        from interview_mux.stages.sound_design_stages import sdp_duration_allowed_for_role
+
+        return sdp_duration_allowed_for_role(
+            str(role or ""),
+            value,
+            band=(lo, hi),
+        )
 
     if in_band(craft_d) and in_band(plan_d):
         return None
@@ -402,7 +408,27 @@ def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
     staging cannot hide already-generated theme WAVs.
 
     MU1/MU8: stub / skipped_cold_open / silence backends count as missing.
+    Honest ``operator/music_omitted.json`` / run_meta limbo omits do **not**.
     """
+    omitted_ids: set[str] = set()
+    try:
+        if ctx.artifact_exists("operator/music_omitted.json"):
+            doc = ctx.read_json("operator/music_omitted.json")
+            for row in (doc.get("omitted") or []) if isinstance(doc, dict) else []:
+                if isinstance(row, dict) and row.get("asset_id"):
+                    omitted_ids.add(str(row["asset_id"]))
+    except Exception:
+        pass
+    try:
+        if ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            if isinstance(meta, dict):
+                for aid in meta.get("music_omitted_asset_ids") or []:
+                    if aid:
+                        omitted_ids.add(str(aid))
+    except Exception:
+        pass
+
     required: set[str] | None = None
     try:
         from interview_mux.delivery_guardrails import referenced_musicgen_asset_ids
@@ -420,6 +446,8 @@ def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
         aid = str(asset.get("asset_id") or "")
         if not aid:
             continue
+        if aid in omitted_ids:
+            continue
         if required is not None and aid not in required:
             continue
         wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
@@ -436,6 +464,19 @@ def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
         bad = _sdp_asset_backend_unusable(ctx, aid, wav)
         if bad:
             missing.append(aid)
+            continue
+        # Speech-free beds: stub-sized / digital-silence WAVs count as missing.
+        try:
+            from interview_mux.theme_slot_integrity import (
+                is_speech_free_theme_role,
+                wav_is_audible,
+            )
+
+            role = str(asset.get("role") or "")
+            if is_speech_free_theme_role(role) and not wav_is_audible(wav):
+                missing.append(aid)
+        except Exception:
+            pass
     return missing
 
 

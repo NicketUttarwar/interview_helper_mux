@@ -113,6 +113,20 @@ def migrate_stale_stage_order_on_resume(ctx: RunContext) -> dict[str, Any]:
     if first not in order:
         return {"migrated": False, "from_stage": first, "cleared": []}
     if _stage_output_ok(ctx, first) and not ctx.is_done(first):
+        # Active remutate cleared this marker on purpose — leftover
+        # artifacts must not heal it back (forensics exec_10066 noop remutate).
+        try:
+            from interview_mux.delivery_invariants import active_remutate_stages
+
+            if first in active_remutate_stages(ctx):
+                return {
+                    "migrated": False,
+                    "from_stage": first,
+                    "cleared": [],
+                    "remutate_protect": True,
+                }
+        except Exception:
+            pass
         try:
             heal_or_refuse_mark(ctx, first, force=True)
         except Exception:

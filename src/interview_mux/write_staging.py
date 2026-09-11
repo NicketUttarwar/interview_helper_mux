@@ -935,6 +935,48 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
         from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
 
         maybe_require_upstream_llm_progress(ctx, stage_id)
+        # Promote crash-orphaned pending before re-entering staging so G1/resolve
+        # see committed WAVs (exec_10066: pending transitions/gap VO, seed-order thrash).
+        if stage_id in {"vo_synthesize", "edl"} and not write_approval_enabled():
+            try:
+                if has_pending_writes(ctx, stage_id):
+                    flushed = _commit_stage_writes(ctx, stage_id)
+                    if flushed:
+                        ctx.log(
+                            f"{stage_id}: recovered {len(flushed)} orphaned pending write(s)",
+                            level="warning",
+                            stage=stage_id,
+                            detail={"flushed": flushed[:24]},
+                        )
+                if stage_id == "vo_synthesize":
+                    # Clear false layup-invalidation so stability does not rewind to
+                    # nugget_layup_compose after a VO-only hole (exec_10066).
+                    if ctx.artifact_exists("mastering/vo_synthesize.json"):
+                        try:
+                            doc = ctx.read_json("mastering/vo_synthesize.json")
+                            meta = dict((doc or {}).get("_meta") or {}) if isinstance(doc, dict) else {}
+                            reason = str(meta.get("stale_reason") or "")
+                            if meta.get("stale") and "nugget_layup_compose" in reason:
+                                meta.pop("stale", None)
+                                meta.pop("stale_reason", None)
+                                meta.pop("orphan_incomplete", None)
+                                meta.pop("orphan_incomplete_reason", None)
+                                meta.pop("orphan_incomplete_at", None)
+                                assert isinstance(doc, dict)
+                                doc["_meta"] = meta
+                                ctx.write_json(
+                                    "mastering/vo_synthesize.json",
+                                    doc,
+                                    skip_handoff=True,
+                                )
+                        except Exception:
+                            pass
+            except Exception as exc:
+                ctx.log(
+                    f"{stage_id}: pending recovery failed open: {exc}",
+                    level="warning",
+                    stage=stage_id,
+                )
         enter_stage_staging(stage_id)
         try:
             fn()
@@ -1090,19 +1132,10 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
 
         deferred = vo_synthesize_should_defer_done(ctx, stage_id)
         if deferred:
-            automation_run = False
-            try:
-                from interview_mux.automation_run import automation_driver_run
-
-                meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-                automation_run = automation_driver_run(meta if isinstance(meta, dict) else None)
-            except Exception:
-                pass
-            if automation_run:
-                raise ValueError(
-                    f"vo_synthesize blocked in automation run: {deferred} — "
-                    "complete G1/layup stability before commit"
-                )
+            # Always fail-open after a successful flush: WAVs/audit are already
+            # committed. Raising here (old automation path) left .pending_writes
+            # orphans when flush never ran, and after flush discarded progress
+            # under identical×N seed_order / incomplete-after-conductor thrash.
             ctx.log(
                 f"vo_synthesize fail-open: {deferred} — continuing to edl/mix last-chance",
                 level="warning",

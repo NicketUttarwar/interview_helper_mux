@@ -702,6 +702,53 @@ def test_resync_required_synthesize_wavs_calls_synth_when_unresolved(
     assert notes == ["vo_preface_episode_orientation"]
 
 
+def test_resync_accepts_audit_match_when_resolve_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-synth speech-QA resolve miss must not raise when audit already matches."""
+    ctx = isolated_run_ctx(tmp_path, "run_resync_match_no_resolve")
+    line = {
+        "line_id": "vo_layup_seg_019",
+        "text": "Cancer data arrive in separate silos across modalities.",
+        "targets_segment_id": "seg_019",
+        "placement": "before",
+        "delivery": "synthesize",
+        "required": True,
+    }
+
+    def _fake_synth(_ctx, row, *, mode="synthesize"):
+        out = _ctx.path("vo_pickup", "synthesized", "vo_layup_seg_019.wav")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rate = 48_000
+        with wave.open(str(out), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(b"\x00\x00" * int(rate * 0.3))
+        from interview_mux.vo_synthesis_audit import record_synthesis
+
+        record_synthesis(
+            _ctx, row, backend="chatterbox", out_wav=out, wav_just_rendered=True
+        )
+        return out
+
+    monkeypatch.setattr("interview_mux.s2s_runner.synthesize_line", _fake_synth)
+    monkeypatch.setattr(
+        "interview_mux.stages.assembly.resolve_vo_pickup_path",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.resolve_gap_vo_delivery",
+        lambda _ctx: "chatterbox",
+    )
+    notes = resync_required_synthesize_wavs(ctx, {"interviewer_lines": [line]})
+    assert notes == ["vo_layup_seg_019"]
+
+
 def test_build_flow1_edl_active_layup_drops_transition(tmp_path: Path) -> None:
     wav = tmp_path / "vo.wav"
     wav.write_bytes(b"\x00")

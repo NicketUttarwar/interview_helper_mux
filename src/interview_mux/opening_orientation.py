@@ -341,6 +341,12 @@ def native_open_already_orients(
 
 
 def orientation_omitted(gap_report: dict[str, Any] | None) -> bool:
+    """True when opening orientation is durably waived via ``opening_orientation`` meta.
+
+    Stale line-level ``skipped_optional`` / ``air_script_omit`` alone must not count —
+    ``ORIENTATION_ALWAYS`` / ``filter_gap_lines_for_air_script`` revive those. Durable
+    line waives are handled by ``air_script._orientation_line_waived`` (reason codes).
+    """
     if not isinstance(gap_report, dict):
         return False
     meta = gap_report.get("opening_orientation")
@@ -392,6 +398,11 @@ def ensure_episode_orientation(
             if x
         ]
     force_synthetic_for_nuggets = bool(nugget_recovery_ids)
+
+    # Honor durable G1 / operator omit — never remint required=True and revive a
+    # preface without WAV (exec_11130 pending_writes/edl gap_report thrash).
+    if orientation_omitted(gap_report) and not force_synthetic_for_nuggets:
+        return gap_report, []
 
     ordered = [str(x) for x in ordered_segment_ids if x]
     first = ordered[0]

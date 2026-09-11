@@ -366,6 +366,70 @@ def test_may_rewind_allows_compact_vo_script_stale(
     assert may_rewind_to_vo_synthesize(ctx) is True
 
 
+def test_may_rewind_c03_sealed_exception_no_evidence_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-03: check_g1_vo exception + Phase A sealed + no evidence → False."""
+    ctx = isolated_run_ctx(tmp_path, "thrash_c03_sealed")
+    monkeypatch.setattr(
+        "interview_mux.gates.check_g1_vo",
+        lambda _ctx: (_ for _ in ()).throw(RuntimeError("g1 boom")),
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.g1_vo_was_skipped_optional",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.seated_vo_missing_ids",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_input_checks.compact_vo_coverage_stale_or_missing",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.transition_vo.current_transition_pairs_missing",
+        lambda _ctx: [],
+    )
+    assert may_rewind_to_vo_synthesize(ctx) is False
+
+
+def test_may_rewind_c03_unsealed_exception_still_rewinds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-03: unsealed + exception + no evidence may still rewind (progress)."""
+    ctx = isolated_run_ctx(tmp_path, "thrash_c03_unsealed")
+    monkeypatch.setattr(
+        "interview_mux.gates.check_g1_vo",
+        lambda _ctx: (_ for _ in ()).throw(RuntimeError("g1 boom")),
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.g1_vo_was_skipped_optional",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.seated_vo_missing_ids",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_input_checks.compact_vo_coverage_stale_or_missing",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.transition_vo.current_transition_pairs_missing",
+        lambda _ctx: [],
+    )
+    assert may_rewind_to_vo_synthesize(ctx) is True
+
+
 # --- W4 --------------------------------------------------------------------
 
 
@@ -628,6 +692,28 @@ def test_sticky_heal_halts_after_unchanged_predicate(tmp_path: Path) -> None:
     )
     assert reset["halt"] is False
     assert int(reset["count"]) == 1
+
+
+def test_vo_synth_predicate_flips_when_wavs_land(tmp_path: Path) -> None:
+    """Long chatterbox runs must flip sticky tokens via vo_pickup wav count."""
+    from interview_mux.thrash_hardening import (
+        expensive_stage_lease_active,
+        stage_predicate_token,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_vo_wav_progress")
+    before = stage_predicate_token(ctx, "vo_synthesize")
+    assert "wavs=0" in before
+    synth = ctx.final_path("vo_pickup", "synthesized")
+    synth.mkdir(parents=True, exist_ok=True)
+    wav = synth / "vo_layup_seg_001.wav"
+    wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    after = stage_predicate_token(ctx, "vo_synthesize")
+    assert "wavs=1" in after
+    assert before != after
+    lease_on, lease_stage = expensive_stage_lease_active(ctx)
+    assert lease_on is True
+    assert lease_stage == "vo_synthesize"
 
 
 def test_filter_empty_music_slice_stays_empty_until_phase_a(tmp_path: Path) -> None:

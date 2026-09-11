@@ -553,47 +553,15 @@
       "whitelist": {
         "pass_ids": [
           "gap_framing_recompose",
-          "selection_framing_apply",
-          "narrative_arc_refine",
-          "ranking_refine",
-          "transitions_refine",
-          "sdp_intent_refine",
-          "edl_narrative_refine"
+          "selection_framing_apply"
         ]
       },
       "succession": {
-        "unlocks": [
-          {
-            "after_accept_or_skip_copy": "gap_framing_recompose",
-            "unlock": "transitions_refine"
-          },
-          {
-            "after_accept_or_skip_copy": "gap_framing_recompose",
-            "unlock": "sdp_intent_refine",
-            "requires_frozen_vo": true
-          },
-          {
-            "after_signal": "post_gap_topic_holes",
-            "unlock": "ranking_refine"
-          }
-        ],
-        "mutex": [
-          {
-            "passes": [
-              "narrative_arc_refine",
-              "ranking_refine"
-            ],
-            "when": "both_would_reorder"
-          }
-        ],
+        "unlocks": [],
+        "mutex": [],
         "priority": [
           "gap_framing_recompose",
-          "selection_framing_apply",
-          "ranking_refine",
-          "narrative_arc_refine",
-          "transitions_refine",
-          "sdp_intent_refine",
-          "edl_narrative_refine"
+          "selection_framing_apply"
         ]
       },
       "policy_packs": {
@@ -742,6 +710,27 @@
     },
     "listen_delight": {
       "mode": "authoritative"
+    }
+  },
+  "thrash_spine": {
+    "progress_sla": {
+      "vo_synthesize": 180,
+      "vo_line_adjudicate": 180,
+      "mmaudio_sfx": 480,
+      "music_palette_compose": 480,
+      "sfx_prompt_craft": 480,
+      "mix": 600,
+      "junction_snip_qa": 360,
+      "master_finalize": 600,
+      "default": 300
+    },
+    "seat_freeze": {
+      "max_rewrites_post_soft": 2,
+      "max_rewrites_post_hard": 1
+    },
+    "meta_gate": {
+      "min_opportunity": 0.65,
+      "min_expected_gain": 0.15
     }
   }
 }

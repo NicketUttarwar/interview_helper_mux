@@ -7,7 +7,7 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
-  "_comment_ingest": "After optional preclean: upward-only soft boost + loudnorm (−18 LUFS headroom; master still −16). Never ducks loud syllables.",
+  "_comment_ingest": "After optional preclean: upward-only soft boost + loudnorm (\u221218 LUFS headroom; master still \u221216). Never ducks loud syllables.",
   "ingest": {
     "loudness_stabilize": {
       "enabled": true,
@@ -233,12 +233,8 @@
   },
   "_comment_audio_preclean": "DeepFilterNet primary; ffmpeg denoise when local stack unavailable",
   "audio_preclean": {
-    "provider": "deepfilternet",
-    "local_fallback_enabled": true,
-    "ffmpeg_highpass_hz": 80,
-    "ffmpeg_lowpass_hz": 12000,
-    "ffmpeg_afftdn_nr": 12,
-    "chunk_max_bytes": 52428800
+    "default_action": "run",
+    "auto_run_before_ingest": true
   },
   "_comment_gui_job": "Background job polling and stall detection while a stage worker holds the run lock",
   "gui_job": {
@@ -274,7 +270,7 @@
       "min_beds": 2,
       "min_stingers": 1,
       "min_foley": 0,
-      "min_bed_coverage_ratio": 0.40,
+      "min_bed_coverage_ratio": 0.4,
       "min_audible_bed_level_db": -16,
       "max_audible_bed_level_db": -12,
       "min_audible_stinger_level_db": -15,
@@ -288,7 +284,7 @@
       "max_regen_per_asset": 2
     }
   },
-  "_comment_creative_delivery": "Every run must include audible SFX/music, host VO abundance, and intentional air — percentage bands only",
+  "_comment_creative_delivery": "Every run must include audible SFX/music, host VO abundance, and intentional air \u2014 percentage bands only",
   "creative_delivery": {
     "required": true,
     "trim_target": "ideal",
@@ -298,7 +294,7 @@
       "host_vo_duration_min_ratio": 0.04,
       "host_vo_duration_max_ratio": 0.45,
       "host_vo_quartile_presence_min_ratio": 0.5,
-      "bed_coverage_min_ratio": 0.40,
+      "bed_coverage_min_ratio": 0.4,
       "bed_coverage_max_ratio": 0.88,
       "bed_quartile_presence_min_ratio": 0.5,
       "hinge_stinger_coverage_min_ratio": 0.3,
@@ -316,10 +312,6 @@
     }
   },
   "_comment_audio_preclean_default": "Full-source DeepFilterNet runs by default; operator may explicitly dismiss",
-  "audio_preclean": {
-    "default_action": "run",
-    "auto_run_before_ingest": true
-  },
   "first_try": {
     "enabled": true,
     "allow_placeholder_mix": false
@@ -565,7 +557,7 @@
     "fail_open": true,
     "request_timeout_sec": 600
   },
-  "_comment_podcast": "Zero Shot Podcast DEMO RSS. Non-secret operator values live HERE (bucket, region, project, S3 layout, show meta). Gitignored secrets.env holds AWS credentials + AWS-derived CloudFront ID / feed base URL only (synced by tf-apply). Terraform state remains source of truth for infra inventory. Episode covers: OpenAI gpt-image ×3 + flagship vision pick (see podcast-cover-theme.md).",
+  "_comment_podcast": "Zero Shot Podcast DEMO RSS. Non-secret operator values live HERE (bucket, region, project, S3 layout, show meta). Gitignored secrets.env holds AWS credentials + AWS-derived CloudFront ID / feed base URL only (synced by tf-apply). Terraform state remains source of truth for infra inventory. Episode covers: OpenAI gpt-image \u00d73 + flagship vision pick (see podcast-cover-theme.md).",
   "podcast": {
     "_comment": "Shared pipeline defaults. Per-show identity + S3/CloudFront destinations live in config/podcast/catalog.json (Start picker source of truth).",
     "enabled": true,
@@ -647,6 +639,8 @@
   "audio_probes": {
     "enabled": true,
     "enforcement_mode": "shadow",
+    "shadow_must_keep_policy": "ledger",
+    "_comment_shadow_must_keep_policy": "F-02: ledger = always wasted_work on shadow drop; block = restore must_keep ids (authoritative-equivalent for those ids)",
     "low_confidence_threshold": 0.85,
     "fail_open": true,
     "prefer_mlx": true,
@@ -660,7 +654,7 @@
       "min_child_ms": 800
     }
   },
-  "_comment_local_llm_block": "Local MLX volley framer (LX-01) — prep only; OpenAI produces artifacts",
+  "_comment_local_llm_block": "Local MLX volley framer (LX-01) \u2014 prep only; OpenAI produces artifacts",
   "local_llm": {
     "enabled": true,
     "models_dir": "ASSETS/local_llm/models",
@@ -777,7 +771,7 @@
     "auto_refine_on_listen_fail": true,
     "auto_refine_on_trauma": true
   },
-  "_comment_musicgen": "Local MusicGen fixed palette. device=auto prefers MPS/CUDA. Ladder: large→medium→small (same prompt/duration) then MMAudio backup then stub. Primary timeouts sized for MPS (large ~3–15 min/stem); cpu_request_timeout_sec is tighter so CPU thrash steps down instead of hanging.",
+  "_comment_musicgen": "Local MusicGen fixed palette. device=auto prefers MPS/CUDA. Ladder: large\u2192medium\u2192small (same prompt/duration) then MMAudio backup then stub. Primary timeouts sized for MPS (large ~3\u201315 min/stem); cpu_request_timeout_sec is tighter so CPU thrash steps down instead of hanging.",
   "musicgen": {
     "enabled": true,
     "model_id": "facebook/musicgen-large",
@@ -877,26 +871,30 @@
     "_comment_low_conf_selection": "Recall-first low-conf cluster ladder + density top-decile hard must_keep for selection.",
     "low_conf_selection": {
       "enabled": true,
-      "top_percentile": 0.10,
+      "top_percentile": 0.1,
       "enforcement_mode": "authoritative",
       "min_positive_density": 0.0,
       "recall_first": true,
       "cluster": {
         "low_confidence_threshold": 0.85,
-        "high_confidence_threshold": 0.90,
+        "high_confidence_threshold": 0.9,
         "min_low_ratio_loose": 0.45,
         "min_low_words_loose": 3,
         "max_high_conf_sprinkle": 8,
         "break_on_high_run": 5,
         "cluster_break_pause_ms": 700,
-        "window_ms_options": [2000, 4000, 6000],
+        "window_ms_options": [
+          2000,
+          4000,
+          6000
+        ],
         "window_mean_conf_max": 0.88,
         "min_bricks_in_window": 4,
         "segment_soft_density": 0.12,
         "null_confidence_as": "mid"
       }
     },
-    "_comment_high_value_speech": "Volume-gated STT-skip / multi low-conf clusters → force-fuse to neighbors → hard must_keep.",
+    "_comment_high_value_speech": "Volume-gated STT-skip / multi low-conf clusters \u2192 force-fuse to neighbors \u2192 hard must_keep.",
     "high_value_speech_islands": {
       "enabled": true,
       "min_gap_ms": 2000,
@@ -943,7 +941,11 @@
       "allow_high_value_bridge": false,
       "close_excerpt_max_chars": 480,
       "uncertain_confidence_floor": 0.55,
-      "passes": ["post_sanitize", "pre_ranking", "junction_heal"]
+      "passes": [
+        "post_sanitize",
+        "pre_ranking",
+        "junction_heal"
+      ]
     },
     "prompt_examples": {
       "enabled": true,
@@ -1136,13 +1138,29 @@
       "enabled": true,
       "full_auto": true,
       "max_second_runs_per_cfi": 1,
-      "priors": { "enabled": "soft" },
-      "shadow_score": { "enabled": true },
+      "priors": {
+        "enabled": "soft"
+      },
+      "shadow_score": {
+        "enabled": true
+      },
       "blacklist": {
         "stage_ids": [
-          "audio_preclean", "ingest", "transcribe", "transcript_review_build", "transcript_review",
-          "source_acoustic_profile", "interview_spine_build", "sonic_context_build",
-          "edl", "assembly_preview", "mmaudio_sfx", "mix", "master_finalize", "g1_vo_pickup", "vo_ingest"
+          "audio_preclean",
+          "ingest",
+          "transcribe",
+          "transcript_review_build",
+          "transcript_review",
+          "source_acoustic_profile",
+          "interview_spine_build",
+          "sonic_context_build",
+          "edl",
+          "assembly_preview",
+          "mmaudio_sfx",
+          "mix",
+          "master_finalize",
+          "g1_vo_pickup",
+          "vo_ingest"
         ],
         "cfi_ids": [],
         "module_path_prefixes": [
@@ -1169,7 +1187,12 @@
       },
       "policy_packs": {
         "asymmetric_technical": {
-          "eligible_class_defaults": ["gap_vo", "transitions", "cold_open", "sdp_intent"],
+          "eligible_class_defaults": [
+            "gap_vo",
+            "transitions",
+            "cold_open",
+            "sdp_intent"
+          ],
           "simple_tape_override": false,
           "kill_dull_aggression": "high",
           "sfx_restraint": "med",
@@ -1227,7 +1250,7 @@
     "nugget_layup": {
       "enabled": true,
       "require_layup_per_native": true,
-      "min_layup_coverage": 0.70,
+      "min_layup_coverage": 0.7,
       "min_nugget_air_coverage": 0.85,
       "min_layup_words": 18,
       "max_layup_words": 90,
@@ -1260,7 +1283,10 @@
     },
     "gap_vo": {
       "default_delivery": "chatterbox",
-      "allowed_delivery": ["chatterbox", "record"],
+      "allowed_delivery": [
+        "chatterbox",
+        "record"
+      ],
       "synthesis_backend": "chatterbox",
       "fallback_backend": "mlx_audio",
       "adjudicate_before_synth": true,
@@ -1471,9 +1497,17 @@
         "mode": "advisory",
         "default_disposition": "required",
         "max_deep_fields": 12
+      },
+      "llm": {
+        "enabled": false,
+        "_comment": "A-03: when true, research routing invokes docs/prompts/mastering/; does not unlock plan_status=complete (soft_gate never authoritative)"
       }
     },
     "shape": {
+      "llm": {
+        "enabled": false,
+        "_comment": "A-03: when true, Shape LLM happy-path may stamp plan_status=complete; soft_gate always degraded; consumers_bind stays false until shadow pass"
+      },
       "soft_gate": {
         "enable": true,
         "mode": "advisory",
@@ -1483,7 +1517,7 @@
         "skip_diversity": true,
         "prefer_talking_points_mode": true,
         "two_pass": true,
-        "_comment_consumers_bind": "Stays false until Shape soft-gate has corpus evidence — see mastering-integration-backlog.md H7."
+        "_comment_consumers_bind": "Stays false until Shape soft-gate has corpus evidence \u2014 see mastering-integration-backlog.md H7."
       },
       "information_packages": {
         "enable": true,
@@ -1499,7 +1533,7 @@
         "require_corpus": true,
         "min_ms_from_bookends": 45000,
         "dense_max_layup_words": 140,
-        "_comment_mode": "shadow | commit_music_vo | commit_with_regroup — package kill-switch does not disable episode_close"
+        "_comment_mode": "shadow | commit_music_vo | commit_with_regroup \u2014 package kill-switch does not disable episode_close"
       },
       "episode_close": {
         "require_music": true,
@@ -1514,7 +1548,7 @@
       "fail_open": true,
       "bed_coverage_aim_lo": 0.55,
       "bed_coverage_aim_hi": 0.88,
-      "_comment": "Shape realization on mastering_plan — docs/cross-cutting/air-script.md. Fail-open only if plan absent."
+      "_comment": "Shape realization on mastering_plan \u2014 docs/cross-cutting/air-script.md. Fail-open only if plan absent."
     },
     "air_order_integrity": {
       "opening_window_ms": 180000,
@@ -1681,13 +1715,13 @@
       "block_publish": false,
       "listener_scorecard": true,
       "block_on_feel_unavailable": true,
-      "overall_min": 0.90,
+      "overall_min": 0.9,
       "dimension_floors": {
-        "flow": 0.80,
-        "clarity": 0.80,
-        "music_completeness": 0.90,
+        "flow": 0.8,
+        "clarity": 0.8,
+        "music_completeness": 0.9,
         "synthetic_fit": 0.85,
-        "native_respect": 0.90
+        "native_respect": 0.9
       }
     },
     "aspirational_quality": {
@@ -1697,10 +1731,10 @@
       "record_advisories_in_pmq": true,
       "require_operator_publish_when_advisory": true,
       "catastrophic_floors": {
-        "cut_integrity": 0.70,
-        "listen_delight_overall": 0.70,
-        "conversation_fit": 0.60,
-        "story_followability": 0.60
+        "cut_integrity": 0.7,
+        "listen_delight_overall": 0.7,
+        "conversation_fit": 0.6,
+        "story_followability": 0.6
       },
       "pick_best_weights": {
         "listen_delight_overall": 0.5,
@@ -1712,14 +1746,14 @@
     },
     "listen_delight": {
       "mode": "authoritative",
-      "overall_min": 0.90,
+      "overall_min": 0.9,
       "dimension_floors": {
-        "nugget_retention": 0.80,
+        "nugget_retention": 0.8,
         "cut_integrity": 0.85,
         "conversation_fit": 0.85,
         "sonic_weave": 0.85,
-        "mode_coherence": 0.80,
-        "finishability": 0.80,
+        "mode_coherence": 0.8,
+        "finishability": 0.8,
         "recommendability": 0.75,
         "story_followability": 0.85
       },
@@ -1762,7 +1796,7 @@
     "lint_blocking": false,
     "cross_validate_blocking": false
   },
-  "_comment_resilience": "Stage resilience runtime — quality-first (never auto-waive publish).",
+  "_comment_resilience": "Stage resilience runtime \u2014 quality-first (never auto-waive publish).",
   "resilience": {
     "quality_first": true,
     "commit_barrier": true,
@@ -1809,6 +1843,27 @@
       "max_fragment_depth": 3,
       "max_cta_readmit": 0,
       "max_order_growth_pct": 15.0
+    }
+  },
+  "thrash_spine": {
+    "progress_sla": {
+      "vo_synthesize": 180,
+      "vo_line_adjudicate": 180,
+      "mmaudio_sfx": 480,
+      "music_palette_compose": 480,
+      "sfx_prompt_craft": 480,
+      "mix": 600,
+      "junction_snip_qa": 360,
+      "master_finalize": 600,
+      "default": 300
+    },
+    "seat_freeze": {
+      "max_rewrites_post_soft": 2,
+      "max_rewrites_post_hard": 1
+    },
+    "meta_gate": {
+      "min_opportunity": 0.65,
+      "min_expected_gain": 0.15
     }
   }
 }

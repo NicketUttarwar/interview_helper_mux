@@ -4,7 +4,7 @@ import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { isV2Enabled } from "../../utils/v2Phases";
-import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
+import { shouldAdvanceAfterGatePost, shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import { gateOperatorMustAct, g1AutomationPending } from "../../utils/operatorGates";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
@@ -45,7 +45,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     null;
 
   const skipAllOptional = async () => {
-    if (!runId) return;
+    if (!runId || jobBlocksUi || actionBusy) return;
     await api(`/api/runs/${runId}/g1/skip-optional`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,7 +54,9 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     appendClientLog("Skipped optional gap VO — continuing without pickup recordings", "action");
     showToast("Gap VO skipped — continuing without recordings");
     await refreshRun();
-    await advanceFromCheckpoint();
+    if (shouldAdvanceAfterGatePost(run)) {
+      await advanceFromCheckpoint();
+    }
   };
 
   const suggestTrim = async (lineId: string) => {

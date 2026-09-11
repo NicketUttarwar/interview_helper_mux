@@ -31,6 +31,8 @@ def _binary_artifact_status(ctx: RunContext, rel_path: str) -> str:
 
 def _safe_read_json_for_status(ctx: RunContext, rel_path: str) -> Any | None:
     """Read artifact JSON for status checks; None when missing or mid-write corrupt."""
+    if str(rel_path or "").lower().endswith(_BINARY_ARTIFACT_SUFFIXES):
+        return None
     try:
         return ctx.read_json(rel_path)
     except (FileNotFoundError, OSError, ValueError, TypeError):
@@ -186,6 +188,7 @@ def _gaps_generic_nonempty(data: dict[str, Any] | None) -> list[str]:
         return ["(root)"]
     return []
 
+
 def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
     if not data:
         return ["segments"]
@@ -194,7 +197,73 @@ def _gaps_manifest(data: dict[str, Any] | None) -> list[str]:
         return ["segments"]
     return []
 
+
+def _gaps_boundaries(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["boundaries"]
+    boundaries = data.get("boundaries")
+    if not isinstance(boundaries, list) or not boundaries:
+        return ["boundaries"]
+    return []
+
+
+def _gaps_selection(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["ordered_segment_ids"]
+    ids = data.get("ordered_segment_ids")
+    if not isinstance(ids, list) or not ids:
+        return ["ordered_segment_ids"]
+    return []
+
+
+def _gaps_narrative_plan(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["beats"]
+    beats = data.get("beats") or data.get("arc") or data.get("chapters")
+    if isinstance(beats, list) and beats:
+        return []
+    if _non_empty_str(data.get("thesis") or data.get("summary")):
+        return []
+    return ["beats"]
+
+
+def _gaps_coverage_audit(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["findings"]
+    findings = data.get("findings") or data.get("topics") or data.get("coverage")
+    if isinstance(findings, list) and findings:
+        return []
+    if isinstance(findings, dict) and findings:
+        return []
+    # Canon LLM / OF-01 shape: topic_mappings (+ coverage_score), not legacy findings.
+    mappings = data.get("topic_mappings")
+    if isinstance(mappings, list) and mappings:
+        return []
+    if data.get("coverage_score") is not None and isinstance(data.get("missing_coverage"), list):
+        return []
+    return ["findings"]
+
+
+def _gaps_gap_evaluations(data: dict[str, Any] | None) -> list[str]:
+    """Hollow [] refuse — empty evaluations OK only when explicitly skipped/self-explanatory."""
+    if not data:
+        return ["evaluations"]
+    ev = data.get("evaluations")
+    if not isinstance(ev, list):
+        return ["evaluations"]
+    if ev:
+        return []
+    # Allowlist: intentional empty (skip / all self-explanatory).
+    if data.get("skipped") or data.get("empty_ok") or data.get("all_self_explanatory"):
+        return []
+    meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
+    if str(meta.get("empty_allowlist") or "") in {"skip", "self_explanatory", "optimal_questions"}:
+        return []
+    return ["evaluations"]
+
+
 def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
+    """interviewer_lines may be [] (A-02 allowlist: skip / optimal_questions / no gaps)."""
     if not data:
         return ["interviewer_lines"]
     if "interviewer_lines" not in data:
@@ -202,6 +271,42 @@ def _gaps_gap_report(data: dict[str, Any] | None) -> list[str]:
     if not isinstance(data.get("interviewer_lines"), list):
         return ["interviewer_lines"]
     return []
+
+
+def _gaps_transitions(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["transitions"]
+    rows = data.get("transitions")
+    if not isinstance(rows, list):
+        return ["transitions"]
+    if rows:
+        return []
+    # Allowlist: selection < 2 → no junctions expected.
+    if data.get("empty_ok") or data.get("selection_count", 99) < 2:
+        return []
+    meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
+    if meta.get("empty_allowlist") == "selection_lt_2":
+        return []
+    return ["transitions"]
+
+
+def _gaps_research_rollup(data: dict[str, Any] | None) -> list[str]:
+    """File presence is enough for early wave; thin meaning checked late via stage_completion."""
+    if not data:
+        return ["fields"]
+    if not isinstance(data.get("fields"), dict) and not data.get("waves"):
+        return ["fields"]
+    return []
+
+
+def _gaps_mastering_plan(data: dict[str, Any] | None) -> list[str]:
+    if not data:
+        return ["plan_status"]
+    status = str(data.get("plan_status") or "")
+    if not status:
+        return ["plan_status"]
+    return []
+
 
 def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
     if not data:
@@ -217,6 +322,7 @@ def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
 
 STAGE_GAP_RULES: dict[str, GapRule] = {
     "content_brief_reanchor": _gaps_content_brief_reanchor,
+    "optimal_questions": lambda d: [],  # A-02 allowlist: empty gap_report OK
 }
 
 STAGED_ANALYSIS_STATE_GAP_RULES: dict[str, GapRule] = {
@@ -229,19 +335,21 @@ ARTIFACT_COMPLETENESS_RULES: dict[str, GapRule] = {
     "understanding/speakers.json": _gaps_speakers,
     "understanding/sound_design_plan.json": _gaps_sound_design_plan,
     "understanding/investigation_queue.json": _gaps_investigation_queue,
-    "understanding/gap_evaluations.json": _gaps_generic_nonempty,
+    "understanding/gap_evaluations.json": _gaps_gap_evaluations,
     "understanding/gap_report.json": _gaps_gap_report,
     "understanding/delivery_brief.json": _gaps_generic_nonempty,
-    "segments/boundaries.json": _gaps_generic_nonempty,
+    "segments/boundaries.json": _gaps_boundaries,
     "segments/manifest.json": _gaps_manifest,
-    "master/coverage_audit.json": _gaps_generic_nonempty,
-    "master/narrative_plan.json": _gaps_generic_nonempty,
-    "master/selection.json": _gaps_generic_nonempty,
-    "master/transitions.json": _gaps_generic_nonempty,
+    "master/coverage_audit.json": _gaps_coverage_audit,
+    "master/narrative_plan.json": _gaps_narrative_plan,
+    "master/selection.json": _gaps_selection,
+    "master/transitions.json": _gaps_transitions,
     "master/podcast_sfx_brief.json": _gaps_generic_nonempty,
     "show_notes/show_description.json": _gaps_generic_nonempty,
     "sound_design/sfx_prompts.json": _gaps_generic_nonempty,
     "sound_design/mmaudio_qa.json": _gaps_mmaudio_qa,
+    "mastering/research/rollup.json": _gaps_research_rollup,
+    "mastering/mastering_plan.json": _gaps_mastering_plan,
 }
 
 def _gap_rule_for(rel_path: str, stage_key: str | None = None) -> GapRule | None:

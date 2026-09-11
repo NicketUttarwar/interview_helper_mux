@@ -30,6 +30,25 @@ LADDER_TIERS: tuple[str, ...] = (
 )
 
 
+def _vo_ladder_fingerprint(ctx: RunContext, violations: list[Any]) -> str:
+    """Stable fingerprint of VO contract state for ladder thrash caps."""
+    import hashlib
+
+    parts: list[str] = [str(v)[:80] for v in (violations or [])[:8]]
+    try:
+        for rel in (
+            "understanding/gap_report.json",
+            "mastering/vo_synthesize.json",
+            "understanding/vo_line_adjudication.json",
+        ):
+            if ctx.artifact_exists(rel):
+                path = ctx.final_path(*rel.split("/"))
+                parts.append(f"{rel}:{path.stat().st_size}")
+    except Exception:
+        pass
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -169,6 +188,30 @@ def reconcile_execution_contract(ctx: RunContext, *, reason: str = "") -> dict[s
             new_seats = build_vo_seats(plan, gap if isinstance(gap, dict) else None)
             old_seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
             if new_seats != old_seats:
+                # B16: after soft freeze, seat rewrite needs meta-gate allow.
+                try:
+                    from interview_mux.seat_authority import (
+                        gate_seat_mutation,
+                        soft_freeze_active,
+                    )
+
+                    if soft_freeze_active(ctx) and not gate_seat_mutation(
+                        ctx,
+                        reason=f"reconcile_execution_contract:{reason or 'sync'}",
+                        symptoms=["exec_contract_reconcile"],
+                        proposed_delta={"ops": [], "from": "reconcile_execution_contract"},
+                    ):
+                        new_seats = old_seats
+                except Exception:
+                    # b16 fail-closed under freeze: keep old seats
+                    try:
+                        from interview_mux.seat_authority import soft_freeze_active
+
+                        if soft_freeze_active(ctx):
+                            new_seats = old_seats
+                    except Exception:
+                        pass
+            if new_seats != old_seats:
                 script = dict(script)
                 script["vo_seats"] = new_seats
                 plan = dict(plan)
@@ -185,6 +228,23 @@ def reconcile_execution_contract(ctx: RunContext, *, reason: str = "") -> dict[s
 
 
 def _tier_a_publish_orientation(ctx: RunContext) -> list[str]:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="tier_a_publish_orientation",
+            symptoms=["exec_contract_ladder", "orientation"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
 
     written: list[str] = []
@@ -198,6 +258,22 @@ def _tier_a_publish_orientation(ctx: RunContext) -> list[str]:
 
 
 def _tier_b_gap_recompose(ctx: RunContext) -> list[str]:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="tier_b_gap_recompose",
+            symptoms=["exec_contract_ladder", "gap_recompose"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     from interview_mux.refinement_passes import run_gap_framing_recompose
 
     run_gap_framing_recompose(ctx)
@@ -209,6 +285,22 @@ def _tier_b_gap_recompose(ctx: RunContext) -> list[str]:
 
 
 def _tier_c_opening_omit_unseat(ctx: RunContext) -> list[str]:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="tier_c_opening_omit_unseat",
+            symptoms=["opening_adjacency", "exec_contract_ladder"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     from interview_mux.recovery_controller import (
         playbook_opening_slot_conflict,
         playbook_stamp_air_script_omits,
@@ -222,6 +314,22 @@ def _tier_c_opening_omit_unseat(ctx: RunContext) -> list[str]:
 
 
 def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list[str]:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="tier_d_logged_waive",
+            symptoms=["exec_contract_ladder", "waive"],
+        ):
+            return []
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return []
+        except Exception:
+            return []
     from interview_mux.opening_orientation import ORIENTATION_LINE_ID, is_episode_orientation
     from interview_mux.vo_contract import mark_gap_line_not_on_air
 
@@ -450,6 +558,41 @@ def run_vo_contract_ladder(
             contract_ok=True,
             detail="already_ok",
         )
+
+    # Cap identical ladder resumes without seat/WAV fingerprint change (Wave 8).
+    try:
+        from interview_mux.delivery_invariants import (
+            count_identical_seed_resumes,
+            note_seed_resume,
+            record_invariant_heal,
+        )
+
+        fp = _vo_ladder_fingerprint(ctx, violations)
+        note_seed_resume(
+            ctx,
+            from_stage="vo_contract_ladder",
+            because_of=consumer_stage or "vo_contract",
+            fingerprint=fp,
+        )
+        if count_identical_seed_resumes(
+            ctx, from_stage="vo_contract_ladder", fingerprint=fp, window=12
+        ) >= 6:
+            record_invariant_heal(
+                ctx,
+                kind="vo_ladder_fingerprint_stall",
+                stage=consumer_stage or "vo_synthesize",
+                detail={"fingerprint": fp},
+            )
+            return LadderResult(
+                tier="stall_cap",
+                recovered=False,
+                contract_ok=False,
+                violations=list(violations or []),
+                detail="vo_ladder_fingerprint_stall",
+                resume_stage="vo_synthesize",
+            )
+    except Exception:
+        pass
 
     _write_vo_repair_plan(ctx, tier=start_tier or LADDER_TIERS[0], violations=violations, consumer_stage=consumer_stage)
 

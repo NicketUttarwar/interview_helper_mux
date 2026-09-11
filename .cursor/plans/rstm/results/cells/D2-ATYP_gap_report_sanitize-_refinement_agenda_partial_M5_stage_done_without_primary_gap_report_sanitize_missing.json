@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|gap_report_sanitize->refinement_agenda|partial|M5_stage_done_without_primary|gap_report_sanitize_missing",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-09T18:05:46Z"
+}

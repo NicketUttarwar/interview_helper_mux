@@ -177,6 +177,66 @@ def commit_selection_mutation(
             )
         out = sanitize_result.doc if isinstance(sanitize_result.doc, dict) else out
 
+        # b8: under seat freeze, refuse order-changing selection commits without
+        # meta-gate allow (prevents Pass B / EDL thrash via selection cascade).
+        try:
+            from interview_mux.seat_authority import (
+                hard_freeze_active,
+                request_seat_rewrite,
+                soft_freeze_active,
+            )
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                prev_ids = [
+                    str(s)
+                    for s in ((previous or {}).get("ordered_segment_ids") or [])
+                    if s
+                ]
+                cur_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+                if prev_ids != cur_ids:
+                    dec = request_seat_rewrite(
+                        ctx,
+                        proposed_delta={
+                            "ops": [],
+                            "order_change": True,
+                            "source": producer,
+                            "stage_key": stage_key,
+                        },
+                        reason=f"selection_commit:{producer}",
+                        symptoms=["order_change", "selection_commit"],
+                    )
+                    if not dec.get("allow"):
+                        raise RuntimeError(
+                            "seat_freeze_blocked_selection_commit:"
+                            + str(dec.get("refuse_reason") or "meta_gate_refuse")
+                        )
+        except RuntimeError:
+            raise
+        except Exception:
+            try:
+                from interview_mux.seat_authority import (
+                    hard_freeze_active,
+                    soft_freeze_active,
+                )
+
+                if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                    prev_ids = [
+                        str(s)
+                        for s in ((previous or {}).get("ordered_segment_ids") or [])
+                        if s
+                    ]
+                    cur_ids = [
+                        str(s) for s in (out.get("ordered_segment_ids") or []) if s
+                    ]
+                    if prev_ids != cur_ids:
+                        raise RuntimeError(
+                            "seat_freeze_blocked_selection_commit:fail_closed"
+                        )
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
+
         try:
             from interview_mux.artifact_sanitize.reentry import sanitary_content_hash
             from interview_mux.thrash_hardening import note_authority_undo_attempt

@@ -203,6 +203,15 @@ def check_voice_reference_pending(ctx: RunContext) -> bool:
 
 def require_gap_framing_decision_clear(ctx: RunContext) -> None:
     if check_gap_framing_decision_pending(ctx):
+        # Full-auto / Homunculus: stamp the decision before SystemExit so the
+        # driver is not stuck behind sticky needs_operator while the gate is open.
+        try:
+            if maybe_auto_accept_gap_gate_defaults(ctx) and not check_gap_framing_decision_pending(
+                ctx
+            ):
+                return
+        except Exception:
+            pass
         raise SystemExit(
             "Gap framing gate: choose whether to add interviewer framing audio in the GUI "
             f"→ {ctx.path('run_meta.json')}"

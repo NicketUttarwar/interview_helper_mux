@@ -1099,14 +1099,23 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
                 ctx.write_json(BOUNDARIES_REL, boundaries, stage_key="ideal_cuts_materialize")
                 wrote_boundaries = True
         except Exception as exc:
-            # Fail open toward writing when quality eval itself breaks.
+            # Fail-closed (DEEP-CUTS-01): never publish coarse keep-windows when
+            # quality eval itself breaks. Materialize still completes so
+            # boundary_detection owns the full-tape map.
+            boundary_skip_reason = f"quality_eval_failed:{type(exc).__name__}"
             ctx.log(
-                f"ideal_cuts_materialize: quality check failed ({exc}) — writing boundaries",
+                f"ideal_cuts_materialize: quality check failed ({exc}) — "
+                "skipping boundary bind (boundary_detection owns segments)",
                 level="warning",
                 stage="ideal_cuts_materialize",
             )
-            ctx.write_json(BOUNDARIES_REL, boundaries, stage_key="ideal_cuts_materialize")
-            wrote_boundaries = True
+            snapped = strip_provisional_segment_ids(snapped)
+            if boundaries_already_from_ideal_cuts(ctx):
+                try:
+                    (ctx.run_dir / BOUNDARIES_REL).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            wrote_boundaries = False
     elif ctx.artifact_exists(BOUNDARIES_REL):
         # Seed-ranking path with legacy boundaries already present (rare at this point)
         existing = ctx.read_json(BOUNDARIES_REL)

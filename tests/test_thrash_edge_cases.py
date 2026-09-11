@@ -590,6 +590,12 @@ def test_artifact_usable_pending_only_seating(
     ok, reason = artifact_usable(ctx, "master/assembly.wav", consumer="junction_snip_qa")
     assert ok is False
     assert reason == "pending_only_seating"
+    # Same orphan pending must not satisfy mix completeness (heal false-done).
+    ok_mix_orphan, reason_mix_orphan = artifact_usable(
+        ctx, "master/assembly.wav", consumer="mix"
+    )
+    assert ok_mix_orphan is False
+    assert reason_mix_orphan == "pending_only_seating"
     # Producer mid-stage may only have pending.
     enter_stage_staging("mix")
     try:
@@ -598,6 +604,27 @@ def test_artifact_usable_pending_only_seating(
         assert reason2 == ""
     finally:
         exit_stage_staging()
+
+
+def test_mix_stale_ignores_orphan_pending_assembly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Crashed mix left pending assembly.wav — must not report assembly_stale."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "orphan_asm_stale")
+    from interview_mux.air_order import mix_stale_versus_live
+    from interview_mux.homunculus.agenda import assembly_stale_versus_edl
+
+    edl = ctx.run_dir / "master"
+    edl.mkdir(parents=True)
+    (edl / "edl.json").write_text('{"version":1,"clips":[]}\n', encoding="utf-8")
+    pending = ctx.run_dir / ".pending_writes" / "mix" / "master"
+    pending.mkdir(parents=True)
+    (pending / "assembly.wav").write_bytes(b"RIFF" + b"\0" * 64)
+    assert ctx.artifact_exists("master/assembly.wav") is True
+    assert ctx.final_path("master", "assembly.wav").is_file() is False
+    assert mix_stale_versus_live(ctx) is False
+    assert assembly_stale_versus_edl(ctx) is False
 
 
 def test_job_complete_honesty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -58,6 +58,7 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
 
     adjusted = 0
     skipped = 0
+    missing_vo_bridge: list[str] = []
     with logged_step("sound_design_vo_finalize/adjust_cues", ctx=ctx, stage="sound_design_vo_finalize"):
         for cue in cues:
             if not isinstance(cue, dict):
@@ -75,6 +76,9 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
                 wav = None
             if wav is None or not wav.is_file():
                 skipped += 1
+                # C-02: vo_bridge cues that need WAVs cannot hollow-complete finalize.
+                if role == "vo_bridge" or line_id:
+                    missing_vo_bridge.append(line_id or asset_id or "vo_bridge")
                 continue
             dur = wav_duration_ms(wav)
             cue["measured_duration_ms"] = dur
@@ -85,6 +89,28 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
     if adjusted == 0 and skipped == 0:
         ctx.log("vo_finalize: no VO bridge cues to adjust — skip", level="info", stage="sound_design_vo_finalize")
         ctx.mark_done("sound_design_vo_finalize")
+        return
+
+    if missing_vo_bridge:
+        ctx.log(
+            f"vo_finalize: refuse mark_done — {len(missing_vo_bridge)} vo_bridge cue(s) lack WAVs",
+            level="warning",
+            stage="sound_design_vo_finalize",
+            detail={"missing": missing_vo_bridge[:12]},
+        )
+        ctx.write_json(
+            "mastering/sound_design_vo_finalize.json",
+            {
+                "skipped": False,
+                "refused": True,
+                "reason": "vo_bridge_cues_need_wavs",
+                "missing": missing_vo_bridge[:24],
+                "adjusted": adjusted,
+                "skipped_cues": skipped,
+            },
+            skip_handoff=True,
+            stage_key="sound_design_vo_finalize",
+        )
         return
 
     errors = validate_sound_design_plan(plan)

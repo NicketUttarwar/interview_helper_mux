@@ -18,8 +18,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.mastering_plan_loader import (
+    claim_plan_complete,
     evidence_packet_hash,
     forced_sparse_plan,
+    shape_llm_enabled,
     soft_gate_enabled,
     write_plan,
 )
@@ -105,117 +107,240 @@ def _talking_points_bound(ctx: RunContext) -> bool:
     )
 
 
+def _shape_llm_user_payload(
+    ctx: RunContext,
+    *,
+    consumer_id: str,
+    pass_name: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    packet = compile_shape_evidence(ctx, consumer_id=consumer_id, pass_name=pass_name)
+    payload: dict[str, Any] = {
+        "pass": pass_name,
+        "evidence_packet_hash": evidence_packet_hash(packet),
+        "goal": (
+            "Produce the best bespoke mastering shape artifact for this tape — "
+            "not a generic template. Prefer finishable, recommendable listen."
+        ),
+    }
+    dossier = load_dossier(ctx)
+    if isinstance(dossier, dict):
+        payload["research_dossier"] = {
+            "complete_fields": dossier.get("complete_fields"),
+            "thin_fields": dossier.get("thin_fields"),
+            "field_count": len(dossier.get("fields") or {}),
+        }
+    for rel, key in (
+        ("understanding/content_brief.json", "content_brief"),
+        ("understanding/gap_evaluations.json", "gap_evaluations"),
+        ("mastering/shape/agenda.json", "agenda"),
+        ("mastering/shape/candidates.json", "candidates_doc"),
+        ("mastering/mastering_plan.json", "prior_plan"),
+        ("segments/manifest.json", "manifest"),
+    ):
+        if ctx.artifact_exists(rel):
+            try:
+                doc = ctx.read_json(rel)
+            except Exception:
+                continue
+            if isinstance(doc, dict) and doc:
+                payload[key] = doc
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _heuristic_agenda_and_rubric(
+    ctx: RunContext, *, llm_failed: bool = False
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    packet = compile_shape_evidence(ctx, consumer_id="shape_agenda_pass1", pass_name="provisional")
+    hints = _style_hints(ctx)
+    primary = nearest_mode_from_priors(hints)
+    sg = _shape_soft_gate_cfg()
+    max_cand = int(sg.get("max_mode_candidates") or 2)
+    if sg.get("prefer_talking_points_mode", True) and _talking_points_bound(ctx):
+        max_cand = min(max_cand, 2)
+    modes = _competitive_modes(primary, max_candidates=max_cand)
+    agenda: dict[str, Any] = {
+        "version": 1,
+        "pass": "provisional",
+        "primary_mode_hypothesis": primary,
+        "mode_candidates": modes,
+        "style_hints": hints,
+        "evidence_packet_hash": evidence_packet_hash(packet),
+        "custom_steps": [
+            {"id": "compete_modes", "goal": "best finishable recommendable listen"},
+            {"id": "cold_open_ensemble", "goal": "bespoke cold open + body + VO/SFX"},
+        ],
+        "anti_patterns": [
+            "generic_five_act_paste",
+            "vo_restates_next_clip",
+            "sensational_cold_open",
+            "invented_unspoken_dialogue",
+        ],
+        "source": "heuristic",
+        "generated_at": _now(),
+    }
+    if llm_failed:
+        agenda["status"] = "degraded"
+        agenda["notes"] = ["llm_failed"]
+    rubric = {
+        "version": 1,
+        "style_axes": [
+            {"axis": "narrative_mode_bias", "value": primary, "confidence": 0.6},
+            {"axis": "tone", "value": hints.get("tone_class") or "unknown", "confidence": 0.5},
+        ],
+        # Each criterion below scores a candidate on one or more Essence mutation
+        # axes (native keep/order, synthetic inserts, music/SFX/air, soft duration
+        # ideal) — see mastering-shape-engine.md#shape-as-mutation-engine. Weight 0.0
+        # criteria (nugget_density, sonic_weave) are informational for this advisory
+        # L0 panel today; the authoritative hard-delight audit (listen_delight) is
+        # what actually forces a remutate loop or blocks on those axes downstream.
+        "criteria": [
+            {
+                "criterion_id": "finishability",
+                "description": "Would a first-time listener finish?",
+                "weight": 0.25,
+                "higher_is_better": True,
+                "owning_critics": ["engagement_listener"],
+            },
+            {
+                "criterion_id": "recommendability",
+                "description": "Would they recommend the episode?",
+                "weight": 0.25,
+                "higher_is_better": True,
+                "owning_critics": ["engagement_listener"],
+            },
+            {
+                "criterion_id": "mode_fit",
+                "description": "Narrative mode fits the tape",
+                "weight": 0.2,
+                "higher_is_better": True,
+                "owning_critics": ["narrative_editor", "style_fit"],
+            },
+            {
+                "criterion_id": "information_clarity",
+                "description": "Real knowledge conveyed without fabrication",
+                "weight": 0.3,
+                "higher_is_better": True,
+                "owning_critics": ["narrative_editor", "integrity"],
+            },
+            {
+                "criterion_id": "nugget_density",
+                "description": (
+                    "Essence mutation axis — native keep/order (optional/informational): golden "
+                    "nuggets over padded tape, idea-per-minute density; hard floor is only "
+                    "~10% of source runtime, this criterion judges quality above that floor"
+                ),
+                "weight": 0.0,
+                "higher_is_better": True,
+                "owning_critics": ["narrative_editor", "engagement_listener"],
+            },
+            {
+                "criterion_id": "sonic_weave",
+                "description": (
+                    "Essence mutation axis — synthetic inserts + music/SFX/air (optional/"
+                    "informational): native + synthetic + music/SFX/air read as one "
+                    "conversation; soft bands are bed coverage 0.40-0.88, hinge stinger 0.3-1.0"
+                ),
+                "weight": 0.0,
+                "higher_is_better": True,
+                "owning_critics": ["audio_intelligibility", "style_fit"],
+            },
+        ],
+        "anti_patterns": [
+            {"id": "dull_template", "description": "Valid but dull checklist shape", "severity": "kill"},
+            {"id": "fabricated_quotes", "description": "Invented unspoken dialogue", "severity": "kill"},
+        ],
+        "hard_requirements": [
+            "never_invent_unspoken_dialogue",
+            "consent_required_for_clone_voice",
+        ],
+        "rationale": (
+            "Per-run delight rubric for Shape candidates (this L0 panel stays advisory); "
+            "the actual ship gate for finishability/recommendability is the authoritative "
+            "mastering.listen_delight audit downstream, not this rubric"
+        ),
+        "evidence_refs": ["mastering/evidence_packets/shape_agenda_pass1.json"],
+        "source": "heuristic",
+        "generated_at": _now(),
+    }
+    return agenda, rubric
+
+
+def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(arts, dict):
+        return None
+    cand = arts.get("agenda") if isinstance(arts.get("agenda"), dict) else arts
+    if not isinstance(cand, dict):
+        return None
+    # Soft acceptance: either soft-gate shape (mode_candidates) or schema steps.
+    if not (cand.get("mode_candidates") or cand.get("steps") or cand.get("primary_mode_hypothesis")):
+        return None
+    out = dict(cand)
+    out.setdefault("version", 1)
+    out.setdefault("pass", "provisional")
+    out["source"] = "llm"
+    out.setdefault("generated_at", _now())
+    return out
+
+
+def _rubric_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(arts, dict):
+        return None
+    cand = arts.get("eval_rubric") if isinstance(arts.get("eval_rubric"), dict) else arts
+    if not isinstance(cand, dict):
+        return None
+    if not (cand.get("criteria") or cand.get("style_axes")):
+        return None
+    out = dict(cand)
+    out.setdefault("version", 1)
+    out["source"] = "llm"
+    out.setdefault("generated_at", _now())
+    return out
+
+
 def run_mastering_shape_agenda(ctx: RunContext) -> None:
     if not soft_gate_enabled():
         return
     try:
-        packet = compile_shape_evidence(ctx, consumer_id="shape_agenda_pass1", pass_name="provisional")
-        hints = _style_hints(ctx)
-        primary = nearest_mode_from_priors(hints)
-        sg = _shape_soft_gate_cfg()
-        max_cand = int(sg.get("max_mode_candidates") or 2)
-        if sg.get("prefer_talking_points_mode", True) and _talking_points_bound(ctx):
-            max_cand = min(max_cand, 2)
-        modes = _competitive_modes(primary, max_candidates=max_cand)
-        agenda = {
-            "version": 1,
-            "pass": "provisional",
-            "primary_mode_hypothesis": primary,
-            "mode_candidates": modes,
-            "style_hints": hints,
-            "evidence_packet_hash": evidence_packet_hash(packet),
-            "custom_steps": [
-                {"id": "compete_modes", "goal": "best finishable recommendable listen"},
-                {"id": "cold_open_ensemble", "goal": "bespoke cold open + body + VO/SFX"},
-            ],
-            "anti_patterns": [
-                "generic_five_act_paste",
-                "vo_restates_next_clip",
-                "sensational_cold_open",
-                "invented_unspoken_dialogue",
-            ],
-            "generated_at": _now(),
-        }
-        rubric = {
-            "version": 1,
-            "style_axes": [
-                {"axis": "narrative_mode_bias", "value": primary, "confidence": 0.6},
-                {"axis": "tone", "value": hints.get("tone_class") or "unknown", "confidence": 0.5},
-            ],
-            # Each criterion below scores a candidate on one or more Essence mutation
-            # axes (native keep/order, synthetic inserts, music/SFX/air, soft duration
-            # ideal) — see mastering-shape-engine.md#shape-as-mutation-engine. Weight 0.0
-            # criteria (nugget_density, sonic_weave) are informational for this advisory
-            # L0 panel today; the authoritative hard-delight audit (listen_delight) is
-            # what actually forces a remutate loop or blocks on those axes downstream.
-            "criteria": [
-                {
-                    "criterion_id": "finishability",
-                    "description": "Would a first-time listener finish?",
-                    "weight": 0.25,
-                    "higher_is_better": True,
-                    "owning_critics": ["engagement_listener"],
-                },
-                {
-                    "criterion_id": "recommendability",
-                    "description": "Would they recommend the episode?",
-                    "weight": 0.25,
-                    "higher_is_better": True,
-                    "owning_critics": ["engagement_listener"],
-                },
-                {
-                    "criterion_id": "mode_fit",
-                    "description": "Narrative mode fits the tape",
-                    "weight": 0.2,
-                    "higher_is_better": True,
-                    "owning_critics": ["narrative_editor", "style_fit"],
-                },
-                {
-                    "criterion_id": "information_clarity",
-                    "description": "Real knowledge conveyed without fabrication",
-                    "weight": 0.3,
-                    "higher_is_better": True,
-                    "owning_critics": ["narrative_editor", "integrity"],
-                },
-                {
-                    "criterion_id": "nugget_density",
-                    "description": (
-                        "Essence mutation axis — native keep/order (optional/informational): golden "
-                        "nuggets over padded tape, idea-per-minute density; hard floor is only "
-                        "~10% of source runtime, this criterion judges quality above that floor"
-                    ),
-                    "weight": 0.0,
-                    "higher_is_better": True,
-                    "owning_critics": ["narrative_editor", "engagement_listener"],
-                },
-                {
-                    "criterion_id": "sonic_weave",
-                    "description": (
-                        "Essence mutation axis — synthetic inserts + music/SFX/air (optional/"
-                        "informational): native + synthetic + music/SFX/air read as one "
-                        "conversation; soft bands are bed coverage 0.40-0.88, hinge stinger 0.3-1.0"
-                    ),
-                    "weight": 0.0,
-                    "higher_is_better": True,
-                    "owning_critics": ["audio_intelligibility", "style_fit"],
-                },
-            ],
-            "anti_patterns": [
-                {"id": "dull_template", "description": "Valid but dull checklist shape", "severity": "kill"},
-                {"id": "fabricated_quotes", "description": "Invented unspoken dialogue", "severity": "kill"},
-            ],
-            "hard_requirements": [
-                "never_invent_unspoken_dialogue",
-                "consent_required_for_clone_voice",
-            ],
-            "rationale": (
-                "Per-run delight rubric for Shape candidates (this L0 panel stays advisory); "
-                "the actual ship gate for finishability/recommendability is the authoritative "
-                "mastering.listen_delight audit downstream, not this rubric"
-            ),
-            "evidence_refs": ["mastering/evidence_packets/shape_agenda_pass1.json"],
-            "generated_at": _now(),
-        }
+        if shape_llm_enabled():
+            from interview_mux.mastering_llm import invoke_mastering_prompt
+
+            payload = _shape_llm_user_payload(
+                ctx, consumer_id="shape_agenda_pass1", pass_name="provisional"
+            )
+            arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_shape_agenda",
+                "mastering/shape-meta-architect.system.txt",
+                payload,
+                max_attempts=2,
+            )
+            agenda = _agenda_from_llm(arts)
+            rubric = None
+            if agenda is not None:
+                rubric_arts = invoke_mastering_prompt(
+                    ctx,
+                    "mastering_shape_agenda",
+                    "mastering/eval-rubric-mint.system.txt",
+                    {**payload, "agenda": agenda},
+                    max_attempts=2,
+                )
+                rubric = _rubric_from_llm(rubric_arts)
+                if rubric is None:
+                    _, heuristic_rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=False)
+                    rubric = heuristic_rubric
+                    rubric["notes"] = list(rubric.get("notes") or []) + ["rubric_llm_failed"]
+                ctx.write_json(AGENDA_REL, agenda)
+                ctx.write_json(RUBRIC_REL, rubric)
+                return
+            agenda, rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=True)
+            ctx.write_json(AGENDA_REL, agenda)
+            ctx.write_json(RUBRIC_REL, rubric)
+            return
+
+        agenda, rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=False)
         ctx.write_json(AGENDA_REL, agenda)
         ctx.write_json(RUBRIC_REL, rubric)
     except Exception as exc:
@@ -244,52 +369,98 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
         )
 
 
+def _heuristic_candidates(ctx: RunContext, *, llm_failed: bool = False) -> dict[str, Any]:
+    agenda = ctx.read_json(AGENDA_REL) if ctx.artifact_exists(AGENDA_REL) else {}
+    modes = list((agenda or {}).get("mode_candidates") or ["conversational_host", "sparse_source"])
+    candidates = []
+    for i, mode in enumerate(modes):
+        grammar = list(prefer_forbid_volley_block(mode).get("prefer_grammar_moves") or [])[:3]
+        candidates.append(
+            {
+                "candidate_id": f"cand_{i}_{mode}",
+                "narrative_mode": mode,
+                "montage_grammar": grammar,
+                "cold_open_kind": "vo_plus_segment" if mode == "hook_montage" else "none",
+                "pov": default_pov_for_mode(mode),
+                "rationale": f"Compete on {mode} for best listen",
+                "scores": {"bespoke_fit": 0.7 - i * 0.05, "finishability": 0.75 - i * 0.03},
+            }
+        )
+    sg = _shape_soft_gate_cfg()
+    if not sg.get("skip_diversity", True):
+        try:
+            from interview_mux.mastering_diversity import build_diversity_report, write_diversity_report
+
+            div = build_diversity_report(candidates)
+            write_diversity_report(ctx, div)
+        except Exception:
+            pass
+    if not candidates:
+        candidates = [
+            {
+                "candidate_id": "cand_forced_sparse",
+                "narrative_mode": "sparse_source",
+                "montage_grammar": [],
+                "cold_open_kind": "none",
+                "pov": "host_first_person",
+                "rationale": "Guaranteed survivor",
+                "scores": {"bespoke_fit": 0.4, "finishability": 0.5},
+            }
+        ]
+    doc: dict[str, Any] = {
+        "version": 1,
+        "pass": "provisional",
+        "candidates": candidates,
+        "source": "heuristic",
+        "generated_at": _now(),
+    }
+    if llm_failed:
+        doc["notes"] = ["llm_failed"]
+        doc["status"] = "degraded"
+    return doc
+
+
+def _candidates_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(arts, dict):
+        return None
+    raw = arts.get("candidates")
+    if isinstance(raw, list) and raw:
+        cands = [c for c in raw if isinstance(c, dict) and c.get("narrative_mode")]
+        if not cands:
+            return None
+        return {
+            "version": 1,
+            "pass": "provisional",
+            "candidates": cands,
+            "source": "llm",
+            "generated_at": _now(),
+        }
+    return None
+
+
 def run_mastering_shape_candidates(ctx: RunContext) -> None:
     if not soft_gate_enabled():
         return
     try:
-        agenda = ctx.read_json(AGENDA_REL) if ctx.artifact_exists(AGENDA_REL) else {}
-        modes = list((agenda or {}).get("mode_candidates") or ["conversational_host", "sparse_source"])
-        candidates = []
-        for i, mode in enumerate(modes):
-            grammar = list(prefer_forbid_volley_block(mode).get("prefer_grammar_moves") or [])[:3]
-            candidates.append(
-                {
-                    "candidate_id": f"cand_{i}_{mode}",
-                    "narrative_mode": mode,
-                    "montage_grammar": grammar,
-                    "cold_open_kind": "vo_plus_segment" if mode == "hook_montage" else "none",
-                    "pov": default_pov_for_mode(mode),
-                    "rationale": f"Compete on {mode} for best listen",
-                    "scores": {"bespoke_fit": 0.7 - i * 0.05, "finishability": 0.75 - i * 0.03},
-                }
-            )
-        # Soft diversity (optional — skipped by default for lite Shape)
-        sg = _shape_soft_gate_cfg()
-        if not sg.get("skip_diversity", True):
-            try:
-                from interview_mux.mastering_diversity import build_diversity_report, write_diversity_report
+        if shape_llm_enabled():
+            from interview_mux.mastering_llm import invoke_mastering_prompt
 
-                div = build_diversity_report(candidates)
-                write_diversity_report(ctx, div)
-            except Exception:
-                pass
-        if not candidates:
-            candidates = [
-                {
-                    "candidate_id": "cand_forced_sparse",
-                    "narrative_mode": "sparse_source",
-                    "montage_grammar": [],
-                    "cold_open_kind": "none",
-                    "pov": "host_first_person",
-                    "rationale": "Guaranteed survivor",
-                    "scores": {"bespoke_fit": 0.4, "finishability": 0.5},
-                }
-            ]
-        ctx.write_json(
-            CANDIDATES_REL,
-            {"version": 1, "pass": "provisional", "candidates": candidates, "generated_at": _now()},
-        )
+            arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_shape_candidates",
+                "mastering/shape-l2-candidates.system.txt",
+                _shape_llm_user_payload(
+                    ctx, consumer_id="shape_candidates_pass1", pass_name="provisional"
+                ),
+                max_attempts=2,
+            )
+            doc = _candidates_from_llm(arts)
+            if doc is not None:
+                ctx.write_json(CANDIDATES_REL, doc)
+                return
+            ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=True))
+            return
+        ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=False))
     except Exception as exc:
         ctx.write_json(
             CANDIDATES_REL,
@@ -318,6 +489,7 @@ def _plan_from_candidate(
     evidence_hash: str,
     provisional_mode: str | None = None,
     degradation_reasons: list[str] | None = None,
+    source: str = "soft_gate",
 ) -> dict[str, Any]:
     from interview_mux.information_packages import default_episode_close
 
@@ -329,6 +501,7 @@ def _plan_from_candidate(
         "version": 1,
         "pass": pass_name,
         "plan_status": plan_status,
+        "source": source,
         "narrative_mode": mode,
         "montage_grammar": grammar,
         "provisional_mode": provisional_mode or mode,
@@ -374,6 +547,47 @@ def _plan_from_candidate(
     }
 
 
+def _plan_looks_valid(plan: dict[str, Any]) -> bool:
+    if plan.get("version") != 1:
+        return False
+    if not isinstance(plan.get("narrative_mode"), str) or not plan.get("narrative_mode"):
+        return False
+    if "cold_open" not in plan:
+        return False
+    return True
+
+
+def _plan_from_llm_artifacts(
+    arts: dict[str, Any] | None,
+    *,
+    pass_name: str,
+    evidence_hash: str,
+) -> dict[str, Any] | None:
+    if not isinstance(arts, dict):
+        return None
+    plan = arts
+    nested = arts.get("mastering_plan") or arts.get("plan")
+    if isinstance(nested, dict):
+        plan = nested
+    if not _plan_looks_valid(plan):
+        return None
+    out = dict(plan)
+    out["version"] = 1
+    out["pass"] = pass_name
+    out["plan_status"] = claim_plan_complete(source="llm")
+    out["source"] = "llm"
+    out["evidence_packet_hash"] = evidence_hash
+    out.setdefault("generated_at", _now())
+    out.setdefault("montage_grammar", list(out.get("montage_grammar") or []))
+    out.setdefault("degradation_reasons", [])
+    if out.get("plan_status") != "complete":
+        reasons = list(out.get("degradation_reasons") or [])
+        if "llm_not_authoritative" not in reasons:
+            reasons.append("llm_not_authoritative")
+        out["degradation_reasons"] = reasons
+    return out
+
+
 def run_mastering_plan_synthesize(ctx: RunContext) -> None:
     """Pass1 synthesize → provisional plan."""
     if not soft_gate_enabled():
@@ -382,16 +596,47 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
     try:
         packet = compile_shape_evidence(ctx, consumer_id="shape_synthesize_pass1", pass_name="provisional")
         eh = evidence_packet_hash(packet)
+
+        if shape_llm_enabled():
+            from interview_mux.mastering_llm import invoke_mastering_prompt
+
+            arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_plan_synthesize",
+                "mastering/flagship-synthesize.system.txt",
+                _shape_llm_user_payload(
+                    ctx, consumer_id="shape_synthesize_pass1", pass_name="provisional"
+                ),
+                max_attempts=2,
+            )
+            llm_plan = _plan_from_llm_artifacts(arts, pass_name="provisional", evidence_hash=eh)
+            if llm_plan is not None:
+                from interview_mux.shape_order_emit import attach_shape_order
+
+                llm_plan = attach_shape_order(ctx, llm_plan)
+                write_plan(ctx, llm_plan)
+                return
+
         cdoc = ctx.read_json(CANDIDATES_REL) if ctx.artifact_exists(CANDIDATES_REL) else {}
         cands = list((cdoc or {}).get("candidates") or [])
         if not cands:
             plan = forced_sparse_plan(reason="no_survivors", evidence_hash=eh)
             write_plan(ctx, plan)
             return
-        # Pareto / pick best available
-        # Prefer first candidate (highest prior); Pareto needs scored frontier — optional later
         chosen = cands[0]
-        plan = _plan_from_candidate(chosen, pass_name="provisional", plan_status="complete", evidence_hash=eh)
+        # A-03: soft_gate/heuristic never claims authoritative complete.
+        status = claim_plan_complete(source="soft_gate")
+        reasons = ["soft_gate_not_authoritative"]
+        if shape_llm_enabled() and "llm_failed" not in reasons:
+            reasons.append("llm_failed")
+        plan = _plan_from_candidate(
+            chosen,
+            pass_name="provisional",
+            plan_status=status,
+            evidence_hash=eh,
+            degradation_reasons=reasons,
+            source="soft_gate",
+        )
         from interview_mux.shape_order_emit import attach_shape_order
 
         plan = attach_shape_order(ctx, plan)
@@ -410,6 +655,40 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
         prev = ctx.read_json("mastering/mastering_plan.json") if ctx.artifact_exists("mastering/mastering_plan.json") else {}
         if not isinstance(prev, dict):
             prev = {}
+
+        if shape_llm_enabled():
+            from interview_mux.mastering_llm import invoke_mastering_prompt
+
+            arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_plan_confirm",
+                "mastering/flagship-synthesize.system.txt",
+                _shape_llm_user_payload(
+                    ctx,
+                    consumer_id="shape_confirm_pass2",
+                    pass_name="confirmed",
+                    extra={"confirm": True, "prior_plan": prev},
+                ),
+                max_attempts=2,
+            )
+            llm_plan = _plan_from_llm_artifacts(arts, pass_name="confirmed", evidence_hash=eh)
+            if llm_plan is not None:
+                llm_plan["confirmed_mode"] = llm_plan.get("narrative_mode") or llm_plan.get(
+                    "confirmed_mode"
+                )
+                if isinstance(prev.get("ordered_segment_ids"), list) and prev.get("ordered_segment_ids"):
+                    llm_plan.setdefault("ordered_segment_ids", list(prev["ordered_segment_ids"]))
+                if isinstance(prev.get("information_packages"), list):
+                    llm_plan.setdefault("information_packages", list(prev["information_packages"]))
+                if isinstance(prev.get("episode_close"), dict):
+                    llm_plan.setdefault("episode_close", dict(prev["episode_close"]))
+                from interview_mux.shape_order_emit import attach_shape_order
+
+                llm_plan = attach_shape_order(ctx, llm_plan)
+                write_plan(ctx, llm_plan)
+                _maybe_shadow_diff(ctx, llm_plan)
+                return
+
         provisional_mode = str(prev.get("narrative_mode") or prev.get("provisional_mode") or "conversational_host")
         # Re-score with gap evidence if present
         mode = provisional_mode
@@ -434,13 +713,18 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
         reasons = []
         if mode != provisional_mode:
             reasons.append("pass2_mode_changed")
+        status = claim_plan_complete(source="soft_gate")
+        reasons.append("soft_gate_not_authoritative")
+        if shape_llm_enabled() and "llm_failed" not in reasons:
+            reasons.append("llm_failed")
         plan = _plan_from_candidate(
             cand,
             pass_name="confirmed",
-            plan_status="complete",
+            plan_status=status,
             evidence_hash=eh,
             provisional_mode=provisional_mode,
             degradation_reasons=reasons,
+            source="soft_gate",
         )
         plan["confirmed_mode"] = mode
         # Preserve provisional order when confirm rebuilds from mode-only cand

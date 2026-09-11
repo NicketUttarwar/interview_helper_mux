@@ -8,7 +8,10 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/mastering_plan.json
+  schema: null
+  staging: false
 inputs:
   hard: []
   soft: []

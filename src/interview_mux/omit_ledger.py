@@ -544,6 +544,23 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
     """Mark gap-report lines skipped when the omit ledger already decided omit/defer."""
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return 0
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation, soft_freeze_active
+
+        if soft_freeze_active(ctx) and not gate_seat_mutation(
+            ctx,
+            reason="omit_ledger_stamp_gap_skips",
+            symptoms=["omit_ledger"],
+        ):
+            return 0
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return 0
+        except Exception:
+            return 0
     ledger = (
         ctx.read_json(OMIT_LEDGER_REL) if ctx.artifact_exists(OMIT_LEDGER_REL) else None
     )
@@ -623,6 +640,23 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
     failed both ``omit_ledger_air_contract`` and ``opening_orientation_contract``.
     """
     notes: list[str] = []
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation, soft_freeze_active
+
+        if soft_freeze_active(ctx) and not gate_seat_mutation(
+            ctx,
+            reason="omit_ledger_revive_orientation",
+            symptoms=["omit_ledger", "orientation"],
+        ):
+            return {"changed": False, "notes": ["seat_freeze_blocked_revive"]}
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return {"changed": False, "notes": ["seat_freeze_blocked_revive_fail_closed"]}
+        except Exception:
+            return {"changed": False, "notes": ["seat_freeze_blocked_revive_fail_closed"]}
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return {"changed": False, "notes": notes}
     try:
@@ -677,6 +711,23 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
 
 def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
     """Align gap report + EDL with the omit ledger before post-master QC."""
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation, soft_freeze_active
+
+        if soft_freeze_active(ctx) and not gate_seat_mutation(
+            ctx,
+            reason="omit_ledger_heal_air_contract",
+            symptoms=["omit_ledger"],
+        ):
+            return {"changed": False, "notes": ["seat_freeze_blocked_heal"]}
+    except Exception:
+        try:
+            from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
+
+            if soft_freeze_active(ctx) or hard_freeze_active(ctx):
+                return {"changed": False, "notes": ["seat_freeze_blocked_heal_fail_closed"]}
+        except Exception:
+            return {"changed": False, "notes": ["seat_freeze_blocked_heal_fail_closed"]}
     revive = revive_required_opening_orientation(ctx)
     errors = air_contract_errors(ctx)
     healable = {
@@ -1004,4 +1055,54 @@ def record_gap_line_skip(
         kind="gap_line_skip",
         replacement=entry,
     )
-    return write_omit_ledger(ctx, updated)
+    out = write_omit_ledger(ctx, updated)
+    # Durable omit meta so ORIENTATION_ALWAYS / filter_gap_lines cannot revive a
+    # G1-skipped preface without a WAV (exec_11130 audible_count=0 expected=1).
+    try:
+        from interview_mux.opening_orientation import (
+            _omit_orientation_payload,
+            is_episode_orientation,
+            native_cold_open_segment_id,
+        )
+
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap = ctx.read_json("understanding/gap_report.json")
+            if isinstance(gap, dict):
+                line = next(
+                    (
+                        ln
+                        for ln in (gap.get("interviewer_lines") or [])
+                        if isinstance(ln, dict)
+                        and str(ln.get("line_id") or "") == str(line_id)
+                    ),
+                    None,
+                )
+                if line is not None and is_episode_orientation(line):
+                    ordered: list[str] = []
+                    if ctx.artifact_exists("master/selection.json"):
+                        sel = ctx.read_json("master/selection.json")
+                        if isinstance(sel, dict):
+                            ordered = [
+                                str(s) for s in (sel.get("ordered_segment_ids") or []) if s
+                            ]
+                    first = str(ordered[0]) if ordered else str(target_segment_id or "")
+                    hook = native_cold_open_segment_id(ctx, ordered) if ordered else None
+                    gap = dict(gap)
+                    gap["opening_orientation"] = _omit_orientation_payload(
+                        first=first,
+                        hook=hook,
+                        reason=str(reason_code or "g1_skipped_optional"),
+                    )
+                    for ln in gap.get("interviewer_lines") or []:
+                        if (
+                            isinstance(ln, dict)
+                            and str(ln.get("line_id") or "") == str(line_id)
+                        ):
+                            ln["skipped_optional"] = True
+                            ln["air_script_omit"] = True
+                    ctx.write_json(
+                        "understanding/gap_report.json", gap, skip_handoff=True
+                    )
+    except Exception:
+        pass
+    return out

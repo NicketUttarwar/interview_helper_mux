@@ -105,9 +105,45 @@ def demote_uncovered_high_gaps(
     After seed/fill (and skip of blank/contiguous/unspeakable spans), leftover
     high rows cannot ship — demote them to medium with a typed reason so the
     stage can commit instead of looping forever.
+
+    Under G-Framing Yes / hosted framing, refuse **heal** demotions while
+    active synthetic VO is below ``min_synthetic_vo_lines`` — those clears
+    fill pressure and leave nugget_layup thrashing at the ≥3 floor (exec_10066).
+    Compose-path demotion (``uncovered_after_fill``) still runs after fill.
     """
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return 0
+    _heal_origins = frozenset(
+        {"e2e_heal_lint_dirty", "post_commit_uncovered_high"}
+    )
+    air_ids: set[str] | None = None
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+                if ordered:
+                    air_ids = set(ordered)
+        except Exception:
+            air_ids = None
+    refuse_on_air_demote = False
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            count_active_gap_vo_lines,
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+
+        if (
+            origin in _heal_origins
+            and hosted_framing_requires_synthetic_vo(ctx)
+            and count_active_gap_vo_lines(ctx) < min_synthetic_vo_lines(ctx)
+        ):
+            # Still allow demoting high gaps that are off the air-order selection —
+            # those cannot receive on-air VO and must not sticky-block compose lint.
+            refuse_on_air_demote = True
+    except Exception:
+        pass
     try:
         evals = ctx.read_json("understanding/gap_evaluations.json")
     except Exception:
@@ -128,9 +164,15 @@ def demote_uncovered_high_gaps(
         sid = str(row.get("segment_id") or "")
         sev = str(row.get("severity") or "").lower()
         if sid and sev == "high" and sid not in targeted:
+            off_air = air_ids is not None and sid not in air_ids
+            if refuse_on_air_demote and not off_air:
+                rows.append(row)
+                continue
             row = dict(row)
             row["severity"] = "medium"
-            row["severity_demotion_reason"] = origin
+            row["severity_demotion_reason"] = (
+                f"{origin}:off_air" if off_air else origin
+            )
             demoted += 1
         rows.append(row)
     if not demoted:
