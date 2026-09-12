@@ -135,6 +135,37 @@ def test_audited_path_prefers_seated_wav_matching_bound_sha(tmp_path, monkeypatc
     assert resolved.resolve() == seated.resolve()
 
 
+def test_audited_path_finds_pending_vo_synthesize_shadow(tmp_path, monkeypatch) -> None:
+    """EDL may overwrite committed vo_pickup with stale bytes; pending shadow still binds."""
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_pending_shadow_sha")
+    line = _base_line()
+    synth = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    pending = ctx.path(
+        ".pending_writes", "vo_synthesize", "vo_pickup", "synthesized", "line_1.wav"
+    )
+    _wav(synth, duration_ms=300)
+    record_synthesis(ctx, line, backend="chatterbox", out_wav=synth)
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_bytes(synth.read_bytes())
+    # Stale EDL promote into committed path (different bytes).
+    _wav(synth, duration_ms=900)
+    entry = synthesis_entry_for_line(ctx, "line_1")
+    assert entry is not None
+    assert wav_content_sha256(pending) == entry.get("wav_sha256")
+    assert wav_content_sha256(synth) != entry.get("wav_sha256")
+
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    assert matches is True
+    assert reason in {"match", "script_match_stale_context"}
+    resolved = resolve_vo_pickup_path(ctx, line)
+    assert resolved is not None
+    assert resolved.resolve() == pending.resolve()
+
+
 def test_lines_needing_adjudicate_filters_fresh_wav(tmp_path, monkeypatch) -> None:
     _patch_vo_qc_off(monkeypatch)
     ctx = isolated_run_ctx(tmp_path, "run_lines_needing")

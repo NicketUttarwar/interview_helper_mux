@@ -2987,7 +2987,13 @@ def wasted_work_counts_toward_sticky_halt(
     """True-waste events that should sticky-halt — excludes expected early music filters."""
     if not wasted_work_is_true_waste(event):
         return False
-    if str(event or "").strip().lower() != "music_deferred":
+    ev = str(event or "").strip().lower()
+    if ev == "orphan_artifact":
+        # Detect-only leftovers (no demote) are shared-path / early-pipeline
+        # telemetry — sticky-halting freezes Full-auto mid-delivery (exec_11165).
+        if not (detail or {}).get("demoted"):
+            return False
+    if ev != "music_deferred":
         return True
     reason = str((detail or {}).get("reason") or "").strip().lower()
     # Candidate filtering before assembly / Phase A — not intervene-worthy spend.

@@ -208,17 +208,41 @@ def log_decision(
     log(" ".join(parts))
     if RUN_ID and _forensics_mode():
         try:
+            from interview_mux.forensics_error_ledger import record_from_driver_event
             from interview_mux.forensics_minor_fixes import record_from_driver_decision
             from interview_mux.run_context import RunContext
 
+            ctx_dec = RunContext(RUN_ID, create=False)
             record_from_driver_decision(
-                RunContext(RUN_ID, create=False),
+                ctx_dec,
                 severity=sev,
                 stage=stage,
                 action=action,
                 reason=reason,
                 detail=detail,
             )
+            act_l = str(action or "").lower()
+            # Also capture decision events that look like failures / stalls / gates.
+            if act_l in {
+                "forensics_escalate",
+                "forensics_stall",
+                "pause",
+                "stop",
+                "exit",
+                "handle_gate",
+                "error",
+            } or sev == "major":
+                detail_s = detail if isinstance(detail, str) else (
+                    "" if detail is None else str(detail)[:2000]
+                )
+                record_from_driver_event(
+                    ctx_dec,
+                    stage=stage,
+                    action=action or reason or "decision",
+                    detail=(reason + (" | " + detail_s if detail_s else "")).strip(" |"),
+                    severity="error" if act_l not in {"pause", "stop", "exit"} else act_l,
+                    extra={"decision_severity": sev},
+                )
         except Exception:
             pass
 
@@ -7443,6 +7467,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 # waiting never adopts; producer must be the layup stage.
                 if _forensics_mode() and (
                     "seed order" in pause_reason
+                    or "true_waste_sticky" in pause_reason
                     or pause_stage in {"vo_synthesize", "vo_line_adjudicate"}
                     or (
                         pause_stage == "nugget_layup_compose"
@@ -7461,7 +7486,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
                     log(
                         f"forensics: cleared needs_operator {pause_stage} while "
-                        f"{live_stage} running (seed-order/layup-stale heal continues)"
+                        f"{live_stage} running "
+                        f"(seed-order/layup-stale/true-waste heal continues)"
                     )
                     if pause_stage == "nugget_layup_compose":
                         try:
@@ -8464,6 +8490,20 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 execute({"mode": "analysis", "from_stage": resume})
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
+            if _forensics_mode() and RUN_ID:
+                try:
+                    from interview_mux.forensics_error_ledger import record_from_driver_event
+                    from interview_mux.run_context import RunContext as _RCErr
+
+                    record_from_driver_event(
+                        _RCErr(RUN_ID, create=False),
+                        stage=str(stage or ""),
+                        detail=str(err or "")[:2000],
+                        action="stage_error",
+                        severity="error",
+                    )
+                except Exception:
+                    pass
             low_err = err.lower()
             if "seed order:" in low_err and "complete " in low_err and " before running " in low_err:
                 import re as _re_seed
@@ -12966,6 +13006,24 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     continue
                 except Exception as exc:
                     log(f"bed quartile heal: {exc}")
+            if (
+                "incomplete_cut_unresolved" in low_err
+                or "critical_incomplete_cut" in low_err
+                or (
+                    "publishability blocked" in low_err
+                    and "pre_mix" in low_err
+                    and (
+                        "incomplete_cut" in low_err
+                        or "critical_residuals" in low_err
+                        or "on_a_roll" in low_err
+                    )
+                )
+            ):
+                resume = try_product_recovery(stage or "mix", err)
+                dest = resume or "junction_snip_qa"
+                log(f"incomplete_cut heal → {dest} (not remastering mix)")
+                execute({"mode": "delivery", "from_stage": dest})
+                continue
             if "429" in low_err or "insufficient_quota" in low_err:
                 # Stop burning quota — restore selection/SDP chain from archive and skip LLM ranking.
                 try:
@@ -13408,6 +13466,24 @@ def main() -> int:
             if job.get("status") == "error":
                 msg = str(job.get("message") or job.get("error") or "")
                 log(f"error (will heal+retry): {msg[:400]}")
+                if _forensics_mode() and RUN_ID:
+                    try:
+                        from interview_mux.forensics_error_ledger import (
+                            record_from_driver_event,
+                        )
+                        from interview_mux.run_context import RunContext as _RCJob
+
+                        record_from_driver_event(
+                            _RCJob(RUN_ID, create=False),
+                            stage=str(
+                                job.get("stage") or job.get("current_stage") or ""
+                            ),
+                            detail=str(msg or "")[:2000],
+                            action="job_error",
+                            severity="error",
+                        )
+                    except Exception:
+                        pass
                 if _forensics_mode() and _forensics_stall_maybe_exit(
                     str(job.get("stage") or job.get("current_stage") or ""),
                     msg,

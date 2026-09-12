@@ -194,3 +194,46 @@ def test_coverage_refuse_only_for_compose_thin_under_authority() -> None:
     ok = sanitize_gap_report(ctx, intentional_omits)
     assert ok.ok
     assert not any("layup_coverage_below_floor" in e for e in ok.errors)
+
+
+def test_sanitize_drops_incomplete_omit_stub() -> None:
+    """exec_11165: phantom waived orientation without schema fields must be dropped."""
+    ctx = RunContext(create=True)
+    _write_selection(ctx, ["seg_001"])
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_question_seg_001",
+                "delivery": "synthesize",
+                "gap_type": "missing_question",
+                "targets_segment_id": "seg_001",
+                "placement": "before",
+                "text": "What changed?",
+            },
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "delivery": "synthesize",
+                "skipped_optional": True,
+                "air_script_omit": True,
+                "blocking": False,
+                "skip_reason_code": "execution_contract_waive",
+                "compensating_path": "tier_d_logged_waive",
+            },
+        ],
+        "opening_orientation": {
+            "omitted": True,
+            "required": False,
+            "omit_reason": "execution_contract_waive",
+        },
+        "gaps": [],
+    }
+    result = sanitize_gap_report(ctx, gap)
+    assert result.ok
+    lids = [
+        str(ln.get("line_id") or "")
+        for ln in (result.doc.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    ]
+    assert "vo_preface_episode_orientation" not in lids
+    assert "vo_question_seg_001" in lids
+    assert any(a.get("action") == "drop_incomplete_omit_stub" for a in result.actions)

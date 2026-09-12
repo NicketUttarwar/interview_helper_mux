@@ -644,8 +644,9 @@ def _handle_listen_delight_failure(
 ) -> bool:
     """Aspirational remutate path. Returns True only when soft-proceed is allowed.
 
-    When ``listen_delight.mode`` is authoritative and remutate is exhausted (or
-    post_master ship gate), return False so callers hard-block publish.
+    F7 1C: at post_master, aspirational + above catastrophic floors is advisory
+    (local package continues). Catastrophic misses and aspirational-off still
+    return False so callers hard-block.
     """
     from interview_mux.aspirational_quality import (
         apply_best_quality_candidate,
@@ -692,11 +693,10 @@ def _handle_listen_delight_failure(
         audit_patch["pick_best"] = apply_best_quality_candidate(
             ctx, family="listen_delight"
         )
-        if authoritative:
-            soft_proceed = False
-            audit_patch["blocking"] = True
-            audit_patch["advisory"] = False
-            audit_patch["needs_operator_reason"] = "listen_delight_floors_exhausted"
+        # F7 1C: do not loud-fail ship on aspiration misses; catastrophic
+        # already returned False above.
+        audit_patch["blocking"] = False
+        audit_patch["advisory"] = True
     elif not remutate.get("exhausted"):
         applied = apply_listen_delight_remutate(ctx, remutate)
         audit_patch["remutate_applied"] = applied
@@ -856,7 +856,7 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
 
 
 def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
-    """Fresh authoritative delight after master.wav — ship gate when not aspirational."""
+    """Fresh delight after master.wav — hard-stop only when not aspirational or catastrophic."""
     conf = listen_delight_cfg()
     from interview_mux.aspirational_quality import is_aspirational_enabled
 
@@ -873,8 +873,8 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
 
     result = evaluate_listen_delight(ctx, cfg=conf, pass_phase="post_master")
     dims = result["dimensions"]
-    # Authoritative mode blocks ship on fail once remutate soft-proceed declines.
-    blocking = mode_str == "authoritative" or not aspirational
+    # F7 1C: aspirational ship is advisory; hard-block only when aspirational is off.
+    blocking = not aspirational
     prior: dict[str, Any] = {}
     if ctx.artifact_exists(AUDIT_REL):
         try:

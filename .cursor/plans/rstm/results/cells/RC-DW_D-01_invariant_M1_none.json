@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|D-01|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "vitest:frontend/src/utils/partialAcceleratedGuard.test.ts",
+    "pytest:tests/test_partial_auto_mode.py::test_automation_driver_run_includes_partial_and_full",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

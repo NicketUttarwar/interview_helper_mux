@@ -51,6 +51,9 @@ class HealRoute:
 class PlaybookSpec:
     resume_stage: str
     action: str = ""
+    max_cycles: int = 3
+    escalate_after: int = HALT_AFTER
+    blocking_checkpoint: str = ""
 
 
 PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
@@ -68,7 +71,14 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
         resume_stage="edl", action="rebuild_edl"
     ),
     "incomplete_cut_unresolved": PlaybookSpec(
-        resume_stage="junction_snip_qa", action="junction_ladder"
+        resume_stage="junction_snip_qa",
+        action="junction_ladder",
+        blocking_checkpoint="pre_mix",
+    ),
+    "critical_junction_residual": PlaybookSpec(
+        resume_stage="junction_snip_qa",
+        action="junction_ladder",
+        blocking_checkpoint="pre_mix",
     ),
     "pending_write_barrier": PlaybookSpec(
         resume_stage="junction_snip_qa", action="approve_or_rerun_producer"
@@ -93,9 +103,20 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     "vo_contract_repair": PlaybookSpec(
         resume_stage="vo_line_adjudicate", action="vo_contract_ladder"
     ),
-    "vo_seated_coverage": PlaybookSpec(resume_stage="vo_synthesize", action="repair_and_resynth"),
+    "vo_seated_coverage": PlaybookSpec(
+        resume_stage="vo_synthesize", action="repair_and_resynth"
+    ),
     "missing_g1_pickup": PlaybookSpec(
         resume_stage="vo_synthesize", action="ensure_g1"
+    ),
+    "g1_vo_incomplete": PlaybookSpec(
+        resume_stage="vo_synthesize", action="ensure_g1"
+    ),
+    "mmaudio_incomplete": PlaybookSpec(
+        resume_stage="mmaudio_sfx", action="regenerate_referenced_wavs"
+    ),
+    "sdp_theme_wavs_missing": PlaybookSpec(
+        resume_stage="mmaudio_sfx", action="generate_sdp_theme_wavs"
     ),
     "assembly_not_rendered_from_current_edl": PlaybookSpec(
         resume_stage="mix", action="clear_mix_junction"
@@ -110,6 +131,18 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
         resume_stage="vo_synthesize", action="pin_synth_after_ladder_cap"
     ),
 }
+
+
+def resume_stage_for_error_class(
+    error_class: str,
+    *,
+    default: str = "",
+) -> str:
+    """Single SSOT resume pin from PLAYBOOK_REGISTRY."""
+    spec = PLAYBOOK_REGISTRY.get(str(error_class or "").strip())
+    if spec is not None:
+        return str(spec.resume_stage or default or "")
+    return str(default or "")
 
 
 def mix_assembly_seated(ctx: RunContext) -> bool:
@@ -193,6 +226,20 @@ def classify_heal_error(
             from_stage="vo_line_adjudicate",
             action="rerun_adjudicate_synth",
             detail="adjudicate then synthesize — script/WAV drift before audit",
+        )
+
+    # F4: spoken glue / seated VO WAV missing → synthesize first, never EDL/mix.
+    if (
+        "gap vo lines missing wav" in low
+        or "transition pairs missing wav" in low
+        or "transition pairs still missing wav" in low
+        or "current transition pairs missing wav" in low
+    ):
+        return HealRoute(
+            family=FAMILY_G1_MISSING,
+            from_stage="vo_synthesize",
+            action="synthesize_g1",
+            detail="bridge/VO WAV missing — synthesize first, never rebuild EDL or remaster mix",
         )
 
     if (
@@ -283,6 +330,27 @@ def classify_heal_error(
             from_stage="chapter_close_hitch",
             action="hitch_listen_restage",
             detail="junction_family:hitch_listen_restage",
+        )
+
+    if (
+        "incomplete_cut_unresolved" in low
+        or "critical_incomplete_cut" in low
+        or (
+            "publishability blocked" in low
+            and "pre_mix" in low
+            and ("incomplete_cut" in low or "critical_residuals" in low or "on_a_roll" in low)
+        )
+        or (
+            stage_l in {"mix", "junction_snip_qa", "master_finalize"}
+            and "critical_residuals" in low
+            and "on_a_roll" in low
+        )
+    ):
+        return HealRoute(
+            family=FAMILY_JUNCTION,
+            from_stage="junction_snip_qa",
+            action="junction_ladder",
+            detail="incomplete_cut_unresolved — junction before mix",
         )
 
     if (

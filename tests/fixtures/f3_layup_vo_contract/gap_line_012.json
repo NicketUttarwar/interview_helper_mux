@@ -1,0 +1,13 @@
+{
+  "line_id": "vo_layup_seg_012",
+  "text": "The speaker says a gram of tumour sheds about a million cancer cells into the bloodstream.",
+  "targets_segment_id": "seg_012",
+  "placement": "before",
+  "delivery": "synthesize",
+  "gap_type": "nugget_layup",
+  "required": true,
+  "origin": "nugget_layup",
+  "severity": "high",
+  "skipped_optional": true,
+  "air_script_omit": true
+}

@@ -1,0 +1,5 @@
+{
+  "note": "exec_5404/5570 cover-prompt reject + listen advisory (F7). Fixture only — not a live run.",
+  "invalid_llm_prompt": "a photograph of a person face with title text",
+  "apple_min_cover_px": 1400
+}

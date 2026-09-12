@@ -487,6 +487,18 @@ def _audited_wav_path(
                 _add(resolver())
             except Exception:
                 continue
+        # Probe pending stage shadows for the same rel. EDL bridge heal can
+        # promote stale bytes into committed vo_pickup/ while the sha-bound take
+        # remains under .pending_writes/vo_synthesize/… (exec_11165 seated_bind_stale).
+        try:
+            pending_root = ctx.path(".pending_writes")
+            if pending_root.is_dir() and candidate_rel:
+                for stage_dir in pending_root.iterdir():
+                    if not stage_dir.is_dir():
+                        continue
+                    _add(stage_dir.joinpath(*candidate_rel.split("/")))
+        except Exception:
+            pass
     lid = str(line.get("line_id") or entry.get("line_id") or "").strip()
     seg = str(line.get("targets_segment_id") or "").strip()
     # Spoken transition WAVs live under master/transitions/, not vo_pickup/.
@@ -503,6 +515,22 @@ def _audited_wav_path(
             if not key:
                 continue
             _add(base / f"{key}.wav")
+    # Pending vo_pickup shadows by line id (covers audits with blank/odd out_wav).
+    try:
+        pending_root = ctx.path(".pending_writes")
+        if pending_root.is_dir() and lid:
+            for stage_dir in pending_root.iterdir():
+                if not stage_dir.is_dir():
+                    continue
+                for sub in ("matched", "synthesized", "clean", "normalized", ""):
+                    base = (
+                        stage_dir / "vo_pickup" / sub
+                        if sub
+                        else stage_dir / "vo_pickup"
+                    )
+                    _add(base / f"{lid}.wav")
+    except Exception:
+        pass
     if not candidates:
         return None
     bound = str(entry.get("wav_sha256") or "").strip()

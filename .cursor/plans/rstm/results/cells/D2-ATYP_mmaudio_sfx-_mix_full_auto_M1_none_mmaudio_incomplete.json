@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|mmaudio_sfx->mix|full_auto|M1_none|mmaudio_incomplete",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:57:48Z"
+}

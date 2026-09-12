@@ -22,7 +22,7 @@
         "maximum": 1
       }
     },
-    "quality_status": { "type": "string", "enum": ["pass", "fail"] },
+    "quality_status": { "type": "string", "enum": ["pass", "fail", "advisory_fail"] },
     "publish_allowed": { "type": "boolean" }
   },
   "additionalProperties": true

@@ -488,6 +488,17 @@ def test_ship_path_ready_fail_closed_on_residual_view_error(tmp_path, monkeypatc
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "ship_residual_fail_closed")
     _ship_ready_fixture(ctx, monkeypatch)
+    _write_raw(
+        ctx,
+        "master/junction_snip_qa.json",
+        {
+            "version": 1,
+            "critical_residual_count": 0,
+            "critical_residuals": 0,
+            "residual_findings": [],
+            "mode": "authoritative",
+        },
+    )
 
     def _boom(_ctx):
         raise RuntimeError("ssot exploded")

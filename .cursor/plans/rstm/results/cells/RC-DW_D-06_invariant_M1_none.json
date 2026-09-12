@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|D-06|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_partial_auto_mode.py::test_complete_g0_skipped_when_partial",
+    "pytest:tests/test_partial_auto_mode.py::test_partial_never_syncs_s3_without_g_publish_consent",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

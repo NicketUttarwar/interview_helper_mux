@@ -31,8 +31,8 @@ def test_authoritative_mode_is_default(tmp_path):
     assert cfg.get("overall_min") == 0.90
 
 
-def test_authoritative_ship_hard_stops_after_remutate_exhaustion(tmp_path, monkeypatch):
-    """Authoritative + aspirational: remutate then hard-block at ship (no soft-ship)."""
+def test_authoritative_ship_soft_proceeds_when_catastrophic_ok(tmp_path, monkeypatch):
+    """F7 1C: aspirational + above catastrophic floors does not loud-fail at ship."""
     ctx = isolated_run_ctx(tmp_path, "exec_delight_fail")
     monkeypatch.setattr(
         "interview_mux.aspirational_quality.passes_catastrophic_floors",
@@ -62,6 +62,40 @@ def test_authoritative_ship_hard_stops_after_remutate_exhaustion(tmp_path, monke
     assert audit["blocking"] is False
     assert audit["passed"] is False
 
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF" + b"x" * 1100)
+
+    ship = run_authoritative_listen_delight_at_ship(ctx)
+    assert ship.get("passed") is False
+    assert ship.get("blocking") is False
+    assert ship.get("advisory") is True
+
+
+def test_catastrophic_floors_still_hard_stop_at_ship(tmp_path, monkeypatch):
+    """F7 1C: catastrophic listen scores still loud-fail at ship."""
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_cata")
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.passes_catastrophic_floors",
+        lambda *a, **k: (False, ["listen_delight_overall 0.1 < catastrophic 0.7"]),
+    )
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_summary_x",
+                    "line_category": "segment_summary",
+                    "text": "In this chapter we recap the deal.",
+                }
+            ]
+        },
+    )
+    _write_raw(
+        ctx,
+        "mastering/mastering_plan.json",
+        {"narrative_mode": "sparse_source", "plan_status": "complete"},
+    )
     (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF" + b"x" * 1100)
 

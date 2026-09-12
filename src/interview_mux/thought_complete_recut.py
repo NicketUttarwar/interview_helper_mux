@@ -706,6 +706,7 @@ def apply_thought_complete_to_clips(
     if hanging is None:
         return clips, overrides, False
     hang_start = int(hanging.get("source_start_ms") or 0)
+    prior_end = int(hanging.get("source_end_ms") or hang_start)
     if keep_end <= hang_start + 300:
         return clips, overrides, False
     hanging["source_end_ms"] = keep_end
@@ -716,6 +717,7 @@ def apply_thought_complete_to_clips(
     overrides[sid] = ov
 
     drop: set[str] = set()
+    remainder_shifted = False
     for j in range(hang_index + 1, len(clips)):
         other = clips[j]
         if str(other.get("type") or "") != "speech":
@@ -735,20 +737,24 @@ def apply_thought_complete_to_clips(
             if new_start >= ose - 300:
                 drop.add(oid)
             else:
-                other["source_start_ms"] = new_start
-                other["duration_ms"] = ose - new_start
-                o_ov = dict(overrides.get(oid) or {})
-                o_ov["start_ms"] = new_start
-                o_ov["end_ms"] = ose
-                overrides[oid] = o_ov
+                if abs(new_start - oss) >= 20:
+                    other["source_start_ms"] = new_start
+                    other["duration_ms"] = ose - new_start
+                    o_ov = dict(overrides.get(oid) or {})
+                    o_ov["start_ms"] = new_start
+                    o_ov["end_ms"] = ose
+                    overrides[oid] = o_ov
+                    remainder_shifted = True
             continue
         if remainder_ms is not None and oss <= remainder_ms < ose:
-            other["source_start_ms"] = remainder_ms
-            other["duration_ms"] = ose - remainder_ms
-            o_ov = dict(overrides.get(oid) or {})
-            o_ov["start_ms"] = remainder_ms
-            o_ov["end_ms"] = ose
-            overrides[oid] = o_ov
+            if abs(remainder_ms - oss) >= 20:
+                other["source_start_ms"] = remainder_ms
+                other["duration_ms"] = ose - remainder_ms
+                o_ov = dict(overrides.get(oid) or {})
+                o_ov["start_ms"] = remainder_ms
+                o_ov["end_ms"] = ose
+                overrides[oid] = o_ov
+                remainder_shifted = True
         break
 
     for oid in drop:
@@ -767,4 +773,6 @@ def apply_thought_complete_to_clips(
                 and str(c.get("segment_id") or "") in drop
             )
         ]
-    return clips, overrides, True
+    # No-op keep_end (== current end) with no neighbor mutation is not a heal.
+    material = bool(drop) or remainder_shifted or abs(keep_end - prior_end) >= 20
+    return clips, overrides, material

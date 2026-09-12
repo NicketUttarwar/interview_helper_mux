@@ -284,11 +284,27 @@ def seat_mutation_allowed(
         x in reason_l
         for x in ("g1_red", "operator", "missing_seated_wav", "catastrophe")
     )
+    # Selection packaging (CTA / sanitize) is not a VO-seat fingerprint rewrite —
+    # soft rewrite cap must not permanently block it (exec_11165 layup spin).
+    packaging = any(
+        x in reason_l
+        for x in (
+            "media_ip_cta",
+            "artifact_sanitize.selection",
+            "cta_omit",
+            "cta_prune",
+            "heal_on_air_cta",
+        )
+    )
     ok, why = seat_rewrite_budget_ok(ctx)
-    if not ok:
+    if not ok and not packaging and not catastrophe:
         return False, why
     if catastrophe:
         return True, "catastrophe_or_operator"
+    if packaging:
+        if not require_meta_gate:
+            return True, "packaging_budget_ok"
+        return False, "frozen_needs_meta_gate"
     if not require_meta_gate:
         return True, "budget_ok"
     # Caller must have already passed meta-gate; this helper is the freeze check.

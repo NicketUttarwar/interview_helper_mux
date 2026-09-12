@@ -2700,6 +2700,12 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
 
         _plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
         _seated_ids = seated_vo_line_ids(_plan)
+        try:
+            from interview_mux.air_script import omitted_vo_line_ids as _omitted_vo_line_ids
+
+            _omitted_ids = _omitted_vo_line_ids(_plan)
+        except Exception:
+            _omitted_ids = set()
 
         fixed_lines: list[dict[str, Any]] = []
         for row in stamped:
@@ -2805,7 +2811,20 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 )
             if last_sentence_restates_target(str(line.get("text") or ""), target_text):
                 lid_now = str(line.get("line_id") or "").strip()
-                if lid_now and lid_now in _seated_ids:
+                # Air-contract omit wins — never revive an omitted seat via overlap heal.
+                if lid_now and lid_now in _omitted_ids and lid_now not in _seated_ids:
+                    line = mark_gap_line_not_on_air(
+                        line,
+                        reason_code="air_script_omit_sync",
+                    )
+                    applied.append(
+                        {
+                            "action": "overlap_keep_omitted",
+                            "line_id": line.get("line_id"),
+                            "targets_segment_id": tid_now,
+                        }
+                    )
+                elif lid_now and lid_now in _seated_ids:
                     line = ensure_gap_line_on_air(line)
                     applied.append(
                         {
@@ -3098,6 +3117,47 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
 
         out, restored = restore_layup_lines(ctx, out)
         applied.extend(restored)
+    except Exception:
+        pass
+    # Air-contract omit wins over EDL courtesy / spoken-copy rewrites. Without
+    # this restamp, omitted_line_ids lose skip flags and required layups demand
+    # WAVs → vo_synthesize thrash under soft freeze (exec_11165).
+    try:
+        from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.vo_contract import mark_gap_line_not_on_air
+
+        plan = (
+            load_plan_raw(ctx)
+            if ctx.artifact_exists("mastering/mastering_plan.json")
+            else {}
+        )
+        omitted = omitted_vo_line_ids(plan)
+        seated = seated_vo_line_ids(plan)
+        lines = out.get("interviewer_lines")
+        if isinstance(lines, list) and omitted:
+            restamped: list[Any] = []
+            for row in lines:
+                if not isinstance(row, dict):
+                    restamped.append(row)
+                    continue
+                lid = str(row.get("line_id") or "").strip()
+                if (
+                    lid
+                    and lid in omitted
+                    and lid not in seated
+                    and not (
+                        row.get("skipped_optional") and row.get("air_script_omit")
+                    )
+                ):
+                    row = mark_gap_line_not_on_air(
+                        row, reason_code="air_script_omit_sync"
+                    )
+                    applied.append(
+                        {"action": "restamp_air_contract_omit", "line_id": lid}
+                    )
+                restamped.append(row)
+            out["interviewer_lines"] = restamped
     except Exception:
         pass
     for entry in applied:

@@ -441,6 +441,40 @@ def test_default_bridge_uses_listener_facing_topics_not_ids() -> None:
     assert "167" not in text
 
 
+def test_listener_topic_rejects_snake_case_pipeline_tags() -> None:
+    """chapter_close_hitch topic_tags must not become spoken bridge copy."""
+    from interview_mux.seam_glue import enrich_bridge_pair_excerpts
+
+    pair = enrich_bridge_pair_excerpts(
+        {"after_segment_id": "seg_022", "before_segment_id": "seg_026"},
+        {
+            "seg_022": {
+                "segment_id": "seg_022",
+                "topic_tags": ["chapter_close_hitch"],
+                "text": (
+                    "What if I found a CTC and the doctor is saying, so what? "
+                    "Unless you can profile that cell further."
+                ),
+            },
+            "seg_026": {
+                "segment_id": "seg_026",
+                "topic_tags": ["chapter_close_hitch"],
+                "text": (
+                    "Okay. So, traditional circulating tumor cell CTC, the end "
+                    "point was enumeration alone."
+                ),
+            },
+        },
+    )
+    assert "chapter_close_hitch" not in str(pair.get("after_topic") or "")
+    assert "chapter_close_hitch" not in str(pair.get("before_topic") or "")
+    text = default_bridge_text(pair)
+    assert text
+    assert "chapter_close_hitch" not in text
+    # Collision with a prior identical hinge must not resurrect the tag label.
+    assert default_bridge_text(pair, used_texts={text}) == ""
+
+
 def test_default_bridge_derives_topics_from_transcript() -> None:
     from interview_mux.seam_glue import enrich_bridge_pair_excerpts
 

@@ -158,6 +158,71 @@ def test_tier_d_waive_orientation_survives_reconcile(ctx: RunContext) -> None:
     assert meta.get("required") is False
 
 
+def test_tier_d_waive_missing_line_no_schema_invalid_stub(ctx: RunContext) -> None:
+    """exec_11165: tier-D must not mint omit stubs missing gap_type/text/targets/placement."""
+    from interview_mux.execution_contract import _tier_d_logged_waive, classify_vo_violation
+    from interview_mux.prompt_validation import validate_artifact_write
+
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "beats": [],
+                "vo_seats": {
+                    "seated_line_ids": [ORIENTATION_LINE_ID],
+                    "omitted_line_ids": [],
+                    "orientation_id": ORIENTATION_LINE_ID,
+                },
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_question_seg_001",
+                    "delivery": "synthesize",
+                    "gap_type": "missing_question",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "text": "What changed in the trial design?",
+                }
+            ]
+        },
+    )
+    violation = classify_vo_violation(
+        f"seated synthesize {ORIENTATION_LINE_ID} missing from gap_report"
+    )
+    _tier_d_logged_waive(ctx, violation)
+    gap = ctx.read_json("understanding/gap_report.json")
+    lines = gap.get("interviewer_lines") or []
+    assert not any(
+        isinstance(ln, dict) and str(ln.get("line_id") or "") == ORIENTATION_LINE_ID
+        for ln in lines
+    )
+    meta = gap.get("opening_orientation") or {}
+    assert meta.get("omitted") is True
+    assert meta.get("waived_line_id") == ORIENTATION_LINE_ID
+    errs = validate_artifact_write("understanding/gap_report.json", gap)
+    assert not errs, errs
+
+
+def test_mark_gap_line_not_on_air_fills_schema_required() -> None:
+    from interview_mux.vo_contract import mark_gap_line_not_on_air
+
+    row = mark_gap_line_not_on_air(
+        {"line_id": "vo_preface_episode_orientation", "delivery": "synthesize"},
+        reason_code="execution_contract_waive",
+        compensating_path="tier_d_logged_waive",
+    )
+    for key in ("gap_type", "text", "targets_segment_id", "placement", "delivery"):
+        assert key in row
+    assert row["placement"] in {"before", "after"}
+    assert row["skipped_optional"] is True
+    assert row["air_script_omit"] is True
+
+
 def test_policy_cascade_suppresses_identical_failure(ctx: RunContext) -> None:
     from interview_mux.execution_contract import failure_in_active_policy_cascade
     from interview_mux.identical_failures import record_class_failure

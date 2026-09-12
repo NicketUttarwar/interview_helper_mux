@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "ordered_segment_ids": ["seg_022", "seg_026"],
+  "timeline_duration_ms": 4800,
+  "clips": [
+    {
+      "type": "speech",
+      "segment_id": "seg_022",
+      "source_start_ms": 120000,
+      "source_end_ms": 122000,
+      "timeline_start_ms": 0,
+      "duration_ms": 2000
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "timeline_start_ms": 2000,
+      "duration_ms": 800
+    },
+    {
+      "type": "speech",
+      "segment_id": "seg_026",
+      "source_start_ms": 180000,
+      "source_end_ms": 182000,
+      "timeline_start_ms": 2800,
+      "duration_ms": 2000
+    }
+  ]
+}

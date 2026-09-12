@@ -410,13 +410,25 @@ def _check_pending_writes(ctx: RunContext) -> list[PublishabilityViolation]:
 
 
 def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
-    # Junction remaster calls run_mix → pre_mix. Blocking on the residuals
-    # junction is actively repairing is a self-deadlock (exec_11130 feel remaster).
+    # Junction remaster calls run_mix → pre_mix. Non-incomplete residuals that
+    # junction is actively repairing must not self-deadlock. Live hanging
+    # mid-thought clips still block (F5 1A/3A).
     try:
         from interview_mux.write_staging import active_stage_id
+        from interview_mux.junction_snip_qa import live_incomplete_cut_critical_findings
 
-        if active_stage_id() == "junction_snip_qa":
+        if active_stage_id() == "junction_snip_qa" and not live_incomplete_cut_critical_findings(
+            ctx
+        ):
             return []
+    except Exception:
+        pass
+    # Stale pending/committed incomplete-cut stamps must not block mix when the
+    # live EDL no longer has critical on_a_roll / incomplete_clause findings.
+    try:
+        from interview_mux.junction_snip_qa import clear_stale_incomplete_cut_residuals
+
+        clear_stale_incomplete_cut_residuals(ctx)
     except Exception:
         pass
     out: list[PublishabilityViolation] = []
@@ -522,7 +534,9 @@ def _check_pmq_envelope(ctx: RunContext) -> list[PublishabilityViolation]:
                 detail=detail,
             )
         ]
-    if doc.get("status") == "advisory_fail":
+    from interview_mux.quality_status import STATUS_ADVISORY_FAIL, is_advisory_status
+
+    if is_advisory_status(doc.get("status")):
         from interview_mux.aspirational_quality import is_aspirational_enabled
 
         if is_aspirational_enabled(ctx):
@@ -532,7 +546,8 @@ def _check_pmq_envelope(ctx: RunContext) -> list[PublishabilityViolation]:
                     PublishabilityViolation(
                         error_class="quality_advisory",
                         code="pmq_advisory",
-                        detail="advisory_fail: " + ",".join(str(x) for x in failed[:6]),
+                        detail=f"{STATUS_ADVISORY_FAIL}: "
+                        + ",".join(str(x) for x in failed[:6]),
                     )
                 ]
     return []
@@ -923,6 +938,13 @@ def checkpoint_publishability(
     enforce: bool | None = None,
 ) -> PublishabilityReport:
     """Validate, persist report, and optionally block."""
+    if checkpoint == "pre_mix":
+        try:
+            from interview_mux.seed_policy import seal_freeze_sticky_stages
+
+            seal_freeze_sticky_stages(ctx)
+        except Exception:
+            pass
     report = validate_publishability(ctx, checkpoint=checkpoint)
     commit_or_block(ctx, report, enforce=enforce)
     return report

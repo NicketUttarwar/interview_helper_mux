@@ -447,7 +447,7 @@
       "consumers": [],
       "has_write_validator": true
     },
-    "master/seam_autopsy.json": {
+    "master/junction_snip_qa.json": {
       "schemas_by_producer": {
         "junction_snip_qa": null
       },

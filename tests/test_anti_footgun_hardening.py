@@ -135,6 +135,12 @@ def test_avoidance_is_not_true_waste():
     ) is False
     assert wasted_work_counts_toward_sticky_halt("music_deferred", {"reason": "beds_stuck"}) is True
     assert wasted_work_counts_toward_sticky_halt("orphan") is True
+    assert wasted_work_counts_toward_sticky_halt(
+        "orphan_artifact", {"stages": ["sound_design_plan"], "promoted": [], "demoted": []}
+    ) is False
+    assert wasted_work_counts_toward_sticky_halt(
+        "orphan_artifact", {"stages": [], "demoted": ["edl"]}
+    ) is True
 
 
 def test_gate_wait_escalates(ctx):

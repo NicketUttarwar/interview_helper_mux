@@ -202,6 +202,17 @@ def test_seat_rewrite_generation_cap(run_ctx, monkeypatch):
     ok, why = sa.seat_rewrite_budget_ok(run_ctx)
     assert ok is False
     assert "soft_rewrite_cap" in why
+    # Packaging CTA editorial must still reach meta-gate (not hard-stop on cap).
+    allowed, why2 = sa.seat_mutation_allowed(
+        run_ctx, reason="media_ip_cta_editorial_omits", require_meta_gate=True
+    )
+    assert allowed is False
+    assert why2 == "frozen_needs_meta_gate"
+    assert sa.gate_seat_mutation(
+        run_ctx,
+        reason="media_ip_cta_editorial_omits",
+        symptoms=["media_ip_cta"],
+    )
 
 
 def test_story_remutate_dual_gate_under_hard_freeze(run_ctx, monkeypatch):
@@ -327,3 +338,133 @@ def test_parse_gate_envelope_artifacts_and_text():
         "allow"
     ] is False
     assert _parse_gate_envelope({"artifacts": {"allow": "yes"}}) is None
+
+
+def test_commit_selection_preserves_order_when_meta_gate_refuses(run_ctx, monkeypatch):
+    """Under soft freeze, refused order change must no-op — not raise/spin."""
+    from interview_mux import seat_authority as sa
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.artifact_sanitize.reentry import stamp_matches
+
+    monkeypatch.setattr(
+        "interview_mux.air_script.seated_vo_line_ids",
+        lambda ctx: ["vo_layup_seg_001"],
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_script.omitted_vo_line_ids",
+        lambda ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.request_seat_rewrite",
+        lambda *a, **k: {
+            "allow": False,
+            "refuse_reason": "opportunity_below_threshold",
+            "opportunity_score": 0.3,
+        },
+    )
+    frozen = ["seg_a", "seg_b", "seg_c"]
+    run_ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": frozen,
+            "excluded_segment_ids": [],
+            "order_content_hash": "frozen_hash",
+        },
+    )
+    sa.stamp_soft_seat_freeze(run_ctx, reason="test")
+    out = commit_selection_mutation(
+        run_ctx,
+        {
+            "ordered_segment_ids": ["seg_c", "seg_a", "seg_b"],
+            "excluded_segment_ids": [],
+            "note": "attempted_reorder",
+        },
+        producer="transitions",
+        stage_key="transitions",
+        checkpoint_mode="repair",
+        skip_checkpoint=True,
+        write_committed=True,
+    )
+    assert out.get("ordered_segment_ids") == frozen
+    disk = run_ctx.read_json("master/selection.json")
+    assert disk.get("ordered_segment_ids") == frozen
+    assert stamp_matches(
+        disk, content_keys=["ordered_segment_ids", "order_content_hash"]
+    )
+
+
+def test_seat_rewrite_allows_packaging_sanitize_order_change(run_ctx):
+    from interview_mux.timeline_reopen_meta_gate import decide_seat_rewrite
+
+    row = decide_seat_rewrite(
+        run_ctx,
+        proposed_delta={
+            "ops": [],
+            "order_change": True,
+            "source": "artifact_sanitize.selection",
+            "stage_key": "selection_order_sanitize",
+        },
+        reason="selection_commit:artifact_sanitize.selection",
+        symptoms=["order_change", "selection_commit"],
+    )
+    assert row["allow"] is True
+    assert row["opportunity_score"] >= 0.65
+
+    cta = decide_seat_rewrite(
+        run_ctx,
+        proposed_delta={"ops": [], "from": "media_ip_cta_editorial_omits"},
+        reason="media_ip_cta_editorial_omits",
+        symptoms=["media_ip_cta"],
+    )
+    assert cta["allow"] is True
+    assert cta["opportunity_score"] >= 0.65
+
+
+def test_selection_framing_apply_marks_done_under_seat_freeze(run_ctx, monkeypatch):
+    """Seat-freeze no-op must sticky-complete so mix seed-order does not thrash."""
+    from interview_mux import seat_authority as sa
+    from interview_mux.refinement_passes import run_selection_framing_apply
+
+    monkeypatch.setattr(
+        "interview_mux.air_script.seated_vo_line_ids",
+        lambda ctx: ["vo_layup_seg_001"],
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_script.omitted_vo_line_ids",
+        lambda ctx: [],
+    )
+    sa.stamp_soft_seat_freeze(run_ctx, reason="test")
+    sa.stamp_hard_seat_freeze(run_ctx, reason="vo_synthesize")
+    assert not run_ctx.is_done("selection_framing_apply")
+    run_selection_framing_apply(run_ctx)
+    assert run_ctx.is_done("selection_framing_apply")
+
+
+def test_seed_order_skips_framing_apply_after_edl_hard_freeze(run_ctx, monkeypatch):
+    from interview_mux import seat_authority as sa
+    from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+    from interview_mux.v2.config import DELIVERY_ORDER
+
+    monkeypatch.setattr(
+        "interview_mux.air_script.seated_vo_line_ids",
+        lambda ctx: ["vo_layup_seg_001"],
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_script.omitted_vo_line_ids",
+        lambda ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda ctx, stage: ctx.is_done(stage),
+    )
+    for stage in DELIVERY_ORDER:
+        if stage == "mix":
+            break
+        if stage == "selection_framing_apply":
+            continue
+        (run_ctx.run_dir / ".stage_done" / stage).write_text("", encoding="utf-8")
+    sa.stamp_hard_seat_freeze(run_ctx, reason="vo_synthesize")
+    assert not run_ctx.is_done("selection_framing_apply")
+    earliest = _earliest_incomplete_seed_stage(run_ctx, "mix")
+    assert earliest != "selection_framing_apply"
+    assert run_ctx.is_done("selection_framing_apply")

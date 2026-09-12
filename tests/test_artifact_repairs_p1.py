@@ -527,6 +527,133 @@ def test_repair_gap_report_coerces_null_nugget_ids_and_gap_type(
     assert any(row.get("action") == "default_gap_type" for row in applied)
 
 
+def test_repair_gap_report_restamps_air_contract_omits(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EDL courtesy repair must not leave omitted seats without skip flags."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_gap_restamp_omit")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_022",
+                text="What if I found a CTC and the doctor is saying so what?",
+            ),
+            minimal_manifest_segment(
+                "seg_026",
+                text="Traditional circulating tumor cell CTC enumeration alone.",
+            ),
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_layup_seg_008"],
+                    "omitted_line_ids": ["vo_layup_seg_022", "vo_layup_seg_026"],
+                }
+            }
+        },
+        skip_handoff=True,
+    )
+    patched, applied = repair_gap_report(
+        ctx,
+        {
+            "nugget_layup_authority": True,
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_008",
+                    "text": "Hosted layup still on air with a forward cue into the next beat.",
+                    "targets_segment_id": "seg_022",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "origin": "nugget_layup",
+                    "gap_type": "nugget_layup",
+                },
+                {
+                    "line_id": "vo_layup_seg_022",
+                    "text": "Before sequencing, captured tumour cells can be assessed carefully.",
+                    "targets_segment_id": "seg_022",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "origin": "nugget_layup",
+                    "gap_type": "nugget_layup",
+                    "required": True,
+                },
+                {
+                    "line_id": "vo_layup_seg_026",
+                    "text": "Circulating tumour cells can also travel in clusters sometimes.",
+                    "targets_segment_id": "seg_026",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "origin": "nugget_layup",
+                    "gap_type": "nugget_layup",
+                },
+            ],
+        },
+    )
+    by_id = {
+        str(r.get("line_id")): r
+        for r in (patched.get("interviewer_lines") or [])
+        if isinstance(r, dict)
+    }
+    assert by_id["vo_layup_seg_022"].get("skipped_optional") is True
+    assert by_id["vo_layup_seg_022"].get("air_script_omit") is True
+    assert by_id["vo_layup_seg_026"].get("skipped_optional") is True
+    assert by_id["vo_layup_seg_026"].get("air_script_omit") is True
+    assert any(a.get("action") == "restamp_air_contract_omit" for a in applied)
+
+
+def test_seated_vo_missing_skips_plan_omitted_even_without_gap_flags(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.vo_contract import seated_vo_missing_ids
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "vo_omit_no_wav")
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_ok"],
+                    "omitted_line_ids": ["vo_omit"],
+                }
+            }
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_ok",
+                    "text": "On air line with enough words for synthesis.",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "required": True,
+                },
+                {
+                    "line_id": "vo_omit",
+                    "text": "Should not demand a WAV when plan-omitted.",
+                    "targets_segment_id": "seg_002",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "required": True,
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    missing = seated_vo_missing_ids(ctx)
+    assert "vo_omit" not in missing
+
+
 def test_repair_edl_audit_defaults_evidence_and_recommended_action(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

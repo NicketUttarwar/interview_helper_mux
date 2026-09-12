@@ -429,6 +429,25 @@ def stage_artifact_incompleteness(
             )
     if stage_id == "edl":
         try:
+            from interview_mux.artifact_sanitize.registry import vo_sanitary_errors
+
+            vo_errs = vo_sanitary_errors(ctx)
+            if vo_errs:
+                return "vo_unsanitary — resume vo_synthesize: " + "; ".join(vo_errs[:3])
+        except Exception:
+            pass
+        try:
+            from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
+
+            stale = compact_vo_coverage_stale_or_missing(ctx)
+            if stale:
+                return (
+                    "seated synthesize VO script/WAV stale: "
+                    + ", ".join(stale[:4])
+                )
+        except Exception:
+            pass
+        try:
             from interview_mux.transition_vo import seated_vo_paths_missing
 
             missing = seated_vo_paths_missing(ctx)
@@ -518,8 +537,12 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "missing_wav": "vo_synthesize",
     "edl_script_hash_stale": "edl",
     "music_incomplete": "mmaudio_sfx",
+    "mmaudio_incomplete": "mmaudio_sfx",
+    "sdp_theme_wavs_missing": "mmaudio_sfx",
     "seam_autopsy": "junction_snip_qa",
     "g1_vo_open": "vo_synthesize",  # synth path; record path via resolve_g1_vo_open_resume
+    "g1_vo_incomplete": "vo_synthesize",
+    "incomplete_cut_unresolved": "junction_snip_qa",
     "voice_reference_pending": "topic_coverage_audit",
     "seed_order": "edl",
     "assembly_seating_stale": "mix",
@@ -552,6 +575,29 @@ for _sid in DELIVERY_ORDER:
     PRODUCER_PIN_TABLE.setdefault(str(_sid), str(_sid))
     PRODUCER_PIN_TABLE.setdefault(f"{_sid}_missing", str(_sid))
     PRODUCER_PIN_TABLE.setdefault(f"artifact_missing:{_sid}", str(_sid))
+
+
+def incompleteness_resume_stage(reason: str, *, stage_id: str = "") -> str:
+    """Map incompleteness prose / tokens to heal-registry resume stage."""
+    text = str(reason or "").lower()
+    sid = str(stage_id or "").strip()
+    try:
+        from interview_mux.heal_routing import resume_stage_for_error_class
+
+        if "g1" in text or "pickup" in text:
+            return resume_stage_for_error_class("g1_vo_incomplete", default="vo_synthesize")
+        if "sdp" in text or "theme wav" in text or "mmaudio" in text:
+            return resume_stage_for_error_class("mmaudio_incomplete", default="mmaudio_sfx")
+        if "on_a_roll" in text or "incomplete_cut" in text:
+            return resume_stage_for_error_class(
+                "incomplete_cut_unresolved", default="junction_snip_qa"
+            )
+    except Exception:
+        pass
+    for token, pin in PRODUCER_PIN_TABLE.items():
+        if token and token in text:
+            return str(pin)
+    return sid or "edl"
 
 
 def _resume_stage_allowlist() -> set[str]:

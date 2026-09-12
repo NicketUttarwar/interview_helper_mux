@@ -37,7 +37,7 @@
 | `interview_spine_build` | deterministic | — |
 | `island_cluster_structure_adjudicate` | llm_advisory | analysis/island_cluster_structure_verdicts.json, analysis/island_cluster_structure_packets.json |
 | `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
-| `junction_snip_qa` | process | master/seam_autopsy.json |
+| `junction_snip_qa` | process | master/junction_snip_qa.json |
 | `junction_thought_complete` | llm_full | master/junction_thought_complete.json |
 | `listen_delight_audit` | process | mastering/listen_delight_audit.json |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json |

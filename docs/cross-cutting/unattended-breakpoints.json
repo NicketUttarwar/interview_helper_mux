@@ -301,7 +301,7 @@
       "stage": "junction_snip_qa",
       "tier": "process",
       "outputs": [
-        "master/seam_autopsy.json"
+        "master/junction_snip_qa.json"
       ]
     },
     {
@@ -1031,7 +1031,7 @@
       "id": "disk_path:junction_snip_qa",
       "kind": "stage_artifact_path",
       "stage": "junction_snip_qa",
-      "path": "master/seam_autopsy.json",
+      "path": "master/junction_snip_qa.json",
       "note": "no dedicated completeness gap rule"
     },
     {

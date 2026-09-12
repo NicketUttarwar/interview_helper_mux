@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: master/seam_autopsy.json
+- path: master/junction_snip_qa.json
   schema: null
   staging: false
 inputs:

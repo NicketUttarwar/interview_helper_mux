@@ -233,10 +233,17 @@ def _persist_specialist_output(
     spec_key: str,
     env: dict[str, Any],
 ) -> None:
-    base = ctx.path("understanding", "stage_runs", stage_key)
-    base.mkdir(parents=True, exist_ok=True)
-    out_path = base / f"specialist_{spec_key}.json"
-    out_path.write_text(json.dumps(env, indent=2), encoding="utf-8")
+    rel = f"understanding/stage_runs/{stage_key}/specialist_{spec_key}.json"
+    # Write-through to committed disk so a failed parent stage cannot discard
+    # the helper result and burn max_invokes on retry (F1 3A / exec_11165).
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, rel, env, stage_key=stage_key)
+    except Exception:
+        dest = ctx.final_path("understanding", "stage_runs", stage_key, f"specialist_{spec_key}.json")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(env, indent=2), encoding="utf-8")
     try:
         from interview_mux.context_resolver import append_specialist_finding, context_index_enabled, write_on_accept
         from interview_mux.stage_input_helpers import STAGE_PLANS
@@ -271,6 +278,26 @@ def maybe_run_pre_stage_specialists(
     outputs: list[dict[str, Any]] = []
     for spec_key in PRE_STAGE_SPECIALISTS.get(stage_key, ()):
         import time
+
+        # Reuse prior specialist envelope on parent re-execute — avoids burning
+        # the nested identity cap (exec_11165: stt_lexicon_island_verify ×3).
+        cached_rel = f"understanding/stage_runs/{stage_key}/specialist_{spec_key}.json"
+        if ctx.artifact_exists(cached_rel):
+            try:
+                cached = ctx.read_json(cached_rel)
+                if isinstance(cached, dict) and (
+                    cached.get("artifacts") or cached.get("status") == "complete"
+                ):
+                    outputs.append({"specialist": spec_key, "envelope": cached, "cached": True})
+                    ctx.log(
+                        f"Pre-stage specialist {spec_key}: reused cached envelope",
+                        level="info",
+                        stage=stage_key,
+                        detail={"specialist": spec_key, "cached": True},
+                    )
+                    continue
+            except Exception:
+                pass
 
         t0 = time.monotonic()
         try:

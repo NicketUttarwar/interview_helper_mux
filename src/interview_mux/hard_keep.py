@@ -80,6 +80,64 @@ def _collapse_overlapping_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
     return out2
 
 
+def _blank_excluded_ids(ctx: RunContext) -> set[str]:
+    """IDs already dropped as blank/unusable — delegates to playability SSOT."""
+    try:
+        from interview_mux.playability import blank_excluded_ids
+
+        return blank_excluded_ids(ctx)
+    except Exception:
+        return set()
+
+
+def _manifest_segment_ids(ctx: RunContext) -> set[str] | None:
+    """Live segment IDs from segments/manifest.json, or None if unavailable."""
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return None
+    try:
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return None
+    if not isinstance(man, dict):
+        return None
+    out = {
+        str(s.get("segment_id") or "")
+        for s in (man.get("segments") or [])
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    return out or None
+
+
+def _drop_orphan_keeps_not_in_manifest(ctx: RunContext, ids: set[str]) -> set[str]:
+    """Drop hard-keeps absent from the live segment manifest (exec_11165 class).
+
+    Authoritative low-conf / vernacular lists can retain IDs after resplit or
+    hitch remap removed them from ``segments/manifest.json``. Ranking then sees
+    must-keep∉manifest and returns partial→limit_exhausted spin.
+    """
+    live = _manifest_segment_ids(ctx)
+    if live is None:
+        return ids
+    return {s for s in ids if s in live}
+
+
+def _drop_blank_unusable_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
+    """Unplayable / packaging IDs cannot stay hard-keep (playability SSOT).
+
+    Live blank heuristics are intentionally NOT applied here — short-but-valid
+    speech was a footgun for primary-impact/hard-keep drift.
+    """
+    if not ids:
+        return ids
+    try:
+        from interview_mux.playability import unplayable_segment_ids
+
+        drop = unplayable_segment_ids(ctx)
+    except Exception:
+        drop = set(_blank_excluded_ids(ctx))
+    return {s for s in ids if s not in drop}
+
+
 def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
     ids: set[str] = set()
     try:
@@ -131,10 +189,38 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
         except Exception:
             pass
     try:
-        from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
+        from interview_mux.media_ip_cta import (
+            _is_nle_child,
+            admitted_story_segment_ids,
+            never_touch_segment_ids,
+            ranking_cta_omit_ids,
+            selection_cta_exclude_ids,
+        )
 
-        banned = never_touch_segment_ids(ctx)
+        # Selection CTA excludes count even when mastering/media_ip_cta.json is thin.
+        # ranking_cta_omit_ids also drops tape-scan sponsor CTAs before media_ip exists
+        # (exec_11165: hard_keep∩CTA → seal hard_keep_missing_from_order).
+        banned = (
+            never_touch_segment_ids(ctx)
+            | selection_cta_exclude_ids(ctx)
+            | ranking_cta_omit_ids(ctx)
+        )
         story = admitted_story_segment_ids(ctx)
+        # Parent hard-keep transfers onto on-air NLE children / admitted story.
+        if ctx.artifact_exists("master/selection.json"):
+            try:
+                sel = ctx.read_json("master/selection.json")
+                ordered = [
+                    str(s)
+                    for s in ((sel or {}).get("ordered_segment_ids") or [])
+                    if s
+                ]
+                for parent in sorted(ids & banned):
+                    kids = {c for c in ordered if _is_nle_child(c, parent)}
+                    if kids:
+                        story |= kids
+            except Exception:
+                pass
         # Parent hard-keep transfers onto the keepable recut remainder —
         # but only one representative per overlapping source span / family budget.
         if story and (ids & banned):
@@ -142,7 +228,32 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
         ids -= banned
     except Exception:
         pass
-    return _collapse_overlapping_keeps(ctx, {s for s in ids if s})
+    ids = _drop_blank_unusable_keeps(ctx, {s for s in ids if s})
+    ids = _drop_orphan_keeps_not_in_manifest(ctx, ids)
+    return _collapse_overlapping_keeps(ctx, ids)
+
+
+# Framing VO cover beats hard-keep restore but is not an "unplayable" class.
+_HARD_KEEP_FRAMING_EXEMPT = frozenset({"covered_by_framing_vo"})
+
+
+def _hard_keep_exempt_reasons() -> frozenset[str]:
+    try:
+        from interview_mux.playability import UNPLAYABLE_EXCLUDE_REASONS
+
+        return UNPLAYABLE_EXCLUDE_REASONS | _HARD_KEEP_FRAMING_EXEMPT
+    except Exception:
+        return _HARD_KEEP_FRAMING_EXEMPT | frozenset(
+            {
+                "blank_or_unusable_answer_audio",
+                "finale_tail_leftover",
+                "opening_skipped_duplicate",
+                "never_touch_unplayable",
+                "cta_omit",
+                "media_ip_cta",
+                "selection_cta_exclude",
+            }
+        )
 
 
 def enforce_hard_keeps(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
@@ -151,15 +262,37 @@ def enforce_hard_keeps(ctx: RunContext, selection: dict[str, Any]) -> dict[str, 
     keeps = hard_keep_segment_ids(ctx)
     if not keeps:
         return out
-    # Never restore ids already excluded by sanitize / operator omit.
+    # Lattice: blank/CTA/never-touch excludes beat hard-keep; other excludes restore.
     excl_ids: set[str] = set()
+    excl_reasons: dict[str, str] = {}
+    rationales = (
+        out.get("exclude_rationales")
+        if isinstance(out.get("exclude_rationales"), dict)
+        else {}
+    )
     for row in out.get("excluded_segment_ids") or []:
         if isinstance(row, dict):
             sid = str(row.get("segment_id") or "")
+            reason = str(row.get("reason") or rationales.get(sid) or "").strip()
         else:
             sid = str(row or "")
-        if sid:
+            reason = str(rationales.get(sid) or "").strip()
+        if not sid:
+            continue
+        excl_reasons[sid] = reason
+        exempt = _hard_keep_exempt_reasons()
+        if reason in exempt or reason.startswith("cta_"):
             excl_ids.add(sid)
+    # Playability SSOT: unplayable/CTA even without a local exclude row.
+    try:
+        from interview_mux.playability import unplayable_segment_ids
+
+        excl_ids |= unplayable_segment_ids(ctx, out)
+    except Exception:
+        try:
+            excl_ids |= _blank_excluded_ids(ctx)
+        except Exception:
+            pass
     keeps = {s for s in keeps if s not in excl_ids}
     if not keeps:
         return out

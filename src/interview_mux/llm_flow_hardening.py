@@ -402,6 +402,14 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
     from interview_mux.v2.config import SHIP_AFTER_MASTER
     from interview_mux.delivery_invariants import committed_master_wav
 
+    # Freeze = seal: sticky-complete all freeze no-op stages before scanning.
+    try:
+        from interview_mux.seed_policy import seal_freeze_sticky_stages
+
+        seal_freeze_sticky_stages(ctx)
+    except Exception:
+        pass
+
     post_master_ship = (
         stage_key in SHIP_AFTER_MASTER
         and committed_master_wav(ctx)
@@ -475,6 +483,38 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                                 ensure_listen_delight_waiver_unattended(ctx)
                             if listen_delight_waived_unattended(ctx):
                                 continue
+                    except Exception:
+                        pass
+                # Hard seat freeze + EDL done: framing apply is intentionally a
+                # no-op — do not block mix/junction on an unmarked freeze pass.
+                if earlier in {
+                    "selection_framing_apply",
+                    "gap_framing_recompose",
+                } and stage_key in {
+                    "mix",
+                    "junction_snip_qa",
+                    "master_finalize",
+                    "edl_narrative_audit",
+                }:
+                    try:
+                        from interview_mux.seed_policy import apply_seed_policy_skips
+
+                        if apply_seed_policy_skips(ctx, earlier):
+                            continue
+                    except Exception:
+                        pass
+                    try:
+                        from interview_mux.seat_authority import hard_freeze_active
+                        from interview_mux.stage_completion import heal_or_refuse_mark
+
+                        if earlier == "selection_framing_apply" and ctx.is_done(
+                            "edl"
+                        ) and hard_freeze_active(ctx):
+                            if not ctx.is_done("selection_framing_apply"):
+                                heal_or_refuse_mark(
+                                    ctx, "selection_framing_apply", force=True
+                                )
+                            continue
                     except Exception:
                         pass
                 # Junction autopsy committed for live assembly size but mtime skew

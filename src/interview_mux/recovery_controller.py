@@ -268,6 +268,22 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         blocked_class = str(getattr(exc, "error_class", "") or "").strip()
         if blocked_class:
             return blocked_class
+    # Stringified publishability / junction residual blocks (plain RuntimeError).
+    if (
+        "incomplete_cut_unresolved" in msg
+        or "critical_incomplete_cut_residuals" in msg
+        or (
+            "publishability blocked" in msg
+            and "pre_mix" in msg
+            and ("incomplete_cut" in msg or "on_a_roll" in msg or "critical_residuals" in msg)
+        )
+        or (
+            stage in {"mix", "junction_snip_qa", "master_finalize"}
+            and "critical_residuals" in msg
+            and ("on_a_roll" in msg or "junction" in msg)
+        )
+    ):
+        return "incomplete_cut_unresolved"
     # Broad VO coverage → always classify to seated coverage (resume vo_synthesize).
     # Keep skip/omit on the contract ladder (checked first).
     if "vo contract" in msg or (
@@ -284,6 +300,9 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         or ("seated synthesize" in msg and "missing wav" in msg)
         or "synthetic vo does not match" in msg
         or ("synthesized gap line" in msg and "missing wav" in msg)
+        or "gap vo lines missing wav" in msg
+        or "transition pairs missing wav" in msg
+        or "transition pairs still missing wav" in msg
         or (
             "vo" in msg
             and "coverage" in msg
@@ -467,6 +486,16 @@ def _append_action(ctx: RunContext, row: dict[str, Any]) -> None:
             sig,
             resume_attempted=str(row.get("resume_stage") or row.get("playbook_id") or ""),
         )
+    try:
+        from interview_mux.forensics_error_ledger import record_from_recovery_action
+        from interview_mux.forensics_minor_fixes import (
+            record_from_recovery_action as record_minor_heal,
+        )
+
+        record_from_recovery_action(ctx, row)
+        record_minor_heal(ctx, row)
+    except Exception:
+        pass
 
 
 def append_remediation_log(ctx: RunContext, action: str, detail: str = "") -> None:
@@ -1037,7 +1066,12 @@ def playbook_musicgen_theme_failed(ctx: RunContext) -> list[str]:
 def playbook_incomplete_cut_unresolved(ctx: RunContext) -> list[str]:
     from interview_mux.junction_snip_qa import QA_REL
 
-    return [QA_REL] if ctx.artifact_exists(QA_REL) else []
+    # Always pin junction — missing committed QA is exactly why mix is blocked.
+    _unmark_stages(ctx, "junction_snip_qa", "mix", force=True)
+    artifacts = [".stage_done/junction_snip_qa"]
+    if ctx.artifact_exists(QA_REL):
+        artifacts.append(QA_REL)
+    return artifacts
 
 
 def playbook_vo_seated_coverage(ctx: RunContext) -> list[str]:
@@ -1272,9 +1306,13 @@ def handle_stage_failure(
             )
             return result
     elif budget_exhausted(ctx, sig, error_class):
-        resume_on_budget = (
-            "mmaudio_sfx" if error_class == "sdp_theme_wavs_missing" else stage_id
-        )
+        if error_class == "sdp_theme_wavs_missing":
+            resume_on_budget = "mmaudio_sfx"
+        elif error_class == "incomplete_cut_unresolved":
+            resume_on_budget = "junction_snip_qa"
+            _unmark_stages(ctx, "junction_snip_qa", "mix", force=True)
+        else:
+            resume_on_budget = stage_id
         result = _result(
             status="escalate",
             playbook_id="budget_exhausted",
@@ -1351,7 +1389,11 @@ def handle_stage_failure(
             playbook_id = "generate_sdp_theme_wavs"
             artifacts = playbook_generate_sdp_theme_wavs(ctx)
             recovered = True
-            resume_stage = "mmaudio_sfx"
+            from interview_mux.heal_routing import resume_stage_for_error_class
+
+            resume_stage = resume_stage_for_error_class(
+                "mmaudio_incomplete", default="mmaudio_sfx"
+            )
         elif error_class == "episode_close_outro":
             playbook_id = "place_episode_close_cue"
             artifacts = playbook_place_episode_close(ctx)
@@ -1504,7 +1546,7 @@ def handle_stage_failure(
         elif error_class == "incomplete_cut_unresolved":
             playbook_id = "incomplete_cut_unresolved"
             artifacts = playbook_incomplete_cut_unresolved(ctx)
-            recovered = bool(artifacts)
+            recovered = True
             resume_stage = "junction_snip_qa"
         elif error_class == "vo_seated_coverage":
             playbook_id = "vo_seated_coverage"

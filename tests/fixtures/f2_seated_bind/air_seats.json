@@ -1,0 +1,9 @@
+{
+  "air_script": {
+    "vo_seats": {
+      "seated_line_ids": ["vo_layup_seg_012"],
+      "omitted_line_ids": [],
+      "orientation_id": null
+    }
+  }
+}

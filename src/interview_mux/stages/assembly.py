@@ -1127,7 +1127,36 @@ def run_edl(ctx: RunContext) -> None:
                     gap_report = filtered
             except Exception as exc:
                 ctx.log(f"edl: air_script VO filter skipped: {exc}", level="warning", stage="edl")
-            resynced = resync_required_synthesize_wavs(ctx, gap_report)
+            resynced: list[str] = []
+            try:
+                from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
+
+                discard_non_owner_pending_vo_pickup(ctx)
+            except Exception:
+                pass
+            try:
+                resynced = resync_required_synthesize_wavs(ctx, gap_report)
+            except Exception as exc:
+                ctx.log(
+                    f"edl: VO resync incomplete: {exc}",
+                    level="warning",
+                    stage="edl",
+                )
+            try:
+                from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
+                from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
+
+                heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
+                discard_non_owner_pending_vo_pickup(ctx)
+                if heal.get("omitted") or heal.get("resynthesized"):
+                    ctx.log(
+                        "edl: seated bind heal "
+                        f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
+                        level="info",
+                        stage="edl",
+                    )
+            except Exception as exc:
+                ctx.log(f"edl: seated bind heal skipped: {exc}", level="warning", stage="edl")
             if resynced:
                 ctx.log(
                     f"edl: re-synthesized stale required VO {resynced}",
@@ -1177,27 +1206,15 @@ def run_edl(ctx: RunContext) -> None:
         selection = bump_order_lock(selection, source="edl")
         ctx.write_json("master/selection.json", selection)
 
-        soft = False
-        try:
-            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            from interview_mux.e2e_soft import e2e_soft_enabled
-
-            # Soft seams only from explicit waive / e2e flag — not mere NLE presence.
-            if e2e_soft_enabled(meta=meta if isinstance(meta, dict) else None) and bool(
-                (meta or {}).get("e2e_soft_junction_residuals")
-            ):
-                soft = True
-            if isinstance(meta, dict) and meta.get("nle_waive_naked_seams"):
-                soft = True
-        except Exception:
-            pass
+        # F4: never soft-complete reorder glue. Hitch/skip cover omit spoken
+        # rows; empty ungrounded seams fail closed.
         _bridges, transitions, completeness = ensure_seam_glue(
             ctx,
             ordered=ordered,
             segments_by_id=by_id,
             gap_report=gap_report if isinstance(gap_report, dict) else None,
             transitions=transitions if isinstance(transitions, dict) else None,
-            soft=soft,
+            soft=False,
         )
         try:
             from interview_mux.air_script import filter_transitions_for_air_script
@@ -1215,10 +1232,10 @@ def run_edl(ctx: RunContext) -> None:
                 )
         except Exception as trans_exc:
             ctx.log(f"edl: air_script transition filter skipped: {trans_exc}", level="warning", stage="edl")
-        if soft and not completeness.get("complete"):
+        if not completeness.get("complete"):
             ctx.log(
-                f"bridge_completeness soft: "
-                f"{completeness.get('missing_count')} missing — shipping",
+                f"bridge_completeness incomplete after mint: "
+                f"{completeness.get('missing_count')} missing",
                 level="warning",
                 stage="edl",
                 detail=completeness.get("missing", [])[:6],
@@ -1496,6 +1513,21 @@ def run_mix(ctx: RunContext) -> Path:
     assert_consumer(ctx, "mix")
 
     try:
+        from interview_mux.junction_snip_qa import refuse_mix_if_live_incomplete_cuts
+
+        refuse_mix_if_live_incomplete_cuts(ctx)
+    except Exception as exc:
+        from interview_mux.loud_fail import LoudStageFailure
+
+        if isinstance(exc, LoudStageFailure):
+            raise
+        ctx.log(
+            f"mix: incomplete-cut preflight skipped: {exc}",
+            level="warning",
+            stage="mix",
+        )
+
+    try:
         from interview_mux.publishability_boundary import checkpoint_publishability
 
         checkpoint_publishability(ctx, checkpoint="pre_mix")
@@ -1569,6 +1601,14 @@ def run_mix(ctx: RunContext) -> Path:
             )
             commit_current_transition_wavs(ctx)
             restamp_edl_transition_source_paths(ctx)
+            still_pre = current_transition_pairs_missing(ctx)
+            if still_pre:
+                raise RuntimeError(
+                    "mix: current transition pairs missing WAV: "
+                    + ", ".join(still_pre[:8])
+                )
+    except RuntimeError:
+        raise
     except Exception as exc:
         ctx.log(f"mix: VO pair resync skipped: {exc}", level="warning", stage="mix")
 

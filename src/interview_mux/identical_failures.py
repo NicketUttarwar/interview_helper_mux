@@ -296,6 +296,18 @@ def _cascade_suppressed_row(
     return out
 
 
+def _mirror_forensics_error(ctx: RunContext, row: dict[str, Any]) -> None:
+    """Always capture forensics error detail when MUX_FORENSICS is on."""
+    try:
+        if not forensics_mode():
+            return
+        from interview_mux.forensics_error_ledger import record_from_identical_failure_row
+
+        record_from_identical_failure_row(ctx, row)
+    except Exception:
+        pass
+
+
 def record_failure(
     ctx: RunContext,
     *,
@@ -329,12 +341,14 @@ def record_failure(
                 )
                 doc = read_identical_failures(ctx)
                 prev = dict((doc.get("signatures") or {}).get(sig) or {})
-                return _cascade_suppressed_row(
+                row = _cascade_suppressed_row(
                     sig=sig,
                     failed_stage=failed_stage,
                     error_class=cls,
                     prev=prev,
                 )
+                _mirror_forensics_error(ctx, row)
+                return row
         except Exception:
             pass
         sig = failure_signature_by_class(
@@ -387,6 +401,7 @@ def record_failure(
             )
         except Exception:
             pass
+        _mirror_forensics_error(ctx, row)
         return row
 
     if kind_key == "fail_key":
@@ -428,6 +443,7 @@ def record_failure(
         doc["order"] = order[-200:]
         doc["updated_at"] = _utc_now()
         _write(ctx, doc)
+        _mirror_forensics_error(ctx, row)
         return row
 
     # kind == "reason"
@@ -442,13 +458,15 @@ def record_failure(
             )
             doc = read_identical_failures(ctx)
             prev = dict((doc.get("signatures") or {}).get(sig) or {})
-            return _cascade_suppressed_row(
+            row = _cascade_suppressed_row(
                 sig=sig,
                 failed_stage=failed_stage,
                 producer=producer,
                 reason=reason,
                 prev=prev,
             )
+            _mirror_forensics_error(ctx, row)
+            return row
     except Exception:
         pass
     try:
@@ -462,13 +480,15 @@ def record_failure(
             )
             doc = read_identical_failures(ctx)
             prev = dict((doc.get("signatures") or {}).get(sig) or {})
-            return _cascade_suppressed_row(
+            row = _cascade_suppressed_row(
                 sig=sig,
                 failed_stage=failed_stage,
                 producer=producer,
                 reason=reason,
                 prev=prev,
             )
+            _mirror_forensics_error(ctx, row)
+            return row
     except Exception:
         pass
     sig = failure_signature(
@@ -533,6 +553,7 @@ def record_failure(
         )
     except Exception:
         pass
+    _mirror_forensics_error(ctx, row)
     return row
 
 
@@ -544,12 +565,21 @@ def record_class_failure(
     resume_attempted: str = "",
 ) -> dict[str, Any]:
     """Increment the persisted counter for a classified (stage, error_class) pair."""
+    predicate = ""
+    try:
+        from interview_mux.delivery_guardrails import residual_ledger_generation
+
+        gen = residual_ledger_generation(ctx)
+        predicate = f"err:{error_class}|gen:{gen}"
+    except Exception:
+        predicate = f"err:{error_class}"
     return record_failure(
         ctx,
         kind="class",
         failed_stage=failed_stage,
         error_class=error_class,
         resume_attempted=resume_attempted,
+        predicate_token=predicate,
     )
 
 

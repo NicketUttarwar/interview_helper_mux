@@ -6,6 +6,25 @@ from typing import Any
 
 from interview_mux.run_context import RunContext
 
+# Skip/omit reasons that must stay off air. Hosted-floor reseat may revive
+# generic Pass B omits, but never these omit-wins codes.
+OMIT_WINS_REASON_CODES = frozenset(
+    {
+        "skip_omit_unseat",
+        "seated_bind_synth_failed",
+        "media_ip_cta_hole",
+        "never_touch_cta",
+    }
+)
+
+
+def omit_wins_skip_reason(row: dict[str, Any] | None) -> bool:
+    """True when gap skip/omit must win over seating and hosted-floor reseat."""
+    if not isinstance(row, dict):
+        return False
+    reason = str(row.get("skip_reason_code") or "").strip().lower()
+    return reason in OMIT_WINS_REASON_CODES
+
 
 def _load_seated_omitted(ctx: RunContext) -> tuple[set[str], set[str]]:
     from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
@@ -21,7 +40,11 @@ def mark_gap_line_not_on_air(
     reason_code: str,
     compensating_path: str | None = None,
 ) -> dict[str, Any]:
-    """Atomically mark a gap line as not on air (skip + omit flags)."""
+    """Atomically mark a gap line as not on air (skip + omit flags).
+
+    Fills gap_report.schema.json required fields when absent so omit stamps
+    cannot fail pre-flush commit (tier-D mint / incomplete LLM rows).
+    """
     row = dict(line)
     row["skipped_optional"] = True
     row["air_script_omit"] = True
@@ -34,6 +57,23 @@ def mark_gap_line_not_on_air(
     if note not in notes:
         notes.append(note)
     row["omit_notes"] = notes
+    # Schema requires these on every interviewer_lines item (incl. omitted).
+    if not str(row.get("gap_type") or "").strip():
+        row["gap_type"] = "missing_setup"
+    if "text" not in row or row.get("text") is None:
+        row["text"] = ""
+    if not str(row.get("targets_segment_id") or "").strip():
+        tgt = (
+            row.get("target_segment_id")
+            or row.get("after_segment_id")
+            or row.get("segment_id")
+            or ""
+        )
+        row["targets_segment_id"] = str(tgt or "seg_omitted")
+    if str(row.get("placement") or "") not in {"before", "after"}:
+        row["placement"] = "before"
+    if str(row.get("delivery") or "").strip().lower() not in {"record", "synthesize"}:
+        row["delivery"] = "synthesize"
     return row
 
 
@@ -80,14 +120,17 @@ def seated_vo_missing_ids(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     gap = ctx.read_json("understanding/gap_report.json")
-    seated, _omitted = _load_seated_omitted(ctx)
+    seated, omitted = _load_seated_omitted(ctx)
     missing: list[str] = []
     for line in gap.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
+        lid = str(line.get("line_id") or "")
+        # Plan omit wins even when gap skip flags drifted off.
+        if lid and lid in omitted:
+            continue
         if not gap_line_requires_synthesis(line, seated):
             continue
-        lid = str(line.get("line_id") or "")
         path = resolve_vo_pickup_path(ctx, line)
         matches, _reason = synthesis_entry_matches_line(ctx, line)
         if path is None or not path.is_file() or not matches:
@@ -241,6 +284,12 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
     def _has_pickup_wav(row: dict[str, Any]) -> bool:
         return _gap_row_has_pickup_stem(ctx, row)
 
+    seated_now: set[str] = set()
+    try:
+        seated_now, _omitted_now = _load_seated_omitted(ctx)
+    except Exception:
+        seated_now = set()
+
     while _active_count(lines_in) < need:
         picked = None
         best_rank = 99
@@ -253,6 +302,10 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
                 continue
             lid = str(row.get("line_id") or "").strip()
             if not lid or not str(row.get("text") or "").strip():
+                continue
+            # 1A omit-wins: never clear skip on a seated synthesize line, and
+            # never reseat durable omit-wins reasons to meet the hosted floor.
+            if lid in seated_now or omit_wins_skip_reason(row):
                 continue
             sev = str(row.get("severity") or "medium").lower()
             # Prefer already-rendered pickups so reseat does not thrash G1 on
@@ -488,16 +541,38 @@ def clamp_hosted_seats_to_rendered_wavs(ctx: RunContext) -> list[str]:
     return unseated
 
 
+def _is_skip_omit_violation(issue: str) -> bool:
+    text = str(issue or "")
+    return "skip/omit" in text or "both seated and omitted" in text
+
+
 def sync_vo_contract_after_layup(ctx: RunContext) -> list[str]:
     """R10c: align gap_report, vo_seats, and omit ledger after layup/seams.
 
     Missing WAVs are expected here — ``vo_synthesize`` renders them. Post-layup
     only fails closed on seat/omit flag drift. When a rendered floor already
     exists, clamp away non-WAV seats so delivery heals cannot expand G1.
+
+    F3: omit-wins unseat happens before hosted-floor reseat. Leftover seated
+    skip/omit is omitted again and does not block layup (3C proceed).
     """
     from interview_mux.air_script import persist_air_script_omits_on_gap_report
 
+    try:
+        from interview_mux.media_ip_cta import omit_locked_degraded_cta_scraps
+
+        dropped = omit_locked_degraded_cta_scraps(ctx)
+        if dropped:
+            ctx.log(
+                "layup producer omitted locked CTA scrap(s): " + ",".join(dropped[:8]),
+                level="info",
+                stage="nugget_layup_compose",
+            )
+    except Exception:
+        pass
     persist_air_script_omits_on_gap_report(ctx)
+    # Stamp skip_omit_unseat + unseat before floor reseat so omit-wins sticks.
+    repair_vo_contract_drift(ctx)
     reseated = ensure_hosted_framing_vo_seats(ctx)
     if reseated:
         ctx.log(
@@ -518,10 +593,16 @@ def sync_vo_contract_after_layup(ctx: RunContext) -> list[str]:
     if violations:
         # Omit/skip on gap wins over stale seats — unseat, do not force-synth.
         repair_vo_contract_drift(ctx)
-        # Floor may reseat *new* lines; already-omitted stay omitted after repair.
+        # Floor may reseat *new* lines; omit-wins reasons stay omitted.
         ensure_hosted_framing_vo_seats(ctx)
         clamp_hosted_seats_to_rendered_wavs(ctx)
         violations = validate_vo_contract(ctx)
+    leftover = [v for v in violations if _is_skip_omit_violation(v)]
+    if leftover:
+        repair_vo_contract_drift(ctx)
+        violations = [
+            v for v in validate_vo_contract(ctx) if not _is_skip_omit_violation(v)
+        ]
     return [
         v
         for v in violations
@@ -529,12 +610,54 @@ def sync_vo_contract_after_layup(ctx: RunContext) -> list[str]:
     ]
 
 
+def _unseat_ineligible_plan_seats(ctx: RunContext) -> list[str]:
+    """Write vo_seats even when reconcile freeze-blocks (1A omit-wins)."""
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        return []
+    from interview_mux.air_script import gap_line_air_eligible
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    by_line: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        gap = ctx.read_json("understanding/gap_report.json")
+        for row in (gap.get("interviewer_lines") or []) if isinstance(gap, dict) else []:
+            if not isinstance(row, dict):
+                continue
+            lid = str(row.get("line_id") or "").strip()
+            if lid:
+                by_line[lid] = row
+    plan = dict(load_plan_raw(ctx) or {})
+    script = dict(plan.get("air_script") or {})
+    seats = dict(script.get("vo_seats") or {})
+    seated = [str(x) for x in (seats.get("seated_line_ids") or []) if x]
+    omitted = [str(x) for x in (seats.get("omitted_line_ids") or []) if x]
+    drop: list[str] = []
+    for lid in seated:
+        row = by_line.get(lid)
+        if row is None or not gap_line_air_eligible(row):
+            drop.append(lid)
+    if not drop:
+        return []
+    drop_set = set(drop)
+    new_seated = [x for x in seated if x not in drop_set]
+    for lid in drop:
+        if lid not in omitted:
+            omitted.append(lid)
+    seats["seated_line_ids"] = new_seated
+    seats["omitted_line_ids"] = [o for o in omitted if o not in set(new_seated)]
+    script["vo_seats"] = seats
+    plan["air_script"] = script
+    ctx.write_json("mastering/mastering_plan.json", plan)
+    return drop
+
+
 def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
     """Align seats with gap omit/skip — omit wins; never force-synth omitted lines.
 
     When gap_report already marks a line skipped/omitted, that is the later decision:
     keep the omit flags and unseat any stale ``vo_seats`` entry. Do not clear omit
-    just because seats still list the line.
+    just because seats still list the line. Seated + skip is stamped
+    ``skip_omit_unseat`` so hosted-floor reseat cannot revive it.
     """
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
@@ -551,15 +674,21 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
             continue
         lid = str(row.get("line_id") or "").strip()
         if not gap_line_air_eligible(row):
-            # Preserve omit; unseat via reconcile below when seats still list it.
             kept = dict(row)
-            if not (kept.get("skipped_optional") and kept.get("air_script_omit")):
-                kept = mark_gap_line_not_on_air(
-                    kept, reason_code=str(kept.get("skip_reason_code") or "air_script_omit_sync")
-                )
-            lines.append(kept)
             if lid and lid in seated:
+                reason = str(kept.get("skip_reason_code") or "").strip().lower()
+                if reason not in OMIT_WINS_REASON_CODES:
+                    reason = "skip_omit_unseat"
+                kept = mark_gap_line_not_on_air(kept, reason_code=reason)
                 changed.append(lid)
+            elif not (kept.get("skipped_optional") and kept.get("air_script_omit")):
+                kept = mark_gap_line_not_on_air(
+                    kept,
+                    reason_code=str(kept.get("skip_reason_code") or "air_script_omit_sync"),
+                )
+                if lid:
+                    changed.append(lid)
+            lines.append(kept)
             continue
         if lid in omitted and lid not in seated:
             lines.append(
@@ -589,7 +718,7 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
     # Unseat orphan ids that seats still cite but gap_report no longer has.
     gap_ids = {
         str(r.get("line_id") or "").strip()
-        for r in (gap.get("interviewer_lines") or [])
+        for r in lines
         if isinstance(r, dict) and r.get("line_id")
     }
     orphan_seated = sorted(lid for lid in seated if lid and lid not in gap_ids)
@@ -612,8 +741,10 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
         plan["air_script"] = script
         ctx.write_json("mastering/mastering_plan.json", plan)
     # Rebuild vo_seats from gap so omitted lines are not synthesized downstream.
+    # Catastrophe reason unlocks freeze; explicit unseat covers freeze fail-closed.
     try:
-        reconcile_execution_contract(ctx, reason="repair_vo_contract_drift_omit_wins")
+        reconcile_execution_contract(ctx, reason="catastrophe_skip_omit_unseat")
     except Exception:
         pass
+    changed.extend(_unseat_ineligible_plan_seats(ctx))
     return list(dict.fromkeys(x for x in changed if x))

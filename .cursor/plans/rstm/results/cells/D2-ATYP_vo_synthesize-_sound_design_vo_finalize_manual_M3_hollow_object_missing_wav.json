@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|vo_synthesize->sound_design_vo_finalize|manual|M3_hollow_object|missing_wav",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:57:48Z"
+}

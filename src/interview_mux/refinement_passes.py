@@ -64,6 +64,24 @@ def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any
 
 
 def run_gap_framing_recompose(ctx: RunContext) -> None:
+    try:
+        from interview_mux.seat_authority import gate_seat_mutation
+
+        if not gate_seat_mutation(
+            ctx,
+            reason="gap_framing_recompose",
+            symptoms=["refinement"],
+        ):
+            ctx.log(
+                "gap_framing_recompose: seat freeze blocked (no-op)",
+                level="info",
+                stage="gap_framing_recompose",
+            )
+            if not ctx.is_done("gap_framing_recompose"):
+                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+            return
+    except Exception:
+        pass
     """Post-ranking gap VO recompose — or skip-copy for flow integrity.
 
     When the Nugget Layup System owns gap_report, this stage is a thin adapter:
@@ -82,6 +100,9 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
                 level="info",
                 stage="gap_framing_recompose",
             )
+            # Sticky complete under freeze — same law as selection_framing_apply.
+            if not ctx.is_done("gap_framing_recompose"):
+                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
             return
     except Exception:
         ctx.log(
@@ -89,6 +110,8 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             level="warning",
             stage="gap_framing_recompose",
         )
+        if not ctx.is_done("gap_framing_recompose"):
+            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
         return
     from interview_mux.nugget_layup import (
         PLAN_REL,
@@ -320,6 +343,10 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 level="info",
                 stage="selection_framing_apply",
             )
+            # Sticky complete under freeze — seats are immutable; unmarked no-ops
+            # thrash mix/junction via seed_order_prereq forever.
+            if not ctx.is_done("selection_framing_apply"):
+                heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
             return
     except Exception:
         ctx.log(
@@ -327,6 +354,8 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
             level="warning",
             stage="selection_framing_apply",
         )
+        if not ctx.is_done("selection_framing_apply"):
+            heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
         return
     from interview_mux.framing_coverage_guard import validate_framing_ranking
     from interview_mux.gap_framing import ranking_exclude_segment_ids

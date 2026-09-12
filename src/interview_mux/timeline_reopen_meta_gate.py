@@ -431,6 +431,20 @@ def decide_seat_rewrite(
         score = max(score, 0.8)
     if proposed_delta.get("ops"):
         score = max(score, 0.55)
+    # Packaging / CTA hygiene must be able to rewrite order under soft freeze —
+    # otherwise stamp is written for the sanitized order, freeze preserves the
+    # prior order, and selection_sanitize_stamp_stale (or layup CTA residue)
+    # spins forever.
+    src = str(proposed_delta.get("source") or "").lower()
+    packaging_tokens = (
+        "artifact_sanitize.selection",
+        "media_ip_cta",
+        "heal_on_air_cta",
+        "cta_omit",
+        "cta_prune",
+    )
+    if any(t in src or t in reason_l for t in packaging_tokens):
+        score = max(score, 0.7)
 
     # Optional LLM — fail refuse
     llm = None

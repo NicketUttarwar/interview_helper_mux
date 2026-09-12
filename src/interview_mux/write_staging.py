@@ -108,11 +108,26 @@ def staged_path(ctx: RunContext, rel: str, *, stage_id: str | None = None) -> Pa
     return staging_root(ctx, sid).joinpath(*rel.split("/"))
 
 
+VO_PICKUP_OWNER_STAGES = frozenset({"vo_synthesize", "vo_ingest", "audio_preclean"})
+
+
+def is_vo_pickup_rel(rel: str) -> bool:
+    """True for vo_pickup files/dirs (WAV bind authority lives here)."""
+    norm = str(rel or "").replace("\\", "/").lstrip("./")
+    return norm == "vo_pickup" or norm.startswith("vo_pickup/")
+
+
 def resolve_write_path(ctx: RunContext, rel: str) -> Path:
-    """Return staging path when a stage is active; else the committed run path."""
+    """Return staging path when a stage is active; else the committed run path.
+
+    Non-owner stages (especially ``edl``) must not write ``vo_pickup/`` into their
+    own pending tree — those copies flush as stale sha-mismatched takes (F2 / exec_11165).
+    """
     sid = _active_stage.get()
     if not sid or is_operational_path(rel):
         return ctx.run_dir.joinpath(*rel.split("/"))
+    if is_vo_pickup_rel(rel) and sid not in VO_PICKUP_OWNER_STAGES:
+        return staged_path(ctx, rel, stage_id="vo_synthesize")
     return staged_path(ctx, rel, stage_id=sid)
 
 
@@ -227,6 +242,8 @@ def promote_staged_side_effects(
     for rel in rels:
         if not rel:
             continue
+        if is_vo_pickup_rel(rel) and sid not in VO_PICKUP_OWNER_STAGES:
+            continue
         if rel.endswith("/"):
             src_dir = root.joinpath(*rel.rstrip("/").split("/"))
             if not src_dir.is_dir():
@@ -235,6 +252,8 @@ def promote_staged_side_effects(
                 if not src.is_file():
                     continue
                 child = str(src.relative_to(root)).replace("\\", "/")
+                if is_vo_pickup_rel(child) and sid not in VO_PICKUP_OWNER_STAGES:
+                    continue
                 dest = ctx.final_path(*child.split("/"))
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 atomic_copy(src, dest)
@@ -599,6 +618,8 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             if not src.is_file() or src.name.endswith(".lock"):
                 continue
             rel = str(src.relative_to(root)).replace("\\", "/")
+            if is_vo_pickup_rel(rel) and stage_id not in VO_PICKUP_OWNER_STAGES:
+                continue
             if not operator_visible_staging_path(stage_id, rel):
                 continue
             if _should_preserve_committed_transcript(ctx, rel, src):
@@ -665,8 +686,31 @@ GLUE_PROMOTE_RELS: tuple[str, ...] = (
     "understanding/reorder_bridges.json",
     "master/transitions.json",
     "master/transitions/",
-    "vo_pickup/",
 )
+
+
+def discard_non_owner_pending_vo_pickup(ctx: RunContext) -> list[str]:
+    """Drop ``.pending_writes/<non-owner>/vo_pickup/`` so EDL cannot clobber a later synth."""
+    root = ctx.run_dir / ".pending_writes"
+    if not root.is_dir():
+        return []
+    removed: list[str] = []
+    for stage_dir in sorted(root.iterdir()):
+        if not stage_dir.is_dir():
+            continue
+        if stage_dir.name in VO_PICKUP_OWNER_STAGES:
+            continue
+        pickup = stage_dir / "vo_pickup"
+        if not pickup.exists():
+            continue
+        shutil.rmtree(pickup, ignore_errors=True)
+        removed.append(f"{stage_dir.name}/vo_pickup")
+    return removed
+
+
+def promote_owner_vo_pickup(ctx: RunContext) -> list[str]:
+    """Flush ``vo_pickup/`` from vo_synthesize pending into the committed tree."""
+    return promote_staged_side_effects(ctx, ("vo_pickup/",), stage_id="vo_synthesize")
 
 
 def discard_staged_rel(ctx: RunContext, stage_id: str, rel: str) -> bool:
@@ -702,7 +746,12 @@ def promote_glue_then_discard_stale_edl(ctx: RunContext) -> dict[str, Any]:
         promoted.extend(f"{sid}:{rel}" for rel in flushed)
         if discard_staged_rel(ctx, sid, "master/edl.json"):
             discarded_edl.append(sid)
-    return {"promoted": promoted, "discarded_edl": discarded_edl}
+    discarded_vo = discard_non_owner_pending_vo_pickup(ctx)
+    return {
+        "promoted": promoted,
+        "discarded_edl": discarded_edl,
+        "discarded_vo_pickup": discarded_vo,
+    }
 
 
 def read_pending_content(ctx: RunContext, stage_id: str, rel: str) -> bytes:
@@ -939,6 +988,8 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
         # see committed WAVs (exec_10066: pending transitions/gap VO, seed-order thrash).
         if stage_id in {"vo_synthesize", "edl"} and not write_approval_enabled():
             try:
+                if stage_id == "edl":
+                    discard_non_owner_pending_vo_pickup(ctx)
                 if has_pending_writes(ctx, stage_id):
                     flushed = _commit_stage_writes(ctx, stage_id)
                     if flushed:

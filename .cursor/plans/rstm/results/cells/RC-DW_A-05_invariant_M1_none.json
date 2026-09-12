@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|A-05|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_shared_path_authority.py::test_a05_reanchor_clears_content_context_done",
+    "pytest:tests/test_shared_path_authority.py::test_a05_same_fingerprint_no_unmark_thrash",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

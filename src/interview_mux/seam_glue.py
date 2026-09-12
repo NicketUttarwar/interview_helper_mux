@@ -195,8 +195,28 @@ def _topic_from_transcript(raw: Any) -> str:
     if not grams:
         return ""
     best_score = max(item[0] for item in grams)
-    phrase = next(item[1] for item in reversed(grams) if item[0] == best_score)
+    if best_score > 0:
+        phrase = next(item[1] for item in reversed(grams) if item[0] == best_score)
+    else:
+        # Prefer an early content bigram over a trailing filler gram.
+        phrase = grams[0][1]
     return _clip_excerpt(phrase, max_chars=48)
+
+
+def _is_internal_topic_label(raw: Any) -> bool:
+    """True for pipeline/snake_case tags that must never be spoken on air."""
+    text = str(raw or "").strip()
+    if not text:
+        return True
+    low = text.casefold()
+    if low.startswith(("seg_", "segment_", "segment ")):
+        return True
+    # chapter_close_hitch, air_script_omit, etc.
+    if re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)+", low):
+        return True
+    if "_" in text and " " not in text:
+        return True
+    return False
 
 
 def _listener_topic(segment: dict[str, Any]) -> str:
@@ -211,10 +231,7 @@ def _listener_topic(segment: dict[str, Any]) -> str:
         candidates.extend(tags)
     for raw in candidates:
         text = _clip_excerpt(raw, max_chars=48)
-        if not text:
-            continue
-        low = text.lower()
-        if low.startswith(("seg_", "segment_", "segment ")):
+        if not text or _is_internal_topic_label(text):
             continue
         return text
     return _topic_from_transcript(segment.get("text") or segment.get("text_excerpt") or "")
@@ -269,6 +286,48 @@ def bridge_guard_evidence(pair: dict[str, Any]) -> dict[str, Any]:
         "after_excerpt": pair.get("before_excerpt"),
         "strict_grounding": True,
     }
+
+
+def pair_covered_without_spoken_glue(
+    ctx: RunContext,
+    after_id: str,
+    before_id: str,
+    *,
+    justified_skip_targets: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """True when hitch/music or a justified skip already covers the reorder join.
+
+    F4 3C: do not mint spoken glue (and do not fail closed) when that cover exists.
+    """
+    a = str(after_id or "").strip()
+    b = str(before_id or "").strip()
+    if not a or not b:
+        return False
+    skips = {str(x) for x in (justified_skip_targets or set()) if str(x).strip()}
+    if b in skips:
+        return True
+    try:
+        from interview_mux.air_script import native_handoff_segment_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        if b in native_handoff_segment_ids(load_plan_raw(ctx)):
+            return True
+    except Exception:
+        pass
+    if not ctx.artifact_exists("master/edl.json"):
+        return False
+    try:
+        from interview_mux.assembly_ledger import hitch_covered_pairs
+
+        edl = ctx.read_json("master/edl.json")
+        clips = (
+            [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+            if isinstance(edl, dict)
+            else []
+        )
+        return (a, b) in hitch_covered_pairs(clips)
+    except Exception:
+        return False
 
 
 def default_bridge_text(
@@ -504,9 +563,35 @@ def mint_missing_transitions(
                 # Pair-aware hinge from excerpts — do not abort EDL to recompose
                 # layup forever when the seam is already known.
                 text = default_bridge_text(pair, used_texts=used_bridge_texts)
+                if not str(text or "").strip():
+                    # Strip internal tag topics and retry from native transcripts
+                    # (topic_tags like chapter_close_hitch must not empty the seam).
+                    pair_retry = dict(pair)
+                    for key in ("after_topic", "before_topic"):
+                        if _is_internal_topic_label(pair_retry.get(key)):
+                            pair_retry.pop(key, None)
+                    for sid, key in ((a, "after_topic"), (b, "before_topic")):
+                        if pair_retry.get(key) or not sid:
+                            continue
+                        seg = segments_by_id.get(sid) or {}
+                        if not isinstance(seg, dict):
+                            continue
+                        derived = _topic_from_transcript(
+                            seg.get("text") or seg.get("text_excerpt") or ""
+                        )
+                        if derived:
+                            pair_retry[key] = derived
+                    text = default_bridge_text(
+                        pair_retry, used_texts=used_bridge_texts
+                    )
                 canned = False
                 unplanned.append(f"{a}->{b}")
                 if not str(text or "").strip():
+                    if pair_covered_without_spoken_glue(
+                        ctx, a, b, justified_skip_targets=justified_skip_targets
+                    ):
+                        existing.add((a, b))
+                        continue
                     from interview_mux.loud_fail import raise_loud_failure
 
                     raise_loud_failure(
@@ -530,6 +615,11 @@ def mint_missing_transitions(
                 canned = False
                 unplanned.append(f"{a}->{b}")
             if not str(text or "").strip():
+                if pair_covered_without_spoken_glue(
+                    ctx, a, b, justified_skip_targets=justified_skip_targets
+                ):
+                    existing.add((a, b))
+                    continue
                 from interview_mux.loud_fail import raise_loud_failure
 
                 raise_loud_failure(

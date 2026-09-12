@@ -2,7 +2,9 @@
   "cell_id": "D1|mastering_plan_synthesize|invariant|M1_none",
   "status": "PASS",
   "tier": "D1",
-  "notes": [],
+  "notes": [
+    "incompleteness_ok:mastering/mastering_plan.json is pending"
+  ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-09T18:05:34Z"
+  "executed_at": "2026-09-11T20:57:34Z"
 }

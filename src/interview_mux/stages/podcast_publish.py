@@ -183,19 +183,16 @@ def _persist_cover_artifacts(ctx: RunContext, artifacts: dict[str, Any], *, sour
         prompt = assemble_prompt(motifs, without_clauses=without_clauses or None)
     errors = validate_prompt(prompt)
     if errors:
-        # Reject — no silent truncation. Generate stage fail-opens to show art.
-        _write_cover_prompt_doc(
+        # F7 2B: no silent truncation — harvest a valid backup and still generate.
+        ctx.log(
+            "cover craft LLM prompt rejected; harvest fallback: " + ";".join(errors),
+            level="warning",
+            stage="episode_cover_prompt_craft",
+        )
+        _cover_craft_fallback(
             ctx,
-            prompt=prompt,
-            motifs=motifs,
-            without_clauses=without_clauses,
-            rejected=True,
-            reject_reasons=errors,
-            source=source,
-            draft_prompt=str(payload.get("draft_prompt") or "") or None,
-            brilliance_checklist=payload.get("brilliance_checklist")
-            if isinstance(payload.get("brilliance_checklist"), dict)
-            else None,
+            source="harvest_after_reject",
+            reason=";".join(errors),
         )
         return
     _write_cover_prompt_doc(
@@ -212,7 +209,7 @@ def _persist_cover_artifacts(ctx: RunContext, artifacts: dict[str, Any], *, sour
     )
 
 
-def _cover_craft_fallback(ctx: RunContext, *, source: str, reason: str) -> None:
+def _harvest_cover_motifs(ctx: RunContext) -> list[str]:
     harvest = harvest_motif_context(ctx)
     motifs: list[str] = []
     for key in ("thesis", "episode_title", "sonic_mood"):
@@ -225,18 +222,22 @@ def _cover_craft_fallback(ctx: RunContext, *, source: str, reason: str) -> None:
             break
     if not motifs:
         motifs = ["abstract geometric focal emblem", "interlocking arcs"]
+    return motifs
+
+
+def _harvest_cover_prompt(ctx: RunContext) -> tuple[str, list[str], list[str]]:
+    motifs = _harvest_cover_motifs(ctx)
     prompt = assemble_prompt(motifs)
-    errors = validate_prompt(prompt)
+    return prompt, motifs, validate_prompt(prompt)
+
+
+def _cover_craft_fallback(ctx: RunContext, *, source: str, reason: str) -> None:
+    prompt, motifs, errors = _harvest_cover_prompt(ctx)
     _write_cover_prompt_doc(
         ctx,
         prompt=prompt,
         motifs=motifs,
-        without_clauses=[
-            "without photorealism",
-            "without readable letters or words in any language",
-            "without logos or watermarks",
-            "without copying show-art emblems",
-        ],
+        without_clauses=[],
         rejected=bool(errors),
         reject_reasons=errors or [reason],
         source=source,
@@ -405,16 +406,29 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
         if ctx.artifact_exists("publish/cover_prompt.json")
         else {}
     )
-    if not isinstance(prompt_doc, dict) or prompt_doc.get("rejected"):
-        _copy_show_fallback(ctx, dest, reason="prompt_rejected_or_missing")
-        ctx.mark_done("episode_cover_generate")
-        return
-
-    prompt = str(prompt_doc.get("prompt") or "").strip()
-    if not prompt:
-        _copy_show_fallback(ctx, dest, reason="empty_prompt")
-        ctx.mark_done("episode_cover_generate")
-        return
+    prompt = str(prompt_doc.get("prompt") or "").strip() if isinstance(prompt_doc, dict) else ""
+    rejected = bool(isinstance(prompt_doc, dict) and prompt_doc.get("rejected"))
+    # F7 2B: rejected/empty craft → harvest backup, then still try OpenAI generate.
+    if rejected or not prompt:
+        harvest, motifs, herr = _harvest_cover_prompt(ctx)
+        if herr or not harvest:
+            _copy_show_fallback(
+                ctx,
+                dest,
+                reason="harvest_prompt_invalid:" + ",".join(herr[:4]),
+            )
+            ctx.mark_done("episode_cover_generate")
+            return
+        _write_cover_prompt_doc(
+            ctx,
+            prompt=harvest,
+            motifs=motifs,
+            without_clauses=[],
+            rejected=False,
+            reject_reasons=["prompt_rejected_or_missing"] if rejected else ["empty_prompt"],
+            source="harvest_generate_retry",
+        )
+        prompt = harvest
 
     from interview_mux.podcast_rss.cover_vision import local_fallback_pick, pick_cover_winner
     from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings

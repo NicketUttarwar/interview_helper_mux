@@ -10,6 +10,8 @@ from interview_mux.artifact_sanitize.types import SanitizeResult
 
 SELECTION_REL = "master/selection.json"
 _BASE_ID_RE = re.compile(r"^(seg_\d+)")
+# Lock hash refresh is not an air-order mutation (F1 2A restamp).
+_COSMETIC_SANITIZE_ACTIONS = frozenset({"bump_order_lock"})
 
 
 def _base_family(sid: str) -> str:
@@ -439,10 +441,35 @@ def selection_sanitary_errors(ctx: Any) -> list[str]:
     # Stale stamp (ok with diverged order) must never short-circuit.
     if stamp.get("ok") is True and stamp_fresh and not errs:
         return []
-    if stamp.get("ok") is True and not stamp_fresh:
-        errs.append("selection_sanitize_stamp_stale")
     if errs:
         return errs
+    if stamp.get("ok") is True and not stamp_fresh:
+        # F1 2A: restamp when a fresh sanitize would pass; do not block on stale hash.
+        result = sanitize_master_selection(ctx, doc)
+        mutating = [
+            a
+            for a in (result.actions or [])
+            if str((a or {}).get("action") or "") not in _COSMETIC_SANITIZE_ACTIONS
+        ]
+        if result.ok and not mutating:
+            try:
+                from interview_mux.write_staging import write_committed_json
+
+                write_committed_json(
+                    ctx,
+                    SELECTION_REL,
+                    result.doc,
+                    stage_key="selection_order_sanitize",
+                )
+            except Exception:
+                pass
+            return []
+        if result.ok:
+            return [
+                "selection_needs_sanitize:"
+                + ",".join(str(a.get("action") or "") for a in mutating[:6])
+            ]
+        return list(result.errors or ["selection_sanitize_stamp_stale"])
     # No fresh stamp — run dry sanitize and report
     result = sanitize_master_selection(ctx, doc)
     if result.ok and not result.actions:

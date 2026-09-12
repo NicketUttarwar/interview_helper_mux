@@ -97,3 +97,20 @@ After soft freeze, writers that would change the seat fingerprint must **no-op**
 Holistic review (`holistic_seat_review`) gates `transitions` / `vo_line_adjudicate` / `edl` inputs and pins resume to `air_contract_sanitize` (not Pass B remutate).
 
 See also: [`execution-status.md`](execution-status.md) · `mastering/seat_rewrite_gate.jsonl` · `mastering/timeline_reopen_gate.jsonl`.
+
+## Selection constraint lattice
+
+Total order at ranking / `commit_selection_mutation` (via [`selection_constraints.apply_selection_constraints`](../../src/interview_mux/selection_constraints.py)):
+
+1. Unplayable / blank / zero-ms — cannot hard-keep or never-exclude
+2. CTA / never-touch packaging
+3. Seat / epoch freeze (commit gate)
+4. `never_exclude_primary_impact` — playable non-CTA only
+5. Hard-keep restore
+6. Framing VO-cover excludes (selection_framing_apply)
+
+Specialists remain in `hard_keep.py` / `framing_coverage_guard.py` / `media_ip_cta.py`; the lattice is the single post-pass arbiter.
+
+## Seed policy (freeze sticky)
+
+[`seed_policy.py`](../../src/interview_mux/seed_policy.py): under hard seat freeze + EDL done, `selection_framing_apply` and `gap_framing_recompose` are sticky-complete (force-mark) and must not raise `seed_order_prereq`. Epoch fingerprints live under `run_meta.delivery_epoch` (including `junction_residuals_generation`).

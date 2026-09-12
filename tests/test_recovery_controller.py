@@ -84,6 +84,16 @@ def test_classify_exec_1822_signatures():
         classify_error_class(
             "mix",
             RuntimeError(
+                "publishability blocked at pre_mix: incomplete_cut_unresolved — "
+                "critical_residuals=3 kinds=['on_a_roll']"
+            ),
+        )
+        == "incomplete_cut_unresolved"
+    )
+    assert (
+        classify_error_class(
+            "mix",
+            RuntimeError(
                 "Mix gate: missing WAV for asset_id show_theme_v1_motif; "
                 "missing WAV for asset_id show_theme_v1_underscore_loop"
             ),
@@ -141,6 +151,25 @@ def test_classify_exec_1822_signatures():
         )
         == "selection_cta_omit"
     )
+
+
+def test_incomplete_cut_unresolved_classifies_and_resumes_junction(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx, mark_done_raw
+
+    ctx = isolated_run_ctx(tmp_path, "rec_incomplete_cut")
+    mark_done_raw(ctx, "junction_snip_qa")
+    mark_done_raw(ctx, "mix")
+    err = RuntimeError(
+        "publishability blocked at pre_mix: incomplete_cut_unresolved — "
+        "critical_residuals=3 kinds=['on_a_roll']"
+    )
+    assert classify_error_class("mix", err) == "incomplete_cut_unresolved"
+    result = handle_stage_failure(ctx, "mix", err)
+    assert result.status == "recovered"
+    assert result.playbook_id == "incomplete_cut_unresolved"
+    assert result.resume_stage == "junction_snip_qa"
+    assert not ctx.is_done("junction_snip_qa")
+    assert not ctx.is_done("mix")
 
 
 def test_mixed_diarization_playbook_writes_speakers(tmp_path: Path) -> None:
@@ -615,7 +644,8 @@ def test_mix_missing_theme_wav_resumes_palette(tmp_path: Path, monkeypatch):
     )
     assert result.status == "recovered"
     assert result.playbook_id == "generate_sdp_theme_wavs"
-    assert result.resume_stage == "music_palette_compose"
+    # Missing referenced theme WAVs regenerate via mmaudio_sfx (not palette thrash).
+    assert result.resume_stage == "mmaudio_sfx"
     for _ in range(2):
         again = handle_stage_failure(
             ctx,
@@ -629,7 +659,7 @@ def test_mix_missing_theme_wav_resumes_palette(tmp_path: Path, monkeypatch):
         RuntimeError("Mix gate: missing WAV for asset_id show_theme_v1_motif"),
     )
     assert exhausted.status == "escalate"
-    assert exhausted.resume_stage in {"mix", "music_palette_compose"}
+    assert exhausted.resume_stage in {"mix", "music_palette_compose", "mmaudio_sfx"}
 
 
 def test_overlapping_source_playbook_merges_and_resumes_edl(tmp_path: Path) -> None:

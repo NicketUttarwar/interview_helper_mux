@@ -125,6 +125,41 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     order = _selection_order(ctx)
     order_set = set(order)
 
+    # 1b. Drop omit stubs missing schema-required fields (tier-D mint class).
+    # opening_orientation.omitted remains the durable waive; phantom rows with
+    # only line_id/delivery block pre-flush commit.
+    _SCHEMA_REQ = ("gap_type", "text", "targets_segment_id", "placement", "delivery")
+    healed: list[dict[str, Any]] = []
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        omitted = bool(
+            row.get("skipped_optional")
+            or row.get("air_script_omit")
+            or row.get("omit")
+        )
+        missing = [k for k in _SCHEMA_REQ if k not in row or row.get(k) is None]
+        # text may be "" for omitted; key must exist. gap_type/targets/placement/delivery must be non-empty strings.
+        if "text" in missing:
+            pass
+        else:
+            for k in ("gap_type", "targets_segment_id", "placement", "delivery"):
+                if k not in missing and not str(row.get(k) or "").strip():
+                    missing.append(k)
+        if omitted and missing:
+            actions.append(
+                {
+                    "action": "drop_incomplete_omit_stub",
+                    "line_id": str(row.get("line_id") or ""),
+                    "missing": missing[:8],
+                }
+            )
+            continue
+        healed.append(row)
+    if len(healed) != len(lines):
+        out["interviewer_lines"] = healed
+        lines = healed
+
     # 2. dedupe lines
     seen_ids: set[str] = set()
     seen_sig: set[tuple[str, str, str]] = set()

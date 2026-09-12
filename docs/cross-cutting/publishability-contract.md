@@ -66,6 +66,18 @@ When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** rema
 | `master_finalize` / G-Publish | `pre_finalize` PMQ envelope | Tier-0 PMQ failures still block; rubric advisories logged only |
 | Cover / package / S3 | Operator G-Publish (optional) | S3 requires operator consent when `quality_advisories` non-empty |
 
+### Quality status vocabulary (platform)
+
+Wire tokens on disk: `pass` | `fail` | `advisory_fail` — owned by [`quality_status.py`](../../src/interview_mux/quality_status.py). Writers and `run_meta.qc_summaries` must import constants (no raw strings). Schemas in `post_master_quality.schema.json` / `listener_scorecard.schema.json` must match; CI: `tools/audit_quality_status_enum.py` (via `scripts/verify_artifact_contract.sh`). GUI Zod maps the same artifacts. `qc_summaries.blocking` is false for `advisory_fail` (`advisory: true`).
+
+### Residual ledger SSOT (platform)
+
+`operator/delivery_residuals.json` is the blocking SSOT for critical residuals. Rows carry `generation` + `state` (`open`|`remediated`|`waived`|`stale`). Noop thought-complete applies never set `remediated`. Stale/mismatched-generation rows cannot block `pre_mix`. Junction QA findings are evidence; `clear_stale_incomplete_cut_residuals` demotes stamps and bumps `delivery_epoch.junction_residuals_generation`.
+
+### Heal routing SSOT (platform)
+
+[`heal_routing.PLAYBOOK_REGISTRY`](../../src/interview_mux/heal_routing.py) is the only `error_class → resume_stage` map. `incomplete_cut_unresolved` / critical junction → `junction_snip_qa` (never mix). `mmaudio_incomplete` / missing referenced SDP WAVs → `mmaudio_sfx`. `safe_mix_resume_stage`, recovery, and full-auto driver must call `resume_stage_for_error_class`.
+
 ### Committed vs pending master (thrash invariant)
 
 Agenda walk-to-master / remaster / ship-stage unlock, and `filter_delivery_candidates` for `SHIP_AFTER_MASTER`, must use **committed** `master/master.wav` only (`final_path(...).is_file()` via `delivery_invariants.committed_master_wav`). A pending finalize write under `.pending_writes/master_finalize/` must not look shipped.

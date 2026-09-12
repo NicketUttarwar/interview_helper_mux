@@ -12,10 +12,14 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./master_junction_feel_audit_jsonSchema")).master_junction_feel_audit_jsonSchema,
   "master/junction_thought_complete.json": async () =>
     (await import("./master_junction_thought_complete_jsonSchema")).master_junction_thought_complete_jsonSchema,
+  "master/listener_scorecard.json": async () =>
+    (await import("./master_listener_scorecard_jsonSchema")).master_listener_scorecard_jsonSchema,
   "master/narrative_plan.json": async () =>
     (await import("./master_narrative_plan_jsonSchema")).master_narrative_plan_jsonSchema,
   "master/podcast_sfx_brief.json": async () =>
     (await import("./master_podcast_sfx_brief_jsonSchema")).master_podcast_sfx_brief_jsonSchema,
+  "master/post_master_quality.json": async () =>
+    (await import("./master_post_master_quality_jsonSchema")).master_post_master_quality_jsonSchema,
   "master/selection.json": async () =>
     (await import("./master_selection_jsonSchema")).master_selection_jsonSchema,
   "master/transcript.json": async () =>

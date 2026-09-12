@@ -3,9 +3,9 @@
   "status": "PASS",
   "tier": "D3-P0",
   "notes": [
-    "incompleteness_ok:master/seam_autopsy.json is pending",
+    "incompleteness_ok:master/junction_snip_qa.json is pending",
     "seed_block_other:topic_coverage_audit"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-09T18:06:01Z"
+  "executed_at": "2026-09-11T20:58:01Z"
 }

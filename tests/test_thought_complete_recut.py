@@ -111,6 +111,39 @@ def test_apply_extends_hanging_and_leaves_leftover_independent():
     assert "seg_b" not in overrides or not overrides.get("seg_b", {}).get("excluded")
 
 
+def test_apply_thought_complete_noop_keep_end_not_changed():
+    clips = [
+        {
+            "type": "speech",
+            "segment_id": "seg_a",
+            "source_start_ms": 0,
+            "source_end_ms": 4000,
+            "duration_ms": 4000,
+        },
+        {
+            "type": "speech",
+            "segment_id": "seg_b",
+            "source_start_ms": 4500,
+            "source_end_ms": 8000,
+            "duration_ms": 3500,
+        },
+    ]
+    finding = {
+        "segment_id": "seg_a",
+        "kind": "on_a_roll",
+        "action": "thought_complete_recut",
+        "detail": {
+            "keep_end_ms": 4000,
+            "remainder_start_ms": 4500,
+            "consumed_segment_ids": [],
+        },
+    }
+    _out, _overrides, changed = apply_thought_complete_to_clips(
+        clips, finding, overrides={}, excluded=set(), exclude_reasons={}
+    )
+    assert changed is False
+
+
 def test_enrich_uses_batched_llm_keep_end(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "exec_thought_llm")
     segments = [

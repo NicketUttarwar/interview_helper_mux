@@ -482,6 +482,26 @@ def test_completed_packet_hash_may_retry() -> None:
     check_dispatch(ctx, identity="speaker_roles", kind="llm", packet_hash=ph)
 
 
+def test_legacy_done_without_packet_hash_closes_sticky_identical_call() -> None:
+    """exec_11165: specialist done rows omitted packet_hash → sticky identical_packed_call."""
+    ctx = _ctx_010()
+    ph = packet_hash_for([{"role": "user", "content": "legacy"}])
+    append_ledger(
+        ctx,
+        {"kind": "llm", "identity": "full_master_ranking__stt_lexicon_island_verify", "packet_hash": ph, "status": "started"},
+    )
+    append_ledger(
+        ctx,
+        {"kind": "llm", "identity": "full_master_ranking__stt_lexicon_island_verify", "status": "done"},
+    )
+    check_dispatch(
+        ctx,
+        identity="full_master_ranking__stt_lexicon_island_verify",
+        kind="llm",
+        packet_hash=ph,
+    )
+
+
 def test_coverage_complete() -> None:
     report = coverage_report()
     assert report["ok"], report

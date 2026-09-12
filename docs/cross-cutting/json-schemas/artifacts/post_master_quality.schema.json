@@ -14,7 +14,7 @@
   "properties": {
     "version": { "type": "integer", "const": 1 },
     "generated_at": { "type": "string" },
-    "status": { "type": "string", "enum": ["pass", "fail"] },
+    "status": { "type": "string", "enum": ["pass", "fail", "advisory_fail"] },
     "publish_allowed": { "type": "boolean" },
     "checks": {
       "type": "array",

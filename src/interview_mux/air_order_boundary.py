@@ -126,6 +126,51 @@ def _previous_selection(ctx: RunContext) -> dict[str, Any] | None:
     return dict(doc) if isinstance(doc, dict) else None
 
 
+def _preserve_frozen_selection_order(
+    out: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None,
+    prev_ids: list[str],
+    producer: str,
+    stage_key: str,
+    refuse_reason: str,
+    ctx: RunContext,
+) -> dict[str, Any]:
+    """Keep frozen air order and restamp so sanitize stamp cannot go stale."""
+    restored = dict(out)
+    restored["ordered_segment_ids"] = list(prev_ids)
+    if isinstance(previous, dict):
+        for key in ("order_content_hash", "order_lock", "order_lock_source"):
+            if key in previous:
+                restored[key] = previous.get(key)
+    try:
+        from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+
+        restored = stamp_sanitize_meta(
+            restored,
+            ok=True,
+            source=f"seat_freeze_preserve:{producer}",
+            actions_n=0,
+            extra={
+                "preserved_order": True,
+                "refused": str(refuse_reason or "")[:120],
+            },
+            content_keys=["ordered_segment_ids", "order_content_hash"],
+        )
+    except Exception:
+        pass
+    try:
+        ctx.log(
+            "seat_freeze: preserved selection order "
+            f"(refused:{refuse_reason or 'meta_gate'}; producer={producer})",
+            level="warning",
+            stage=stage_key or producer,
+        )
+    except Exception:
+        pass
+    return restored
+
+
 def commit_selection_mutation(
     ctx: RunContext,
     selection: dict[str, Any],
@@ -177,8 +222,10 @@ def commit_selection_mutation(
             )
         out = sanitize_result.doc if isinstance(sanitize_result.doc, dict) else out
 
-        # b8: under seat freeze, refuse order-changing selection commits without
-        # meta-gate allow (prevents Pass B / EDL thrash via selection cascade).
+        # b8: under seat freeze, order-changing selection commits need meta-gate
+        # allow. On refuse: preserve frozen order (no-op) — same pattern as
+        # framing/omit writers. Raising here spins full-auto forever because
+        # heuristic opportunity for empty-ops order_change stays below threshold.
         try:
             from interview_mux.seat_authority import (
                 hard_freeze_active,
@@ -193,7 +240,7 @@ def commit_selection_mutation(
                     if s
                 ]
                 cur_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-                if prev_ids != cur_ids:
+                if prev_ids and prev_ids != cur_ids:
                     dec = request_seat_rewrite(
                         ctx,
                         proposed_delta={
@@ -206,12 +253,17 @@ def commit_selection_mutation(
                         symptoms=["order_change", "selection_commit"],
                     )
                     if not dec.get("allow"):
-                        raise RuntimeError(
-                            "seat_freeze_blocked_selection_commit:"
-                            + str(dec.get("refuse_reason") or "meta_gate_refuse")
+                        out = _preserve_frozen_selection_order(
+                            out,
+                            previous=previous if isinstance(previous, dict) else None,
+                            prev_ids=prev_ids,
+                            producer=producer,
+                            stage_key=stage_key,
+                            refuse_reason=str(
+                                dec.get("refuse_reason") or "meta_gate"
+                            ),
+                            ctx=ctx,
                         )
-        except RuntimeError:
-            raise
         except Exception:
             try:
                 from interview_mux.seat_authority import (
@@ -228,12 +280,16 @@ def commit_selection_mutation(
                     cur_ids = [
                         str(s) for s in (out.get("ordered_segment_ids") or []) if s
                     ]
-                    if prev_ids != cur_ids:
-                        raise RuntimeError(
-                            "seat_freeze_blocked_selection_commit:fail_closed"
+                    if prev_ids and prev_ids != cur_ids:
+                        out = _preserve_frozen_selection_order(
+                            out,
+                            previous=previous if isinstance(previous, dict) else None,
+                            prev_ids=prev_ids,
+                            producer=producer,
+                            stage_key=stage_key,
+                            refuse_reason="fail_closed",
+                            ctx=ctx,
                         )
-            except RuntimeError:
-                raise
             except Exception:
                 pass
 

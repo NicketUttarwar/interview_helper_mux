@@ -494,35 +494,39 @@ def commit_air_contract(ctx: Any, *, reason: str = "") -> SanitizeResult:
 
 
 def run_air_contract_sanitize(ctx: Any) -> None:
-    with sanitize_reentry_guard(ctx) as nested:
-        if nested:
-            return
-        result = commit_air_contract(ctx, reason="air_contract_sanitize")
-        if not result.ok:
-            raise RuntimeError(
-                sanitize_refused_message("air_contract", result.errors)
-            )
-        try:
-            from interview_mux.stage_completion import heal_or_refuse_mark
+    # commit_air_contract already owns sanitize_reentry_guard. An outer wrap here
+    # nested-skips the write (ok=True, skipped=reentry) so drop_seated_missing_from_gap
+    # never lands and the stage finishes unsanitary / without a real commit.
+    result = commit_air_contract(ctx, reason="air_contract_sanitize")
+    if (result.metrics or {}).get("skipped") == "reentry":
+        raise RuntimeError(
+            "air_contract_sanitize: commit skipped via reentry guard (no write)"
+        )
+    if not result.ok:
+        raise RuntimeError(
+            sanitize_refused_message("air_contract", result.errors)
+        )
+    try:
+        from interview_mux.stage_completion import heal_or_refuse_mark
 
-            heal_or_refuse_mark(ctx, "air_contract_sanitize")
+        heal_or_refuse_mark(ctx, "air_contract_sanitize")
+    except Exception:
+        try:
+            ctx.mark_done("air_contract_sanitize")
         except Exception:
-            try:
-                ctx.mark_done("air_contract_sanitize")
-            except Exception:
-                pass
-        try:
-            from interview_mux.seat_authority import stamp_soft_seat_freeze
+            pass
+    try:
+        from interview_mux.seat_authority import stamp_soft_seat_freeze
 
-            stamp_soft_seat_freeze(ctx, reason="air_contract_sanitize")
-        except Exception as exc:
-            # Soft freeze is load-bearing for Pillar B — never continue ungated.
-            try:
-                ctx.log(
-                    f"air_contract_sanitize: soft seat freeze stamp FAILED: {exc}",
-                    level="error",
-                    stage="air_contract_sanitize",
-                )
-            except Exception:
-                pass
-            raise
+        stamp_soft_seat_freeze(ctx, reason="air_contract_sanitize")
+    except Exception as exc:
+        # Soft freeze is load-bearing for Pillar B — never continue ungated.
+        try:
+            ctx.log(
+                f"air_contract_sanitize: soft seat freeze stamp FAILED: {exc}",
+                level="error",
+                stage="air_contract_sanitize",
+            )
+        except Exception:
+            pass
+        raise

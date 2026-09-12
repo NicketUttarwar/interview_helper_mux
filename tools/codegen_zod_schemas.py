@@ -44,6 +44,8 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "master/transcript.json": "artifacts/master_transcript.schema.json",
     "master/junction_feel_audit.json": "artifacts/junction_feel_audit.schema.json",
     "master/junction_thought_complete.json": "artifacts/junction_thought_complete.schema.json",
+    "master/post_master_quality.json": "artifacts/post_master_quality.schema.json",
+    "master/listener_scorecard.json": "artifacts/listener_scorecard.schema.json",
     "show_notes/show_description.json": "artifacts/show_description_artifact.schema.json",
     "sound_design/sfx_prompts.json": "artifacts/sfx_prompts_artifact.schema.json",
     "sound_design/mmaudio_qa.json": "artifacts/mmaudio_qa.schema.json",

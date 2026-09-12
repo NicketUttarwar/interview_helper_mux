@@ -227,6 +227,159 @@ def test_connector_fuse_defaults_incomplete_thought_only():
     assert _DEFAULTS["allow_high_value_bridge"] is False
     assert int(_DEFAULTS["max_fused_duration_ms"] or 0) == 25000
     assert int(_DEFAULTS["max_fused_members"] or 0) == 3
-    # No episode-wide fuse quota — hanging cuts may still collapse to a fixed point.
-    assert int(_DEFAULTS["max_fuses_per_pass"] or 0) == 0
-    assert int(_DEFAULTS["max_fuse_rounds"] or 0) == 0
+    # Finite fuse budget (hanging cuts still converge without unbounded thrash).
+    assert int(_DEFAULTS["max_fuses_per_pass"] or 0) > 0
+    assert int(_DEFAULTS["max_fuse_rounds"] or 0) > 0
+
+
+def test_hard_keep_blank_exclude_beats_restore():
+    """Lattice: blank_or_unusable exclude must not be restored by hard_keep."""
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {"must_keep_segment_ids": ["seg_blank"]},
+            "master/selection.json": {
+                "ordered_segment_ids": ["seg_other"],
+                "excluded_segment_ids": [
+                    {
+                        "segment_id": "seg_blank",
+                        "reason": "blank_or_unusable_answer_audio",
+                    }
+                ],
+                "exclude_rationales": {
+                    "seg_blank": "blank_or_unusable_answer_audio",
+                },
+            },
+        }
+    )
+    keeps = hard_keep_segment_ids(ctx)
+    assert "seg_blank" not in keeps
+    out = enforce_hard_keeps(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_other"],
+            "excluded_segment_ids": [
+                {
+                    "segment_id": "seg_blank",
+                    "reason": "blank_or_unusable_answer_audio",
+                }
+            ],
+            "exclude_rationales": {"seg_blank": "blank_or_unusable_answer_audio"},
+        },
+    )
+    assert "seg_blank" not in out["ordered_segment_ids"]
+
+
+def test_hard_keep_drops_blank_excluded_segments():
+    """Blank-excluded tape must leave hard_keep so post-commit lint can pass."""
+    ctx = _FakeCtx(
+        {
+            "analysis/low_conf_must_keep.json": {
+                "enforcement_mode": "authoritative",
+                "must_keep_segment_ids": ["seg_024", "seg_057", "seg_025"],
+            },
+            "segments/manifest.json": {
+                "segments": [
+                    {
+                        "segment_id": "seg_024",
+                        "text": "Okay.",
+                        "start_ms": 0,
+                        "end_ms": 300,
+                    },
+                    {
+                        "segment_id": "seg_057",
+                        "text": "Thank you.",
+                        "start_ms": 1000,
+                        "end_ms": 1300,
+                    },
+                    {
+                        "segment_id": "seg_025",
+                        "text": "The assay rebuilt how we see living tumor biology in the clinic.",
+                        "start_ms": 2000,
+                        "end_ms": 12000,
+                    },
+                ]
+            },
+            "master/selection.json": {
+                "ordered_segment_ids": ["seg_025"],
+                "excluded_segment_ids": [
+                    {"segment_id": "seg_024", "reason": "blank_or_unusable_answer_audio"},
+                    {"segment_id": "seg_057", "reason": "blank_or_unusable_answer_audio"},
+                ],
+            },
+        }
+    )
+    # authoritative_must_keep_ids reads analysis path — stub via ideal_cuts instead
+    ctx._store["understanding/ideal_cuts.json"] = {
+        "must_keep_segment_ids": ["seg_024", "seg_057", "seg_025"],
+        "cuts": [{"segment_id": "seg_025", "must_keep": True}],
+    }
+    keeps = hard_keep_segment_ids(ctx)
+    assert "seg_024" not in keeps
+    assert "seg_057" not in keeps
+    assert "seg_025" in keeps
+
+
+def test_hard_keep_drops_orphan_ids_absent_from_manifest():
+    """exec_11165: low-conf must-keep seg_069 not in manifest must not poison ranking."""
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {
+                "must_keep_segment_ids": ["seg_022", "seg_069"],
+                "cuts": [{"segment_id": "seg_022", "must_keep": True}],
+            },
+            "segments/manifest.json": {
+                "segments": [
+                    {
+                        "segment_id": "seg_022",
+                        "text": "Liquid biopsy changed monitoring.",
+                        "start_ms": 0,
+                        "end_ms": 4000,
+                    },
+                ]
+            },
+        }
+    )
+    keeps = hard_keep_segment_ids(ctx)
+    assert "seg_022" in keeps
+    assert "seg_069" not in keeps
+
+
+def test_hard_keep_cta_parent_via_selection_exclude_without_cta_artifact():
+    """CTA parent excluded in selection transfers keep to on-air children (no media_ip_cta.json)."""
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {
+                "must_keep_segment_ids": ["seg_001"],
+                "cuts": [{"segment_id": "seg_001", "must_keep": True}],
+            },
+            "segments/manifest.json": {
+                "segments": [
+                    {
+                        "segment_id": "seg_001",
+                        "text": "Please subscribe.",
+                        "start_ms": 0,
+                        "end_ms": 5000,
+                    },
+                    {
+                        "segment_id": "seg_001c",
+                        "text": (
+                            "OneCell lets oncologists see living tumor biology "
+                            "in the clinic before they choose a therapy path."
+                        ),
+                        "start_ms": 500,
+                        "end_ms": 9000,
+                        "parent_id": "seg_001",
+                    },
+                ]
+            },
+            "master/selection.json": {
+                "ordered_segment_ids": ["seg_001c"],
+                "excluded_segment_ids": [
+                    {"segment_id": "seg_001", "reason": "media_ip_cta"}
+                ],
+            },
+        }
+    )
+    keeps = hard_keep_segment_ids(ctx)
+    assert "seg_001" not in keeps
+    assert "seg_001c" in keeps

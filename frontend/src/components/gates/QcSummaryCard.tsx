@@ -6,6 +6,10 @@ import {
   resolveQcBlocksShip,
   type QcDisplayState,
 } from "../../utils/qcSummaryState";
+import {
+  WIRE_STATUS_ADVISORY_FAIL,
+  WIRE_STATUS_PASS,
+} from "../../utils/qualityStatus";
 
 export function QcSummaryCard({
   qcKey,
@@ -50,8 +54,8 @@ export function QcSummaryCard({
   const blocksShip = resolveQcBlocksShip(summary, qcKey, run?.meta?.qc_summaries);
 
   const stateLabel: Record<QcDisplayState, string> = {
-    pass: "Pass",
-    advisory_fail: "Advisory fail",
+    [WIRE_STATUS_PASS]: "Pass",
+    [WIRE_STATUS_ADVISORY_FAIL]: "Advisory fail",
     blocking_fail: "Blocking fail",
     waived: "Waived",
   };
@@ -81,11 +85,11 @@ export function QcSummaryCard({
     );
 
   const cardClass =
-    displayState === "pass"
+    displayState === WIRE_STATUS_PASS
       ? "qc-pass"
       : displayState === "waived"
         ? "qc-waived"
-        : displayState === "advisory_fail"
+        : displayState === WIRE_STATUS_ADVISORY_FAIL
           ? "qc-advisory"
           : "qc-fail";
 
@@ -110,7 +114,7 @@ export function QcSummaryCard({
           ))}
         </ul>
       ) : null}
-      {overall !== null || blocksShip || displayState !== "pass" ? (
+      {overall !== null || blocksShip || displayState !== WIRE_STATUS_PASS ? (
         <p className="hint">
           {overall !== null ? `Overall ${overall.toFixed(2)}` : null}
           {overall !== null ? " — " : ""}
@@ -118,19 +122,19 @@ export function QcSummaryCard({
             ? "blocks Ship (publish_allowed is false / finalize refuse)."
             : displayState === "waived"
               ? "quality waived — does not alone green Ship without publish_allowed."
-              : displayState === "advisory_fail"
+              : displayState === WIRE_STATUS_ADVISORY_FAIL
                 ? "advisory only; does not block Ship."
                 : displayState === "blocking_fail"
                   ? "blocking gate."
                   : "does not block Ship."}
         </p>
       ) : null}
-      {displayState === "blocking_fail" || displayState === "advisory_fail" ? (
+      {displayState === "blocking_fail" || displayState === WIRE_STATUS_ADVISORY_FAIL ? (
         <p className="hint">
           Fix issues in the activity log or Files tab, then redo from this step and re-run.
         </p>
       ) : null}
-      {displayState === "blocking_fail" || displayState === "advisory_fail" ? (
+      {displayState === "blocking_fail" || displayState === WIRE_STATUS_ADVISORY_FAIL ? (
         <div className="stage-audio-actions flow-choice">
           <button type="button" className="btn ghost sm" onClick={openActivity}>
             View activity

@@ -1521,7 +1521,23 @@ def premature_cap_hard_pin(
 
 
 def safe_mix_resume_stage(ctx: RunContext) -> str:
-    """Return mix only when music epoch complete; else earliest music producer."""
+    """Return mix only when music epoch complete and junction residuals clear."""
+    try:
+        from interview_mux.heal_routing import resume_stage_for_error_class
+
+        view = critical_residual_view(ctx)
+        kinds = {str(k or "").strip() for k in (view.kinds or ())}
+        if view.count > 0 and (
+            "on_a_roll" in kinds
+            or "incomplete_cut" in kinds
+            or "incomplete_cut_unresolved" in kinds
+            or any("junction" in k for k in kinds)
+        ):
+            return resume_stage_for_error_class(
+                "incomplete_cut_unresolved", default="junction_snip_qa"
+            )
+    except Exception:
+        pass
     if music_epoch_complete(ctx):
         return "mix"
     block = mix_epoch_block(ctx)
@@ -1532,10 +1548,13 @@ def safe_mix_resume_stage(ctx: RunContext) -> str:
         # Seed markers present but SDP still lacks WAVs — regenerate assets,
         # do not bounce mix ↔ music_palette_compose forever.
         try:
+            from interview_mux.heal_routing import resume_stage_for_error_class
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
             if missing_sdp_asset_wavs(ctx):
-                return "mmaudio_sfx"
+                return resume_stage_for_error_class(
+                    "mmaudio_incomplete", default="mmaudio_sfx"
+                )
         except Exception:
             pass
     try:
@@ -1786,6 +1805,26 @@ def stamp_delivery_epoch(ctx: RunContext, **fields: Any) -> dict[str, Any]:
     return epoch
 
 
+def residual_ledger_generation(ctx: RunContext) -> int:
+    """Bumpable generation for delivery residuals (EDL/junction/selection commits)."""
+    try:
+        epoch = read_delivery_epoch(ctx)
+        gen = epoch.get("junction_residuals_generation")
+        if gen is not None:
+            return max(0, int(gen))
+    except Exception:
+        pass
+    return 0
+
+
+def bump_residual_ledger_generation(ctx: RunContext, *, by: int = 1) -> int:
+    """Increment junction_residuals_generation on delivery_epoch."""
+    cur = residual_ledger_generation(ctx)
+    nxt = cur + max(1, int(by))
+    stamp_delivery_epoch(ctx, junction_residuals_generation=nxt)
+    return nxt
+
+
 def record_delivery_residual(
     ctx: RunContext,
     *,
@@ -1794,25 +1833,42 @@ def record_delivery_residual(
     stage: str = "",
     detail: dict[str, Any] | None = None,
     mirror_junction: bool = True,
+    state: str = "open",
+    producer_stage: str = "",
 ) -> dict[str, Any]:
     """B-02/B-03: persist residuals that ship/junction consumers must read.
 
     Writes ``operator/delivery_residuals.json``. Critical rows also bump
     ``critical_residual_count`` on ``master/junction_snip_qa.json`` when present
     so ``ship_path_ready`` and junction consumers share one view.
+
+    Rows carry ``generation`` + ``state`` (open|remediated|waived|stale).
+    Noop heals must not set state=remediated — only live-clean clears.
     """
     sev = str(severity or "critical").strip().lower() or "critical"
     if sev not in {"critical", "soft", "advisory"}:
         sev = "critical"
     kind_s = str(kind or "residual").strip()[:120] or "residual"
+    st = str(state or "open").strip().lower() or "open"
+    if st not in {"open", "remediated", "waived", "stale"}:
+        st = "open"
+    gen = residual_ledger_generation(ctx)
     row = {
         "at": _utc_now(),
         "kind": kind_s,
         "severity": sev,
         "stage": str(stage or "")[:80],
+        "producer_stage": str(producer_stage or stage or "")[:80],
+        "generation": gen,
+        "state": st,
         "detail": detail if isinstance(detail, dict) else {},
     }
-    doc: dict[str, Any] = {"version": 1, "residuals": [], "critical_count": 0}
+    doc: dict[str, Any] = {
+        "version": 1,
+        "residuals": [],
+        "critical_count": 0,
+        "generation": gen,
+    }
     if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
         try:
             raw = ctx.read_json(DELIVERY_RESIDUALS_REL)
@@ -1842,15 +1898,21 @@ def record_delivery_residual(
     residuals.append(row)
     doc["version"] = 1
     doc["updated_at"] = _utc_now()
+    doc["generation"] = gen
     doc["residuals"] = residuals[-100:]
     doc["critical_count"] = sum(
-        1 for r in doc["residuals"] if str(r.get("severity") or "") == "critical"
+        1
+        for r in doc["residuals"]
+        if isinstance(r, dict)
+        and str(r.get("severity") or "") == "critical"
+        and str(r.get("state") or "open") == "open"
+        and int(r.get("generation") or gen) >= gen
     )
     try:
         ctx.write_json(DELIVERY_RESIDUALS_REL, doc, skip_handoff=True)
     except Exception:
         pass
-    if sev == "critical" and mirror_junction:
+    if sev == "critical" and st == "open" and mirror_junction:
         try:
             _mirror_critical_residual_into_junction(ctx, row)
         except Exception:
@@ -1860,7 +1922,12 @@ def record_delivery_residual(
             ctx,
             event=f"delivery_residual:{kind_s}",
             stage=stage or "delivery",
-            detail={"severity": sev, **(detail or {})},
+            detail={
+                "severity": sev,
+                "state": st,
+                "generation": gen,
+                **(detail or {}),
+            },
         )
     except Exception:
         pass
@@ -1904,12 +1971,16 @@ def critical_residual_view(ctx: RunContext) -> CriticalResidualView:
 
     Final count is ``max(ledger, findings, stamped)`` so a stale zero stamp
     cannot hide live findings/ledger (B-02 Wave 9 residual SSOT).
+
+    Ledger rows with ``state`` in {stale, remediated, waived} or
+    ``generation`` older than the current epoch generation do not block.
     """
     kinds: list[str] = []
     sources: list[str] = []
     ledger_n = 0
     findings_n = 0
     stamped_n = 0
+    cur_gen = residual_ledger_generation(ctx)
 
     if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
         try:
@@ -1921,6 +1992,15 @@ def critical_residual_view(ctx: RunContext) -> CriticalResidualView:
                 if not isinstance(row, dict):
                     continue
                 if str(row.get("severity") or "") != "critical":
+                    continue
+                st = str(row.get("state") or "open").strip().lower() or "open"
+                if st in {"stale", "remediated", "waived"}:
+                    continue
+                try:
+                    row_gen = int(row.get("generation") if row.get("generation") is not None else cur_gen)
+                except (TypeError, ValueError):
+                    row_gen = cur_gen
+                if row_gen < cur_gen:
                     continue
                 ledger_n += 1
                 kind = str(row.get("kind") or "residual").strip() or "residual"
@@ -1935,24 +2015,57 @@ def critical_residual_view(ctx: RunContext) -> CriticalResidualView:
         except Exception:
             qa = None
         if isinstance(qa, dict):
-            for finding in qa.get("residual_findings") or []:
-                if not isinstance(finding, dict):
-                    continue
-                if str(finding.get("severity") or "") != "critical":
-                    continue
-                findings_n += 1
-                kind = str(finding.get("kind") or "junction_residual").strip() or "junction_residual"
-                if kind not in kinds:
-                    kinds.append(kind)
-            if findings_n:
-                sources.append("junction_findings")
-            for key in ("critical_residual_count", "critical_count", "critical_residuals"):
-                try:
-                    stamped_n = max(stamped_n, int(qa.get(key) or 0))
-                except (TypeError, ValueError):
-                    continue
-            if stamped_n > 0:
-                sources.append("junction_count")
+            # After clear_stale, reconciled reports must not poison via stale stamps.
+            if qa.get("stale_incomplete_cut_reconciled") and not qa.get(
+                "incomplete_cut_producer_heals_armed"
+            ):
+                live_kinds: list[str] = []
+                for finding in qa.get("residual_findings") or []:
+                    if not isinstance(finding, dict):
+                        continue
+                    if str(finding.get("severity") or "") != "critical":
+                        continue
+                    if finding.get("stale_incomplete_cut_cleared"):
+                        continue
+                    findings_n += 1
+                    kind = (
+                        str(finding.get("kind") or "junction_residual").strip()
+                        or "junction_residual"
+                    )
+                    if kind not in kinds:
+                        kinds.append(kind)
+                    live_kinds.append(kind)
+                if findings_n:
+                    sources.append("junction_findings")
+                stamped_n = findings_n
+            else:
+                for finding in qa.get("residual_findings") or []:
+                    if not isinstance(finding, dict):
+                        continue
+                    if str(finding.get("severity") or "") != "critical":
+                        continue
+                    if finding.get("stale_incomplete_cut_cleared"):
+                        continue
+                    findings_n += 1
+                    kind = (
+                        str(finding.get("kind") or "junction_residual").strip()
+                        or "junction_residual"
+                    )
+                    if kind not in kinds:
+                        kinds.append(kind)
+                if findings_n:
+                    sources.append("junction_findings")
+                for key in (
+                    "critical_residual_count",
+                    "critical_count",
+                    "critical_residuals",
+                ):
+                    try:
+                        stamped_n = max(stamped_n, int(qa.get(key) or 0))
+                    except (TypeError, ValueError):
+                        continue
+                if stamped_n > 0:
+                    sources.append("junction_count")
 
     count = max(ledger_n, findings_n, stamped_n)
     # Preserve source order without duplicates.

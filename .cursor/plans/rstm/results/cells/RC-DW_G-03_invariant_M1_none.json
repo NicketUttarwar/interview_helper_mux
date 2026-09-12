@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|G-03|invariant|M1_none",
+  "status": "PASS",
+  "tier": "RC-DW",
+  "notes": [
+    "inline:smoke_g03_preclean_optional_copy",
+    "vitest:frontend/src/utils/preclean.test.ts",
+    "inline_ok:smoke_g03_preclean_optional_copy"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

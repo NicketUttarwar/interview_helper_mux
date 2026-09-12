@@ -80,7 +80,15 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
             action="keep",
             payload={"identity": budget_identity, "ok": True},
         )
-        append_ledger(ctx, {"kind": "llm", "identity": budget_identity, "status": "done"})
+        append_ledger(
+            ctx,
+            {
+                "kind": "llm",
+                "identity": budget_identity,
+                "packet_hash": ph,
+                "status": "done",
+            },
+        )
     return resp
 
 

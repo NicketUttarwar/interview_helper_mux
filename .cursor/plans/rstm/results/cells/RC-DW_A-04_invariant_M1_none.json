@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|A-04|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_residual_cluster_hardening.py::test_a04_telemetry_waiver_not_music_delight_ok",
+    "pytest:tests/test_delivery_guardrails.py::test_a04_waived_unattended_alone_not_delivery_stable_or_ship",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

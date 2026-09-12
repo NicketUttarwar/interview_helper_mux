@@ -166,7 +166,7 @@ def is_rubric_pmq_check(check_id: str) -> bool:
     if cid == "no_critical_junction_residuals":
         return True
     # Delight mode flip: when listen_delight.mode is authoritative, floors are structural
-    # (not soft-shipped via aspirational advisory_fail).
+    # (not soft-shipped via aspirational advisory status).
     if cid == "listen_delight_floors":
         try:
             from interview_mux.listen_delight import listen_delight_cfg

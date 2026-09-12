@@ -1,0 +1,13 @@
+{
+  "cell_id": "RC-DW|A-03|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_a03_mastering_llm_cutover.py::test_a03_defaults_soft_gate_never_complete",
+    "pytest:tests/test_a03_mastering_llm_cutover.py::test_a03_hybrid_bind_requires_complete",
+    "pytest:tests/test_residual_cluster_hardening.py::test_a03_soft_gate_cannot_claim_complete_when_llm_on",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

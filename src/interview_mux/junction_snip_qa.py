@@ -532,6 +532,154 @@ def _add_incomplete_repair_ladder(
         )
 
 
+_INCOMPLETE_CUT_KINDS = frozenset(
+    {
+        "on_a_roll",
+        "incomplete_clause",
+        "chapter_bleed_incomplete",
+    }
+)
+
+
+def live_incomplete_cut_critical_findings(
+    ctx: RunContext,
+) -> list[dict[str, Any]]:
+    """Fresh detect of critical incomplete-cut residuals on the live EDL."""
+    if not ctx.artifact_exists("master/edl.json"):
+        return []
+    try:
+        edl = ctx.read_json("master/edl.json")
+    except Exception:
+        return []
+    if not isinstance(edl, dict):
+        return []
+    try:
+        findings = detect_junction_findings(ctx, edl)
+    except Exception:
+        return []
+    return [
+        f
+        for f in findings
+        if isinstance(f, dict)
+        and str(f.get("severity") or "") == "critical"
+        and str(f.get("kind") or "") in _INCOMPLETE_CUT_KINDS
+    ]
+
+
+def clear_stale_incomplete_cut_residuals(ctx: RunContext) -> bool:
+    """Drop stamped incomplete-cut criticals when live detect is clean.
+
+    Pending/committed junction QA can retain critical on_a_roll stamps after a
+    noop thought_complete_recut or a later EDL heal. Those stamps poison
+    publishability pre_mix even when detect_junction_findings reports none.
+    """
+    if not ctx.artifact_exists(QA_REL):
+        return False
+    try:
+        report = ctx.read_json(QA_REL)
+    except Exception:
+        return False
+    if not isinstance(report, dict):
+        return False
+    findings = [
+        f for f in (report.get("residual_findings") or []) if isinstance(f, dict)
+    ]
+    stamped_incomplete = [
+        f
+        for f in findings
+        if str(f.get("kind") or "") in _INCOMPLETE_CUT_KINDS
+        and str(f.get("severity") or "") == "critical"
+        and not (
+            isinstance(f.get("detail"), dict)
+            and bool(f.get("detail", {}).get("unrecoverable_within_clip"))
+        )
+    ]
+    if not stamped_incomplete:
+        return False
+    # Only reconcile after junction claimed a heal/commit — never wipe raw findings.
+    commitment = report.get("commitment") if isinstance(report.get("commitment"), dict) else {}
+    if not (
+        report.get("incomplete_cut_producer_heals_armed")
+        or report.get("stale_incomplete_cut_reconciled")
+        or str(commitment.get("status") or "") == "committed"
+    ):
+        return False
+    live = live_incomplete_cut_critical_findings(ctx)
+    if live:
+        return False
+    cleaned: list[dict[str, Any]] = []
+    for f in findings:
+        kind = str(f.get("kind") or "")
+        if kind in _INCOMPLETE_CUT_KINDS and str(f.get("severity") or "") == "critical":
+            row = dict(f)
+            row["severity"] = "warning"
+            row["stale_incomplete_cut_cleared"] = True
+            cleaned.append(row)
+        else:
+            cleaned.append(f)
+    critical_left = [
+        f for f in cleaned if str(f.get("severity") or "") == "critical"
+    ]
+    reasons = [
+        r
+        for r in (report.get("blocking_reasons") or [])
+        if str(r) != "critical_incomplete_cut_residuals"
+    ]
+    if not critical_left:
+        reasons = [
+            r
+            for r in reasons
+            if str(r) != "critical_junction_residuals_after_two_runs"
+        ]
+    report["residual_findings"] = cleaned
+    report["critical_residual_count"] = len(critical_left)
+    report["critical_residuals"] = len(critical_left)
+    report["critical_count"] = len(critical_left)
+    report["blocking_reasons"] = reasons
+    report["stale_incomplete_cut_reconciled"] = True
+    try:
+        from interview_mux.delivery_guardrails import (
+            DELIVERY_RESIDUALS_REL,
+            bump_residual_ledger_generation,
+        )
+
+        bump_residual_ledger_generation(ctx)
+        if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
+            doc = ctx.read_json(DELIVERY_RESIDUALS_REL)
+            if isinstance(doc, dict):
+                rows = []
+                for r in doc.get("residuals") or []:
+                    if not isinstance(r, dict):
+                        continue
+                    kind = str(r.get("kind") or "")
+                    if kind in _INCOMPLETE_CUT_KINDS or "incomplete_cut" in kind:
+                        rr = dict(r)
+                        rr["state"] = "stale"
+                        rows.append(rr)
+                    else:
+                        rows.append(r)
+                doc["residuals"] = rows
+                doc["critical_count"] = sum(
+                    1
+                    for r in rows
+                    if str(r.get("severity") or "") == "critical"
+                    and str(r.get("state") or "open") == "open"
+                )
+                ctx.write_json(DELIVERY_RESIDUALS_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
+    try:
+        from interview_mux.write_staging import write_mirrored_json
+
+        write_mirrored_json(ctx, QA_REL, report)
+    except Exception:
+        try:
+            ctx.write_json(QA_REL, report, skip_handoff=True)
+        except Exception:
+            return False
+    return True
+
+
 def arm_incomplete_cut_producer_heals(
     ctx: RunContext,
     *,
@@ -546,7 +694,7 @@ def arm_incomplete_cut_producer_heals(
         if isinstance(f, dict)
         and str(f.get("severity") or "") == "critical"
         and str(f.get("kind") or "")
-        in {"on_a_roll", "incomplete_clause", "chapter_bleed_incomplete"}
+        in _INCOMPLETE_CUT_KINDS
     ]
     if not incomplete:
         return False
@@ -1219,6 +1367,107 @@ def _recompute_timeline(clips: list[dict[str, Any]]) -> int:
     return reindex_clip_timeline(clips)
 
 
+def refuse_mix_if_live_incomplete_cuts(ctx: RunContext) -> None:
+    """F5 1A/3A: mix/remaster must not render live hanging mid-thought clips."""
+    live = live_incomplete_cut_critical_findings(ctx)
+    if not live:
+        return
+    from interview_mux.loud_fail import raise_loud_failure
+
+    kinds = sorted({str(f.get("kind") or "") for f in live if f.get("kind")})
+    sids = [
+        str(f.get("segment_id") or "")
+        for f in live
+        if str(f.get("segment_id") or "").strip()
+    ]
+    raise_loud_failure(
+        ctx,
+        "incomplete_cut_unresolved: Mix refused: live incomplete-cut residuals "
+        + ",".join(kinds[:4] or ["incomplete_cut"])
+        + " — recut/fuse/omit at junction_snip_qa first",
+        stage="mix",
+        reason="incomplete_cut_unresolved",
+        detail={"count": len(live), "kinds": kinds[:6], "segment_ids": sids[:8]},
+    )
+
+
+def _speech_clip_index(clips: list[dict[str, Any]], sid: str) -> int:
+    key = str(sid or "").strip()
+    if not key:
+        return -1
+    for i, clip in enumerate(clips):
+        if str(clip.get("type") or "") == "speech" and str(clip.get("segment_id") or "") == key:
+            return i
+    return -1
+
+
+def _apply_merge_plan(
+    clips: list[dict[str, Any]],
+    overrides: dict[str, Any],
+    excluded: set[str],
+    exclude_reasons: dict[str, str],
+    plan: dict[str, Any],
+    *,
+    reason: str,
+) -> list[dict[str, Any]]:
+    """Absorb drop into survivor bounds and pull the drop clip off the EDL."""
+    drop_id = str(plan.get("drop_segment_id") or "")
+    survivor_id = str(plan.get("survivor_segment_id") or "")
+    new_start = int(plan.get("new_start_ms") or 0)
+    new_end = int(plan.get("new_end_ms") or 0)
+    if not drop_id or not survivor_id or new_end <= new_start:
+        return clips
+    for clip in clips:
+        if str(clip.get("type") or "") != "speech" or str(clip.get("segment_id") or "") != survivor_id:
+            continue
+        clip["source_start_ms"] = new_start
+        clip["source_end_ms"] = new_end
+        clip["duration_ms"] = max(0, new_end - new_start)
+        ov = dict(overrides.get(survivor_id) or {})
+        ov["start_ms"] = new_start
+        ov["end_ms"] = new_end
+        overrides[survivor_id] = ov
+        break
+    ov_drop = dict(overrides.get(drop_id) or {})
+    ov_drop["excluded"] = True
+    ov_drop["exclude_reason"] = reason
+    overrides[drop_id] = ov_drop
+    excluded.add(drop_id)
+    exclude_reasons[drop_id] = reason
+    return [
+        c
+        for c in clips
+        if not (
+            str(c.get("type") or "") == "speech" and str(c.get("segment_id") or "") == drop_id
+        )
+    ]
+
+
+def _omit_speech_clip(
+    clips: list[dict[str, Any]],
+    overrides: dict[str, Any],
+    excluded: set[str],
+    exclude_reasons: dict[str, str],
+    sid: str,
+    *,
+    reason: str,
+) -> list[dict[str, Any]]:
+    key = str(sid or "").strip()
+    if not key:
+        return clips
+    ov = dict(overrides.get(key) or {})
+    ov["excluded"] = True
+    ov["exclude_reason"] = reason
+    overrides[key] = ov
+    excluded.add(key)
+    exclude_reasons[key] = reason
+    return [
+        c
+        for c in clips
+        if not (str(c.get("type") or "") == "speech" and str(c.get("segment_id") or "") == key)
+    ]
+
+
 def apply_junction_repairs(
     ctx: RunContext,
     edl: dict[str, Any],
@@ -1256,7 +1505,20 @@ def apply_junction_repairs(
         hard_keeps = set(hard_keep_segment_ids(ctx) or [])
     except Exception:
         hard_keeps = set()
-
+    try:
+        segs = _segments_by_id(ctx)
+    except Exception:
+        segs = {}
+    if not isinstance(segs, dict):
+        segs = {}
+    selection: dict[str, Any] = {}
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            raw_sel = ctx.read_json("master/selection.json")
+            if isinstance(raw_sel, dict):
+                selection = raw_sel
+        except Exception:
+            selection = {}
     # Process excludes first
     for f in findings:
         if f.get("action") != "exclude_micro":
@@ -1344,7 +1606,73 @@ def apply_junction_repairs(
             applied.append({**f, "status": "applied", "keep_end_ms": (f.get("detail") or {}).get("keep_end_ms")})
             changed = True
         else:
-            applied.append({**f, "status": "skipped_no_recommendation"})
+            # F5 2C: recut noop → fuse into an EDL neighbor; else omit the hang.
+            sid = str(f.get("segment_id") or "")
+            idx = _speech_clip_index(clips, sid)
+            fused = False
+            if sid and idx >= 0:
+                hanging = clips[idx]
+                src_start = int(hanging.get("source_start_ms") or 0)
+                src_end = int(hanging.get("source_end_ms") or src_start)
+                seg = segs.get(sid) or {}
+                plan = _merge_candidate_for_clip(
+                    clips=clips,
+                    index=idx,
+                    sid=sid,
+                    src_start=src_start,
+                    src_end=src_end,
+                    speaker=_speaker_of(seg if isinstance(seg, dict) else None),
+                    chapter=_chapter_id_for(sid, selection),
+                    selection=selection,
+                    segs=segs,
+                    gap_max_ms=24_000,
+                    allow_cross_speaker=True,
+                )
+                if plan and sid in hard_keeps and str(plan.get("drop_segment_id") or "") == sid:
+                    neighbor = str(plan.get("survivor_segment_id") or "")
+                    if neighbor and neighbor not in hard_keeps:
+                        plan = {
+                            **plan,
+                            "drop_segment_id": neighbor,
+                            "survivor_segment_id": sid,
+                        }
+                    else:
+                        plan = None
+                if plan and str(plan.get("drop_segment_id") or "") not in hard_keeps:
+                    reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:fuse_noop_recut"
+                    clips = _apply_merge_plan(
+                        clips,
+                        overrides,
+                        excluded,
+                        exclude_reasons,
+                        plan,
+                        reason=reason,
+                    )
+                    applied.append(
+                        {
+                            **f,
+                            "status": "fused_neighbor",
+                            "survivor_segment_id": plan.get("survivor_segment_id"),
+                            "drop_segment_id": plan.get("drop_segment_id"),
+                        }
+                    )
+                    changed = True
+                    fused = True
+            if not fused:
+                if sid and sid not in hard_keeps and idx >= 0:
+                    reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:omit_noop_recut"
+                    clips = _omit_speech_clip(
+                        clips,
+                        overrides,
+                        excluded,
+                        exclude_reasons,
+                        sid,
+                        reason=reason,
+                    )
+                    applied.append({**f, "status": "omitted_no_neighbor"})
+                    changed = True
+                else:
+                    applied.append({**f, "status": "skipped_no_recommendation"})
 
     # Bound nudges first, then incomplete extend/cut so mid-word snaps cannot
     # overwrite a cut that landed on the last complete phrase (exec_11130).
@@ -1998,6 +2326,7 @@ def remaster_mix_only(ctx: RunContext) -> None:
     )
     from interview_mux.write_staging import promote_staged_side_effects
 
+    refuse_mix_if_live_incomplete_cuts(ctx)
     marker = ctx.final_path(".stage_done", "mix")
     if marker.is_file():
         try:
@@ -3047,6 +3376,15 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                         report["connector_fuse_junction_heal"] = True
                     except Exception as fuse_exc:  # noqa: BLE001
                         report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
+    # F5 3A: hanging mid-thought clips always hard-block, including the
+    # not-committed / advisory path that only stamped after_two_runs.
+    incomplete_left = [
+        f
+        for f in critical_left
+        if isinstance(f, dict) and str(f.get("kind") or "") in _INCOMPLETE_CUT_KINDS
+    ]
+    if incomplete_left and "critical_incomplete_cut_residuals" not in blocking_reasons:
+        blocking_reasons.append("critical_incomplete_cut_residuals")
     # unavailable after retry is a blocking quality signal unless mechanical
     # commitment already passed with no critical residuals (LLM outage must not
     # discard a remastered assembly).

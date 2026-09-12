@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-P0|DEEP-VO-01|vo_synthesize->vo_synthesize->sound_design_vo_finalize|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D3-P0",
+  "notes": [
+    "incompleteness_ok:mastering/vo_synthesize.json is pending",
+    "repeat_path"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:01Z"
+}

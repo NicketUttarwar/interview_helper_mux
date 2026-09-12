@@ -171,6 +171,52 @@ def attach_disfluency_context(payload: dict[str, Any], ctx: RunContext) -> dict[
             out["must_keep_segment_ids"] = keeps
     except Exception:
         keeps = []
+    # Also strip content_brief topic segment_ids absent from the live manifest so
+    # ranking does not treat phantom refs as authoritative must-keeps (seg_069 class).
+    try:
+        brief = out.get("content_brief")
+        man = out.get("segments") if isinstance(out.get("segments"), dict) else None
+        live: set[str] = set()
+        if isinstance(man, dict):
+            live = {
+                str(s.get("segment_id") or "")
+                for s in (man.get("segments") or [])
+                if isinstance(s, dict) and s.get("segment_id")
+            }
+        if not live and ctx.artifact_exists("segments/manifest.json"):
+            raw = ctx.read_json("segments/manifest.json")
+            live = {
+                str(s.get("segment_id") or "")
+                for s in ((raw or {}).get("segments") or [])
+                if isinstance(s, dict) and s.get("segment_id")
+            }
+        if live and isinstance(brief, dict):
+            topics = brief.get("topics")
+            if isinstance(topics, list):
+                cleaned_topics: list[Any] = []
+                changed = False
+                for topic in topics:
+                    if not isinstance(topic, dict):
+                        cleaned_topics.append(topic)
+                        continue
+                    row = dict(topic)
+                    sids = row.get("segment_ids")
+                    if isinstance(sids, list):
+                        kept = [str(s) for s in sids if str(s) in live]
+                        if kept != [str(s) for s in sids]:
+                            changed = True
+                        row["segment_ids"] = kept
+                    sid = str(row.get("segment_id") or "")
+                    if sid and sid not in live:
+                        row.pop("segment_id", None)
+                        changed = True
+                    cleaned_topics.append(row)
+                if changed:
+                    brief = dict(brief)
+                    brief["topics"] = cleaned_topics
+                    out["content_brief"] = brief
+    except Exception:
+        pass
     excerpts: list[dict[str, Any]] = []
     by_id: dict[str, dict[str, Any]] = {}
     if ctx.artifact_exists("segments/manifest.json"):

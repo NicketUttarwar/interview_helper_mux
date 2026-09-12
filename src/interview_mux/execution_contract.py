@@ -392,17 +392,12 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
             found = True
             continue
         lines_out.append(dict(row))
-    if not found and lid and violation and violation.kind == "missing_from_gap":
-        # Do not mint a seated line into gap — unseat-only waive for missing_from_gap.
+    if not found and lid:
+        # Never mint a schema-incomplete omit stub into interviewer_lines.
+        # opening_orientation.omitted (below) is the durable waive record;
+        # a stub with only line_id/delivery fails gap_report.schema.json and
+        # blocks gap_framing_compose pre-flush (exec_11165 class).
         pass
-    elif not found and lid:
-        lines_out.append(
-            mark_gap_line_not_on_air(
-                {"line_id": lid, "delivery": "synthesize"},
-                reason_code="execution_contract_waive",
-                compensating_path="tier_d_logged_waive",
-            )
-        )
     out = dict(gap)
     out["interviewer_lines"] = lines_out
     # Persist omit meta so filter_gap_lines / ORIENTATION_ALWAYS cannot un-omit.

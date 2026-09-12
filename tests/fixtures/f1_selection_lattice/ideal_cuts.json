@@ -1,0 +1,8 @@
+{
+  "must_keep_segment_ids": ["seg_022", "seg_001", "seg_069"],
+  "cuts": [
+    {"segment_id": "seg_022", "must_keep": true},
+    {"segment_id": "seg_001", "must_keep": true},
+    {"segment_id": "seg_069", "must_keep": true}
+  ]
+}

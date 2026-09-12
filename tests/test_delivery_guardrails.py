@@ -691,6 +691,25 @@ def test_safe_mix_resume_routes_missing_sdp_wavs_to_mmaudio(
     assert safe_mix_resume_stage(ctx) == "mmaudio_sfx"
 
 
+def test_safe_mix_resume_routes_on_a_roll_residuals_to_junction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.delivery_guardrails import (
+        CriticalResidualView,
+        safe_mix_resume_stage,
+    )
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "mix_on_a_roll")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.critical_residual_view",
+        lambda _ctx: CriticalResidualView(
+            count=3, kinds=("on_a_roll",), sources=("junction_findings",)
+        ),
+    )
+    assert safe_mix_resume_stage(ctx) == "junction_snip_qa"
+
+
 def test_listen_delight_waiver_unattended(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "ld_waiver")

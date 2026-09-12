@@ -1,0 +1,11 @@
+{
+  "cell_id": "RC-DW|D-07|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_partial_auto_mode.py::test_recommended_framing_honors_llm_no_and_sparse",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

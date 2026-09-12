@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|vo_synthesize->sound_design_vo_finalize|partial|M8_seated_vo_no_wav|g1_vo_open",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:57:46Z"
+}

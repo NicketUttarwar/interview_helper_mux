@@ -57,6 +57,13 @@ _FRAGMENTARY_TAIL_TOKENS = (
     "after an already complete sign-off",
     "after sign-off",
     "complete sign-off",
+    "incomplete fragment",
+    "approve its removal",
+    "heavily degraded",
+    "degraded transcript",
+    "after the cta",
+    "cta cut",
+    "required to keep it on air",
 )
 
 REASON = "media_ip_cta"
@@ -1652,15 +1659,23 @@ def is_editorial_exclude_reason(reason: str) -> bool:
 
 
 def is_selection_cta_omit_need(need: Any) -> bool:
-    """True when an LLM need asks ranking/selection to drop sponsor or media-IP CTA."""
+    """True when an LLM need asks ranking/selection to drop sponsor or media-IP CTA.
+
+    Also matches layup ``transcript_excerpt`` needs that describe empty/degraded
+    post-CTA scraps (host should omit rather than spin on unverifiable excerpts).
+    """
     if not isinstance(need, dict):
         return False
-    if str(need.get("type") or "").strip() != "rerun_stage":
-        return False
-    stage = str(need.get("stage") or "").strip()
-    if stage not in _SELECTION_RERUN_STAGES:
-        return False
-    return is_editorial_exclude_reason(str(need.get("reason") or ""))
+    typ = str(need.get("type") or "").strip()
+    reason = str(need.get("reason") or "")
+    if typ == "rerun_stage":
+        stage = str(need.get("stage") or "").strip()
+        if stage not in _SELECTION_RERUN_STAGES:
+            return False
+        return is_editorial_exclude_reason(reason)
+    if typ == "transcript_excerpt":
+        return is_editorial_exclude_reason(reason)
+    return False
 
 
 def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> dict[str, Any]:
@@ -1868,12 +1883,24 @@ def execute_cta_omit_from_needs(
             # Named post-sign-off scraps ("We'll" / orphaned goodbye) are often not
             # hard-omit CTA phrases — still drop them when layup names them.
             named_frag_tail = frag_tail and sid in named
+            # transcript_excerpt / empty-degraded CTA scraps: host-omit named ids
+            # even when packed text still looks like a short goodbye.
+            named_empty_degraded = (
+                sid in named
+                and str(need.get("type") or "").strip() == "transcript_excerpt"
+                and (
+                    frag_tail
+                    or _outro_like_reason(reason)
+                    or "empty" in reason.casefold()
+                )
+            )
             if (
                 (text and should_hard_omit_cta(text))
                 or range_drop
                 or child_of_omitted
                 or empty_parent
                 or named_frag_tail
+                or named_empty_degraded
             ):
                 extra.setdefault(sid, reason[:240] or "media_ip_cta")
     out: dict[str, Any] | None = None
@@ -1933,6 +1960,90 @@ def execute_cta_omit_from_needs(
             write_committed=True,
         )
     return [sid for sid in before if sid not in set(after)]
+
+
+_SIGNOFF_RE = re.compile(
+    r"\b(thanks for (joining|listening|watching)|goodbye|good night|see you next)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _looks_like_degraded_signoff(text: str) -> bool:
+    words = str(text or "").split()
+    if not words or len(words) > 12:
+        return False
+    return bool(_SIGNOFF_RE.search(text or ""))
+
+
+def omit_locked_degraded_cta_scraps(ctx: RunContext) -> list[str]:
+    """Producer omit of empty/degraded CTA-tail scraps still on locked order (F3 2C).
+
+    Synthesizes the same ``transcript_excerpt`` need i5 host-executes, then runs
+    ``execute_cta_omit_from_needs``. Does not drop arbitrary mid-show empty segs:
+    hard-omit CTA, NLE children of excluded/never-touch CTA parents, or tail
+    scraps after those parents.
+    """
+    if not enabled(ctx):
+        return []
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    loaded = ctx.read_json("master/selection.json")
+    if not isinstance(loaded, dict):
+        return []
+    ordered = [str(s) for s in (loaded.get("ordered_segment_ids") or []) if s]
+    if not ordered:
+        return []
+    by_id = _segments_by_id(ctx)
+    never_touch = never_touch_segment_ids(ctx)
+    rationales = (
+        loaded.get("exclude_rationales")
+        if isinstance(loaded.get("exclude_rationales"), dict)
+        else {}
+    )
+    cta_parents: set[str] = set(never_touch)
+    for row in loaded.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "").strip()
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "").strip()
+            reason = str(rationales.get(sid) or "")
+        if sid and (is_editorial_exclude_reason(reason) or sid in never_touch):
+            cta_parents.add(sid)
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    scraps: list[str] = []
+    n = len(ordered)
+    for i, sid in enumerate(ordered):
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        empty = not text.strip()
+        child = any(_is_nle_child(sid, parent) for parent in cta_parents if parent)
+        tail = i >= max(0, n - 3)
+        if should_hard_omit_cta(text):
+            scraps.append(sid)
+            continue
+        if empty and (child or (tail and cta_parents)):
+            scraps.append(sid)
+            continue
+        if child and tail and _looks_like_degraded_signoff(text):
+            scraps.append(sid)
+            continue
+    if not scraps:
+        return []
+    needs = [
+        {
+            "type": "transcript_excerpt",
+            "stage": "nugget_layup_compose",
+            "blocking": True,
+            "reason": (
+                f"{sid} is retained in the locked order but has an empty, heavily "
+                "degraded transcript after the CTA cut; a verified substantive excerpt "
+                "is required to keep it on air."
+            ),
+        }
+        for sid in scraps
+    ]
+    return execute_cta_omit_from_needs(ctx, needs)
 
 
 def strip_never_touch_nuggets(ctx: RunContext, corpus: dict[str, Any] | None) -> dict[str, Any]:

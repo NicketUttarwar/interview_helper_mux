@@ -1,6 +1,17 @@
 /** G-02 / GUI-QC-01 — QC card display states + honest blocksShip. */
 
-export type QcDisplayState = "pass" | "advisory_fail" | "blocking_fail" | "waived";
+import {
+  WIRE_STATUS_ADVISORY_FAIL,
+  WIRE_STATUS_PASS,
+  isWireAdvisoryStatus,
+} from "./qualityStatus";
+
+/** Display states: wire `fail` maps to blocking_fail; advisory_fail stays wire token. */
+export type QcDisplayState =
+  | typeof WIRE_STATUS_PASS
+  | typeof WIRE_STATUS_ADVISORY_FAIL
+  | "blocking_fail"
+  | "waived";
 
 export interface QcSummaryLike {
   passed?: boolean;
@@ -13,7 +24,7 @@ export interface QcSummaryLike {
 }
 
 export function resolveQcDisplayState(summary: QcSummaryLike | null | undefined): QcDisplayState {
-  if (!summary) return "advisory_fail";
+  if (!summary) return WIRE_STATUS_ADVISORY_FAIL;
   const status = String(summary.status || "").toLowerCase();
   if (
     summary.waived === true ||
@@ -23,9 +34,12 @@ export function resolveQcDisplayState(summary: QcSummaryLike | null | undefined)
   ) {
     return "waived";
   }
-  if (summary.passed) return "pass";
+  if (summary.passed) return WIRE_STATUS_PASS;
+  if (isWireAdvisoryStatus(status) || summary.advisory === true) {
+    return WIRE_STATUS_ADVISORY_FAIL;
+  }
   if (summary.blocking === true || summary.advisory === false) return "blocking_fail";
-  return "advisory_fail";
+  return WIRE_STATUS_ADVISORY_FAIL;
 }
 
 /**

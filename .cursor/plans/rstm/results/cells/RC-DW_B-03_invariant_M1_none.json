@@ -1,0 +1,13 @@
+{
+  "cell_id": "RC-DW|B-03|invariant|M1_none",
+  "status": "PASS",
+  "tier": "RC-DW",
+  "notes": [
+    "inline:smoke_b03_junction_family_budget",
+    "pytest:tests/test_anti_footgun_hardening.py::test_junction_budget_exhaust_pins_not_soft_pass",
+    "pytest:tests/test_residual_six_gaps.py::test_b03_junction_family_in_halt_and_classify",
+    "inline_ok:smoke_b03_junction_family_budget"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

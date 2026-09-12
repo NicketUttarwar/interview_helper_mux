@@ -270,6 +270,50 @@ def test_critical_junction_post_junction(tmp_path: Path) -> None:
     assert any(v.error_class == "incomplete_cut_unresolved" for v in report.violations)
 
 
+def test_stale_incomplete_cut_stamp_cleared_when_live_clean(tmp_path: Path, monkeypatch) -> None:
+    """Pending on_a_roll stamps must not block pre_mix when live detect is clean."""
+    ctx = isolated_run_ctx(tmp_path, "pub_stale_oar")
+    _write_edl(
+        ctx,
+        ordered=["seg_001"],
+        clips=[_speech_clip("seg_001", duration_ms=5000)],
+    )
+    _write_raw(
+        ctx,
+        "master/junction_snip_qa.json",
+        {
+            "version": 1,
+            "critical_residual_count": 1,
+            "critical_residuals": 1,
+            "critical_count": 1,
+            "blocking_reasons": ["critical_incomplete_cut_residuals"],
+            "incomplete_cut_producer_heals_armed": True,
+            "commitment": {"status": "committed"},
+            "residual_findings": [
+                {
+                    "kind": "on_a_roll",
+                    "severity": "critical",
+                    "segment_id": "seg_063b",
+                    "action": "thought_complete_recut",
+                    "detail": {
+                        "end_text": "how expensive is it?",
+                        "unrecoverable_within_clip": False,
+                    },
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
+        lambda _ctx: [],
+    )
+    report = validate_publishability(ctx, checkpoint="pre_mix")
+    assert not any(v.error_class == "incomplete_cut_unresolved" for v in report.violations)
+    qa = ctx.read_json("master/junction_snip_qa.json")
+    assert qa.get("stale_incomplete_cut_reconciled") is True
+    assert int(qa.get("critical_residual_count") or 0) == 0
+
+
 def test_commit_or_block_writes_repair_plan(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "pub_repair_plan")
     violation = PublishabilityViolation(

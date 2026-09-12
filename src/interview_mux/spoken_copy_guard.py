@@ -250,6 +250,12 @@ def _safe_context(raw: Any, *, max_words: int = 12) -> str:
         return ""
     if _PRODUCTION_JARGON.search(text) or _PLACEHOLDER.search(text):
         return ""
+    # Pipeline snake_case tags (chapter_close_hitch, …) are not listener topics.
+    low = text.casefold().strip()
+    if re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)+", low) or (
+        "_" in text and " " not in text.strip()
+    ):
+        return ""
     text = re.split(r"[.!?;]", text, maxsplit=1)[0].strip(" ,:—–-")
     return shorten_spoken_text(text, max_words).rstrip(".")
 

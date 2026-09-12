@@ -82,16 +82,25 @@ def has_packet_hash(ctx: RunContext, identity: str, packet_hash: str) -> bool:
 
     Completed hashes may retry when the stage did not persist — schema retries
     and re-executes after a starved pack must not hard-stop the run.
+
+    ``done``/``failed`` rows historically omitted ``packet_hash``; close any
+    open start for this identity when a later terminal row appears (exec_11165
+    specialist identical_packed_call sticky).
     """
     open_started = False
     for row in read_ledger(ctx):
-        if row.get("identity") != identity or row.get("packet_hash") != packet_hash:
+        if row.get("identity") != identity:
             continue
         status = row.get("status")
-        if status == "started":
+        row_hash = str(row.get("packet_hash") or "")
+        if status == "started" and row_hash == packet_hash:
             open_started = True
         elif status in {"done", "failed"}:
-            open_started = False
+            # Terminal row closes in-flight starts for this identity. Prefer
+            # hash match when present; otherwise close sticky starts whose done
+            # rows were written without packet_hash (legacy ledger).
+            if not row_hash or row_hash == packet_hash:
+                open_started = False
     return open_started
 
 

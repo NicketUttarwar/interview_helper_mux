@@ -141,6 +141,22 @@ def write_escalation(
     if extra:
         doc["evidence"] = extra
     ctx.write_json(ESCALATION_REL, doc)
+    try:
+        from interview_mux.forensics_error_ledger import record_forensics_error
+
+        record_forensics_error(
+            ctx,
+            source="forensics_stall",
+            stage=str(stage or ""),
+            detail=str(reason or "")[:2000],
+            error_class=str(error_class or ""),
+            predicate=str(error_class or reason or "forensics_escalation")[:240],
+            severity="escalation",
+            identical_count=int((stall_row or {}).get("count") or 0) or None,
+            extra={"kind": "forensics_escalation"},
+        )
+    except Exception:
+        pass
     return doc
 
 

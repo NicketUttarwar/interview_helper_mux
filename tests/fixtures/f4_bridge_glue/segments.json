@@ -1,0 +1,22 @@
+{
+  "seg_022": {
+    "segment_id": "seg_022",
+    "speaker_id": "spk_0",
+    "speaker_role": "interviewee",
+    "type": "interviewee_answer",
+    "topic_tags": ["chapter_close_hitch"],
+    "text": "Thanks.",
+    "start_ms": 120000,
+    "end_ms": 122000
+  },
+  "seg_026": {
+    "segment_id": "seg_026",
+    "speaker_id": "spk_0",
+    "speaker_role": "interviewee",
+    "type": "interviewee_answer",
+    "topic_tags": ["chapter_close_hitch"],
+    "text": "Okay.",
+    "start_ms": 180000,
+    "end_ms": 182000
+  }
+}

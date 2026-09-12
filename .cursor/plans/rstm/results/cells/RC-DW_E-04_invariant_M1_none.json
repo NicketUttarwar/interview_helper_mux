@@ -1,0 +1,11 @@
+{
+  "cell_id": "RC-DW|E-04|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "pytest:tests/test_cluster_e_hardening.py::test_e04_soft_vs_quality_waivers_matrix",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

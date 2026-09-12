@@ -17,10 +17,14 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_feel_unavailable_blocks_when_configured(tmp_path, monkeypatch):
+def test_feel_unavailable_omitted_when_aspirational_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "interview_mux.aspirational_quality.is_aspirational_enabled",
         lambda ctx=None: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"mode": "advisory", "overall_min": 0.90},
     )
     ctx = isolated_run_ctx(tmp_path, "exec_pmq_feel")
     master = ctx.path("master", "master.wav")
@@ -70,8 +74,10 @@ def test_feel_unavailable_blocks_when_configured(tmp_path, monkeypatch):
         },
     )
     quality = evaluate_post_master_quality(ctx)
-    assert quality["status"] == "fail"
-    assert "feel_audit_available" in quality["failed_checks"]
+    # F6 3C: aspirational off omits rubric misses (feel is rubric, not structural).
+    assert quality["status"] == "pass"
+    assert quality["publish_allowed"] is True
+    assert "feel_audit_available" not in quality["failed_checks"]
 
 
 def test_feel_unavailable_allows_publish_when_junction_committed(tmp_path, monkeypatch):
@@ -318,9 +324,18 @@ def test_advisory_rubric_fail_allows_publish_with_advisories(tmp_path, monkeypat
         },
     )
     quality = evaluate_post_master_quality(ctx)
-    assert quality["status"] == "advisory_fail"
+    from interview_mux.quality_status import STATUS_PASS
+
+    assert quality["status"] == STATUS_PASS
     assert quality["publish_allowed"] is True
     assert "listen_delight_floors" in quality["rubric_failed_checks"]
+    from interview_mux.post_master_quality import build_listener_scorecard
+    from interview_mux.prompt_validation import validate_listener_scorecard
+
+    scorecard = build_listener_scorecard(ctx, quality)
+    assert scorecard["quality_status"] == STATUS_PASS
+    assert scorecard["publish_allowed"] is True
+    assert validate_listener_scorecard(scorecard) == []
 
 
 def test_listen_delight_advisory_mode_soft_ships_floors(tmp_path, monkeypatch):
@@ -342,4 +357,6 @@ def test_listen_delight_advisory_mode_soft_ships_floors(tmp_path, monkeypatch):
     quality = evaluate_post_master_quality(ctx)
     assert "listen_delight_floors" in [c["check_id"] for c in quality["checks"]]
     assert quality["publish_allowed"] is True
-    assert quality["status"] in {"pass", "advisory_fail"}
+    from interview_mux.quality_status import STATUS_PASS
+
+    assert quality["status"] == STATUS_PASS

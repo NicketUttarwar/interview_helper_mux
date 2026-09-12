@@ -266,9 +266,9 @@ def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
     artifacts = finalize_selection_order(
         ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
     )
-    from interview_mux.hard_keep import enforce_hard_keeps
+    from interview_mux.selection_constraints import seal_selection_lattice
 
-    artifacts = enforce_hard_keeps(ctx, artifacts)
+    artifacts = seal_selection_lattice(ctx, artifacts, fail_closed=True)
     from interview_mux.air_order_boundary import commit_selection_mutation
 
     commit_selection_mutation(
@@ -426,12 +426,10 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
         artifacts = auto_pack_selection_to_brief(c, artifacts, stage="full_master_ranking")
         artifacts = enforce_creative_selection_edit(c, artifacts, stage="full_master_ranking")
-        from interview_mux.framing_coverage_guard import enforce_framing_ranking
-
-        artifacts = enforce_framing_ranking(c, artifacts)
+        from interview_mux.selection_constraints import seal_selection_lattice
         from interview_mux.hard_keep import enforce_hard_keeps
 
-        artifacts = enforce_hard_keeps(c, artifacts)
+        artifacts = seal_selection_lattice(c, artifacts, fail_closed=True)
         artifacts = enforce_stt_island_selection_guards(c, artifacts, stage="full_master_ranking")
 
         from interview_mux.story_health import evaluate_story_health

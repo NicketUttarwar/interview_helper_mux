@@ -1,0 +1,12 @@
+{
+  "cell_id": "RC-DW|D-03|invariant|M1_none",
+  "status": "SCOPE_CONTRACT_ONLY",
+  "tier": "RC-DW",
+  "notes": [
+    "vitest:frontend/src/utils/gateAdvance.test.ts",
+    "vitest:frontend/src/utils/partialAcceleratedGuard.test.ts",
+    "named_proofs_external"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

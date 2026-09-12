@@ -1,0 +1,11 @@
+{
+  "cell_id": "D3-P1|DEEP-CUTS-01|ideal_cuts_materialize->vo_synthesize->sound_design_vo_finalize|M9_uncommitted_master",
+  "status": "PASS",
+  "tier": "D3-P1",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:12Z"
+}

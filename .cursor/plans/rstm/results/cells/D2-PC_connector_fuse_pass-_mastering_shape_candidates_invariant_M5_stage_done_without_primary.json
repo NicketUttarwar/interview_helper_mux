@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-PC|connector_fuse_pass->mastering_shape_candidates|invariant|M5_stage_done_without_primary",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "incompleteness_ok:analysis/connector_fuse_audit.json is pending",
+    "seed_block_ok:connector_fuse_pass"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:57:52Z"
+}

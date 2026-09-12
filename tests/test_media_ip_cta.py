@@ -1552,6 +1552,43 @@ def test_execute_cta_omit_drops_fragmentary_tail_via_boundary_detection_need() -
     assert order == ["seg_062", "seg_063h"]
 
 
+def test_execute_cta_omit_drops_degraded_transcript_excerpt_need() -> None:
+    """Layup transcript_excerpt for empty/degraded post-CTA scrap → host omit."""
+    from interview_mux.media_ip_cta import (
+        execute_cta_omit_from_needs,
+        is_selection_cta_omit_need,
+    )
+
+    need = {
+        "type": "transcript_excerpt",
+        "stage": "nugget_layup_compose",
+        "blocking": True,
+        "reason": (
+            "seg_066j is retained in the locked order but has an empty, heavily "
+            "degraded transcript after the CTA cut; a verified substantive excerpt "
+            "is required to keep it on air."
+        ),
+    }
+    assert is_selection_cta_omit_need(need)
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_065", "Real substance remains.", start=0, end=4000),
+            _seg("seg_066j", "Thanks for joining us.", start=4000, end=6000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_065", "seg_066j"]},
+    )
+    dropped = execute_cta_omit_from_needs(ctx, [need])
+    order = ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    assert "seg_066j" in dropped
+    assert "seg_065" not in dropped
+    assert order == ["seg_065"]
+
+
 def test_execute_cta_omit_keeps_reverse_jump_intro_and_commits_under_staging() -> None:
     from interview_mux.media_ip_cta import execute_cta_omit_from_needs
     from interview_mux.write_staging import enter_stage_staging, exit_stage_staging

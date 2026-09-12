@@ -69,3 +69,39 @@ def test_enforce_raises_on_primary_lock(ctx: RunContext, monkeypatch: pytest.Mon
     }
     with pytest.raises(ValueError, match="framing_coverage_guard"):
         enforce_framing_ranking(ctx, selection)
+
+
+def test_blank_primary_impact_exclude_allowed(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blank/unusable primary sources may stay excluded — never force dead air on-air."""
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {"analysis": {"flow_hardening": {"strict_critical_stages": True}}},
+    )
+    # Avoid unrelated ratio/topic survival trips for this blank-exempt case.
+    ctx.path("master", "coverage_audit.json").write_text(
+        json.dumps(
+            {
+                "topic_segment_map": [
+                    {"topic_id": "origins", "segment_ids": ["seg_001", "seg_002", "seg_003"]}
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_001", "seg_003"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_002", "reason": "blank_or_unusable_answer_audio"}
+        ],
+    }
+    issues = validate_framing_ranking(ctx, selection)
+    assert not any("never_exclude_primary_impact" in i for i in issues)
+    out = enforce_framing_ranking(ctx, selection)
+    assert "seg_002" not in [str(s) for s in (out.get("ordered_segment_ids") or [])]
+    excl = {
+        str(r.get("segment_id"))
+        for r in (out.get("excluded_segment_ids") or [])
+        if isinstance(r, dict)
+    }
+    assert "seg_002" in excl

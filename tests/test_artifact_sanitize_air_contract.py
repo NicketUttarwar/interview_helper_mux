@@ -7,8 +7,10 @@ from copy import deepcopy
 
 from interview_mux.artifact_sanitize.air_script import (
     commit_air_contract,
+    run_air_contract_sanitize,
     sanitize_air_contract,
 )
+from interview_mux.artifact_sanitize.registry import air_contract_sanitary_errors
 from interview_mux.artifact_sanitize.gap_report import sanitize_gap_report
 from interview_mux.run_context import RunContext
 from run_fixtures import minimal_gap_line, minimal_gap_report
@@ -251,3 +253,47 @@ def test_commit_air_contract_persists_omit_gap_sync(monkeypatch) -> None:
     }
     if "vo_b" in by_id:
         assert by_id["vo_b"].get("omit") or by_id["vo_b"].get("skipped_optional")
+
+
+def test_run_air_contract_sanitize_commits_drop_seated_missing_from_gap(
+    monkeypatch,
+) -> None:
+    """Stage entry must persist orphan-seat drops, not nested-skip commit."""
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.clamp_hosted_seats_to_rendered_wavs",
+        lambda _ctx: [],
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a", "vo_orphan_bridge", "vo_orphan_context"],
+                "omitted_line_ids": [],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    _dump_raw(
+        ctx,
+        "understanding/omit_ledger.json",
+        {"version": 1, "entries": [], "summary": {"active_count": 0}},
+    )
+
+    run_air_contract_sanitize(ctx)
+
+    live = ctx.read_json("mastering/mastering_plan.json")
+    seated = list(
+        ((live.get("air_script") or {}).get("vo_seats") or {}).get("seated_line_ids")
+        or []
+    )
+    assert "vo_orphan_bridge" not in seated
+    assert "vo_orphan_context" not in seated
+    assert "vo_a" in seated
+    assert air_contract_sanitary_errors(ctx) == []
+    assert ctx.is_done("air_contract_sanitize")

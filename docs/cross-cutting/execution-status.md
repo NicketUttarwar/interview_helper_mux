@@ -36,4 +36,7 @@ Shared helper is used by `full_auto_driver`, `pipeline`, `homunculus/agenda`, an
 ## Related
 
 - Seat freeze: `run_meta.delivery_epoch.vo_seats_freeze` (see air-order / seat_authority)
+- Epoch domains: `selection` / `framing` / `vo_seats` / `junction_residuals_generation` / `music` / `mix_input` on `delivery_epoch`
+- Seed policy sticky stages: [`seed_policy.py`](../../src/interview_mux/seed_policy.py) — freeze-no-op stages are force-marked done so ESR / seed-order do not thrash
+- Identical failures: class signatures include residual/epoch `generation` (`record_class_failure`)
 - Timeline reopen gate log: `mastering/timeline_reopen_gate.jsonl`

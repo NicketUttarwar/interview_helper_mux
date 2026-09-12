@@ -39,14 +39,33 @@ def run_vo_synthesize(ctx: RunContext) -> None:
         except Exception:
             gap = None
         if isinstance(gap, dict):
-            gap_notes = resync_required_synthesize_wavs(ctx, gap)
+            try:
+                gap_notes = resync_required_synthesize_wavs(ctx, gap)
+            except Exception as exc:
+                ctx.log(
+                    f"vo_synthesize: resync incomplete: {exc}",
+                    level="warning",
+                    stage=STAGE_ID,
+                )
+                gap_notes = []
+            from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
+
+            heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
+            if heal.get("omitted") or heal.get("resynthesized"):
+                ctx.log(
+                    "vo_synthesize: seated bind heal "
+                    f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
+                    stage=STAGE_ID,
+                )
 
     try:
         restamp_edl_transition_source_paths(ctx)
     except Exception:
         pass
     try:
-        promote_staged_side_effects(ctx, ("master/transitions/",), stage_id=STAGE_ID)
+        promote_staged_side_effects(
+            ctx, ("master/transitions/", "vo_pickup/"), stage_id=STAGE_ID
+        )
     except Exception:
         pass
 

@@ -326,9 +326,12 @@ def run_llm_stage_simple(
                 from interview_mux.media_ip_cta import (
                     execute_cta_omit_from_needs,
                     is_selection_cta_omit_need,
+                    omit_locked_degraded_cta_scraps,
                 )
 
                 dropped = execute_cta_omit_from_needs(ctx, needs)
+                extra = omit_locked_degraded_cta_scraps(ctx)
+                dropped = list(dict.fromkeys([*(dropped or []), *(extra or [])]))
                 if dropped:
                     needs = [
                         ({**n, "blocking": False} if is_selection_cta_omit_need(n) else n)

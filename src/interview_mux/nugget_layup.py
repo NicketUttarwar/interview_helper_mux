@@ -1347,6 +1347,7 @@ _COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
         "merged_clone_adjacency",
         "media_ip_cta_hole",
         "never_touch_cta",
+        "skip_omit_unseat",
     }
 )
 
@@ -1373,6 +1374,7 @@ JUSTIFIED_SKIP_REASON_CODES = frozenset(
         "native_audio_self_orients",
         "non_editorial_outro",
         "no_eligible_unspent_nugget",
+        "skip_omit_unseat",
     }
 )
 
@@ -1396,6 +1398,7 @@ _DEFAULT_COMPENSATING_PATHS = {
     "outro_self_sufficient": "native_credits_self_contained",
     "non_editorial_outro": "native_credits_self_contained",
     "no_eligible_unspent_nugget": "no_open_high_salience_need",
+    "skip_omit_unseat": "omit_wins_unseat",
 }
 
 

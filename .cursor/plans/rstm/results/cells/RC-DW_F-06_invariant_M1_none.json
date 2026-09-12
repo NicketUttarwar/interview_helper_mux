@@ -1,0 +1,14 @@
+{
+  "cell_id": "RC-DW|F-06|invariant|M1_none",
+  "status": "PASS",
+  "tier": "RC-DW",
+  "notes": [
+    "inline:smoke_f06_refine_stage_retired",
+    "pytest:tests/test_f06_retired_refine_ghosts.py::test_f06_retired_set_membership",
+    "pytest:tests/test_f06_retired_refine_ghosts.py::test_f06_run_ranking_refine_raises_stage_retired",
+    "pytest:tests/test_f06_retired_refine_ghosts.py::test_f06_run_single_stage_ranking_refine_raises",
+    "inline_ok:smoke_f06_refine_stage_retired"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-11T20:58:17Z"
+}

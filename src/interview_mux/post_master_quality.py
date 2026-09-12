@@ -244,7 +244,11 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     )
 
     # Scorecard floors (observational dimensions become publish gates).
-    scorecard = build_listener_scorecard(ctx, {"status": "pass", "publish_allowed": True})
+    from interview_mux.quality_status import STATUS_PASS
+
+    scorecard = build_listener_scorecard(
+        ctx, {"status": STATUS_PASS, "publish_allowed": True}
+    )
     overall_min = float(conf.get("overall_min") or 0.90)
     floors = conf.get("dimension_floors") if isinstance(conf.get("dimension_floors"), dict) else {}
     dims = scorecard.get("dimensions") if isinstance(scorecard.get("dimensions"), dict) else {}
@@ -709,17 +713,33 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                 detail = c.get("detail") if isinstance(c.get("detail"), dict) else {}
                 c["detail"] = {**detail, "e2e_softened": True}
 
-    passed = all(bool(c["passed"]) for c in checks)
-    failed_checks = [str(c["check_id"]) for c in checks if not c["passed"]]
     from interview_mux.aspirational_quality import (
         aspirational_quality_cfg,
         is_aspirational_enabled,
         is_rubric_pmq_check,
         is_structural_pmq_check,
+        passes_catastrophic_floors,
         record_quality_advisories,
     )
 
     aspirational = is_aspirational_enabled(ctx)
+    # F6 3C: with aspirational off, rubric misses are omitted from the ship report.
+    # Live critical residuals stay on the envelope (they hard-block mix/ship).
+    if not aspirational:
+        kept: list[dict[str, Any]] = []
+        for c in checks:
+            cid = str(c.get("check_id") or "")
+            if c.get("passed") or not is_rubric_pmq_check(cid):
+                kept.append(c)
+                continue
+            if cid == "no_critical_junction_residuals":
+                detail = c.get("detail") if isinstance(c.get("detail"), dict) else {}
+                if int((detail or {}).get("count") or 0) > 0:
+                    kept.append(c)
+        checks = kept
+
+    passed = all(bool(c["passed"]) for c in checks)
+    failed_checks = [str(c["check_id"]) for c in checks if not c["passed"]]
     structural_failed: list[str] = []
     rubric_failed: list[str] = []
     for c in checks:
@@ -734,20 +754,26 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
             if int((detail or {}).get("count") or 0) > 0:
                 structural_failed.append(cid)
                 continue
+        # F7 1C: aspirational listen misses stay rubric unless catastrophic.
+        if cid == "listen_delight_floors" and aspirational:
+            cata_ok, _cata = passes_catastrophic_floors(ctx)
+            if cata_ok:
+                rubric_failed.append(cid)
+                continue
         if aspirational and is_rubric_pmq_check(cid):
             rubric_failed.append(cid)
         else:
             structural_failed.append(cid)
 
+    from interview_mux.quality_status import ship_wire_status
+
     if structural_failed:
-        status = "fail"
         publish_allowed = False
-    elif rubric_failed and aspirational:
-        status = "advisory_fail"
+    elif rubric_failed:
         publish_allowed = True
     else:
-        status = "pass" if passed else "fail"
         publish_allowed = passed and not bool(conf.get("block_publish", False))
+    status = ship_wire_status(publish_allowed=publish_allowed)
 
     advisories: list[dict[str, Any]] = []
     if rubric_failed and aspirational:
@@ -852,22 +878,28 @@ def build_listener_scorecard(ctx: RunContext, quality: dict[str, Any]) -> dict[s
         "synthetic_fit": round(synthetic, 4),
         "native_respect": round(native_respect, 4),
     }
+    from interview_mux.quality_status import ship_wire_status
+
     overall = sum(dimensions.values()) / len(dimensions)
-    if quality.get("status") != "pass":
+    allowed = bool(quality.get("publish_allowed"))
+    qstatus = ship_wire_status(publish_allowed=allowed)
+    if not allowed:
         overall = min(overall, 0.49)
     return {
         "version": 1,
         "generated_at": _now(),
         "overall": round(overall, 4),
         "dimensions": dimensions,
-        "quality_status": quality.get("status"),
+        "quality_status": qstatus,
         "publish_allowed": bool(quality.get("publish_allowed")),
     }
 
 
 def persist_post_master_quality(ctx: RunContext, quality: dict[str, Any]) -> None:
+    from interview_mux.quality_status import coerce_ship_envelope_status
     from interview_mux.write_staging import write_committed_json
 
+    quality = coerce_ship_envelope_status(quality)
     write_committed_json(ctx, QUALITY_REL, quality)
     write_committed_json(ctx, SCORECARD_REL, build_listener_scorecard(ctx, quality))
 
@@ -893,20 +925,21 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if not isinstance(meta, dict):
         meta = {}
+    from interview_mux.quality_status import STATUS_FAIL, qc_summary_flags
+
     qc = meta.get("qc_summaries") if isinstance(meta.get("qc_summaries"), dict) else {}
-    qc["post_master_quality"] = {
-        "passed": quality["status"] == "pass",
-        "status": quality["status"],
-        "blocking": quality["status"] != "pass",
-        "failed_checks": quality["failed_checks"],
-        "publish_allowed": quality["publish_allowed"],
-    }
+    flags = qc_summary_flags(
+        quality.get("status"),
+        publish_allowed=bool(quality.get("publish_allowed")),
+    )
+    flags["failed_checks"] = quality["failed_checks"]
+    qc["post_master_quality"] = flags
     meta["qc_summaries"] = qc
     write_committed_json(ctx, "run_meta.json", meta)
 
     if block:
         structural = list(quality.get("structural_failed_checks") or [])
-        if structural or quality.get("status") == "fail":
+        if structural or quality.get("status") == STATUS_FAIL:
             from interview_mux.aspirational_quality import is_aspirational_enabled
 
             if not (is_aspirational_enabled(ctx) and not structural):

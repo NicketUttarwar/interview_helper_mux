@@ -8,6 +8,27 @@ from interview_mux.config import merged_config
 from interview_mux.gap_framing import gap_framing_cfg, load_gap_framing_plan, ranking_exclude_segment_ids
 from interview_mux.run_context import RunContext
 
+def _excluded_blank_ids(selection: dict[str, Any]) -> set[str]:
+    """Blank-exclude IDs from a selection doc — playability SSOT."""
+    from interview_mux.playability import blank_excluded_ids
+
+    return blank_excluded_ids(None, selection)
+
+
+def _impact_source_is_unenforceable(
+    ctx: RunContext, sid: str, *, blank_excl: set[str], selection: dict[str, Any]
+) -> bool:
+    """Blank/unusable tape cannot be forced on-air as primary impact.
+
+    Playability SSOT: blank_or_unusable exclude only — live blank heuristics
+    are too aggressive for short-but-valid fixture/content text.
+    """
+    try:
+        from interview_mux.playability import is_unplayable_for_primary_impact
+
+        return is_unplayable_for_primary_impact(ctx, sid, selection)
+    except Exception:
+        return sid in blank_excl
 
 def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list[str]:
     """Return lint errors/warnings for framing-aware ranking decisions."""
@@ -29,6 +50,7 @@ def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list
         elif isinstance(row, str) and row:
             excluded_ids.add(row)
 
+    blank_excl = _excluded_blank_ids(selection)
     framing_excludes = ranking_exclude_segment_ids(ctx)
     manifest_count = 0
     if ctx.artifact_exists("segments/manifest.json"):
@@ -53,10 +75,15 @@ def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list
                     continue
                 primaries = [str(s) for s in (block.get("source_segment_ids") or []) if s]
                 for sid in primaries:
-                    if sid in excluded_ids:
-                        errors.append(
-                            f"primary impact segment {sid} excluded — never_exclude_primary_impact"
-                        )
+                    if sid not in excluded_ids:
+                        continue
+                    if _impact_source_is_unenforceable(
+                        ctx, sid, blank_excl=blank_excl, selection=selection
+                    ):
+                        continue
+                    errors.append(
+                        f"primary impact segment {sid} excluded — never_exclude_primary_impact"
+                    )
 
     if cfg.get("require_topic_survival", True) and ctx.artifact_exists("master/coverage_audit.json"):
         audit = ctx.read_json("master/coverage_audit.json")
@@ -90,6 +117,7 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
                     if not isinstance(block, dict):
                         continue
                     primary_ids.update(str(s) for s in (block.get("source_segment_ids") or []) if s)
+        blank_excl = _excluded_blank_ids(out)
         if primary_ids:
             excluded_raw = list(out.get("excluded_segment_ids") or [])
             kept_excl: list[Any] = []
@@ -100,7 +128,13 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
                     sid = str(row.get("segment_id") or "")
                 elif isinstance(row, str):
                     sid = row
-                if sid and sid in primary_ids:
+                if (
+                    sid
+                    and sid in primary_ids
+                    and not _impact_source_is_unenforceable(
+                        ctx, sid, blank_excl=blank_excl, selection=out
+                    )
+                ):
                     restored.append(sid)
                     continue
                 kept_excl.append(row)
