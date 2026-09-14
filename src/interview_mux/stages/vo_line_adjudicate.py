@@ -31,7 +31,10 @@ def run_vo_line_adjudicate(ctx: RunContext) -> None:
             level="info",
             stage=STAGE_ID,
         )
-        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
+        from interview_mux.vo_line_adjudicate import persist_adjudication_skip_stub
+
+        persist_adjudication_skip_stub(ctx, skip_reason="adjudicate_before_synth_disabled")
+        heal_or_refuse_mark(ctx, STAGE_ID)
         return
 
     with logged_step("vo_line_adjudicate/run", ctx=ctx, stage=STAGE_ID):

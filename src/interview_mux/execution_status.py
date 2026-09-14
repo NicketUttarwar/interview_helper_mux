@@ -71,7 +71,19 @@ def _newest_mtime(paths: list[Any]) -> float:
     return newest
 
 
-def _collect_progress_sources(ctx: RunContext, *, pin: str = "") -> tuple[list[str], float]:
+def _label_is_non_producer_progress(label: str) -> bool:
+    """gui_job heartbeat / job_running / wasted_work are not producer progress."""
+    s = str(label or "").lower()
+    return (
+        s.startswith("gui_heartbeat")
+        or s.startswith("job_running")
+        or s.startswith("wasted:")
+    )
+
+
+def _collect_progress_sources(
+    ctx: RunContext, *, pin: str = "", include_heartbeats: bool = True
+) -> tuple[list[str], float]:
     """Return (source labels, newest activity epoch seconds).
 
     When ``pin`` is set, only pin-relevant disk sources count toward freshness
@@ -140,78 +152,71 @@ def _collect_progress_sources(ctx: RunContext, *, pin: str = "") -> tuple[list[s
         except Exception:
             pass
 
-    # gui_job heartbeat
-    try:
-        from interview_mux.write_staging import read_gui_job
+    # gui_job heartbeat / wasted_work — telemetry only; never producer progress for HARD halt.
+    if include_heartbeats:
+        try:
+            from interview_mux.write_staging import read_gui_job
 
-        job = read_gui_job(ctx) or {}
-        if isinstance(job, dict):
-            for key in ("updated_at", "heartbeat_at", "progress_at", "ts"):
-                raw = job.get(key)
-                if not raw:
-                    continue
-                try:
-                    # ISO or epoch
-                    if isinstance(raw, (int, float)):
-                        tagged.append(("gui_heartbeat", float(raw)))
+            job = read_gui_job(ctx) or {}
+            if isinstance(job, dict):
+                for key in ("updated_at", "heartbeat_at", "progress_at", "ts"):
+                    raw = job.get(key)
+                    if not raw:
+                        continue
+                    try:
+                        # ISO or epoch
+                        if isinstance(raw, (int, float)):
+                            tagged.append(("gui_heartbeat", float(raw)))
+                            break
+                        s = str(raw).replace("Z", "+00:00")
+                        dt = datetime.fromisoformat(s)
+                        tagged.append(("gui_heartbeat", dt.timestamp()))
                         break
-                    s = str(raw).replace("Z", "+00:00")
-                    dt = datetime.fromisoformat(s)
-                    tagged.append(("gui_heartbeat", dt.timestamp()))
-                    break
-                except Exception:
-                    continue
-            status = str(job.get("status") or "").lower()
-            stage = str(job.get("current_stage") or job.get("stage") or "").strip()
-            if status in {"running", "starting"} and stage:
-                tagged.append((f"job_running:{stage}", 0.0))
-    except Exception:
-        pass
+                    except Exception:
+                        continue
+                status = str(job.get("status") or "").lower()
+                stage = str(job.get("current_stage") or job.get("stage") or "").strip()
+                if status in {"running", "starting"} and stage:
+                    tagged.append((f"job_running:{stage}", 0.0))
+        except Exception:
+            pass
 
-    # Recent wasted_work = busy/deferred, not stuck
-    try:
-        ww_rel = "operator/wasted_work.json"
-        if ctx.artifact_exists(ww_rel):
-            ww = ctx.read_json(ww_rel)
-            events = list((ww or {}).get("events") or []) if isinstance(ww, dict) else []
-            for ev in reversed(events[-8:]):
-                if not isinstance(ev, dict):
-                    continue
-                kind = str(ev.get("event") or "")
-                if kind in {
-                    "expensive_start",
-                    "music_deferred",
-                    "orphan_complete",
-                    "progress_stall",
-                }:
-                    mt = 0.0
-                    at = ev.get("at") or ev.get("ts")
-                    if at:
-                        try:
-                            s = str(at).replace("Z", "+00:00")
-                            mt = datetime.fromisoformat(s).timestamp()
-                        except Exception:
-                            pass
-                    tagged.append((f"wasted:{kind}", mt))
-                    break
-    except Exception:
-        pass
+        try:
+            ww_rel = "operator/wasted_work.json"
+            if ctx.artifact_exists(ww_rel):
+                ww = ctx.read_json(ww_rel)
+                events = list((ww or {}).get("events") or []) if isinstance(ww, dict) else []
+                for ev in reversed(events[-8:]):
+                    if not isinstance(ev, dict):
+                        continue
+                    kind = str(ev.get("event") or "")
+                    if kind in {
+                        "expensive_start",
+                        "music_deferred",
+                        "orphan_complete",
+                        "progress_stall",
+                    }:
+                        mt = 0.0
+                        at = ev.get("at") or ev.get("ts")
+                        if at:
+                            try:
+                                s = str(at).replace("Z", "+00:00")
+                                mt = datetime.fromisoformat(s).timestamp()
+                            except Exception:
+                                pass
+                        tagged.append((f"wasted:{kind}", mt))
+                        break
+        except Exception:
+            pass
 
     # e2e_soft is NOT producer progress — deliberately ignored here
-
-    def _is_heartbeat(label: str) -> bool:
-        s = label.lower()
-        return (
-            s.startswith("gui_heartbeat")
-            or s.startswith("job_running")
-            or s.startswith("wasted:")
-        )
 
     def _pin_keeps(label: str) -> bool:
         if not pin_s:
             return True
-        if _is_heartbeat(label):
-            return True
+        if _label_is_non_producer_progress(label):
+            # Heartbeats are telemetry; never the sole freshness for a pin.
+            return False
         pin_l = pin_s.lower()
         s = label.lower()
         if any(k in pin_l for k in ("vo_", "synthesize", "adjudicate", "layup")):
@@ -224,8 +229,8 @@ def _collect_progress_sources(ctx: RunContext, *, pin: str = "") -> tuple[list[s
             return s in {"seam_autopsy.json", "nle_edits.json", "edl.json"}
         if "edl" in pin_l:
             return s in {"edl.json", "seam_autopsy.json", "assembly.wav"}
-        # Unknown pin: heartbeats only
-        return False
+        # Unknown pin: real artifact sources only (no heartbeat fallthrough)
+        return not _label_is_non_producer_progress(label)
 
     if pin_s:
         kept = [(lab, mt) for lab, mt in tagged if _pin_keeps(lab)]
@@ -235,6 +240,8 @@ def _collect_progress_sources(ctx: RunContext, *, pin: str = "") -> tuple[list[s
         newest = max((mt for _, mt in kept if mt > 0), default=0.0)
         return sources, newest
 
+    if not include_heartbeats:
+        tagged = [(lab, mt) for lab, mt in tagged if not _label_is_non_producer_progress(lab)]
     sources = [lab for lab, _ in tagged]
     newest = max((mt for _, mt in tagged if mt > 0), default=0.0)
     return sources, newest
@@ -267,7 +274,11 @@ def progress_stale(
     if tok and prior and tok != prior:
         return False, "predicate_flipped"
 
-    sources, newest = _collect_progress_sources(ctx, pin=pin_s)
+    # Halt honesty: ignore gui_heartbeat / job_running / wasted_* (retry loops
+    # stamp gui_job and look "fresh" forever — exec_11559 EDL thrash).
+    sources, newest = _collect_progress_sources(
+        ctx, pin=pin_s, include_heartbeats=False
+    )
     sla = _cfg_sla(pin_s or "default")
     now = time.time()
     if newest and (now - newest) < sla:

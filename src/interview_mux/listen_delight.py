@@ -852,6 +852,9 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
             )
         except Exception:
             pass
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, "listen_delight_audit")
     return audit
 
 

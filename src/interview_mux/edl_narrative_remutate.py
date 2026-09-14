@@ -54,6 +54,8 @@ CHAPTER_FIX_PROGRESS_NOTES = frozenset(
 )
 
 # Allowlisted issue → action classifiers (substring match on lowered text).
+# align_plan is checked before transitions so "transition" mentions inside a
+# chapter/plan mismatch do not rewind spoken bridges.
 _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
     (
         "rerank",
@@ -74,6 +76,25 @@ _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
             "duplicate chapter title",
             "chapter assignment is not aligned",
             "exceeding the authoritative",
+        ),
+    ),
+    (
+        "align_plan",
+        (
+            "narrative plan",
+            "narrative_plan",
+            "align narrative",
+            "chapter sequence",
+            "chapter membership",
+            "selected chapter",
+            "air order",
+            "practical-payoff",
+            "adoption-hurdle",
+            "adoption chapter",
+            "chapter-plan",
+            "chapter plan",
+            "align narrative_plan",
+            "revised chapter",
         ),
     ),
     (
@@ -112,8 +133,12 @@ _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
     ),
 ]
 
+_METADATA_ALIGN_ACTIONS = frozenset({"align_plan", "operator"})
+
 _ACTION_STAGES: dict[str, list[str]] = {
     "rerank": ["full_master_ranking", "edl_narrative_audit"],
+    # Metadata heal + re-audit only — do not rewind transitions/VO seats.
+    "align_plan": ["edl_narrative_audit"],
     "transitions": ["transitions", "edl_narrative_audit"],
     "rebase_gap_vo": [
         "selection_framing_apply",
@@ -283,12 +308,37 @@ def classify_edl_narrative_issue(text: str) -> str:
     )
     if any(n in blob for n in vo_needles):
         return "rebase_gap_vo"
+    # Plan/chapter membership vs selected air order — before "transition".
     for action, needles in _CLASSIFIERS:
-        if action == "rebase_gap_vo":
+        if action == "align_plan" and any(n in blob for n in needles):
+            return "align_plan"
+    for action, needles in _CLASSIFIERS:
+        if action in {"rebase_gap_vo", "align_plan"}:
             continue
         if any(n in blob for n in needles):
             return action
     return "operator"
+
+
+def narrative_audit_blocks_edl(ctx: RunContext) -> bool:
+    """True when EDL must not run — audit verdict is still fail."""
+    if not ctx.artifact_exists("master/edl_narrative_audit.json"):
+        return False
+    try:
+        audit = ctx.read_json("master/edl_narrative_audit.json")
+    except Exception:
+        return False
+    if not isinstance(audit, dict):
+        return False
+    return str(audit.get("verdict") or "").strip().lower() == "fail"
+
+
+def resume_after_narrative_audit_fail(preferred: str | None = None) -> str:
+    """Never resume at edl while the narrative audit is fail."""
+    pin = str(preferred or "").strip() or "edl_narrative_audit"
+    if pin == "edl":
+        return "edl_narrative_audit"
+    return pin
 
 
 def classify_edl_narrative_audit(audit: dict[str, Any] | None) -> list[str]:
@@ -322,7 +372,22 @@ def plan_edl_narrative_remutate(
         if ctx.artifact_exists(REMUTATE_REL)
         else {}
     )
-    attempt = int((prior or {}).get("attempt") or 0) + 1
+    prior = prior if isinstance(prior, dict) else {}
+    prior_attempt = int(prior.get("attempt") or 0)
+    # Sticky exhausted — do not climb forever (exec_11559 hit attempt 230).
+    if prior.get("exhausted") and prior_attempt >= MAX_ATTEMPTS:
+        plan = {
+            "version": 1,
+            "attempt": prior_attempt,
+            "max_attempts": MAX_ATTEMPTS,
+            "actions": list(prior.get("actions") or classify_edl_narrative_audit(audit)),
+            "from_stages": list(prior.get("from_stages") or []),
+            "from_stage": prior.get("from_stage"),
+            "exhausted": True,
+        }
+        ctx.write_json(REMUTATE_REL, plan)
+        return plan
+    attempt = prior_attempt + 1
     actions = classify_edl_narrative_audit(audit)
     stages: list[str] = []
     for action in actions:
@@ -342,10 +407,114 @@ def plan_edl_narrative_remutate(
     return plan
 
 
+def apply_edl_narrative_metadata_align(ctx: RunContext) -> dict[str, Any]:
+    """Align selection chapters + narrative_plan to air order (no VO seat rewrites).
+
+    Safe under soft/hard seat freeze — metadata only.
+    """
+    notes: list[str] = []
+    cleared: list[str] = []
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            from interview_mux.air_order_boundary import commit_selection_mutation
+            from interview_mux.artifact_repairs import repair_master_selection
+
+            sel_c = ctx.read_json("master/selection.json")
+            if isinstance(sel_c, dict):
+                before_order = [
+                    str(x) for x in (sel_c.get("ordered_segment_ids") or []) if x
+                ]
+                before_ch = [
+                    tuple((ch.get("segment_ids") or []) if isinstance(ch, dict) else [])
+                    for ch in (sel_c.get("chapters") or [])
+                ]
+                repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
+                repaired_sel = commit_selection_mutation(
+                    ctx,
+                    repaired_sel,
+                    producer="edl_narrative_metadata_align",
+                    stage_key="edl_narrative_audit",
+                    checkpoint_mode="detect",
+                    merge_from_disk=False,
+                    write_committed=True,
+                )
+                after_order = [
+                    str(x)
+                    for x in (repaired_sel.get("ordered_segment_ids") or [])
+                    if x
+                ]
+                after_ch = [
+                    tuple((ch.get("segment_ids") or []) if isinstance(ch, dict) else [])
+                    for ch in (repaired_sel.get("chapters") or [])
+                ]
+                if (
+                    after_ch != before_ch
+                    or after_order != before_order
+                    or any(
+                        isinstance(n, dict)
+                        and n.get("action")
+                        in {
+                            "drop_empty_selection_chapters",
+                            "sort_chapter_air_order_by_source_time",
+                            "sort_selection_chapters_to_air_order",
+                            "merge_duplicate_chapter_titles",
+                            "clamp_chapters_to_budget",
+                        }
+                        for n in sel_notes
+                    )
+                ):
+                    notes.append("align_selection_chapters")
+    except Exception as exc:
+        notes.append(f"chapters:{exc}")
+    try:
+        from interview_mux.artifact_repairs import align_narrative_plan_to_selection
+
+        align_notes = align_narrative_plan_to_selection(ctx)
+        if align_notes:
+            notes.append("align_narrative_plan")
+    except Exception as exc:
+        notes.append(f"narrative_plan:{exc}")
+    try:
+        if ctx.artifact_exists("master/coverage_audit.json") and ctx.artifact_exists(
+            "master/selection.json"
+        ):
+            from interview_mux.artifact_repairs import repair_coverage_audit
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            cov = ctx.read_json("master/coverage_audit.json")
+            if isinstance(cov, dict):
+                repaired_cov, cov_notes = repair_coverage_audit(ctx, cov)
+                write_validated_artifact(
+                    ctx,
+                    "master/coverage_audit.json",
+                    repaired_cov,
+                    merge_from_disk=False,
+                    stage_key="topic_coverage_audit",
+                )
+                if cov_notes:
+                    notes.append("repair_coverage_for_selection")
+    except Exception as exc:
+        notes.append(f"coverage:{exc}")
+    for sid in ("edl", "edl_narrative_audit"):
+        marker = ctx.run_dir / ".stage_done" / sid
+        if marker.is_file():
+            marker.unlink(missing_ok=True)
+            cleared.append(sid)
+    fixed = bool(CHAPTER_FIX_PROGRESS_NOTES.intersection(notes))
+    return {
+        "ok": fixed,
+        "notes": notes,
+        "cleared": cleared,
+        "from_stage": "edl_narrative_audit",
+        "host_fixed": fixed,
+    }
+
+
 def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     """Rewrite unusable orientation/layup copy and keep one transition per adjacency.
 
     Does not rewind ranking or recompose layup. Does not soft-pass the audit.
+    Metadata plan/chapter align always runs even when seat freeze blocks VO work.
     """
     try:
         from interview_mux.seat_authority import soft_freeze_active, request_seat_rewrite
@@ -358,10 +527,16 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 symptoms=["narrative_host_repair"],
             )
             if not dec.get("allow"):
+                meta = apply_edl_narrative_metadata_align(ctx)
+                notes = list(meta.get("notes") or [])
+                if "seat_freeze_blocked_host_repair" not in notes:
+                    notes.append("seat_freeze_blocked_host_repair")
                 return {
-                    "notes": ["seat_freeze_blocked_host_repair"],
-                    "cleared": [],
+                    "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                    "notes": notes,
+                    "cleared": list(meta.get("cleared") or []),
                     "from_stage": "edl_narrative_audit",
+                    "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
                     "gate": dec,
                 }
     except Exception:
@@ -373,10 +548,16 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         except Exception:
             frozen = True
         if frozen:
+            meta = apply_edl_narrative_metadata_align(ctx)
+            notes = list(meta.get("notes") or [])
+            if "seat_freeze_blocked_host_repair_fail_closed" not in notes:
+                notes.append("seat_freeze_blocked_host_repair_fail_closed")
             return {
-                "notes": ["seat_freeze_blocked_host_repair_fail_closed"],
-                "cleared": [],
+                "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                "notes": notes,
+                "cleared": list(meta.get("cleared") or []),
                 "from_stage": "edl_narrative_audit",
+                "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
             }
     notes: list[str] = []
     pending_adj: list[tuple[str, str]] = []
@@ -794,8 +975,49 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def _host_progress_notes(host: dict[str, Any] | None) -> set[str]:
+    notes = (host or {}).get("notes") or []
+    return HOST_REPAIR_PROGRESS_NOTES.intersection(notes)
+
+
+def _remutate_from_host_progress(host: dict[str, Any], *, extra_notes: list[str] | None = None) -> dict[str, Any]:
+    notes = list(host.get("notes") or [])
+    if extra_notes:
+        notes.extend(extra_notes)
+    from_stage = str(host.get("from_stage") or "edl_narrative_audit")
+    if "drop_late_intro_reset" in notes or "drop_post_coda_reverse_jump" in notes:
+        from_stage = "nugget_layup_compose"
+    elif CHAPTER_FIX_PROGRESS_NOTES.intersection(notes):
+        from_stage = "edl_narrative_audit"
+    return {
+        "ok": True,
+        "cleared": list(host.get("cleared") or []),
+        "from_stage": resume_after_narrative_audit_fail(from_stage),
+        "host_fixed": True,
+        "notes": notes,
+        "reason": "host_metadata_or_vo_progress",
+    }
+
+
 def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Clear mapped stage markers so delivery can re-enter. Does not soft-pass audit."""
+    doc = plan or (
+        ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else None
+    )
+    actions = set((doc or {}).get("actions") or []) if isinstance(doc, dict) else set()
+    # Metadata-only plan/chapter align never needs timeline reopen or seat unfreeze.
+    if actions and actions.issubset(_METADATA_ALIGN_ACTIONS):
+        host = apply_edl_narrative_host_repair(ctx)
+        if _host_progress_notes(host):
+            return _remutate_from_host_progress(host, extra_notes=["align_plan_metadata_only"])
+        return {
+            "ok": False,
+            "reason": "align_plan_noop",
+            "host_fixed": False,
+            "notes": list(host.get("notes") or []) + ["align_plan_noop"],
+            "cleared": list(host.get("cleared") or []),
+            "from_stage": "edl_narrative_audit",
+        }
     try:
         from interview_mux.timeline_reopen_meta_gate import (
             INTENT_NARRATIVE,
@@ -805,53 +1027,54 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
         gate = decide_timeline_reopen(
             ctx,
             intent=INTENT_NARRATIVE,
-            detail={"plan_actions": list((plan or {}).get("actions") or []) if isinstance(plan, dict) else []},
+            detail={"plan_actions": list(actions)},
         )
         if not gate.get("allow"):
             # Host-repair-only path still attempted; stage clears refused
             host = apply_edl_narrative_host_repair(ctx)
+            if _host_progress_notes(host):
+                return _remutate_from_host_progress(
+                    host, extra_notes=["timeline_reopen_refused"]
+                )
             return {
                 "ok": False,
                 "reason": "refused_low_gain",
                 "gate": gate,
-                "host_fixed": bool(host.get("notes")),
+                "host_fixed": False,
                 "notes": list(host.get("notes") or []) + ["timeline_reopen_refused"],
-                "cleared": [],
+                "cleared": list(host.get("cleared") or []),
+                "from_stage": "edl_narrative_audit",
             }
     except Exception:
         # c8 fail-closed: host-repair only, no stage clears
         host = apply_edl_narrative_host_repair(ctx)
+        if _host_progress_notes(host):
+            return _remutate_from_host_progress(
+                host, extra_notes=["timeline_reopen_fail_closed"]
+            )
         return {
             "ok": False,
             "reason": "refused_low_gain",
             "gate": {"allow": False, "refuse_reason": "decide_error_fail_closed"},
-            "host_fixed": bool(host.get("notes")),
+            "host_fixed": False,
             "notes": list(host.get("notes") or []) + ["timeline_reopen_fail_closed"],
-            "cleared": [],
+            "cleared": list(host.get("cleared") or []),
+            "from_stage": "edl_narrative_audit",
         }
     host = apply_edl_narrative_host_repair(ctx)
-    doc = plan or (
-        ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else None
-    )
-    actions = set((doc or {}).get("actions") or []) if isinstance(doc, dict) else set()
-    vo_notes = HOST_REPAIR_PROGRESS_NOTES
-    # Orientation / late-intro-reset / duplicate-adjacency are host-fixed.
+    # Orientation / late-intro-reset / duplicate-adjacency / plan align are host-fixed.
     # Rewinding ranking recreates the same late welcome-back cluster.
-    if vo_notes.intersection(host.get("notes") or []):
-        from_stage = str(host.get("from_stage") or "edl_narrative_audit")
-        if "drop_late_intro_reset" in (host.get("notes") or []) or "drop_post_coda_reverse_jump" in (
-            host.get("notes") or []
-        ):
-            from_stage = "nugget_layup_compose"
-        return {
-            "ok": True,
-            "cleared": host.get("cleared") or [],
-            "from_stage": from_stage,
-            "host_fixed": True,
-            "notes": host.get("notes") or [],
-        }
+    if _host_progress_notes(host):
+        return _remutate_from_host_progress(host)
     if not isinstance(doc, dict) or doc.get("exhausted"):
-        return {"ok": False, "reason": "exhausted_or_missing", **host}
+        return {
+            "ok": False,
+            "reason": "exhausted_or_missing",
+            "host_fixed": False,
+            "notes": list(host.get("notes") or []),
+            "cleared": list(host.get("cleared") or []),
+            "from_stage": "edl_narrative_audit",
+        }
     cleared: list[str] = list(host.get("cleared") or [])
     for sid in doc.get("from_stages") or []:
         marker = ctx.run_dir / ".stage_done" / str(sid)
@@ -870,4 +1093,10 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
         level="warning",
         stage="edl_narrative_audit",
     )
-    return {"ok": True, "cleared": cleared, "from_stage": doc.get("from_stage")}
+    return {
+        "ok": True,
+        "cleared": cleared,
+        "from_stage": resume_after_narrative_audit_fail(doc.get("from_stage")),
+        "host_fixed": False,
+        "notes": list(host.get("notes") or []),
+    }

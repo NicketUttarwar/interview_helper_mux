@@ -31,6 +31,9 @@ AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
     "vo contract",
     "missing from gap_report",
     "vo coverage not rendered",
+    "vo_unsanitary",
+    "vo unsanitary",
+    "still_missing:",
     "stale upstream",
     "marked stale",
     "seed order",
@@ -115,8 +118,10 @@ def should_stamp_needs_operator(
         return True
     if "gap_unsanitary" in low or "air_contract_unsanitary" in low or "layup_unsanitary" in low:
         return True
-    if "sdp_unsanitary" in low or "vo_unsanitary" in low:
+    if "sdp_unsanitary" in low:
         return True
+    # HV-5: vo_unsanitary is a vo_synthesize ladder pin (HV-2), not a G1
+    # record pause. Fall through to classified / operator-gate checks.
     if "authority_undo" in low or "same_family_over_budget" in low:
         return True
     if "incomplete-after-conductor" in low or "incomplete_after_conductor" in low:

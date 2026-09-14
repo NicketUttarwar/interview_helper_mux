@@ -1703,6 +1703,16 @@ def run_preview(ctx: RunContext) -> Path:
                     stage="assembly_preview",
                 )
 
+    refuse = None
+    try:
+        from interview_mux.stage_completion import assembly_preview_heard_wav_refuse
+
+        refuse = assembly_preview_heard_wav_refuse(ctx, edl if isinstance(edl, dict) else None)
+    except Exception:
+        refuse = None
+    if refuse:
+        raise RuntimeError(refuse)
+
     source = ctx.read_path("ingest", "normalized.wav")
     work = ctx.path("master", "_preview_clips")
     work.mkdir(parents=True, exist_ok=True)
@@ -1771,11 +1781,15 @@ def run_preview(ctx: RunContext) -> Path:
 
             src_rel = clip.get("source_path")
             if not src_rel:
-                if ctype == "transition":
-                    # Explicit empty seat is allowed on the EDL (see transition_vo
-                    # assert): mix last-chance synthesizes; preview skips the clip.
+                text = str(clip.get("text") or "").strip()
+                try:
+                    dur = int(clip.get("duration_ms") or 0)
+                except (TypeError, ValueError):
+                    dur = 0
+                if ctype == "transition" and not text and dur <= 0:
                     continue
                 raise RuntimeError(
+                    "heard_wav_flow — resume vo_synthesize: "
                     f"assembly_preview: {ctype} clip {clip.get('line_id') or i} missing source_path"
                 )
             vo_src = ctx.read_path(src_rel)
@@ -1815,13 +1829,33 @@ def run_preview(ctx: RunContext) -> Path:
     with logged_step("assembly_preview/concat_export", ctx=ctx, stage="assembly_preview"):
         clips = [load_audio(p) for p in clip_paths]
         preview_audio = concat_clips_with_crossfade(clips, crossfade_ms)
-        preview = ctx.path("master", "assembly_preview.wav")
-        preview_audio.export(str(preview), format="wav")
+        preview_path = ctx.path("master", "assembly_preview.wav")
+        preview_audio.export(str(preview_path), format="wav")
     ctx.log(
         f"Assembly preview ready (speech + VO, crossfade_ms={crossfade_ms}, clips={len(clips)}) — listen before MMAudio SFX generation.",
         level="success",
         stage="assembly_preview",
-        detail=str(preview),
+        detail=str(preview_path),
     )
-    ctx.mark_done("assembly_preview")
-    return preview
+    marked = False
+    try:
+        from interview_mux.stage_completion import heal_or_refuse_mark
+
+        out = heal_or_refuse_mark(ctx, "assembly_preview")
+        if out.get("refused"):
+            raise RuntimeError(
+                str(out.get("reason") or "heard_wav_flow — resume vo_synthesize: preview incomplete")
+            )
+        marked = bool(out.get("marked"))
+        if not marked:
+            try:
+                marked = bool(ctx.is_done("assembly_preview"))
+            except Exception:
+                marked = False
+    except RuntimeError:
+        raise
+    except Exception:
+        marked = False
+    if not marked:
+        ctx.mark_done("assembly_preview")
+    return preview_path

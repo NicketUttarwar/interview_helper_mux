@@ -581,12 +581,14 @@ class RunContext:
         marker.touch()
         if stage == "mix":
             try:
+                from interview_mux.air_order import mix_outputs_seated
 
                 def _clear_seating_stale(meta: dict[str, Any]) -> None:
                     meta.pop("assembly_seating_stale", None)
                     meta.pop("assembly_seating_stale_reason", None)
 
-                if self.artifact_exists("run_meta.json"):
+                # HX-2: only clear the stale flag after a seated mix, not a hollow mark.
+                if mix_outputs_seated(self) and self.artifact_exists("run_meta.json"):
                     self.mutate_run_meta(_clear_seating_stale)
             except Exception:
                 pass

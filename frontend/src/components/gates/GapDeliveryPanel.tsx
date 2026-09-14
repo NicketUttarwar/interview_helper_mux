@@ -66,7 +66,7 @@ export function GapDeliveryPanel({ stage }: { stage: StageInfo }) {
         );
       }
       closeActionModal();
-      if (shouldAdvanceAfterGatePost(run)) {
+      if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
         await advanceFromCheckpoint();
       }
     } catch (e) {

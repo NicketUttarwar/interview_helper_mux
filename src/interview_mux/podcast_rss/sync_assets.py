@@ -327,6 +327,21 @@ def sync_ready_packages(
                     }
                 )
                 return result
+            from interview_mux.delivery_guardrails import remote_publish_allowed
+
+            allowed, why = remote_publish_allowed(RunContext(eid))
+            if not allowed:
+                result.errors.append(
+                    {
+                        "error": (
+                            "S3/RSS sync refused: publish_allowed is not true "
+                            f"({why}) — e2e_soft may still walk local encode/cover/package"
+                        ),
+                        "execution_id": eid,
+                        "reason": "pmq_not_publishable",
+                    }
+                )
+                return result
         except Exception as exc:
             result.errors.append(
                 {

@@ -621,7 +621,7 @@ def test_mix_stale_ignores_orphan_pending_assembly(
     pending = ctx.run_dir / ".pending_writes" / "mix" / "master"
     pending.mkdir(parents=True)
     (pending / "assembly.wav").write_bytes(b"RIFF" + b"\0" * 64)
-    assert ctx.artifact_exists("master/assembly.wav") is True
+    assert ctx.artifact_exists("master/assembly.wav") is False
     assert ctx.final_path("master", "assembly.wav").is_file() is False
     assert mix_stale_versus_live(ctx) is False
     assert assembly_stale_versus_edl(ctx) is False

@@ -250,9 +250,9 @@ def test_f04_hollow_seats_incompleteness_blocks_seed(tmp_path, monkeypatch):
     reason = stage_artifact_incompleteness(ctx, "air_script_seams")
     assert reason is not None
     assert "hollow seats" in reason
+    # HR-3: Pass A is markable without seats; F-04 hollow-seats stays on seams.
     reason_a = stage_artifact_incompleteness(ctx, "air_script_compose")
-    assert reason_a is not None
-    assert "hollow seats" in reason_a
+    assert reason_a is None or "hollow seats" not in reason_a
 
 
 # ---------------------------------------------------------------------------

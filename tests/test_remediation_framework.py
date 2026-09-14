@@ -68,7 +68,7 @@ def test_vo_seated_coverage_ladder(ctx: RunContext) -> None:
         error_class="vo_seated_coverage",
     )
     assert outcome.playbook_id == "edl_vo_coverage_ladder"
-    assert outcome.resume_stage in {"vo_synthesize", "edl", "edl_narrative_audit"}
+    assert outcome.resume_stage == "vo_synthesize"
 
 
 def test_delivery_recover_preflight_vo_contract(ctx: RunContext) -> None:

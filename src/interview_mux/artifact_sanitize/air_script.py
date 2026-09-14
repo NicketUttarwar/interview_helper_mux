@@ -506,15 +506,20 @@ def run_air_contract_sanitize(ctx: Any) -> None:
         raise RuntimeError(
             sanitize_refused_message("air_contract", result.errors)
         )
-    try:
-        from interview_mux.stage_completion import heal_or_refuse_mark
+    from interview_mux.stage_completion import heal_or_refuse_mark
 
-        heal_or_refuse_mark(ctx, "air_contract_sanitize")
-    except Exception:
-        try:
-            ctx.mark_done("air_contract_sanitize")
-        except Exception:
-            pass
+    out = heal_or_refuse_mark(ctx, "air_contract_sanitize")
+    if out.get("refused") or not (
+        out.get("marked") or (hasattr(ctx, "is_done") and ctx.is_done("air_contract_sanitize"))
+    ):
+        reason = str(out.get("reason") or "").strip()
+        if not reason:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            reason = stage_artifact_incompleteness(ctx, "air_contract_sanitize") or (
+                "air_contract_unsanitary — resume air_contract_sanitize: heal refused"
+            )
+        raise RuntimeError(reason)
     try:
         from interview_mux.seat_authority import stamp_soft_seat_freeze
 

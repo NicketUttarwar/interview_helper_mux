@@ -397,7 +397,11 @@ def _legacy_read_alias(ctx: RunContext, rel: str) -> Path | None:
 
 
 def resolve_read_path(ctx: RunContext, rel: str) -> Path:
-    """Prefer staged copy when present."""
+    """Committed tree, plus this stage's in-flight pending only (HC-3).
+
+    Leftover ``.pending_writes`` from a crashed or other stage must not shadow
+    reads. The live producer still sees its own staged files via ``_active_stage``.
+    """
     if is_operational_path(rel):
         return ctx.run_dir.joinpath(*rel.split("/"))
     sid = _active_stage.get()
@@ -405,35 +409,34 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
         staged = staged_path(ctx, rel, stage_id=sid)
         if staged.is_file():
             return staged
-    pending = pending_stage_for_path(ctx, rel)
     primary = ctx.run_dir.joinpath(*rel.split("/"))
-    if pending:
-        staged = staged_path(ctx, rel, stage_id=pending)
-        if staged.is_file():
-            # Leftover pending after a completed producer must not shadow a newer
-            # committed heal (G1 spoken-copy rewrites, fingerprint stamps, etc.).
-            done_marker = ctx.run_dir / ".stage_done" / pending
-            if primary.is_file() and done_marker.is_file():
-                return primary
-            # Incomplete later-stage staging must not clobber committed inputs
-            # when a different stage is running (mix vs leftover junction writes).
-            if primary.is_file() and sid and pending != sid:
-                return primary
-            # Chronologically later committed file wins over stale incomplete pending
-            # (omit-wins VO seat heals, contract repair, etc.).
-            if primary.is_file():
-                try:
-                    if primary.stat().st_mtime_ns >= staged.stat().st_mtime_ns:
-                        return primary
-                except OSError:
-                    pass
-            return staged
     if primary.is_file():
         return primary
     legacy = _legacy_read_alias(ctx, rel)
     if legacy is not None:
         return legacy
     return primary
+
+
+def uncommitted_pending_reason(ctx: RunContext, rel: str) -> str | None:
+    """HC-3 / 2B: pending-only or newer pending than commit is not complete."""
+    if is_operational_path(rel):
+        return None
+    pending = pending_stage_for_path(ctx, rel)
+    if not pending:
+        return None
+    staged = staged_path(ctx, rel, stage_id=pending)
+    if not staged.is_file():
+        return None
+    primary = ctx.run_dir.joinpath(*rel.split("/"))
+    if not primary.is_file():
+        return f"{rel} is pending_only"
+    try:
+        if staged.stat().st_mtime_ns > primary.stat().st_mtime_ns:
+            return f"{rel} has newer uncommitted pending"
+    except OSError:
+        return f"{rel} has newer uncommitted pending"
+    return None
 
 
 def artifact_exists_resolved(ctx: RunContext, rel: str) -> bool:

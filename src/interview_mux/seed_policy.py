@@ -46,28 +46,17 @@ def ensure_sticky_seed_mark(ctx: RunContext, stage_id: str) -> bool:
     if ctx.is_done(sid):
         return True
     try:
+        from interview_mux.refinement_passes import persist_pass2_skip_stub
+
+        persist_pass2_skip_stub(ctx, sid, skip_reason="hard_freeze_edl")
+    except Exception:
+        pass
+    try:
         from interview_mux.stage_completion import heal_or_refuse_mark
 
         heal_or_refuse_mark(ctx, sid, force=True)
     except Exception:
         pass
-    if ctx.is_done(sid):
-        return True
-    # Intentional freeze no-op: raw mark when heal refuses hollow producer paths.
-    try:
-        prev = getattr(ctx, "_mark_done_raw", False)
-        ctx._mark_done_raw = True
-        try:
-            ctx.mark_done(sid, force=True)
-        finally:
-            ctx._mark_done_raw = prev
-    except Exception:
-        try:
-            done = ctx.run_dir / ".stage_done" / sid
-            done.parent.mkdir(parents=True, exist_ok=True)
-            done.write_text("", encoding="utf-8")
-        except Exception:
-            return False
     return bool(ctx.is_done(sid))
 
 

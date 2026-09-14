@@ -29,6 +29,23 @@ describe("advanceFromCheckpoint chains advancePipeline", () => {
   });
 });
 
+describe("HC-6 gate panels pass refreshed snapshot into shouldAdvanceAfterGatePost", () => {
+  const panels = [
+    "GapFramingGatePanel.tsx",
+    "GapDeliveryPanel.tsx",
+    "VoiceReferencePanel.tsx",
+    "PickupSpeakerPanel.tsx",
+    "VoPickupPanel.tsx",
+  ];
+
+  it.each(panels)("%s does not consult stale hook run", (file) => {
+    const text = readFileSync(join(GATES_DIR, file), "utf8");
+    expect(text).toContain("shouldAdvanceAfterGatePost");
+    expect(text).not.toContain("shouldAdvanceAfterGatePost(run)");
+    expect(text).toContain("shouldAdvanceAfterGatePost(refreshed");
+  });
+});
+
 describe("D-02 gates may call advanceFromCheckpoint; ban raw pipeline continue", () => {
   const gateFiles = readdirSync(GATES_DIR).filter((f) => f.endsWith(".tsx"));
 

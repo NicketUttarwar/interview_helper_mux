@@ -57,7 +57,7 @@ describe("partialAcceleratedGuard", () => {
     expect(shouldShowAcceleratedRunOverlay(r, null)).toBe(false);
   });
 
-  it("lifts overlay for G-Framing gate so Yes/No buttons work", () => {
+  it("keeps overlay for G-Framing while Partial driver auto-Yes is in flight", () => {
     const r = run({
       meta: accelerated,
       gap_framing_decision_pending: true,
@@ -67,19 +67,78 @@ describe("partialAcceleratedGuard", () => {
         message: "Gap framing gate: choose whether to add interviewer framing audio in the GUI",
       },
     });
+    expect(isPartialAutoCheckpoint(r, null)).toBe(false);
+    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(true);
+    expect(shouldBlockOperatorActionsForJob(r, true, null)).toBe(true);
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
+  });
+
+  it("lifts overlay for G-Framing when there is no driver (Manual Yes/No)", () => {
+    const r = run({
+      meta: { run_mode: "manual" },
+      gap_framing_decision_pending: true,
+      job: {
+        status: "gate",
+        stage: "missing_framing",
+        message: "Gap framing gate: choose whether to add interviewer framing audio in the GUI",
+      },
+    });
     expect(isPartialAutoCheckpoint(r, null)).toBe(true);
-    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(false);
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
     expect(shouldBlockOperatorActionsForJob(r, true, null)).toBe(false);
+  });
+
+  it("lifts overlay for G-Framing when operator_must_act is stamped", () => {
+    const r = run({
+      meta: accelerated,
+      gap_framing_decision_pending: true,
+      operator_gates: {
+        missing_framing: { severity: "hard_block", operator_must_act: true },
+      },
+      job: { status: "gate", stage: "missing_framing", message: "Gap framing gate" },
+    });
+    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
     expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
   });
 
-  it("lifts overlay for any job.status=gate, not only G0", () => {
-    const r = run({
+  it("keeps overlay for later framing sub-gates while the driver owns them", () => {
+    const pickup = run({
+      meta: accelerated,
+      pickup_speaker_pending: true,
+      job: { status: "gate", stage: "missing_framing", message: "Pickup speaker gate" },
+    });
+    expect(isPartialAutoCheckpoint(pickup, null)).toBe(false);
+    expect(resolveOperatorCover(pickup, null, { jobRunning: true })).toBe("accelerated");
+
+    const voice = run({
       meta: accelerated,
       job: {
         status: "gate",
         stage: "voice_reference",
         message: "Voice reference gate: approve interviewer voice sample before gap framing LLM stages.",
+      },
+    });
+    expect(isPartialAutoCheckpoint(voice, null)).toBe(false);
+    expect(resolveOperatorCover(voice, null)).toBe("accelerated");
+  });
+
+  it("lifts overlay for pickup speaker when there is no driver", () => {
+    const r = run({
+      meta: { run_mode: "manual" },
+      pickup_speaker_pending: true,
+      job: { status: "gate", message: "Pickup speaker gate" },
+    });
+    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
+    expect(resolveOperatorCover(r, null)).toBe("none");
+  });
+
+  it("lifts overlay for job.status=gate that is not a driver-owned framing gate", () => {
+    const r = run({
+      meta: accelerated,
+      job: {
+        status: "gate",
+        stage: "write_approval",
+        message: "Write approval required",
       },
     });
     expect(isPartialAutoCheckpoint(r, null)).toBe(true);
@@ -122,12 +181,12 @@ describe("partialAcceleratedGuard", () => {
     expect(resolveOperatorCover(r, { pending: false }, { jobRunning: true })).toBe("accelerated");
   });
 
-  it("returns accelerated cover after a checkpoint is cleared", () => {
+  it("keeps accelerated cover after G-Framing gate while the driver still owns resume", () => {
     const paused = run({
       meta: accelerated,
       job: { status: "gate", message: "Gap framing gate" },
     });
-    expect(resolveOperatorCover(paused, null)).toBe("none");
+    expect(resolveOperatorCover(paused, null, { jobRunning: true })).toBe("accelerated");
     const resumed = run({
       meta: accelerated,
       job: { status: "running", stage: "missing_framing" },
@@ -152,18 +211,34 @@ describe("partialAcceleratedGuard", () => {
     expect(deliveryOrderViolation("vo_line_adjudicate", "vo_synthesize")).toBe(false);
   });
 
-  it("D-02: Manual advances after gate; Partial+driver does not", () => {
+  it("D-02/HC-6: GUI Continues after a gate POST in Manual, Partial, and Full-auto", () => {
     expect(shouldAdvanceAfterGatePost(run({ meta: { run_mode: "manual" } }))).toBe(true);
     expect(
       shouldAdvanceAfterGatePost(
         run({ meta: { run_mode: "partially-accelerated", partial_auto_driver_active: true } }),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldAdvanceAfterGatePost(
         run({ meta: { run_mode: "partially-accelerated", partial_auto_driver_active: false } }),
       ),
     ).toBe(true);
+  });
+
+  it("HC-6: missing driver flag and Full-auto still GUI-advance; dual walk is the lease", () => {
+    expect(
+      shouldAdvanceAfterGatePost(run({ meta: { run_mode: "partially-accelerated" } })),
+    ).toBe(true);
+    expect(
+      shouldAdvanceAfterGatePost(
+        run({ meta: { run_mode: "partially-accelerated", partial_auto: true } }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldAdvanceAfterGatePost(run({ meta: { run_mode: "full-auto", full_auto: true } })),
+    ).toBe(true);
+    expect(shouldAdvanceAfterGatePost(run({ meta: { full_auto: true } }))).toBe(true);
+    expect(shouldAdvanceAfterGatePost(null)).toBe(true);
   });
 
   it("D-01: must-act SSOT is G0 + g_publish; may-pause covers framing/G1/reuse/write-approval", () => {
@@ -204,7 +279,7 @@ describe("partialAcceleratedGuard", () => {
     expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
   });
 
-  it("does not hold the running-job flag at an operator gate", () => {
+  it("holds the running-job flag while the driver owns G-Framing", () => {
     const r = run({
       meta: accelerated,
       gap_framing_decision_pending: true,
@@ -215,6 +290,22 @@ describe("partialAcceleratedGuard", () => {
       shouldHoldJobRunningFlag(
         r,
         { status: "running", stage: "missing_framing" },
+        null,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not hold the running-job flag at G0", () => {
+    const r = run({
+      meta: accelerated,
+      transcript_review_pending: true,
+      job: { status: "gate", message: "Analysis paused for transcript review" },
+    });
+    expect(shouldHoldJobRunningFlag(r, r.job, null)).toBe(false);
+    expect(
+      shouldHoldJobRunningFlag(
+        r,
+        { status: "running", stage: "transcript_review" },
         null,
       ),
     ).toBe(false);

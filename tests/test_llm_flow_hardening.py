@@ -124,7 +124,7 @@ def test_require_llm_stage_progress_skips_stages_without_producer(tmp_path, monk
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_no_producer")
-    require_llm_stage_progress(ctx, "vernacular_segment_sanitize")
+    require_llm_stage_progress(ctx, "audio_probe_build")
     maybe_require_upstream_llm_progress(ctx, "low_conf_island_scan")
 
 

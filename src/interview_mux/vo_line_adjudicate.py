@@ -49,6 +49,7 @@ __all__ = [
     "apply_adjudicate_results",
     "run_intro_compose",
     "run_vo_line_adjudicate_stage",
+    "persist_adjudication_skip_stub",
     "nugget_air_coverage",
     "persist_allocation_plan",
     "collect_waived_nugget_ids",
@@ -495,6 +496,43 @@ def apply_adjudicate_results(
     return gap_report, actions
 
 
+def persist_adjudication_skip_stub(
+    ctx: RunContext,
+    *,
+    skip_reason: str,
+    settled_line_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """HV-3: schema-valid primary when the LLM batch did not run.
+
+    ``lines`` stays empty unless a prior row already exists for a settled id —
+    do not invent air/rewrite actions.
+    """
+    settled = [str(x) for x in (settled_line_ids or []) if x]
+    prior = _prior_adjudication(ctx)
+    prior_by = {
+        str(row.get("line_id") or ""): row
+        for row in (prior.get("lines") or [])
+        if isinstance(row, dict) and row.get("line_id")
+    }
+    lines = [prior_by[lid] for lid in settled if lid in prior_by]
+    doc: dict[str, Any] = {
+        "version": 1,
+        "lines": lines,
+        "batch_count": 0,
+        "skip_reason": str(skip_reason or "adjudicate_skipped"),
+    }
+    if settled:
+        doc["settled_line_ids"] = settled
+    ctx.write_json(ADJUDICATION_REL, doc, stage_key=STAGE_ID)
+    return doc
+
+
+def _heal_adjudicate_mark(ctx: RunContext) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, STAGE_ID)
+
+
 def persist_allocation_plan(
     ctx: RunContext,
     gap_report: dict[str, Any],
@@ -699,12 +737,14 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
     """Full stage: Part A body adjudicate + Part B intro compose."""
     if not ctx.artifact_exists(GAP_REL):
         ctx.log("vo_line_adjudicate: no gap_report — skip", level="info", stage=STAGE_ID)
-        ctx.mark_done(STAGE_ID)
+        persist_adjudication_skip_stub(ctx, skip_reason="no_gap_report")
+        _heal_adjudicate_mark(ctx)
         return
 
     gap_report = ctx.read_json(GAP_REL)
     if not isinstance(gap_report, dict):
-        ctx.mark_done(STAGE_ID)
+        persist_adjudication_skip_stub(ctx, skip_reason="invalid_gap_report")
+        _heal_adjudicate_mark(ctx)
         return
 
     try:
@@ -729,6 +769,8 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
     plan = _load_layup_plan(ctx)
     adjudication_rows: list[dict[str, Any]] = []
     intro_nugget_ids: list[str] = []
+    skip_reason: str | None = None
+    settled_ids: list[str] = []
 
     if body_lines:
         need_ids = lines_needing_adjudication(ctx, gap_report, plan)
@@ -736,7 +778,19 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
             adjudication_rows = run_adjudicate_batches(ctx, need_ids, gap_report)
             gap_report, _actions = apply_adjudicate_results(ctx, gap_report, adjudication_rows, layup_plan=plan)
             ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
+        else:
+            skip_reason = "unchanged_or_flow_ok"
+            settled_ids = [
+                str(row.get("line_id") or "")
+                for row in body_lines
+                if row.get("line_id")
+            ]
+            persist_adjudication_skip_stub(
+                ctx, skip_reason=skip_reason, settled_line_ids=settled_ids
+            )
     else:
+        skip_reason = "zero_body_synthesize_lines"
+        persist_adjudication_skip_stub(ctx, skip_reason=skip_reason)
         ctx.log(
             "vo_line_adjudicate: zero body synthesize lines — skip Part A (7A)",
             level="info",
@@ -783,4 +837,10 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
                 stage=STAGE_ID,
                 reason="nugget_air_coverage_below_floor",
             )
-    ctx.mark_done(STAGE_ID)
+    if not ctx.artifact_exists(ADJUDICATION_REL):
+        persist_adjudication_skip_stub(
+            ctx,
+            skip_reason=skip_reason or "adjudicate_complete_without_batch",
+            settled_line_ids=settled_ids or None,
+        )
+    _heal_adjudicate_mark(ctx)

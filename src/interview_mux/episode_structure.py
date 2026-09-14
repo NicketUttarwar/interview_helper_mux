@@ -617,12 +617,17 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
         "occupancy": {"violations": occ_violations},
         "compact_digest": "",
     }
-    # Soft-bind Shape plan when present (mode / cold open / air order hints).
+    # Bind Shape plan only when plan_status is complete (HM-3).
     if ctx.artifact_exists("mastering/mastering_plan.json"):
         try:
             plan = ctx.read_json("mastering/mastering_plan.json")
         except Exception:
             plan = None
+        if isinstance(plan, dict):
+            from interview_mux.mastering_plan_loader import plan_is_authoritative
+
+            if not plan_is_authoritative(plan):
+                plan = None
         if isinstance(plan, dict):
             mode = str(
                 plan.get("confirmed_mode")
@@ -767,14 +772,37 @@ def refresh_episode_structure(ctx: RunContext) -> dict[str, Any]:
     return doc
 
 
+def persist_structure_skip_stub(ctx: RunContext) -> dict[str, Any]:
+    """HG-2 2A: schema-valid disabled stub (empty slot_plan; skipped is extra-ok)."""
+    stub: dict[str, Any] = {
+        "schema_version": 1,
+        "policy_hash": "disabled",
+        "axes": {},
+        "slot_plan": [],
+        "segment_order": [],
+        "hook_reel": {"segment_id": None, "repeat_allowed": False},
+        "omit_reasons": [],
+        "rationale": ["disabled"],
+        "integrity": {"ok": True, "flags": ["feature_disabled"]},
+        "occupancy": {"violations": []},
+        "skipped": "feature_disabled",
+    }
+    ctx.write_json(STRUCTURE_PATH, stub, stage_key="episode_structure_compose")
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, "episode_structure_compose", force=True)
+    return stub
+
+
 def run_episode_structure_compose(ctx: RunContext) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
     from interview_mux.stages.segmentation import _assert_boundary_quality
 
     # Late drift hard-stop before delivery handoff.
     _assert_boundary_quality(ctx)
     if not structure_enabled():
         ctx.log("episode_structure_compose skipped (structure.enabled=false)", level="info", stage="episode_structure_compose")
-        ctx.mark_done("episode_structure_compose")
+        persist_structure_skip_stub(ctx)
         return
     with logged_step("episode_structure_compose/build", ctx=ctx, stage="episode_structure_compose"):
         doc = build_episode_structure(ctx, refresh=False)
@@ -798,4 +826,4 @@ def run_episode_structure_compose(ctx: RunContext) -> None:
             level="warning",
             stage="episode_structure_compose",
         )
-    ctx.mark_done("episode_structure_compose")
+    heal_or_refuse_mark(ctx, "episode_structure_compose", force=True)

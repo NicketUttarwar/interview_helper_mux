@@ -17,9 +17,20 @@ from interview_mux.low_conf_islands import (
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.segment_fuse import connector_fuse_cfg
+from interview_mux.segment_fuse import fuse_writer_stage
 from interview_mux.segment_fuse import run_connector_fuse_pass as fuse_pass
 
 DEFAULT_FUSE_PASS_ID = "post_sanitize"
+
+
+def _heal_island_stage(ctx: RunContext, stage: str) -> None:
+    """HS-1: stamp done only through heal_or_refuse after a real write."""
+    from interview_mux.homunculus.agenda import stage_outputs_present
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    if not stage_outputs_present(ctx, stage):
+        return
+    heal_or_refuse_mark(ctx, stage, force=True)
 
 
 def run_low_conf_island_scan(ctx: RunContext) -> None:
@@ -75,6 +86,7 @@ def run_low_conf_island_scan(ctx: RunContext) -> None:
             "high_value_segments": (hv_doc.get("segment_ids_touched") or [])[:20],
         },
     )
+    _heal_island_stage(ctx, stage)
 
 
 def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
@@ -89,10 +101,13 @@ def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
             action_id="connector_fuse.skip",
             detail={"pass_id": pass_id},
         )
-        return
 
     with logged_step(f"{stage}/{pass_id}", ctx=ctx, stage=stage):
-        result = fuse_pass(ctx, pass_id=pass_id)
+        result = fuse_pass(
+            ctx,
+            pass_id=pass_id,
+            force_readjudicate=bool(kwargs.get("force_readjudicate")),
+        )
 
     ctx.log(
         f"Connector fuse pass '{pass_id}' complete — {result.get('total_applied')} fuse(s), "
@@ -108,6 +123,7 @@ def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
             "skip_reason": result.get("skip_reason"),
         },
     )
+    _heal_island_stage(ctx, fuse_writer_stage(pass_id))
 
 
 def run_connector_fuse_pass_pre_ranking(ctx: RunContext) -> None:

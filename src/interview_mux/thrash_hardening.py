@@ -37,13 +37,51 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
         "master_finalize",
         # A-01: key meaning producers — no hollow force-done.
         "content_context",
+        "source_acoustic_profile",
+        "sonic_context_build",
+        "delivery_brief_build",
+        "soundscape_policy_build",
+        "episode_structure_compose",
+        "source_topology_build",
+        "transcript_review_build",
+        "vernacular_segment_sanitize",
         "boundary_detection",
         "content_brief_reanchor",
         "gap_framing_compose",
+        "missing_framing",
         "nugget_layup_compose",
+        "sound_design_vo_finalize",
+        "refinement_agenda",
+        "gap_framing_recompose",
+        "selection_framing_apply",
         "mastering_research_rollup",
+        "mastering_research_routing",
+        "mastering_research_waves",
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
         "mastering_plan_synthesize",
         "mastering_plan_confirm",
+        "episode_cover_generate",
+        "podcast_publish",
+        "master_transcript_build",
+        # Wave 5 R-scan: remaining producers may not hollow-force.
+        "talking_points_compose",
+        "ideal_cuts_propose",
+        "ideal_cuts_materialize",
+        "segment_classification",
+        "interview_spine_build",
+        "audio_probe_build",
+        "sound_design_palettes",
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "nugget_corpus_mine",
+        "information_package_plan",
+        "transitions",
+        "sound_design_plan",
+        "listen_delight_audit",
+        "episode_meta_build",
+        "episode_cover_prompt_craft",
+        "podcast_encode_mp3",
     }
 )
 
@@ -654,16 +692,24 @@ def artifact_usable(
         pending_stage_for_path = None  # type: ignore[assignment]
         resolved = None
 
-    if resolved is None or not resolved.is_file():
-        return False, "missing"
-
     # Seating consumers need a committed WAV/JSON unless *this* producer is
     # actively staging the write. Leftover pending from a crashed producer must
     # not satisfy mix/edl/finalize completeness (pending_sid alone is not enough —
     # orphan .pending_writes/<stage>/… after TypeError/abort looked "complete").
     final = ctx.final_path(*path.split("/"))
-    pending_only = (not final.is_file()) and (".pending_writes" in str(resolved))
-    if pending_only and consumer_s in seating_consumers:
+    leftover_pending = False
+    try:
+        from interview_mux.write_staging import staged_path as _staged_path
+
+        ps = pending_stage_for_path(ctx, path) if callable(pending_stage_for_path) else None
+        leftover_pending = bool(
+            ps and _staged_path(ctx, path, stage_id=ps).is_file() and not final.is_file()
+        )
+    except Exception:
+        leftover_pending = (not final.is_file()) and resolved is not None and (
+            ".pending_writes" in str(resolved)
+        )
+    if leftover_pending and consumer_s in seating_consumers:
         active = None
         try:
             if callable(active_stage_id):
@@ -673,6 +719,9 @@ def artifact_usable(
         # Producer mid-flush / mid-stage may only have pending — allow only while live.
         if active != consumer_s:
             return False, "pending_only_seating"
+
+    if resolved is None or not resolved.is_file():
+        return False, "missing"
 
     try:
         from interview_mux.artifact_lifecycle import read_stale_guard
@@ -1364,6 +1413,299 @@ def heal_navigate(
     intent: str = "",
 ) -> dict[str, str]:
     """Single heal navigator: error/stage → intent → canonical pin."""
+    # HG-4: voice-ref is G-Framing ladder — never topic_coverage / research rewind.
+    try:
+        from interview_mux.stage_completion import voice_ref_heal_resume_stage
+
+        pin = voice_ref_heal_resume_stage(ctx, error=error, stage=stage)
+        if pin:
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "voice_reference_pending"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_voice_ref",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "voice_reference_pending"),
+                "from_stage": pin,
+                "mode": "analysis",
+            }
+    except Exception:
+        pass
+    # HG-5: high_gap_unframed pins the live writer — compose no-ops under layup.
+    try:
+        blob_hg = f"{error} {stage}".strip().lower()
+        if "high_gap_unframed" in blob_hg or (
+            "high gap segment" in blob_hg and "no interviewer line" in blob_hg
+        ):
+            from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+            pin = high_gap_heal_resume_stage(ctx)
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "high_gap_unframed"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_high_gap",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "high_gap_unframed"),
+                "from_stage": pin,
+                "mode": "delivery" if pin == "nugget_layup_compose" else "analysis",
+            }
+    except Exception:
+        pass
+    # HS-4: fuse oscillation pins the fuse writer — never edl / remaster-mix.
+    try:
+        blob_fuse = f"{error} {stage}".strip().lower()
+        fuse_named = (
+            "fuse_oscillation" in blob_fuse
+            or "connector_fuse_oscillation" in blob_fuse
+            or (
+                "oscillation_halt" in blob_fuse
+                and ("fuse" in blob_fuse or "connector_fuse" in blob_fuse)
+                and "junction" not in blob_fuse
+            )
+        )
+        if fuse_named:
+            from interview_mux.stage_completion import fuse_oscillation_heal_resume_stage
+            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+            pin = fuse_oscillation_heal_resume_stage(ctx, error=error, stage=stage)
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "fuse_oscillation"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_fuse_oscillation",
+                )
+            except Exception:
+                pass
+            mode = "delivery" if pin in DELIVERY_ORDER else "analysis"
+            if pin not in DELIVERY_ORDER and pin not in ANALYSIS_ORDER:
+                mode = "analysis"
+            return {
+                "intent": str(intent or "fuse_oscillation"),
+                "from_stage": pin,
+                "mode": mode,
+            }
+    except Exception:
+        pass
+    # HE-2: unsanitary VO/bind must not resume edl as recovered.
+    try:
+        blob_edl = f"{error} {stage}".strip().lower()
+        if (
+            "vo_audibility_drift" in blob_edl
+            or "opening_orientation_inaudible" in blob_edl
+            or "never_touch_zeroed_keep" in blob_edl
+        ):
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            pin = edl_heal_resume_stage(ctx)
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "vo_audibility_drift"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_edl_vo_bind",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "vo_audibility_drift"),
+                "from_stage": pin,
+                "mode": "delivery",
+            }
+    except Exception:
+        pass
+    # HE-3: unsourced heard glue / preview heard-WAV pins vo_synthesize, never edl.
+    try:
+        blob_prev = f"{error} {stage}".strip().lower()
+        if (
+            "heard_wav_flow" in blob_prev
+            or (
+                str(stage or "").strip() == "assembly_preview"
+                and (
+                    "missing source_path" in blob_prev
+                    or "transition pairs missing wav" in blob_prev
+                    or "vo coverage not rendered" in blob_prev
+                )
+            )
+        ):
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            pin = "vo_synthesize"
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "heard_wav_flow"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_preview_heard_wav",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "heard_wav_flow"),
+                "from_stage": pin,
+                "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
+    # HF-4: unsanitary air-contract pins the W3 writer, never edl / mute-done.
+    try:
+        blob_air = f"{error} {stage}".strip().lower()
+        if "air_contract_unsanitary" in blob_air or (
+            str(stage or "").strip() == "air_contract_sanitize"
+            and "unsanitary" in blob_air
+        ):
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            pin = "air_contract_sanitize"
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "air_contract_unsanitary"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_air_contract_unsanitary",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "air_contract_unsanitary"),
+                "from_stage": pin,
+                "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
+    # HF-5: Pass-2 re-dirtied gap pins the writer, never W1 under W3 freeze.
+    try:
+        blob_p2 = f"{error} {stage}".strip().lower()
+        sid_p2 = str(stage or "").strip()
+        if "gap_unsanitary" in blob_p2 or (
+            sid_p2 in {"gap_framing_recompose", "selection_framing_apply"}
+            and "unsanitary" in blob_p2
+        ):
+            from interview_mux.stage_completion import pass2_gap_heal_resume_stage
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            pin = pass2_gap_heal_resume_stage(ctx, error=str(error or ""), stage=sid_p2)
+            if pin:
+                try:
+                    note_delivery_pin(
+                        ctx,
+                        from_stage=pin,
+                        intent=str(intent or "gap_unsanitary"),
+                        reason=str(error or stage or "")[:240],
+                        source="heal_navigate_pass2_gap_unsanitary",
+                    )
+                except Exception:
+                    pass
+                return {
+                    "intent": str(intent or "gap_unsanitary"),
+                    "from_stage": pin,
+                    "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+                }
+    except Exception:
+        pass
+    # HR-4: W1 ranking/gap sanitize unsanitary self-pins, never edl / Pass-2.
+    # "gap_unsanitary" stays HF-5 (Pass-2 writer under freeze).
+    try:
+        blob_w1 = f"{error} {stage}".strip().lower()
+        pin = None
+        if "gap_unsanitary" not in blob_w1:
+            from interview_mux.stage_completion import parse_resume_stage_from_reason
+
+            parsed = parse_resume_stage_from_reason(str(error or ""))
+            if parsed == "selection_order_sanitize" or "selection still unsanitary" in blob_w1:
+                pin = "selection_order_sanitize"
+            elif parsed == "gap_report_sanitize" or "gap still unsanitary" in blob_w1:
+                pin = "gap_report_sanitize"
+        if pin:
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "w1_sanitize_unsanitary"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_hr4_w1_sanitize",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "w1_sanitize_unsanitary"),
+                "from_stage": pin,
+                "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
+    # HR-2: off-bus selection commit refuse pins the writer, never W1 / edl.
+    try:
+        blob_sel = f"{error} {stage}".strip().lower()
+        if "selection_commit_refused" in blob_sel:
+            from interview_mux.stage_completion import parse_resume_stage_from_reason
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            pin = parse_resume_stage_from_reason(str(error or ""))
+            if pin not in {"air_script_compose", "nugget_layup_compose"}:
+                pin = (
+                    "nugget_layup_compose"
+                    if "nugget_layup" in blob_sel
+                    else "air_script_compose"
+                )
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "selection_commit_refused"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_selection_commit_refused",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "selection_commit_refused"),
+                "from_stage": pin,
+                "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
+    # HR-1: hitch adopt failed pins layup, never hitch-complete / edl.
+    try:
+        blob_hitch = f"{error} {stage}".strip().lower()
+        if "hitch_layup_adopt_failed" in blob_hitch:
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            pin = "nugget_layup_compose"
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "hitch_layup_adopt_failed"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_hitch_layup_adopt",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "hitch_layup_adopt_failed"),
+                "from_stage": pin,
+                "mode": "delivery" if pin in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
     # Lock 5: structured incompleteness resume / allowlisted parse before table.
     try:
         from interview_mux.stage_completion import (
@@ -1378,9 +1720,19 @@ def heal_navigate(
             f"{err_s} {stage_s}"
         )
         resume = structured or parsed
+        try:
+            from interview_mux.stage_completion import mastering_heal_resume_stage
+
+            mastering = mastering_heal_resume_stage(ctx, error=err_s, stage=stage_s)
+        except Exception:
+            mastering = None
+        if mastering:
+            resume = mastering
         # Self-pin (e.g. edl incompleteness "master/edl.json is pending" → edl via
         # PRODUCER_PIN_TABLE substring) must not short-circuit intent / earliest walk.
-        if resume and resume != stage_s:
+        # HM-2: mastering pins must still return (including self-pin) — never fall
+        # through to edl / delivery.
+        if resume and (resume != stage_s or mastering):
             try:
                 note_delivery_pin(
                     ctx,
@@ -1391,6 +1743,8 @@ def heal_navigate(
                 )
             except Exception:
                 pass
+            from interview_mux.v2.config import DELIVERY_ORDER
+
             return {
                 "intent": str(intent or "incompleteness_resume"),
                 "from_stage": resume,
@@ -1398,12 +1752,42 @@ def heal_navigate(
             }
     except Exception:
         pass
+    # HP-4: G0 tokens pin the gate (or build if the queue is missing). Analysis
+    # pins are not in DELIVERY_ORDER — honor them before the delivery-only table.
+    try:
+        blob_g0 = f"{error} {stage} {intent}".strip().lower()
+        if (
+            "g0_pending" in blob_g0
+            or "transcript review" in blob_g0
+            or str(stage or "").strip() in {"transcript_review", "transcript_review_build"}
+        ):
+            from interview_mux.stage_completion import g0_heal_resume_stage
+
+            pin = g0_heal_resume_stage(ctx)
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=pin,
+                    intent=str(intent or "g0_pending"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_g0",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "g0_pending"),
+                "from_stage": pin,
+                "mode": "analysis",
+            }
+    except Exception:
+        pass
     # Durable: PRODUCER_PIN_TABLE is the only ad-hoc→pin authority for tokens.
     try:
         from interview_mux.stage_completion import producer_pin_for_token
+        from interview_mux.v2.config import DELIVERY_ORDER
 
         blob = f"{error} {stage} {intent}".strip().lower()
-        table_pin = producer_pin_for_token(blob, default="")
+        table_pin = producer_pin_for_token(blob, default="", ctx=ctx)
         if table_pin and table_pin in DELIVERY_ORDER:
             # Prefer table pin when the token explicitly names a known class.
             from interview_mux.stage_completion import PRODUCER_PIN_TABLE

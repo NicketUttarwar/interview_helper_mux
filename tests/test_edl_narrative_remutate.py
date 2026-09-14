@@ -37,6 +37,197 @@ def test_classify_issue_needles() -> None:
         )
         == "rerank"
     )
+    # Plan/chapter mismatch must classify as align_plan even when "transition" appears.
+    assert (
+        classify_edl_narrative_issue(
+            "The selected chapter sequence reverses the narrative plan's "
+            "practical-payoff and adoption-hurdle progression; revise chapter "
+            "transitions and align narrative_plan to the selected air order."
+        )
+        == "align_plan"
+    )
+
+
+def test_plan_sticky_exhausted_does_not_climb(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_sticky")
+    audit = {
+        "verdict": "fail",
+        "blocking_issues": [{"issue": "selection order broken — rerank"}],
+    }
+    for _ in range(3):
+        plan_edl_narrative_remutate(ctx, audit)
+    stuck = plan_edl_narrative_remutate(ctx, audit)
+    assert stuck["exhausted"] is True
+    assert stuck["attempt"] == 3
+    again = plan_edl_narrative_remutate(ctx, audit)
+    assert again["attempt"] == 3
+    assert again["exhausted"] is True
+
+
+def test_metadata_align_under_seat_freeze(tmp_path, monkeypatch) -> None:
+    import json
+
+    from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_meta_freeze")
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active", lambda _ctx: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.request_seat_rewrite",
+        lambda *_a, **_k: {"allow": False, "refuse_reason": "opportunity_below_threshold"},
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_034", "seg_030", "seg_033", "seg_035", "seg_036"],
+            "chapters": [
+                {"title": "Mechanism", "segment_ids": ["seg_034"]},
+                {"title": "Adoption", "segment_ids": ["seg_030", "seg_033", "seg_035"]},
+                {"title": "Trials", "segment_ids": ["seg_036"]},
+            ],
+            "excluded_segment_ids": [],
+        },
+        skip_handoff=True,
+    )
+    plan_path = ctx.path("master", "narrative_plan.json")
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text(
+        json.dumps(
+            {
+                "arc_summary": "Test plan vs selection mismatch.",
+                "chapters": [
+                    {
+                        "chapter_id": "ch_04",
+                        "title": "Mechanism",
+                        "suggested_open_segment_id": "seg_034",
+                        "segment_ids": ["seg_034", "seg_035"],
+                    },
+                    {
+                        "chapter_id": "ch_05",
+                        "title": "Trials",
+                        "suggested_open_segment_id": "seg_036",
+                        "segment_ids": ["seg_036"],
+                    },
+                    {
+                        "chapter_id": "ch_06",
+                        "title": "Adoption",
+                        "suggested_open_segment_id": "seg_030",
+                        "segment_ids": ["seg_030", "seg_033"],
+                    },
+                ],
+                "ordering_constraints": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    applied = apply_edl_narrative_host_repair(ctx)
+    assert "seat_freeze_blocked_host_repair" in applied["notes"]
+    # Selection chapter repair (and nested plan align) runs under freeze.
+    assert "align_selection_chapters" in applied["notes"] or "align_narrative_plan" in applied["notes"]
+    assert applied.get("host_fixed") is True
+    plan = ctx.read_json("master/narrative_plan.json")
+    ch_ids = [
+        tuple(ch.get("segment_ids") or [])
+        for ch in (plan.get("chapters") or [])
+        if isinstance(ch, dict)
+    ]
+    assert any("seg_035" in ids for ids in ch_ids)
+
+
+def test_remutate_align_plan_skips_timeline_reopen(tmp_path, monkeypatch) -> None:
+    import json
+
+    from interview_mux.edl_narrative_remutate import apply_edl_narrative_remutate
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_align_plan")
+    monkeypatch.setattr(
+        "interview_mux.timeline_reopen_meta_gate.decide_timeline_reopen",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("should not reopen")),
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active", lambda _ctx: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.request_seat_rewrite",
+        lambda *_a, **_k: {"allow": False},
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "chapters": [{"title": "A", "segment_ids": ["seg_001", "seg_002"]}],
+            "excluded_segment_ids": [],
+        },
+        skip_handoff=True,
+    )
+    plan_path = ctx.path("master", "narrative_plan.json")
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text(
+        json.dumps(
+            {
+                "arc_summary": "Plan with orphan segment.",
+                "chapters": [
+                    {
+                        "chapter_id": "ch1",
+                        "title": "A",
+                        "suggested_open_segment_id": "seg_001",
+                        "segment_ids": ["seg_001"],
+                    },
+                    {
+                        "chapter_id": "ch2",
+                        "title": "B",
+                        "suggested_open_segment_id": "seg_002",
+                        "segment_ids": ["seg_002", "seg_099"],
+                    },
+                ],
+                "ordering_constraints": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = apply_edl_narrative_remutate(
+        ctx, {"actions": ["align_plan"], "from_stages": ["edl_narrative_audit"], "exhausted": False}
+    )
+    assert out.get("ok") is True
+    assert out.get("from_stage") == "edl_narrative_audit"
+    notes = out.get("notes") or []
+    assert "align_plan_metadata_only" in notes
+    assert "align_selection_chapters" in notes or "align_narrative_plan" in notes
+    plan = ctx.read_json("master/narrative_plan.json")
+    all_ids = {
+        str(s)
+        for ch in (plan.get("chapters") or [])
+        if isinstance(ch, dict)
+        for s in (ch.get("segment_ids") or [])
+    }
+    assert "seg_099" not in all_ids
+
+
+def test_narrative_audit_blocks_edl(tmp_path) -> None:
+    import json
+
+    from interview_mux.edl_narrative_remutate import (
+        narrative_audit_blocks_edl,
+        resume_after_narrative_audit_fail,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_block_edl")
+    assert narrative_audit_blocks_edl(ctx) is False
+    audit_path = ctx.path("master", "edl_narrative_audit.json")
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "verdict": "fail",
+                "blocking_issues": [{"issue": "x"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert narrative_audit_blocks_edl(ctx) is True
+    assert resume_after_narrative_audit_fail("edl") == "edl_narrative_audit"
+    assert resume_after_narrative_audit_fail("transitions") == "transitions"
 
 
 def test_repair_master_selection_merges_duplicate_titles_and_clamps(tmp_path) -> None:

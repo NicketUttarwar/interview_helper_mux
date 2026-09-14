@@ -83,9 +83,9 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
     try {
       await api(`/api/runs/${runId}/voice-reference/approve`, { method: "POST" });
       showToast("Voice reference approved — choose Chatterbox or record next.");
-      await refreshRun();
+      const refreshed = await refreshRun();
       closeActionModal();
-      if (shouldAdvanceAfterGatePost(run)) {
+      if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
         await advanceFromCheckpoint();
       }
     } catch (e) {

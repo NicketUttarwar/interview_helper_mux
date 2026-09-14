@@ -2001,6 +2001,9 @@ def create_app() -> FastAPI:
             from interview_mux.gates import clear_g_listen
 
             clear_g_listen(ctx, skipped=False)
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="g_listen")
             return {"ok": True, "cleared": True}
 
     @app.post("/api/runs/{run_id}/g-listen/skip")
@@ -2010,6 +2013,9 @@ def create_app() -> FastAPI:
             from interview_mux.gates import clear_g_listen
 
             clear_g_listen(ctx, skipped=True)
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="g_listen")
             return {"ok": True, "skipped": True}
 
     @app.get("/api/runs/{run_id}/g-publish")
@@ -3242,6 +3248,9 @@ def create_app() -> FastAPI:
                     meta["partial_auto_driver_active"] = True
 
             ctx.mutate_run_meta(_resume_partial_auto)
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="transcript_review")
             from interview_mux.gui_job_reconcile import reconcile_operator_gate_job
             from interview_mux.write_staging import read_gui_job
 
@@ -3611,6 +3620,9 @@ def create_app() -> FastAPI:
                 )
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="pickup_speaker")
             return {"ok": True, **pickup_speaker_payload(ctx)}
 
     @app.get("/api/runs/{run_id}/gap-framing")
@@ -3725,6 +3737,9 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             enabled = bool(body.get("enabled"))
             set_gap_framing_enabled(ctx, enabled)
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="gap_framing")
             if not enabled:
                 runner.clear_operator_pause(
                     ctx,
@@ -3795,6 +3810,9 @@ def create_app() -> FastAPI:
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
             refresh_journey_meta(ctx)
+            from interview_mux.automation_run import take_gate_advance_lease
+
+            take_gate_advance_lease(ctx, source="gui", gate_id="voice_reference")
             return {"ok": True, **voice_reference_payload(ctx)}
 
     @app.get("/api/runs/{run_id}/voice-clone-consent")

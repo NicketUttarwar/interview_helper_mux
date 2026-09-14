@@ -30,6 +30,9 @@ from interview_mux.refinement_shadow import maybe_write_shadow_score
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import heal_or_refuse_mark
 
+RECOMPOSE_REL = "understanding/gap_framing_recompose.json"
+APPLY_REL = "understanding/selection_framing_apply.json"
+
 # F-06 SSOT — not in DELIVERY_ORDER / runners / STAGE_BY_ID; sfx_prompt_refine stays live.
 RETIRED_REFINE_GHOSTS: frozenset[str] = frozenset(
     {
@@ -40,6 +43,141 @@ RETIRED_REFINE_GHOSTS: frozenset[str] = frozenset(
         "edl_narrative_refine",
     }
 )
+
+
+def persist_pass2_skip_stub(ctx: RunContext, stage: str, *, skip_reason: str) -> None:
+    """HF-1: freeze/skip write a skip stub so force-mark is not hollow."""
+    rel = {
+        "gap_framing_recompose": RECOMPOSE_REL,
+        "selection_framing_apply": APPLY_REL,
+    }.get(str(stage or "").strip())
+    if not rel:
+        return
+    ctx.write_json(
+        rel,
+        {"skipped": True, "refused": False, "skip_reason": str(skip_reason or "skipped")},
+        skip_handoff=True,
+        stage_key=str(stage),
+    )
+
+
+def persist_apply_refuse_stub(ctx: RunContext, *, reason: str) -> None:
+    """HF-1: missing/invalid selection is not apply-complete."""
+    ctx.write_json(
+        APPLY_REL,
+        {"skipped": False, "refused": True, "reason": str(reason or "refused")},
+        skip_handoff=True,
+        stage_key="selection_framing_apply",
+    )
+
+
+def persist_pass2_refuse_stub(
+    ctx: RunContext, stage: str, *, reason: str, errors: list[str] | None = None
+) -> None:
+    """HF-5: Pass-2 left gap W1-unsanitary — not seed-complete."""
+    rel = {
+        "gap_framing_recompose": RECOMPOSE_REL,
+        "selection_framing_apply": APPLY_REL,
+    }.get(str(stage or "").strip())
+    if not rel:
+        return
+    ctx.write_json(
+        rel,
+        {
+            "skipped": False,
+            "refused": True,
+            "reason": str(reason or "gap_unsanitary"),
+            "errors": [str(e) for e in (errors or [])[:8]],
+        },
+        skip_handoff=True,
+        stage_key=str(stage),
+    )
+
+
+def _heal_pass2(ctx: RunContext, stage: str) -> None:
+    if not ctx.is_done(stage):
+        heal_or_refuse_mark(ctx, stage, force=True)
+
+
+def _finish_pass2(ctx: RunContext, stage: str) -> None:
+    """Mark Pass-2 only when gap stays W1-sanitary (HF-5). Seat-freeze skip is exempt."""
+    sid = str(stage or "").strip()
+    rel = {
+        "gap_framing_recompose": RECOMPOSE_REL,
+        "selection_framing_apply": APPLY_REL,
+    }.get(sid)
+    if rel and ctx.artifact_exists(rel):
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict) and doc.get("skipped") is True:
+            _heal_pass2(ctx, sid)
+            return
+    errs: list[str] = []
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            from interview_mux.artifact_sanitize.registry import gap_sanitary_errors
+
+            errs = [
+                str(e)
+                for e in (gap_sanitary_errors(ctx) or [])
+                if e and "missing" not in str(e).lower()
+            ]
+        except Exception:
+            errs = []
+    if errs:
+        persist_pass2_refuse_stub(ctx, sid, reason="gap_unsanitary", errors=errs)
+        raise RuntimeError(
+            f"gap_unsanitary — resume {sid}: " + "; ".join(errs[:4])
+        )
+    _heal_pass2(ctx, sid)
+
+
+def courtesy_rewrite_lines_if_sanitary(
+    ctx: RunContext,
+    candidate: dict[str, Any],
+    stamped: list[Any],
+    *,
+    ordered: Any,
+    by_id: Any,
+    chapters: Any,
+    settings: Any,
+) -> list[dict[str, Any]]:
+    """HF-5 3A: keep courtesy_seed_text only when the candidate stays W1-sanitary."""
+    from interview_mux.artifact_sanitize.gap_report import gap_doc_sanitary_errors
+    from interview_mux.gap_vo_prior_context import (
+        build_prior_native_context,
+        courtesy_seed_text,
+        is_interruptive_opener,
+    )
+
+    rows = [dict(r) for r in stamped if isinstance(r, dict)]
+    cleaned: list[dict[str, Any]] = []
+    for i, row in enumerate(rows):
+        line = dict(row)
+        if line.get("prior_impact_beat") and is_interruptive_opener(
+            str(line.get("text") or "")
+        ):
+            trial = dict(line)
+            prior = build_prior_native_context(
+                target_segment_id=str(line.get("targets_segment_id") or ""),
+                ordered_ids=ordered,
+                segments_by_id=by_id,
+                chapters=chapters,
+                cfg=settings,
+            )
+            trial["text"] = courtesy_seed_text(
+                prior,
+                category=str(line.get("line_category") or "framing_question"),
+                target_segment_id=str(line.get("targets_segment_id") or "") or None,
+            )
+            trial_doc = dict(candidate) if isinstance(candidate, dict) else {}
+            trial_doc["interviewer_lines"] = cleaned + [trial] + rows[i + 1 :]
+            if not gap_doc_sanitary_errors(ctx, trial_doc):
+                line = trial
+        cleaned.append(line)
+    return cleaned
 
 
 def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any) -> None:
@@ -77,8 +215,10 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
                 level="info",
                 stage="gap_framing_recompose",
             )
-            if not ctx.is_done("gap_framing_recompose"):
-                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+            persist_pass2_skip_stub(
+                ctx, "gap_framing_recompose", skip_reason="seat_freeze"
+            )
+            _heal_pass2(ctx, "gap_framing_recompose")
             return
     except Exception:
         pass
@@ -100,9 +240,10 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
                 level="info",
                 stage="gap_framing_recompose",
             )
-            # Sticky complete under freeze — same law as selection_framing_apply.
-            if not ctx.is_done("gap_framing_recompose"):
-                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+            persist_pass2_skip_stub(
+                ctx, "gap_framing_recompose", skip_reason="seat_freeze"
+            )
+            _heal_pass2(ctx, "gap_framing_recompose")
             return
     except Exception:
         ctx.log(
@@ -110,8 +251,10 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             level="warning",
             stage="gap_framing_recompose",
         )
-        if not ctx.is_done("gap_framing_recompose"):
-            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+        persist_pass2_skip_stub(
+            ctx, "gap_framing_recompose", skip_reason="seat_gate_error"
+        )
+        _heal_pass2(ctx, "gap_framing_recompose")
         return
     from interview_mux.nugget_layup import (
         PLAN_REL,
@@ -145,8 +288,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             maybe_write_shadow_score(ctx, "gap_framing_recompose")
             append_listener_outcome(ctx, "gap_recompose_nugget_layup", {"status": "authority"})
             after_gap_recompose_or_skip(ctx)
-            if not ctx.is_done("gap_framing_recompose"):
-                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+            _finish_pass2(ctx, "gap_framing_recompose")
             return
 
     dual_write_draft_from_compose(ctx)
@@ -159,8 +301,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
         maybe_write_shadow_score(ctx, "gap_framing_recompose")
         append_listener_outcome(ctx, "gap_recompose_skipped", decision)
         after_gap_recompose_or_skip(ctx)
-        if not ctx.is_done("gap_framing_recompose"):
-            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+        _finish_pass2(ctx, "gap_framing_recompose")
         return
 
     row_paths = [
@@ -231,8 +372,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
         skip_copy_draft_to_final(ctx, reason=str(sharded.get("reason_code") or "shard_fail"))
         append_listener_outcome(ctx, "gap_recompose_quarantine", sharded)
         after_gap_recompose_or_skip(ctx)
-        if not ctx.is_done("gap_framing_recompose"):
-            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+        _finish_pass2(ctx, "gap_framing_recompose")
         return
 
     kept_lines = list(sharded.get("lines") or [])
@@ -244,38 +384,24 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
     candidate["interviewer_lines"] = kept_lines
     try:
         from interview_mux.gap_vo_prior_context import (
-            stamp_lines_prior_provenance,
-            write_gap_vo_context_audit,
-            courtesy_seed_text,
-            is_interruptive_opener,
-            build_prior_native_context,
             load_ordered_and_segments,
             prior_context_cfg,
+            stamp_lines_prior_provenance,
+            write_gap_vo_context_audit,
         )
 
         stamped = stamp_lines_prior_provenance(ctx, kept_lines)
         ordered, by_id, chapters = load_ordered_and_segments(ctx)
         settings = prior_context_cfg()
-        cleaned: list[dict] = []
-        for row in stamped:
-            if not isinstance(row, dict):
-                continue
-            line = dict(row)
-            if line.get("prior_impact_beat") and is_interruptive_opener(str(line.get("text") or "")):
-                prior = build_prior_native_context(
-                    target_segment_id=str(line.get("targets_segment_id") or ""),
-                    ordered_ids=ordered,
-                    segments_by_id=by_id,
-                    chapters=chapters,
-                    cfg=settings,
-                )
-                line["text"] = courtesy_seed_text(
-                    prior,
-                    category=str(line.get("line_category") or "framing_question"),
-                    target_segment_id=str(line.get("targets_segment_id") or "") or None,
-                )
-            cleaned.append(line)
-        kept_lines = cleaned
+        kept_lines = courtesy_rewrite_lines_if_sanitary(
+            ctx,
+            candidate,
+            stamped,
+            ordered=ordered,
+            by_id=by_id,
+            chapters=chapters,
+            settings=settings,
+        )
         candidate["interviewer_lines"] = kept_lines
         write_gap_vo_context_audit(ctx, kept_lines)
     except Exception:
@@ -325,8 +451,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
     )
     append_listener_outcome(ctx, "gap_recompose", result)
     after_gap_recompose_or_skip(ctx)
-    if not ctx.is_done("gap_framing_recompose"):
-        heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
+    _finish_pass2(ctx, "gap_framing_recompose")
 
 
 def run_selection_framing_apply(ctx: RunContext) -> None:
@@ -343,10 +468,10 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 level="info",
                 stage="selection_framing_apply",
             )
-            # Sticky complete under freeze — seats are immutable; unmarked no-ops
-            # thrash mix/junction via seed_order_prereq forever.
-            if not ctx.is_done("selection_framing_apply"):
-                heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
+            persist_pass2_skip_stub(
+                ctx, "selection_framing_apply", skip_reason="seat_freeze"
+            )
+            _heal_pass2(ctx, "selection_framing_apply")
             return
     except Exception:
         ctx.log(
@@ -354,22 +479,23 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
             level="warning",
             stage="selection_framing_apply",
         )
-        if not ctx.is_done("selection_framing_apply"):
-            heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
+        persist_pass2_skip_stub(
+            ctx, "selection_framing_apply", skip_reason="seat_gate_error"
+        )
+        _heal_pass2(ctx, "selection_framing_apply")
         return
     from interview_mux.framing_coverage_guard import validate_framing_ranking
     from interview_mux.gap_framing import ranking_exclude_segment_ids
 
     ensure_gap_report_authoritative(ctx)
     if not ctx.artifact_exists("master/selection.json"):
-        if not ctx.is_done("selection_framing_apply"):
-            heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
+        persist_apply_refuse_stub(ctx, reason="missing_selection")
         return
 
     decision = decide_pass(ctx, "selection_framing_apply")
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
-        heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
+        persist_apply_refuse_stub(ctx, reason="invalid_selection")
         return
 
     covered = ranking_exclude_segment_ids(ctx)
@@ -492,8 +618,17 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 level="warning",
                 stage="selection_framing_apply",
             )
-    if not ctx.is_done("selection_framing_apply"):
-        heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
+    ctx.write_json(
+        APPLY_REL,
+        {
+            "skipped": False,
+            "refused": False,
+            "reason": "applied",
+        },
+        skip_handoff=True,
+        stage_key="selection_framing_apply",
+    )
+    _finish_pass2(ctx, "selection_framing_apply")
 
 
 def refuse_retired_refine(pass_id: str) -> None:

@@ -170,7 +170,7 @@ def default_escalation_options(stage_id: str) -> list[dict[str, Any]]:
             {
                 "id": "open_g0_review",
                 "label": "Open transcript review (G0)",
-                "resume_stage": "transcript_review_build",
+                "resume_stage": "transcript_review",
                 "safety": True,
             }
         )

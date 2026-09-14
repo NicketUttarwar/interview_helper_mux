@@ -16,6 +16,11 @@ from interview_mux.run_context import RunContext
 PLAN_REL = "mastering/mastering_plan.json"
 PlanStatus = Literal["complete", "degraded", "forced_sparse", "absent_legacy"]
 
+
+def plan_is_authoritative(plan: dict[str, Any] | None) -> bool:
+    """HM-3: consumers may bind only when ``plan_status`` is complete."""
+    return isinstance(plan, dict) and str(plan.get("plan_status") or "") == "complete"
+
 REBUILD_SCOPES: dict[str, tuple[str, ...]] = {
     "plan_only": (
         "mastering_research_rollup",

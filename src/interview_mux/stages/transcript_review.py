@@ -24,6 +24,29 @@ def _low_confidence_threshold() -> float:
     return LOW_CONFIDENCE_THRESHOLD
 
 
+def _transcribe_pending_full(ctx: RunContext) -> Path | None:
+    """G0 dock: unapproved transcribe output lives under pending, not the commit tree."""
+    from interview_mux.write_staging import staging_root
+
+    staged = staging_root(ctx, "transcribe") / "transcript" / "full.json"
+    return staged if staged.is_file() else None
+
+
+def _transcript_full_exists(ctx: RunContext) -> bool:
+    return ctx.artifact_exists("transcript/full.json") or _transcribe_pending_full(ctx) is not None
+
+
+def _read_transcript_full(ctx: RunContext) -> dict[str, Any]:
+    if ctx.artifact_exists("transcript/full.json"):
+        doc = ctx.read_json("transcript/full.json")
+        return doc if isinstance(doc, dict) else {}
+    staged = _transcribe_pending_full(ctx)
+    if staged is None:
+        raise FileNotFoundError("transcript/full.json — run transcribe first.")
+    doc = json.loads(staged.read_text(encoding="utf-8"))
+    return doc if isinstance(doc, dict) else {}
+
+
 def _review_sort_mode(cfg: dict[str, Any] | None = None) -> str:
     resolved = cfg if cfg is not None else merged_config()
     mode = str((resolved.get("transcript_review") or {}).get("sort_mode") or "salience").strip().lower()
@@ -237,9 +260,9 @@ def get_transcript_state(ctx: RunContext) -> dict[str, Any]:
     """Word-level transcript for the dock editor (karaoke sync + inline edits)."""
     from interview_mux.write_staging import artifact_exists_resolved
 
-    if not ctx.artifact_exists("transcript/full.json"):
+    if not _transcript_full_exists(ctx):
         return {"ready": False, "words": [], "duration_ms": 0}
-    full = ctx.read_json("transcript/full.json")
+    full = _read_transcript_full(ctx)
     words: list[dict[str, Any]] = list(full.get("words") or [])
     duration_ms = max((w.get("end_ms") or 0) for w in words) if words else 0
     speakers: list[dict[str, Any]] = []
@@ -261,9 +284,9 @@ def get_transcript_state(ctx: RunContext) -> dict[str, Any]:
 
 def patch_transcript_words(ctx: RunContext, updates: list[dict[str, Any]]) -> dict[str, Any]:
     """Apply inline word edits from the dock viewer without interrupting playback."""
-    if not ctx.artifact_exists("transcript/full.json"):
+    if not _transcript_full_exists(ctx):
         raise FileNotFoundError("transcript/full.json — run transcribe first.")
-    full = ctx.read_json("transcript/full.json")
+    full = _read_transcript_full(ctx)
     words: list[dict[str, Any]] = list(full.get("words") or [])
     applied = 0
     edited_indices: list[int] = []

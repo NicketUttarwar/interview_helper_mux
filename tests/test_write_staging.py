@@ -319,7 +319,13 @@ def test_transcript_review_build_reads_prior_stage_artifacts(
         run_transcript_review_build(ctx)
     finally:
         exit_stage_staging()
-    assert ctx.artifact_exists("transcript/review_queue.json")
+    from interview_mux.write_staging import has_pending_writes, staging_root
+
+    queued = staging_root(ctx, "transcript_review_build") / "transcript" / "review_queue.json"
+    assert queued.is_file() or ctx.artifact_exists("transcript/review_queue.json")
+    assert has_pending_writes(ctx, "transcript_review_build") or ctx.artifact_exists(
+        "transcript/review_queue.json"
+    )
 
 
 def test_source_acoustic_profile_reads_prior_stage_artifacts(
@@ -363,7 +369,19 @@ def test_source_acoustic_profile_reads_prior_stage_artifacts(
         run_source_acoustic_profile(ctx)
     finally:
         exit_stage_staging()
-    assert ctx.artifact_exists("understanding/source_acoustic_profile.json")
+    from interview_mux.write_staging import has_pending_writes, staging_root
+
+    staged = (
+        staging_root(ctx, "source_acoustic_profile")
+        / "understanding"
+        / "source_acoustic_profile.json"
+    )
+    assert staged.is_file() or ctx.artifact_exists(
+        "understanding/source_acoustic_profile.json"
+    )
+    assert has_pending_writes(ctx, "source_acoustic_profile") or ctx.artifact_exists(
+        "understanding/source_acoustic_profile.json"
+    )
 
 
 def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -60,8 +60,11 @@ def _run_meta(ctx: RunContext) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def _driver_active(meta: dict[str, Any]) -> bool:
-    from interview_mux.automation_run import automation_driver_run
+def _driver_active(meta: dict[str, Any], ctx: RunContext | None = None) -> bool:
+    from interview_mux.automation_run import automation_driver_run, gui_holds_fresh_lease
+
+    if ctx is not None and gui_holds_fresh_lease(ctx):
+        return False
 
     if not automation_driver_run(meta):
         return False
@@ -150,7 +153,7 @@ def resolve_g1_vo_gate(
         return GateOperatorView(gate_id="g1_vo_pickup", open=False, stage_status="done")
 
     optional = v2_g1_optional()
-    driver_active = _driver_active(meta)
+    driver_active = _driver_active(meta, ctx)
     all_synthesize = _all_missing_are_synthesize(ctx, missing)
 
     chatterbox = False
@@ -173,7 +176,20 @@ def resolve_g1_vo_gate(
 
     g1_auto_state = str(meta.get("g1_automation_state") or "")
 
-    if synth_fallback or _needs_operator_on(meta, "g1_vo_pickup"):
+    chatterbox_owned = (
+        optional
+        and driver_active
+        and all_synthesize
+        and chatterbox
+        and voice_ref_ok
+    )
+
+    # HV-5: Chatterbox automation-pending wins over a stale needs_operator
+    # stamp unless a missing line is record (human must record that one).
+    # synth_fallback still needs the record UI.
+    if synth_fallback or (
+        _needs_operator_on(meta, "g1_vo_pickup") and not chatterbox_owned
+    ):
         return GateOperatorView(
             gate_id="g1_vo_pickup",
             open=True,
@@ -186,13 +202,7 @@ def resolve_g1_vo_gate(
             message=f"G1 VO pickup needs operator action ({len(missing)} line(s) missing).",
         )
 
-    if (
-        optional
-        and driver_active
-        and all_synthesize
-        and chatterbox
-        and voice_ref_ok
-    ):
+    if chatterbox_owned:
         return GateOperatorView(
             gate_id="g1_vo_pickup",
             open=True,
@@ -260,7 +270,7 @@ def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorV
             return GateOperatorView(gate_id="missing_framing", open=False, stage_status="done")
         return GateOperatorView(gate_id="missing_framing", open=False, stage_status="pending")
 
-    driver_active = _driver_active(meta)
+    driver_active = _driver_active(meta, ctx)
     auto_defaults = bool(meta.get("auto_accept_defaults"))
     if driver_active and (framing_pending or speaker_pending or voice_pending or delivery_pending):
         if not _needs_operator_on(meta, "missing_framing"):

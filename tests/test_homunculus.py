@@ -1151,10 +1151,17 @@ def test_delivery_does_not_walk_pre_master_when_master_exists(monkeypatch) -> No
         "publish/episode_meta.json",
         "publish/cover_prompt.json",
         "publish/chapters.json",
+        "publish/package_ready.json",
     ):
         dest = ctx.path(rel)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text("{}", encoding="utf-8")
+        if rel.endswith("package_ready.json"):
+            dest.write_text('{"ready": true}', encoding="utf-8")
+        else:
+            dest.write_text("{}", encoding="utf-8")
+    cover = ctx.path("publish/cover.jpg")
+    cover.parent.mkdir(parents=True, exist_ok=True)
+    cover.write_bytes(b"\xff\xd8\xff")
     mp3 = ctx.path("publish/audio.mp3")
     mp3.parent.mkdir(parents=True, exist_ok=True)
     mp3.write_bytes(b"ID3")
@@ -1319,9 +1326,14 @@ def test_pending_analysis_for_delivery_lists_missing_gap_artifacts() -> None:
         {"topology_class": "one_on_one_asymmetric", "speaker_stats": [{"speaker_id": "spk_0"}]},
         skip_handoff=True,
     )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {"topology_class": "one_on_one_asymmetric"},
+        skip_handoff=True,
+    )
     (ctx.run_dir / ".stage_done" / "source_topology_build").write_text("", encoding="utf-8")
     pending = pending_analysis_for_delivery(ctx)
-    assert pending[0] == "framing_posture_decide"
+    assert "framing_posture_decide" in pending
     assert "missing_framing" in pending
     assert "gap_framing_compose" in pending
     assert "delivery_brief_build" in pending
@@ -1335,6 +1347,11 @@ def test_pending_analysis_pins_content_context_when_brief_missing() -> None:
     ctx.write_json(
         "understanding/source_topology.json",
         {"topology_class": "one_on_one_asymmetric", "speaker_stats": [{"speaker_id": "spk_0"}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {"topology_class": "one_on_one_asymmetric"},
         skip_handoff=True,
     )
     (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
@@ -1421,6 +1438,11 @@ def test_pending_analysis_for_delivery_includes_stale_boundaries() -> None:
             "topology_class": "one_on_one_asymmetric",
             "speaker_stats": [{"speaker_id": "spk_0"}],
         },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {"topology_class": "one_on_one_asymmetric"},
         skip_handoff=True,
     )
     (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
@@ -1515,6 +1537,11 @@ def test_pending_analysis_for_delivery_restores_skipped_gap_artifacts() -> None:
     ctx.write_json(
         "understanding/source_topology.json",
         {"topology_class": "one_on_one_balanced", "speaker_stats": [{"speaker_id": "spk_0"}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {"topology_class": "one_on_one_balanced"},
         skip_handoff=True,
     )
     (ctx.run_dir / ".stage_done" / "source_topology_build").write_text("", encoding="utf-8")
@@ -2077,6 +2104,15 @@ def test_surgical_rerun_does_not_clear_from(monkeypatch) -> None:
     monkeypatch.setattr(
         "interview_mux.pipeline.run_single_stage",
         lambda _c, stage: ran.append(stage),
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.9}
+            ]
+        },
+        skip_handoff=True,
     )
     rerun_stage(ctx, "speaker_roles")
     assert ran == ["speaker_roles"]

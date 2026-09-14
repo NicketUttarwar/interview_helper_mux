@@ -161,3 +161,43 @@ def test_pin_scoped_progress_ignores_unrelated_vo_mtime(run_ctx, monkeypatch):
 
     # Stale EDL pin → HARD allowed (lease mocked off)
     assert may_hard_halt(run_ctx, pin="edl") is True
+
+
+def test_gui_heartbeat_does_not_block_hard_halt(run_ctx, monkeypatch):
+    """Retry loops that stamp gui_job must not look like producer progress."""
+    from interview_mux.execution_status import may_hard_halt, progress_stale
+
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.expensive_stage_lease_active",
+        lambda ctx: (False, ""),
+    )
+    run_ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "running",
+            "stage": "edl",
+            "message": "Homunculus selecting next delivery stage",
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+        },
+        skip_handoff=True,
+    )
+    # Also stamp a stale wasted music_deferred event
+    run_ctx.write_json(
+        "operator/wasted_work.json",
+        {
+            "version": 1,
+            "events": [
+                {
+                    "at": "2020-01-01T00:00:00+00:00",
+                    "event": "music_deferred",
+                    "stage": "music_palette_compose",
+                    "detail": {"reason": "assembly_missing"},
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    stale, why = progress_stale(run_ctx, pin="edl_narrative_audit")
+    assert stale is True
+    assert "fresh:" not in why
+    assert may_hard_halt(run_ctx, pin="edl_narrative_audit") is True

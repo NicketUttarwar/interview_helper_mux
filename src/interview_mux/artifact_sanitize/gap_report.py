@@ -332,6 +332,30 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     )
 
 
+def gap_doc_sanitary_errors(ctx: Any, doc: Any) -> list[str]:
+    """W1 errors for an in-memory gap_report (HF-5 courtesy / Pass-2 refuse)."""
+    from interview_mux.artifact_sanitize.config import block_consumers_on_unsanitary
+
+    if not block_consumers_on_unsanitary():
+        return []
+    if not isinstance(doc, dict):
+        return [f"{REL} invalid"]
+    if stamp_matches(doc, content_keys=_CONTENT_KEYS):
+        meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+        stamp = meta.get("sanitize") if isinstance(meta.get("sanitize"), dict) else {}
+        if stamp.get("ok") is True:
+            return []
+    result = sanitize_gap_report(ctx, dict(doc))
+    if result.ok and not result.actions:
+        return []
+    if not result.ok:
+        return list(result.errors or ["gap sanitize refused"])
+    return [
+        "gap_needs_sanitize:"
+        + ",".join(str(a.get("action") or "") for a in (result.actions or [])[:6])
+    ]
+
+
 def gap_sanitary_errors(ctx: Any) -> list[str]:
     from interview_mux.artifact_sanitize.config import block_consumers_on_unsanitary
 
@@ -343,22 +367,7 @@ def gap_sanitary_errors(ctx: Any) -> list[str]:
         doc = ctx.read_json(REL)
     except Exception as exc:
         return [f"{REL} unreadable: {exc}"]
-    if not isinstance(doc, dict):
-        return [f"{REL} invalid"]
-    if stamp_matches(doc, content_keys=_CONTENT_KEYS):
-        meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
-        stamp = meta.get("sanitize") if isinstance(meta.get("sanitize"), dict) else {}
-        if stamp.get("ok") is True:
-            return []
-    result = sanitize_gap_report(ctx, doc)
-    if result.ok and not result.actions:
-        return []
-    if not result.ok:
-        return list(result.errors or ["gap sanitize refused"])
-    return [
-        "gap_needs_sanitize:"
-        + ",".join(str(a.get("action") or "") for a in (result.actions or [])[:6])
-    ]
+    return gap_doc_sanitary_errors(ctx, doc)
 
 
 def commit_gap_report_doc(
@@ -575,12 +584,6 @@ def run_gap_report_sanitize(ctx: Any) -> None:
             )
         except Exception:
             pass
-        try:
-            from interview_mux.stage_completion import heal_or_refuse_mark
+        from interview_mux.stage_completion import heal_or_raise
 
-            heal_or_refuse_mark(ctx, "gap_report_sanitize")
-        except Exception:
-            try:
-                ctx.mark_done("gap_report_sanitize")
-            except Exception:
-                pass
+        heal_or_raise(ctx, "gap_report_sanitize")

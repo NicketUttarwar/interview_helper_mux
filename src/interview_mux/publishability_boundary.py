@@ -409,6 +409,23 @@ def _check_pending_writes(ctx: RunContext) -> list[PublishabilityViolation]:
     ]
 
 
+def _seam_autopsy_blocking_reasons(ctx: RunContext) -> list[str]:
+    """HX-3 1B: live ``master/seam_autopsy.json`` first, ``mastering/`` fallback."""
+    from interview_mux.seam_autopsy import AUTOPSY_REL
+
+    for rel in (AUTOPSY_REL, "mastering/seam_autopsy.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            autopsy = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(autopsy, dict):
+            continue
+        return [str(r) for r in (autopsy.get("blocking_reasons") or []) if str(r).strip()]
+    return []
+
+
 def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
     # Junction remaster calls run_mix → pre_mix. Non-incomplete residuals that
     # junction is actively repairing must not self-deadlock. Live hanging
@@ -475,22 +492,16 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
                         )
             except Exception:
                 pass
-    autopsy_rel = "mastering/seam_autopsy.json"
-    if not out and ctx.artifact_exists(autopsy_rel):
-        try:
-            autopsy = ctx.read_json(autopsy_rel)
-            if isinstance(autopsy, dict):
-                reasons = list(autopsy.get("blocking_reasons") or [])
-                if reasons:
-                    out.append(
-                        PublishabilityViolation(
-                            error_class="incomplete_cut_unresolved",
-                            code="seam_autopsy_blocking",
-                            detail="; ".join(str(r) for r in reasons[:4]),
-                        )
-                    )
-        except Exception:
-            pass
+    if not out:
+        reasons = _seam_autopsy_blocking_reasons(ctx)
+        if reasons:
+            out.append(
+                PublishabilityViolation(
+                    error_class="incomplete_cut_unresolved",
+                    code="seam_autopsy_blocking",
+                    detail="; ".join(reasons[:4]),
+                )
+            )
     return out
 
 

@@ -51,7 +51,7 @@ def test_seg_resplit_heal_does_not_archive_content_brief(ctx: RunContext) -> Non
     """Nested content_brief_reanchor must still read the live brief after resplit."""
     profile = INVALIDATION_PROFILES["seg_resplit_heal"]
     assert "understanding/content_brief.json" not in (profile.archive_allowlist or ())
-    assert "segments/boundaries.json" in (profile.archive_allowlist or ())
+    assert "segments/boundaries.json" not in (profile.archive_allowlist or ())
 
     brief_rel = "understanding/content_brief.json"
     ctx.write_json(

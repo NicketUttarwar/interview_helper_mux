@@ -30,22 +30,47 @@ LADDER_TIERS: tuple[str, ...] = (
 )
 
 
+def _vo_ladder_id_sets(ctx: RunContext) -> tuple[list[str], list[str], list[str]]:
+    """Seated / omitted / skip IDs for a size-independent ladder fingerprint."""
+    seated: list[str] = []
+    omitted: list[str] = []
+    try:
+        from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+        if isinstance(plan, dict):
+            seated = sorted({str(x) for x in seated_vo_line_ids(plan) if x})
+            omitted = sorted({str(x) for x in omitted_vo_line_ids(plan) if x})
+    except Exception:
+        pass
+    skip: list[str] = []
+    try:
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap = ctx.read_json("understanding/gap_report.json")
+            if isinstance(gap, dict):
+                for row in gap.get("interviewer_lines") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    if not (row.get("skipped_optional") or row.get("air_script_omit")):
+                        continue
+                    lid = str(row.get("line_id") or "").strip()
+                    if lid:
+                        skip.append(lid)
+    except Exception:
+        pass
+    return seated, omitted, sorted(set(skip))
+
+
 def _vo_ladder_fingerprint(ctx: RunContext, violations: list[Any]) -> str:
-    """Stable fingerprint of VO contract state for ladder thrash caps."""
+    """Stable fingerprint of the VO contract hole — not artifact file sizes."""
     import hashlib
 
     parts: list[str] = [str(v)[:80] for v in (violations or [])[:8]]
-    try:
-        for rel in (
-            "understanding/gap_report.json",
-            "mastering/vo_synthesize.json",
-            "understanding/vo_line_adjudication.json",
-        ):
-            if ctx.artifact_exists(rel):
-                path = ctx.final_path(*rel.split("/"))
-                parts.append(f"{rel}:{path.stat().st_size}")
-    except Exception:
-        pass
+    seated, omitted, skip = _vo_ladder_id_sets(ctx)
+    parts.append("seated:" + ",".join(seated))
+    parts.append("omitted:" + ",".join(omitted))
+    parts.append("skip:" + ",".join(skip))
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -433,15 +458,23 @@ def _write_vo_repair_plan(
     tier: str,
     violations: list[str],
     consumer_stage: str = "",
+    fingerprint: str = "",
+    last_outcome: str = "",
+    detail: str = "",
 ) -> None:
     plan = {
         "version": 1,
         "active": True,
+        "completed": False,
         "error_class": "vo_contract_repair",
         "started_at": _utc_now(),
         "current_tier": tier,
         "violations": violations[:12],
         "consumer_stage": consumer_stage,
+        "fingerprint": str(fingerprint or ""),
+        "last_outcome": str(last_outcome or ""),
+        "detail": str(detail or ""),
+        "resume_stage": "vo_synthesize" if last_outcome else "",
         "invalidate_set": [
             "vo_line_adjudicate",
             "vo_synthesize",
@@ -455,6 +488,34 @@ def _write_vo_repair_plan(
         ],
     }
     ctx.write_json(VO_CONTRACT_REPAIR_PLAN_REL, plan, skip_handoff=True)
+
+
+def _cached_unrecovered_vo_ladder(
+    ctx: RunContext, fingerprint: str
+) -> LadderResult | None:
+    """HV-1: same contract hole after stall/exhaust must not re-enter A→D."""
+    plan = read_active_vo_repair_plan(ctx)
+    if not plan:
+        return None
+    if str(plan.get("fingerprint") or "") != str(fingerprint or ""):
+        return None
+    outcome = str(plan.get("last_outcome") or "")
+    if outcome not in {"stall_cap", "tiers_exhausted"}:
+        return None
+    violations = [str(v) for v in (plan.get("violations") or []) if v]
+    return LadderResult(
+        tier="stall_cap" if outcome == "stall_cap" else str(plan.get("current_tier") or "tier_d_logged_waive"),
+        recovered=False,
+        contract_ok=False,
+        violations=violations,
+        detail=str(plan.get("detail") or "")
+        or (
+            "vo_ladder_fingerprint_stall"
+            if outcome == "stall_cap"
+            else "tiers_exhausted"
+        ),
+        resume_stage="vo_synthesize",
+    )
 
 
 def mark_vo_repair_plan_completed(ctx: RunContext) -> None:
@@ -554,7 +615,12 @@ def run_vo_contract_ladder(
             detail="already_ok",
         )
 
-    # Cap identical ladder resumes without seat/WAV fingerprint change (Wave 8).
+    fp = _vo_ladder_fingerprint(ctx, violations)
+    cached = _cached_unrecovered_vo_ladder(ctx, fp)
+    if cached is not None:
+        return cached
+
+    # Cap identical ladder resumes when the contract hole is unchanged.
     try:
         from interview_mux.delivery_invariants import (
             count_identical_seed_resumes,
@@ -562,7 +628,6 @@ def run_vo_contract_ladder(
             record_invariant_heal,
         )
 
-        fp = _vo_ladder_fingerprint(ctx, violations)
         note_seed_resume(
             ctx,
             from_stage="vo_contract_ladder",
@@ -578,6 +643,15 @@ def run_vo_contract_ladder(
                 stage=consumer_stage or "vo_synthesize",
                 detail={"fingerprint": fp},
             )
+            _write_vo_repair_plan(
+                ctx,
+                tier="stall_cap",
+                violations=list(violations or []),
+                consumer_stage=consumer_stage,
+                fingerprint=fp,
+                last_outcome="stall_cap",
+                detail="vo_ladder_fingerprint_stall",
+            )
             return LadderResult(
                 tier="stall_cap",
                 recovered=False,
@@ -589,7 +663,13 @@ def run_vo_contract_ladder(
     except Exception:
         pass
 
-    _write_vo_repair_plan(ctx, tier=start_tier or LADDER_TIERS[0], violations=violations, consumer_stage=consumer_stage)
+    _write_vo_repair_plan(
+        ctx,
+        tier=start_tier or LADDER_TIERS[0],
+        violations=violations,
+        consumer_stage=consumer_stage,
+        fingerprint=fp,
+    )
 
     tier_index = 0
     if start_tier:
@@ -633,7 +713,17 @@ def run_vo_contract_ladder(
                 resume_stage=_resume_after_ladder(consumer_stage),
             )
 
-    mark_vo_repair_plan_completed(ctx)
+    # HV-1: exhaust keeps the repair plan open and pins vo_synthesize.
+    fp_end = _vo_ladder_fingerprint(ctx, violations)
+    _write_vo_repair_plan(
+        ctx,
+        tier=last_tier or "tier_d_logged_waive",
+        violations=violations,
+        consumer_stage=consumer_stage,
+        fingerprint=fp_end,
+        last_outcome="tiers_exhausted",
+        detail=violations[0] if violations else "tiers_exhausted",
+    )
     _log_ladder_action(
         ctx,
         tier=last_tier or "tier_d_logged_waive",
@@ -648,7 +738,7 @@ def run_vo_contract_ladder(
         violations=violations,
         artifacts=list(dict.fromkeys(artifacts)),
         detail=violations[0] if violations else "tiers_exhausted",
-        resume_stage=_resume_after_ladder(consumer_stage),
+        resume_stage="vo_synthesize",
     )
 
 
@@ -740,21 +830,9 @@ def _tier_c_vo_adjudicate_heal(ctx: RunContext) -> list[str]:
     return [".stage_done/vo_line_adjudicate"] + cleared
 
 
-def _hosted_topology_requires_orientation(ctx: RunContext) -> bool:
-    try:
-        if not ctx.artifact_exists("understanding/source_topology.json"):
-            return False
-        topo = ctx.read_json("understanding/source_topology.json")
-        if not isinstance(topo, dict):
-            return False
-        speakers = topo.get("speakers") or topo.get("speaker_count")
-        if isinstance(speakers, list) and len(speakers) >= 2:
-            return True
-        if isinstance(speakers, int) and speakers >= 2:
-            return True
-    except Exception:
-        pass
-    return False
+def _pin_unrecovered_coverage_to_vo_synthesize(ctx: RunContext) -> None:
+    """HV-2: missing seated WAV is a vo_synthesize hole — unmark the producer."""
+    (ctx.run_dir / ".stage_done" / "vo_synthesize").unlink(missing_ok=True)
 
 
 def run_edl_vo_coverage_ladder(
@@ -796,15 +874,6 @@ def run_edl_vo_coverage_ladder(
                 artifacts = _tier_b_vo_seated_coverage(ctx)
             elif tier == "tier_c_adjudicate_heal":
                 artifacts = _tier_c_vo_adjudicate_heal(ctx)
-            elif tier == "tier_d_operator":
-                if _hosted_topology_requires_orientation(ctx):
-                    mark_remediation_plan_completed_vo_coverage(ctx)
-                    return VoCoverageLadderResult(
-                        tier=tier,
-                        recovered=False,
-                        detail=f"needs_operator: {missing[:6]}",
-                        resume_stage=consumer_stage,
-                    )
         except Exception as exc:
             ctx.log(
                 f"vo_coverage ladder {tier} failed: {exc}",
@@ -827,7 +896,9 @@ def run_edl_vo_coverage_ladder(
                 resume_stage=resume,
             )
 
-    mark_remediation_plan_completed_vo_coverage(ctx)
+    # HV-2: exhaust / hosted 2-speaker still pin vo_synthesize. Do not stamp
+    # the repair plan complete or resume the EDL consumer.
+    _pin_unrecovered_coverage_to_vo_synthesize(ctx)
     _log_vo_coverage_ladder(
         ctx,
         tier=last_tier,
@@ -840,7 +911,7 @@ def run_edl_vo_coverage_ladder(
         recovered=False,
         detail=f"still_missing: {missing[:6]}",
         artifacts=list(dict.fromkeys(artifacts)),
-        resume_stage=consumer_stage,
+        resume_stage="vo_synthesize",
     )
 
 

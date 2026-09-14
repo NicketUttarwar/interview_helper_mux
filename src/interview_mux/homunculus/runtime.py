@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Callable
 
 from interview_mux.homunculus.admit import admit
@@ -25,30 +26,6 @@ def is_homunculus_run(ctx: RunContext) -> bool:
     return is_homunculus_brain(homunculus_version(ctx))
 
 
-def _mastering_plan_stale_from_gap_pass(ctx: RunContext) -> bool:
-    """True when Pass-2 gap work invalidated the plan before selection_framing_apply."""
-    path = ctx.final_path("mastering", "mastering_plan.json")
-    if not path.is_file():
-        return False
-    try:
-        import json
-
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return False
-    if not isinstance(doc, dict):
-        return False
-    meta = doc.get("_meta") or {}
-    if not meta.get("stale"):
-        return False
-    reason = str(meta.get("stale_reason") or "")
-    return reason in {
-        "invalidated_by:gap_framing_recompose",
-        "invalidated_by:nugget_layup_compose",
-        "invalidated_by:refinement_agenda",
-    }
-
-
 def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
     """Earliest incomplete seed-order stage that must run before ``stage``."""
     from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
@@ -66,15 +43,6 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
             pass
     earliest = _earliest_incomplete_seed_stage(ctx, stage)
     if earliest and earliest != stage:
-        if (
-            stage == "air_script_seams"
-            and earliest == "selection_framing_apply"
-            and _mastering_plan_stale_from_gap_pass(ctx)
-        ):
-            (ctx.run_dir / ".stage_done" / "selection_framing_apply").unlink(
-                missing_ok=True
-            )
-            return None
         # Seams already seed-complete (outputs + no incompleteness): do not
         # block transitions on a hollow/false earliest token.
         if stage == "transitions" and earliest == "air_script_seams":
@@ -116,15 +84,33 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
     return None
 
 
+def _call_stage_impl(impl: Callable[..., Any], stage: str) -> None:
+    """HC-4: host is impl(stage). 0-arg callables stay for older test fixtures."""
+    try:
+        sig = inspect.signature(impl)
+    except (TypeError, ValueError):
+        impl(stage)
+        return
+    positional = [
+        p
+        for p in sig.parameters.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    if not positional:
+        impl()
+        return
+    impl(stage)
+
+
 def dispatch_stage(
     ctx: RunContext,
     stage: str,
-    impl: Callable[[], None],
+    impl: Callable[..., Any],
     *,
     source: str = "conductor",
     _recovery_depth: int = 0,
 ) -> None:
-    """Budget + serialize + ledger, then host impl, then admit. 0.1.0 only."""
+    """Budget + serialize + ledger, then host impl(stage), then admit. 0.1.0 only."""
     from interview_mux.homunculus.agenda import (
         _refuse_delivery_timeline_rewind,
         _refuse_g0_locked_rerun,
@@ -135,6 +121,16 @@ def dispatch_stage(
     )
 
     unmark_hollow_prepare_stages(ctx)
+    # HP-4 3A: pin is operator-must-act. Remainder / conductor must not sign G0 off.
+    if stage == "transcript_review":
+        from interview_mux.gates import check_transcript_review_pending
+
+        if check_transcript_review_pending(ctx):
+            raise RuntimeError(
+                "g0_pending: transcript_review operator must-act — "
+                "driver owns complete_g0 / wait_for_operator_g0"
+            )
+        return
     try:
         from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
         from interview_mux.delivery_guardrails import (
@@ -226,6 +222,7 @@ def dispatch_stage(
         from interview_mux.delivery_guardrails import (
             EXPENSIVE_STAGES,
             G1_CONSUMERS,
+            MIX_EPOCH_RUN_BLOCK,
             mix_epoch_block,
             record_wasted_work,
             stamp_delivery_epoch,
@@ -259,13 +256,22 @@ def dispatch_stage(
                         # RC10: recursive recovery depth ≤2.
                         if int(_recovery_depth or 0) >= 2:
                             raise StageInputError(stage, issues)
-                        return dispatch_stage(
-                            ctx,
-                            result.resume_stage,
-                            impl,
-                            source=source,
-                            _recovery_depth=int(_recovery_depth or 0) + 1,
-                        )
+                        resume = str(result.resume_stage).strip()
+                        if not resume:
+                            raise StageInputError(stage, issues)
+                        try:
+                            return dispatch_stage(
+                                ctx,
+                                resume,
+                                impl,
+                                source=source,
+                                _recovery_depth=int(_recovery_depth or 0) + 1,
+                            )
+                        except StageInputError:
+                            raise
+                        except Exception:
+                            # 2A: resume host cannot run — do not execute the consumer.
+                            raise StageInputError(stage, issues) from None
                 except StageInputError:
                     raise
                 except Exception:
@@ -278,7 +284,7 @@ def dispatch_stage(
                 raise RuntimeError(
                     f"seed order: complete {vo_b} before running vo_synthesize"
                 )
-        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+        if stage in MIX_EPOCH_RUN_BLOCK:
             mix_b = mix_epoch_block(ctx)
             if mix_b:
                 raise RuntimeError(
@@ -333,7 +339,7 @@ def dispatch_stage(
     )
     inflight.add(identity)
     try:
-        impl()
+        _call_stage_impl(impl, stage)
         from interview_mux.homunculus.agenda import (
             PROTECTED_CORE_STAGES,
             PROTECTED_DELIVERY_OUTPUTS,

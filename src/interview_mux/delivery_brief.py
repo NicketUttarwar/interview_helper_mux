@@ -284,7 +284,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
 
 
 def _overlay_mastering_plan(ctx: RunContext, brief: dict[str, Any]) -> dict[str, Any]:
-    """Thin wrapper: derive soft budgets from mastering_plan when authoritative."""
+    """HM-3: overlay duration/mode only when ``plan_status`` is complete."""
     if not ctx.artifact_exists("mastering/mastering_plan.json"):
         return brief
     try:
@@ -292,6 +292,10 @@ def _overlay_mastering_plan(ctx: RunContext, brief: dict[str, Any]) -> dict[str,
     except Exception:
         return brief
     if not isinstance(plan, dict):
+        return brief
+    from interview_mux.mastering_plan_loader import plan_is_authoritative
+
+    if not plan_is_authoritative(plan):
         return brief
     out = dict(brief)
     rationale = list(out.get("rationale") or [])
@@ -385,24 +389,39 @@ def rebuild_delivery_brief(ctx: RunContext, *, reason: str = "rebuild") -> dict[
     return brief
 
 
+def persist_delivery_brief_skip_stub(ctx: RunContext) -> dict[str, Any]:
+    """HG-2 2A: schema-valid disabled stub (required keys; zero duration budgets allowed)."""
+    stub = {
+        "version": 1,
+        "source_duration_ms": _source_duration_ms(ctx),
+        "target_duration_sec": {"min": 0, "ideal": 0, "max": 0},
+        "question_budget": {"min": 0, "ideal": 0, "max": 0},
+        "chapter_budget": {"min": 1, "ideal": 4, "max": 8},
+        "selection_mode": "coverage_first",
+        "sfx_density": {},
+        "ranking_weights": {},
+        "rationale": ["disabled"],
+        "operator_overrides": {},
+        "generated": {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "by": "delivery_brief_build",
+            "skipped": "feature_disabled",
+        },
+    }
+    ctx.write_json(DELIVERY_BRIEF_PATH, stub, stage_key="delivery_brief_build")
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, "delivery_brief_build", force=True)
+    return stub
+
+
 def run_delivery_brief_build(ctx: RunContext) -> None:
     """Pipeline stage: write understanding/delivery_brief.json."""
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
     if not delivery_brief_enabled():
         ctx.log("delivery_brief disabled; writing minimal stub", level="warning", stage="delivery_brief_build")
-        stub = {
-            "version": 1,
-            "source_duration_ms": _source_duration_ms(ctx),
-            "target_duration_sec": {"min": 0, "ideal": 0, "max": 0},
-            "question_budget": {"min": 0, "ideal": 0, "max": 0},
-            "chapter_budget": {"min": 1, "ideal": 4, "max": 8},
-            "selection_mode": "coverage_first",
-            "sfx_density": {},
-            "ranking_weights": {},
-            "rationale": ["disabled"],
-            "operator_overrides": {},
-            "generated": {"at": datetime.now(timezone.utc).isoformat(), "by": "delivery_brief_build"},
-        }
-        ctx.write_json(DELIVERY_BRIEF_PATH, stub, stage_key="delivery_brief_build")
+        persist_delivery_brief_skip_stub(ctx)
         return
     brief = build_delivery_brief(ctx)
     ctx.write_json(DELIVERY_BRIEF_PATH, brief, stage_key="delivery_brief_build")
@@ -420,6 +439,7 @@ def run_delivery_brief_build(ctx: RunContext) -> None:
         maybe_auto_verify_profile(ctx)
     except Exception as exc:  # noqa: BLE001
         ctx.log(f"profile auto-verify skipped: {exc}", level="warning", stage="delivery_brief_build")
+    heal_or_refuse_mark(ctx, "delivery_brief_build", force=True)
 
 
 def estimated_selection_duration_sec(ctx: RunContext) -> float | None:

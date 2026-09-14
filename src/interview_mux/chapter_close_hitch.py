@@ -44,6 +44,15 @@ HITCH_PRESERVE_PREFIXES = (
     "mastering/chapter_close_hitch/",
 )
 
+# HR-1: ranking lattice that consumes remapped seg_* — never VO/EDL/mix.
+HITCH_RANKING_LATTICE_STAGES: tuple[str, ...] = (
+    "full_master_ranking",
+    "selection_order_sanitize",
+    "air_script_compose",
+    "nugget_layup_compose",
+    "gap_report_sanitize",
+)
+
 
 
 def hitch_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -133,6 +142,111 @@ def hitch_restage_order() -> list[str]:
     start = analysis.index("boundary_detection")
     end_del = delivery.index("narrative_arc_plan")
     return analysis[start:] + delivery[: end_del + 1]
+
+
+def hitch_phase_a_or_assembly_seated(ctx: RunContext) -> bool:
+    """True when remapping must not unmark ranking (no rewind past W3)."""
+    try:
+        from interview_mux.delivery_guardrails import assembly_wav_present, phase_a_sealed
+
+        return bool(phase_a_sealed(ctx) or assembly_wav_present(ctx))
+    except Exception:
+        return False
+
+
+def hitch_layup_adopt_failed(adopt: Any) -> bool:
+    """HR-1 3A: adopt ok=False / error is not a hitch complete."""
+    if not isinstance(adopt, dict):
+        return False
+    if adopt.get("ok") is False:
+        return True
+    if adopt.get("error") and adopt.get("ok") is not True:
+        return True
+    return False
+
+
+def hitch_unmark_ranking_lattice(ctx: RunContext) -> list[str]:
+    """Clear ranking-lattice done markers. Never VO / EDL / mix."""
+    from interview_mux.execution_invalidation_profiles import FORBIDDEN_HITCH_LATE
+
+    cleared: list[str] = []
+    for sid in HITCH_RANKING_LATTICE_STAGES:
+        if sid in FORBIDDEN_HITCH_LATE:
+            continue
+        marker = ctx.final_path(".stage_done", sid)
+        if marker.is_file():
+            marker.unlink(missing_ok=True)
+            cleared.append(sid)
+    return cleared
+
+
+def hitch_restamp_lattice_sanitize(ctx: RunContext) -> dict[str, bool]:
+    """HR-1 2A: restamp selection/gap/layup sanitize hashes after in-place remap."""
+    from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+    from interview_mux.write_staging import write_mirrored_json
+
+    restamped: dict[str, bool] = {}
+    jobs = (
+        (
+            "master/selection.json",
+            ["ordered_segment_ids", "order_content_hash"],
+            "selection",
+        ),
+        (
+            "understanding/gap_report.json",
+            ["interviewer_lines", "gaps", "opening_orientation"],
+            "gap",
+        ),
+        (
+            "understanding/nugget_layup_plan.json",
+            ["ordered_segment_ids", "layups", "status"],
+            "layup",
+        ),
+    )
+    for rel, keys, label in jobs:
+        if not ctx.artifact_exists(rel):
+            restamped[label] = False
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            restamped[label] = False
+            continue
+        if not isinstance(doc, dict):
+            restamped[label] = False
+            continue
+        stamped = stamp_sanitize_meta(
+            doc,
+            ok=True,
+            source="chapter_close_hitch_restamp",
+            content_keys=list(keys),
+        )
+        write_mirrored_json(ctx, rel, stamped)
+        restamped[label] = True
+    return restamped
+
+
+def apply_hitch_ranking_lattice_after_remap(
+    ctx: RunContext, *, mapping: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Unmark ranking lattice, or restamp sanitize hashes when Phase A is seated."""
+    if not mapping:
+        return {"mode": "skip", "cleared": [], "restamped": {}}
+    if hitch_phase_a_or_assembly_seated(ctx):
+        restamped = hitch_restamp_lattice_sanitize(ctx)
+        ctx.log(
+            "chapter_close_hitch: Phase A / seated — restamp ranking sanitize (no unmark)",
+            level="info",
+            stage=STAGE_ID,
+        )
+        return {"mode": "restamp", "cleared": [], "restamped": restamped}
+    cleared = hitch_unmark_ranking_lattice(ctx)
+    ctx.log(
+        f"chapter_close_hitch: unmarked ranking lattice {cleared}",
+        level="info",
+        stage=STAGE_ID,
+    )
+    return {"mode": "unmark", "cleared": cleared, "restamped": {}}
 
 
 def _now() -> str:
@@ -1776,6 +1890,30 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
     )
     rewritten = list(dict.fromkeys(list(rewritten) + list(patches.get("rewritten") or [])))
     authority = patches.get("chapter_authority") or {}
+    layup_adopt = patches.get("layup_adopt") or {}
+    if hitch_layup_adopt_failed(layup_adopt):
+        err = str(layup_adopt.get("error") or "adopt_failed")
+        _write_latch(
+            ctx,
+            {
+                "version": 1,
+                "status": "running",
+                "seq": 1,
+                "generated_at": str(prior.get("generated_at") or _now()),
+                "any_end_changed": any_change,
+                "remap_count": len(mapping),
+                "rewritten": rewritten,
+                "restaged": restaged,
+                "layup_adopt": layup_adopt,
+                "resume_count": resume_count,
+                "listen_restage_count": listen_restage_n,
+                "listen_restage": bool(listen_restage),
+            },
+        )
+        raise RuntimeError(
+            f"hitch_layup_adopt_failed — resume nugget_layup_compose: {err}"
+        )
+    lattice = apply_hitch_ranking_lattice_after_remap(ctx, mapping=mapping)
 
     _write_latch(
         ctx,
@@ -1793,7 +1931,8 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             "vo_reattach": patches.get("vo_gap"),
             "omit_updated": bool(patches.get("omit_updated")),
             "episode_structure": patches.get("episode_structure"),
-            "layup_adopt": patches.get("layup_adopt"),
+            "layup_adopt": layup_adopt,
+            "ranking_lattice": lattice,
             "resume_count": resume_count,
             "listen_restage_count": listen_restage_n,
             "listen_restage": bool(listen_restage),

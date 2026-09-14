@@ -53,8 +53,8 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     });
     appendClientLog("Skipped optional gap VO — continuing without pickup recordings", "action");
     showToast("Gap VO skipped — continuing without recordings");
-    await refreshRun();
-    if (shouldAdvanceAfterGatePost(run)) {
+    const refreshed = await refreshRun();
+    if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
       await advanceFromCheckpoint();
     }
   };

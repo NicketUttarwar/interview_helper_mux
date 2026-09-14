@@ -215,7 +215,9 @@ def run_content_context(ctx: RunContext) -> None:
             merged = merge_content_brief_artifacts(parts)
             persist(ctx, merged)
             sync_content_brief_to_state(ctx, merged)
-            ctx.mark_done("content_context")
+            from interview_mux.stage_completion import heal_or_raise
+
+            heal_or_raise(ctx, "content_context")
             ctx.log(
                 f"content_context batched complete ({len(parts)} shards merged)",
                 level="success",
@@ -347,7 +349,9 @@ def run_talking_points_compose(ctx: RunContext) -> None:
                 )
             merged = merge_talking_points_artifacts(parts)
             persist(ctx, merged)
-            ctx.mark_done("talking_points_compose")
+            from interview_mux.stage_completion import heal_or_raise
+
+            heal_or_raise(ctx, "talking_points_compose")
             ctx.log(
                 f"talking_points_compose batched complete ({len(parts)} shards, "
                 f"{len(merged.get('talking_points') or [])} points)",

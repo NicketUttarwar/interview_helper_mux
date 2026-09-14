@@ -455,34 +455,16 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                                 continue
                     except Exception:
                         pass
-                # Aspiration delight: waiver (or audit+auto-waive) must not block
-                # post-mix consumers after Phase A audio already exists.
+                # Delight seed skip = progress clearance only (seed_complete or
+                # quality_waived). waived_unattended is telemetry — never skip.
                 if earlier == "listen_delight_audit":
                     try:
                         from interview_mux.delivery_guardrails import (
-                            ensure_listen_delight_waiver_unattended,
-                            listen_delight_waived_unattended,
+                            listen_delight_cleared_for_progress,
                         )
 
-                        if listen_delight_waived_unattended(ctx):
+                        if listen_delight_cleared_for_progress(ctx):
                             continue
-                        if stage_key in {
-                            "mix",
-                            "junction_snip_qa",
-                            "master_finalize",
-                            "music_palette_compose",
-                            "sfx_prompt_craft",
-                            "mmaudio_sfx",
-                        } and (
-                            ctx.artifact_exists("master/assembly.wav")
-                            or ctx.artifact_exists("master/assembly_preview.wav")
-                        ):
-                            if ctx.artifact_exists(
-                                "mastering/listen_delight_audit.json"
-                            ):
-                                ensure_listen_delight_waiver_unattended(ctx)
-                            if listen_delight_waived_unattended(ctx):
-                                continue
                     except Exception:
                         pass
                 # Hard seat freeze + EDL done: framing apply is intentionally a

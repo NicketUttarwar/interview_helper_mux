@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.framing_posture import (
+    DecidedBy,
     apply_host_gate,
+    build_allow_stub_decision,
     build_framing_posture_input,
     build_monologue_decision,
     framing_posture_enabled,
@@ -22,14 +24,18 @@ STAGE_KEY = "framing_posture_decide"
 PROMPT_REL = "framing/framing-posture-decide.system.txt"
 
 
+def _persist_allow_stub_and_mark(ctx: RunContext, *, decided_by: DecidedBy) -> None:
+    persist_framing_decision(ctx, build_allow_stub_decision(decided_by=decided_by))
+    heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
+
+
 def run_framing_posture_decide(ctx: RunContext) -> None:
-    # TH1b allow-stub paths: no producer artifact required → heal marks when incomplete None.
     if not is_homunculus_run(ctx):
-        heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
+        _persist_allow_stub_and_mark(ctx, decided_by="homunculus_skip")
         return
 
     if not framing_posture_enabled():
-        heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
+        _persist_allow_stub_and_mark(ctx, decided_by="feature_disabled")
         return
 
     if not should_run_framing_posture_llm(ctx):

@@ -546,6 +546,18 @@ def _is_skip_omit_violation(issue: str) -> bool:
     return "skip/omit" in text or "both seated and omitted" in text
 
 
+def seams_contract_remaining(ctx: RunContext) -> list[str]:
+    """Post-seams drift that must refuse done (not missing WAV, not F3 skip/omit)."""
+    violations = validate_vo_contract(ctx)
+    return [
+        v
+        for v in violations
+        if "missing WAV" not in v
+        and "missing wav" not in v.lower()
+        and not _is_skip_omit_violation(v)
+    ]
+
+
 def sync_vo_contract_after_layup(ctx: RunContext) -> list[str]:
     """R10c: align gap_report, vo_seats, and omit ledger after layup/seams.
 

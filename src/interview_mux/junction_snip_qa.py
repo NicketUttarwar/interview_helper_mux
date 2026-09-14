@@ -2470,8 +2470,20 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
 
 
 def _set_g_listen_pending_after_remaster(ctx: RunContext) -> None:
-    """Refresh listen critic and set g_listen_pending when recommended."""
+    """HX-5: re-arm ``g_listen_pending`` after remaster (warn, block, block_mix).
+
+    Skipped / cleared / ``refused_low_gain`` still do not re-arm. Full-auto
+    driver skip/clear after re-arm so unattended ``block_mix`` does not deadlock.
+    Optimizer remaster shares this helper. ``check_g_listen_pending`` (critic-alone)
+    is unchanged.
+    """
     try:
+        from interview_mux.config import merged_config
+
+        mode = str(
+            ((merged_config().get("sound_design") or {}).get("g_listen_mode") or "warn")
+        ).lower()
+        _ = mode
         # C14: do not re-arm G-Listen after a refused_low_gain remutate decision.
         try:
             if ctx.artifact_exists("mastering/listen_delight_remutate.json"):

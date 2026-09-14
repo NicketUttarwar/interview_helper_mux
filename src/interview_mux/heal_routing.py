@@ -80,6 +80,11 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
         action="junction_ladder",
         blocking_checkpoint="pre_mix",
     ),
+    "seam_autopsy_blocking": PlaybookSpec(
+        resume_stage="junction_snip_qa",
+        action="junction_ladder",
+        blocking_checkpoint="pre_mix",
+    ),
     "pending_write_barrier": PlaybookSpec(
         resume_stage="junction_snip_qa", action="approve_or_rerun_producer"
     ),
@@ -130,6 +135,31 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     "vo_ladder_fingerprint_stall": PlaybookSpec(
         resume_stage="vo_synthesize", action="pin_synth_after_ladder_cap"
     ),
+    "g0_pending": PlaybookSpec(
+        resume_stage="transcript_review", action="operator_g0"
+    ),
+    "research_shape_core_thin": PlaybookSpec(
+        resume_stage="mastering_research_rollup", action="rerun_research_rollup"
+    ),
+    "voice_reference_pending": PlaybookSpec(
+        resume_stage="missing_framing", action="operator_voice_ref"
+    ),
+    "high_gap_unframed": PlaybookSpec(
+        # No-ctx default is analysis-era compose. Live pin (layup when it owns)
+        # is high_gap_heal_resume_stage / classify_heal_error / recovery.
+        resume_stage="gap_framing_compose",
+        action="fill_or_demote_high_gaps",
+    ),
+    "fuse_oscillation": PlaybookSpec(
+        # No-ctx default is connector_fuse_pass. Live pin (pre_ranking) is
+        # fuse_oscillation_heal_resume_stage / classify_heal_error.
+        resume_stage="connector_fuse_pass",
+        action="fuse_residual",
+    ),
+    "connector_fuse_oscillation": PlaybookSpec(
+        resume_stage="connector_fuse_pass",
+        action="fuse_residual",
+    ),
 }
 
 
@@ -167,9 +197,8 @@ def mix_assembly_seated(ctx: RunContext) -> bool:
 
         return bool(mix_outputs_seated(ctx))
     except Exception:
-        asm = ctx.final_path("master", "assembly.wav")
-        edl = ctx.final_path("master", "edl.json")
-        return asm.is_file() and edl.is_file()
+        # HX-2: files-exist is not seated. Junction autopsy (HX-3) stays later.
+        return False
 
 
 def gap_fill_skipped(ctx: RunContext) -> bool:
@@ -203,6 +232,89 @@ def classify_heal_error(
     seated = bool(ctx is not None and mix_assembly_seated(ctx))
 
     if (
+        "g0_pending" in low
+        or "transcript review required" in low
+        or "transcript review gate" in low
+        or "g0 transcript review pending" in low
+    ):
+        from interview_mux.stage_completion import g0_heal_resume_stage
+
+        return HealRoute(
+            family="g0_pending",
+            from_stage=g0_heal_resume_stage(ctx),
+            action="operator_g0",
+            detail="G0 open — pin transcript_review when the queue exists; build only if missing",
+        )
+
+    if "shape-core" in low or "research dossier" in low or "research shape-core" in low:
+        return HealRoute(
+            family="research_shape_core_thin",
+            from_stage="mastering_research_rollup",
+            action="rerun_research_rollup",
+            detail="shape-core thin — pin mastering_research_rollup, never edl or the Shape/gap consumer",
+        )
+
+    if (
+        "voice_reference_pending" in low
+        or "voice reference gate" in low
+        or "approve interviewer voice" in low
+    ):
+        return HealRoute(
+            family="voice_reference_pending",
+            from_stage="missing_framing",
+            action="operator_voice_ref",
+            detail="G-VoiceRef open — pin missing_framing, never topic_coverage_audit",
+        )
+
+    if "high_gap_unframed" in low or (
+        "high gap segment" in low and "no interviewer line" in low
+    ):
+        from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+        pin = high_gap_heal_resume_stage(ctx)
+        return HealRoute(
+            family="high_gap_unframed",
+            from_stage=pin,
+            action="fill_or_demote_high_gaps",
+            detail=(
+                "high_gap_unframed — pin nugget_layup_compose when layup owns, "
+                "else gap_framing_compose"
+            ),
+        )
+
+    if (
+        "vo_audibility_drift" in low
+        or "opening_orientation_inaudible" in low
+        or "never_touch_zeroed_keep" in low
+    ):
+        from interview_mux.stage_completion import edl_heal_resume_stage
+
+        pin = edl_heal_resume_stage(ctx)
+        return HealRoute(
+            family="vo_audibility_drift" if "audibility" in low else (
+                "opening_orientation_inaudible" if "orientation" in low else "never_touch_zeroed_keep"
+            ),
+            from_stage=pin,
+            action="rebuild_edl" if pin == "edl" else "repair_and_resynth",
+            detail="HE-2: unsanitary VO/bind pins vo_synthesize; sanitary may resume edl",
+        )
+
+    if "gap_unsanitary" in low or (
+        stage_l in {"gap_framing_recompose", "selection_framing_apply"}
+        and "unsanitary" in low
+    ):
+        from interview_mux.stage_completion import pass2_gap_heal_resume_stage
+
+        pin = pass2_gap_heal_resume_stage(ctx, error=err, stage=stage)
+        if pin:
+            return HealRoute(
+                family="gap_unsanitary",
+                from_stage=pin,
+                action="rerun_pass2_writer",
+                detail="HF-5: Pass-2 re-dirtied gap pins the writer, never W1 under freeze",
+            )
+
+    if (
         "nugget_layup_plan_stale" in low
         or "stale vs selection" in low
         or "layup plan stale" in low
@@ -228,12 +340,23 @@ def classify_heal_error(
             detail="adjudicate then synthesize — script/WAV drift before audit",
         )
 
-    # F4: spoken glue / seated VO WAV missing → synthesize first, never EDL/mix.
+    # F4 / HV-2 / HE-3: spoken glue / seated VO WAV missing → synthesize first, never EDL/mix.
     if (
         "gap vo lines missing wav" in low
         or "transition pairs missing wav" in low
         or "transition pairs still missing wav" in low
         or "current transition pairs missing wav" in low
+        or "vo coverage not rendered" in low
+        or "heard_wav_flow" in low
+        or ("seated synthesize" in low and "missing wav" in low)
+        or (
+            "missing source_path" in low
+            and (
+                "assembly_preview" in low
+                or "vo_pickup" in low
+                or "transition" in low
+            )
+        )
     ):
         return HealRoute(
             family=FAMILY_G1_MISSING,
@@ -323,6 +446,31 @@ def classify_heal_error(
             detail="rewrite transitions/edl — not mix",
         )
 
+    if "hitch_layup_adopt_failed" in low:
+        return HealRoute(
+            family="hitch_layup_adopt_failed",
+            from_stage="nugget_layup_compose",
+            action="adopt_layup",
+            detail="HR-1: hitch adopt failed — pin nugget_layup_compose, never hitch-complete",
+        )
+
+    if "selection_commit_refused" in low:
+        from interview_mux.stage_completion import parse_resume_stage_from_reason
+
+        pin = parse_resume_stage_from_reason(err)
+        if pin not in {"air_script_compose", "nugget_layup_compose"}:
+            pin = (
+                "nugget_layup_compose"
+                if "nugget_layup" in low
+                else "air_script_compose"
+            )
+        return HealRoute(
+            family="selection_commit_refused",
+            from_stage=pin,
+            action="commit_selection",
+            detail="HR-2: selection commit refused — pin the writer, never W1/edl",
+        )
+
     if "hitch_listen_restage" in low or "incomplete_cut_restage_hitch" in low:
         return HealRoute(
             # B-03: hitch shares FAMILY_JUNCTION with remaster/fuse (legacy alias kept).
@@ -335,10 +483,16 @@ def classify_heal_error(
     if (
         "incomplete_cut_unresolved" in low
         or "critical_incomplete_cut" in low
+        or "seam_autopsy_blocking" in low
         or (
             "publishability blocked" in low
             and "pre_mix" in low
-            and ("incomplete_cut" in low or "critical_residuals" in low or "on_a_roll" in low)
+            and (
+                "incomplete_cut" in low
+                or "critical_residuals" in low
+                or "on_a_roll" in low
+                or "seam_autopsy" in low
+            )
         )
         or (
             stage_l in {"mix", "junction_snip_qa", "master_finalize"}
@@ -353,27 +507,37 @@ def classify_heal_error(
             detail="incomplete_cut_unresolved — junction before mix",
         )
 
-    if (
+    fuse_named = (
         "fuse_oscillation" in low
-        or "oscillation_halt" in low
         or "connector_fuse_oscillation" in low
-        or "junction_remaster_budget" in low
-        or "junction_oscillation" in low
-        or "junction_budget_exhaust" in low
-    ):
-        from_stage = "junction_snip_qa"
-        action = "resume_junction"
-        if "fuse" in low or "connector_fuse" in low:
-            from_stage = "connector_fuse_pass" if "connector" in low or "fuse" in low else from_stage
-            # Prefer fuse stage when the fingerprint is fuse-local.
-            if "fuse" in low:
-                from_stage = "edl"  # fuse is mid-EDL; resume producer not remaster-mix
-                action = "fuse_residual"
+        or (
+            "oscillation_halt" in low
+            and ("fuse" in low or "connector_fuse" in low)
+            and "junction" not in low
+        )
+    )
+    if fuse_named:
+        from interview_mux.stage_completion import fuse_oscillation_heal_resume_stage
+
+        pin = fuse_oscillation_heal_resume_stage(ctx, error=err, stage=stage)
         return HealRoute(
             family=FAMILY_JUNCTION,
-            from_stage=from_stage,
-            action=action,
-            detail="junction_family:fuse_or_remaster_oscillation",
+            from_stage=pin,
+            action="fuse_residual",
+            detail="fuse_oscillation — pin fuse writer, never edl",
+        )
+
+    if (
+        "junction_remaster_budget" in low
+        or "junction_oscillation" in low
+        or "junction_budget_exhaust" in low
+        or "oscillation_halt" in low
+    ):
+        return HealRoute(
+            family=FAMILY_JUNCTION,
+            from_stage="junction_snip_qa",
+            action="resume_junction",
+            detail="junction_family:remaster_oscillation",
         )
 
     if (

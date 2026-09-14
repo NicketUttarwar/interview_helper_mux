@@ -106,6 +106,9 @@ def run_audio_probe_build(ctx: RunContext) -> None:
             stage=stage,
             action_id="audio_probes.build.skip",
         )
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, stage)
         return
 
     ctx.artifact_exists_required(
@@ -199,6 +202,41 @@ def run_audio_probe_build(ctx: RunContext) -> None:
                 "has_source_wav": bool(source_wav),
             },
         )
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, stage)
+
+
+def persist_vernacular_skip(ctx: RunContext, skip_reason: str) -> dict[str, Any]:
+    """HS-5: honest skip stub so heal can complete without a hollow marker."""
+    report = {
+        "version": 1,
+        "rows": [],
+        "must_keep_segment_ids": [],
+        "skipped": skip_reason,
+    }
+    ctx.write_json(
+        "vernacular/resplit_report.json",
+        report,
+        stage_key="vernacular_segment_sanitize",
+    )
+    ctx.write_json(
+        "analysis/vernacular_must_keep.json",
+        {
+            "version": 1,
+            "must_keep_segment_ids": [],
+            "enforcement_mode": enforcement_mode_for_ctx(ctx),
+            "skipped": skip_reason,
+        },
+        stage_key="vernacular_segment_sanitize",
+    )
+    return report
+
+
+def _heal_vernacular_done(ctx: RunContext) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, "vernacular_segment_sanitize", force=True)
 
 
 def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
@@ -215,19 +253,8 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
             action_id="vernacular.sanitize.skip",
             detail={"reason": "missing_or_corrupt_zones"},
         )
-        ctx.write_json(
-            "vernacular/resplit_report.json",
-            {"version": 1, "rows": [], "must_keep_segment_ids": [], "skipped": "no_zones"},
-        )
-        ctx.write_json(
-            "analysis/vernacular_must_keep.json",
-            {
-                "version": 1,
-                "must_keep_segment_ids": [],
-                "enforcement_mode": enforcement_mode_for_ctx(ctx),
-                "skipped": "no_zones",
-            },
-        )
+        persist_vernacular_skip(ctx, "no_zones")
+        _heal_vernacular_done(ctx)
         return
 
     if not ctx.artifact_exists("segments/manifest.json"):
@@ -237,6 +264,8 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
             action_id="vernacular.sanitize.skip",
             detail={"reason": "no_manifest"},
         )
+        persist_vernacular_skip(ctx, "no_manifest")
+        _heal_vernacular_done(ctx)
         return
 
     manifest = _safe_read_json(ctx, "segments/manifest.json", stage=stage)
@@ -250,6 +279,8 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
         )
         if not fail_open:
             raise RuntimeError("segments/manifest.json unreadable")
+        persist_vernacular_skip(ctx, "corrupt_manifest")
+        _heal_vernacular_done(ctx)
         return
 
     # Merge flow-level audio tags onto overlapping segments (fault-tolerant advisory).
@@ -259,25 +290,14 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
     flows = [f for f in (flows_doc.get("flows") or []) if isinstance(f, dict)]
 
     if not (zones.get("zones") or []):
-        ctx.write_json(
-            "vernacular/resplit_report.json",
-            {"version": 1, "rows": [], "must_keep_segment_ids": [], "skipped": "no_zones"},
-        )
-        ctx.write_json(
-            "analysis/vernacular_must_keep.json",
-            {
-                "version": 1,
-                "must_keep_segment_ids": [],
-                "enforcement_mode": enforcement_mode_for_ctx(ctx),
-                "skipped": "empty_zones",
-            },
-        )
+        persist_vernacular_skip(ctx, "empty_zones")
         ctx.log(
             "vernacular_segment_sanitize: empty zones",
             stage=stage,
             action_id="vernacular.sanitize.skip",
             detail={"reason": "empty_zones"},
         )
+        _heal_vernacular_done(ctx)
         return
 
     min_child = int((cfg.get("sanitize") or {}).get("min_child_ms") or 800)
@@ -303,7 +323,9 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
                     "must_keep_segment_ids": [],
                     "error": str(exc)[:300],
                 },
+                stage_key="vernacular_segment_sanitize",
             )
+            _heal_vernacular_done(ctx)
             return
 
         # Propagate flow tags onto children that overlap the flow window.
@@ -336,15 +358,17 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
                     s["audio_tags"] = tags
 
         try:
+            from interview_mux.artifact_lifecycle import fingerprint_artifact
+
             ctx.write_json(
                 "segments/manifest.json",
-                result["manifest"],
-                stage_key="vernacular_segment_sanitize",
+                fingerprint_artifact(result["manifest"], stage),
+                stage_key=stage,
             )
             ctx.write_json(
                 "vernacular/resplit_report.json",
-                result["resplit_report"],
-                stage_key="vernacular_segment_sanitize",
+                fingerprint_artifact(result["resplit_report"], stage),
+                stage_key=stage,
             )
         except Exception as exc:  # noqa: BLE001
             ctx.log(
@@ -413,6 +437,7 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
                 ],
             },
         )
+        _heal_vernacular_done(ctx)
         if mode == "shadow" and result["must_keep_segment_ids"]:
             ctx.log(
                 "Shadow mode: vernacular must_keep recorded but not hard-enforced",

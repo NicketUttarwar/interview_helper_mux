@@ -10,7 +10,7 @@ from interview_mux.interview_spine.lineage import build_derived_from, can_skip_r
 from interview_mux.interview_spine.windows import build_windows
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.stage_completion import heal_or_refuse_mark
+from interview_mux.stage_completion import heal_or_refuse_mark, stage_artifact_incompleteness
 
 
 def run_interview_spine_build(ctx: RunContext) -> None:
@@ -21,10 +21,13 @@ def run_interview_spine_build(ctx: RunContext) -> None:
 
     if not ctx.artifact_exists("transcript/full.json"):
         raise FileNotFoundError("transcript/full.json — run transcribe and complete G0 first.")
-    if not ctx.artifact_exists("understanding/source_acoustic_profile.json"):
-        raise FileNotFoundError(
-            "understanding/source_acoustic_profile.json — run source_acoustic_profile first."
-        )
+    sap_reason = stage_artifact_incompleteness(ctx, "source_acoustic_profile")
+    if sap_reason:
+        if not ctx.artifact_exists("understanding/source_acoustic_profile.json"):
+            raise FileNotFoundError(
+                "understanding/source_acoustic_profile.json — run source_acoustic_profile first."
+            )
+        raise RuntimeError(sap_reason)
 
     with logged_step("interview_spine_build/diarization_verify", ctx=ctx, stage="interview_spine_build"):
         try:
@@ -53,7 +56,9 @@ def run_interview_spine_build(ctx: RunContext) -> None:
 
     if can_skip_rebuild(ctx):
         ctx.log("Interview spine unchanged; skipping rebuild.", level="info", stage="interview_spine_build")
-        ctx.mark_done("interview_spine_build")
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, "interview_spine_build")
         return
 
     cfg = spine_cfg()
@@ -160,4 +165,6 @@ def run_interview_spine_build(ctx: RunContext) -> None:
         level="success",
         stage="interview_spine_build",
     )
-    ctx.mark_done("interview_spine_build")
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, "interview_spine_build")

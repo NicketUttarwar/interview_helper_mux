@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import wave
 from pathlib import Path
 
@@ -64,7 +65,9 @@ def test_vo_finalize_patches_sonic_context_vo_bridge(tmp_path):
             "placement": "before_segment",
         }
     ]
-    ctx.write_json("understanding/sound_design_plan.json", plan)
+    dest = ctx.final_path("understanding", "sound_design_plan.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(plan), encoding="utf-8")
     run_sound_design_vo_finalize(ctx)
     sonic = ctx.read_json("understanding/sonic_context.json")
     cue = sonic["cue_opportunities"][0]

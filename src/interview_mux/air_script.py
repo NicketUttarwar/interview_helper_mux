@@ -768,11 +768,6 @@ def compose_pass_a(ctx: RunContext) -> dict[str, Any]:
         plan["ordered_segment_ids"] = kept
     write_plan(ctx, plan)
 
-    if omit_ids and ctx.artifact_exists("master/selection.json"):
-        sel = ctx.read_json("master/selection.json")
-        if isinstance(sel, dict):
-            ctx.write_json("master/selection.json", enforce_air_script_omits(ctx, sel))
-
     if omits:
         try:
             from interview_mux.omit_ledger import (
@@ -806,6 +801,23 @@ def compose_pass_a(ctx: RunContext) -> dict[str, Any]:
             write_omit_ledger(ctx, prior)
         except Exception:
             pass
+
+    if omit_ids and ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            proposed = enforce_air_script_omits(ctx, sel)
+            prev_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+            new_ids = [str(s) for s in (proposed.get("ordered_segment_ids") or []) if s]
+            if new_ids != prev_ids:
+                from interview_mux.air_order_boundary import commit_selection_or_refuse
+
+                commit_selection_or_refuse(
+                    ctx,
+                    proposed,
+                    producer="air_script_compose",
+                    stage_key="air_script_compose",
+                    checkpoint_mode="detect",
+                )
     return plan
 
 
@@ -1629,21 +1641,74 @@ def paper_edit_scores(ctx: RunContext) -> dict[str, Any]:
 
 
 def run_air_script_compose(ctx: RunContext) -> None:
-    """Pass A after ranking."""
+    """Pass A after ranking. Heal-gate: refuse done unless a Pass A script exists."""
     if not air_script_enabled():
         return
     try:
         compose_pass_a(ctx)
     except Exception as exc:
+        if "selection_commit_refused" in str(exc):
+            raise
         if not air_script_cfg().get("fail_open", True):
             raise
         ctx.log(f"air_script_compose fail-open: {exc}", level="warning", stage="air_script_compose")
+    try:
+        from interview_mux.stage_completion import heal_or_refuse_mark
+
+        heal_or_refuse_mark(ctx, "air_script_compose")
+    except Exception:
+        pass
+
+
+SEAMS_CONTRACT_DRIFT_REL = "operator/air_script_seams_contract_drift.json"
+
+
+def _snapshot_mastering_plan(ctx: RunContext) -> dict[str, Any] | None:
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        return None
+    try:
+        raw = ctx.read_json("mastering/mastering_plan.json")
+    except Exception:
+        return None
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+def _restore_mastering_plan(ctx: RunContext, prior: dict[str, Any] | None) -> None:
+    if not isinstance(prior, dict):
+        return
+    write_plan(ctx, dict(prior))
+
+
+def _stamp_seams_contract_drift(ctx: RunContext, remaining: list[str]) -> None:
+    ctx.write_json(
+        SEAMS_CONTRACT_DRIFT_REL,
+        {
+            "version": 1,
+            "active": True,
+            "remaining": [str(x) for x in remaining[:8] if x],
+        },
+        skip_handoff=True,
+    )
+
+
+def _clear_seams_contract_drift(ctx: RunContext) -> None:
+    if not ctx.artifact_exists(SEAMS_CONTRACT_DRIFT_REL):
+        return
+    try:
+        doc = ctx.read_json(SEAMS_CONTRACT_DRIFT_REL)
+        if isinstance(doc, dict):
+            doc = dict(doc)
+            doc["active"] = False
+            ctx.write_json(SEAMS_CONTRACT_DRIFT_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
 
 
 def run_air_script_seams(ctx: RunContext) -> None:
     """Pass B + sonic opportunity hunt after layup freeze."""
     if not air_script_enabled():
         return
+    prior_plan = _snapshot_mastering_plan(ctx)
     try:
         compose_pass_b(ctx)
         persist_air_script_omits_on_gap_report(ctx)
@@ -1654,6 +1719,23 @@ def run_air_script_seams(ctx: RunContext) -> None:
         if remaining:
             raise RuntimeError(f"VO contract drift after air_script_seams: {remaining[0]}")
     except Exception as exc:
-        if not air_script_cfg().get("fail_open", True):
+        msg = str(exc)
+        is_drift = "VO contract drift after air_script_seams" in msg
+        if is_drift:
+            from interview_mux.vo_contract import seams_contract_remaining
+
+            leftover = seams_contract_remaining(ctx)
+            _restore_mastering_plan(ctx, prior_plan)
+            _stamp_seams_contract_drift(ctx, leftover or [msg])
             raise
-        ctx.log(f"air_script_seams fail-open: {exc}", level="warning", stage="air_script_seams")
+        # HF-2 leftover: non-drift compose crashes must not swallow. Drift already
+        # re-raised above; everything else is fail-closed (stamp refuse sidecar).
+        _stamp_seams_contract_drift(ctx, [msg])
+        raise
+    _clear_seams_contract_drift(ctx)
+    try:
+        from interview_mux.stage_completion import heal_or_refuse_mark
+
+        heal_or_refuse_mark(ctx, "air_script_seams")
+    except Exception:
+        pass

@@ -260,8 +260,13 @@ def run_classified_ladder(
 
     if ec in {"vo_seated_coverage", "edl_vo_coverage_repair"}:
         from interview_mux.execution_contract import run_edl_vo_coverage_ladder
+        from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
 
         result = run_edl_vo_coverage_ladder(ctx, consumer_stage=consumer_stage)
+        still_missing = compact_vo_coverage_stale_or_missing(ctx)
+        resume = "vo_synthesize" if still_missing else (
+            result.resume_stage or "vo_synthesize"
+        )
         update_execution_health(
             ctx,
             consumer_stage=consumer_stage,
@@ -273,7 +278,7 @@ def run_classified_ladder(
             recovered=result.recovered,
             error_class=ec,
             playbook_id="edl_vo_coverage_ladder",
-            resume_stage=result.resume_stage or "vo_synthesize",
+            resume_stage=resume,
             detail=result.detail,
         )
 

@@ -61,7 +61,8 @@ def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
             try:
                 script_match, _reason = synthesis_entry_matches_line(ctx, line)
             except Exception:
-                script_match = present
+                # HE-1: bind-check crash is not heard audio.
+                script_match = False
         if lid in omitted and lid not in seated:
             coverage = "omitted"
         elif line.get("air_script_omit") and lid not in seated:
@@ -102,6 +103,7 @@ def compact_air_script_vo_seats(ctx: RunContext) -> dict[str, Any]:
 
 def run_edl_narrative_audit(ctx: RunContext) -> None:
     """Flagship semantic audit before final Flow 1 EDL construction."""
+    from interview_mux.delivery_guardrails import seed_stage_complete
 
     def build_input(c: RunContext) -> dict:
         payload = {
@@ -116,7 +118,7 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             "air_script_vo_seats": compact_air_script_vo_seats(c),
             "vo_coverage": compact_vo_coverage(c),
             "audit_mode": "heard_wav_flow",
-            "vo_synthesis_complete": c.is_done("vo_synthesize"),
+            "vo_synthesis_complete": seed_stage_complete(c, "vo_synthesize"),
         }
         sdp = payload.get("sound_design_plan")
         if isinstance(sdp, dict):

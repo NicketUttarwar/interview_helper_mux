@@ -618,6 +618,65 @@ def cues_to_vtt(cues: list[dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def vtt_has_cue_bodies(text: str) -> bool:
+    """True when a WEBVTT document has at least one cue timing line."""
+    return any("-->" in line for line in str(text or "").splitlines())
+
+
+def master_transcript_ship_incompleteness(ctx: RunContext) -> str | None:
+    """HPUB-3: cue_count 0 / header-only VTT are not ship-complete (schema still allows 0)."""
+    if not ctx.artifact_exists(MASTER_JSON_REL):
+        return (
+            "cue_count_zero — resume master_transcript_build: "
+            "master/transcript.json missing"
+        )
+    try:
+        doc = ctx.read_json(MASTER_JSON_REL)
+    except Exception:
+        return (
+            "cue_count_zero — resume master_transcript_build: "
+            "master/transcript.json unreadable"
+        )
+    if not isinstance(doc, dict):
+        return (
+            "cue_count_zero — resume master_transcript_build: "
+            "master/transcript.json unreadable"
+        )
+    cues = doc.get("cues") if isinstance(doc.get("cues"), list) else []
+    try:
+        n = int(doc.get("cue_count") if doc.get("cue_count") is not None else len(cues))
+    except (TypeError, ValueError):
+        n = len(cues)
+    nonempty = [
+        row
+        for row in cues
+        if isinstance(row, dict) and str(row.get("text") or "").strip()
+    ]
+    if n < 1 or not nonempty:
+        return (
+            "cue_count_zero — resume master_transcript_build: no spoken cues"
+        )
+    vtt_text = ""
+    if ctx.artifact_exists(MASTER_VTT_REL):
+        try:
+            vtt_text = ctx.read_path(MASTER_VTT_REL).read_text(encoding="utf-8")
+        except Exception:
+            vtt_text = ""
+    if not vtt_has_cue_bodies(vtt_text):
+        return (
+            "header_only_vtt — resume master_transcript_build: "
+            "master/transcript.vtt has no cue bodies"
+        )
+    return None
+
+
+def require_packagable_master_transcript(ctx: RunContext) -> None:
+    """HPUB-3 2A: refuse package when captions are empty or header-only."""
+    reason = master_transcript_ship_incompleteness(ctx)
+    if reason:
+        raise RuntimeError(reason)
+
+
 def cues_to_txt(cues: list[dict[str, Any]]) -> str:
     blocks: list[str] = []
     for cue in cues:
@@ -874,6 +933,15 @@ def run_master_transcript_build(ctx: RunContext) -> dict[str, Any]:
     cues = assemble_master_cues(ctx)
     rewrite_index(ctx)
     doc = write_master_transcript_files(ctx, cues)
+    hollow = master_transcript_ship_incompleteness(ctx)
+    if hollow:
+        ctx.log(
+            f"Master transcript incomplete — {hollow}",
+            level="warning",
+            stage=stage,
+            detail={"cue_count": len(cues)},
+        )
+        raise RuntimeError(hollow)
     ctx.mark_done(stage)
     ctx.log(
         f"Master transcript: {len(cues)} cue(s) → {MASTER_VTT_REL}",
@@ -906,4 +974,8 @@ __all__ = [
     "write_vo_sidecar",
     "write_vo_sidecar_for_line",
     "write_vo_sidecar_from_pickup",
+    "write_master_transcript_files",
+    "vtt_has_cue_bodies",
+    "master_transcript_ship_incompleteness",
+    "require_packagable_master_transcript",
 ]

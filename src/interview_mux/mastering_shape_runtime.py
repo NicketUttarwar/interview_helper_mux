@@ -38,10 +38,103 @@ from interview_mux.run_context import RunContext
 AGENDA_REL = "mastering/shape/agenda.json"
 RUBRIC_REL = "mastering/shape/eval_rubric.json"
 CANDIDATES_REL = "mastering/shape/candidates.json"
+_NORTH_STAR_PILLARS = ("finishability", "recommendability", "tape_integrity")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _heal_shape_stage(ctx: RunContext, stage: str) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, stage, force=True)
+
+
+def ensure_schema_agenda(doc: dict[str, Any] | None) -> dict[str, Any]:
+    """HM-1 3A: map heuristic/LLM agenda onto steps / budgets / north_star_pillars."""
+    out = dict(doc or {})
+    out.setdefault("version", 1)
+    out.setdefault("generated_at", _now())
+    steps_in = out.get("steps")
+    mapped: list[dict[str, Any]] = []
+    if isinstance(steps_in, list):
+        for i, raw in enumerate(steps_in):
+            if not isinstance(raw, dict):
+                continue
+            sid = str(raw.get("step_id") or raw.get("id") or f"step_{i}").strip()
+            goal = str(raw.get("goal") or "").strip() or "shape step"
+            row = dict(raw)
+            row["step_id"] = sid or f"step_{i}"
+            row["goal"] = goal
+            mapped.append(row)
+    if not mapped:
+        for raw in out.get("custom_steps") or []:
+            if not isinstance(raw, dict):
+                continue
+            sid = str(raw.get("step_id") or raw.get("id") or "").strip()
+            goal = str(raw.get("goal") or "").strip()
+            if sid and goal:
+                mapped.append({"step_id": sid, "goal": goal})
+    if not mapped:
+        mode = str(out.get("primary_mode_hypothesis") or "sparse_source")
+        mapped = [
+            {
+                "step_id": "compete_modes",
+                "goal": f"Compete on {mode} for a finishable listen",
+            }
+        ]
+    out["steps"] = mapped
+    budgets = dict(out.get("budgets") or {}) if isinstance(out.get("budgets"), dict) else {}
+    try:
+        max_steps = int(budgets.get("max_steps") or 0)
+    except (TypeError, ValueError):
+        max_steps = 0
+    budgets["max_steps"] = max(1, max_steps or len(mapped))
+    try:
+        budgets["max_prompt_edits"] = max(0, int(budgets.get("max_prompt_edits") or 0))
+    except (TypeError, ValueError):
+        budgets["max_prompt_edits"] = 0
+    try:
+        budgets["max_flagship_calls"] = max(0, int(budgets.get("max_flagship_calls") or 0))
+    except (TypeError, ValueError):
+        budgets["max_flagship_calls"] = 0
+    out["budgets"] = budgets
+    pillars = [str(p).strip() for p in (out.get("north_star_pillars") or []) if str(p).strip()]
+    out["north_star_pillars"] = pillars or list(_NORTH_STAR_PILLARS)
+    return out
+
+
+def _persist_shape_agenda_skip(ctx: RunContext, skip_reason: str) -> None:
+    ctx.write_json(
+        AGENDA_REL,
+        ensure_schema_agenda(
+            {
+                "version": 1,
+                "pass": "provisional",
+                "source": "stub",
+                "skipped": skip_reason,
+                "mode_candidates": ["sparse_source"],
+                "generated_at": _now(),
+            }
+        ),
+        stage_key="mastering_shape_agenda",
+    )
+
+
+def _persist_shape_candidates_skip(ctx: RunContext, skip_reason: str) -> None:
+    ctx.write_json(
+        CANDIDATES_REL,
+        {
+            "version": 1,
+            "pass": "provisional",
+            "candidates": [],
+            "source": "stub",
+            "skipped": skip_reason,
+            "generated_at": _now(),
+        },
+        stage_key="mastering_shape_candidates",
+    )
 
 
 def _style_hints(ctx: RunContext) -> dict[str, str]:
@@ -265,7 +358,7 @@ def _heuristic_agenda_and_rubric(
         "source": "heuristic",
         "generated_at": _now(),
     }
-    return agenda, rubric
+    return ensure_schema_agenda(agenda), rubric
 
 
 def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -282,7 +375,7 @@ def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
     out.setdefault("pass", "provisional")
     out["source"] = "llm"
     out.setdefault("generated_at", _now())
-    return out
+    return ensure_schema_agenda(out)
 
 
 def _rubric_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -302,6 +395,8 @@ def _rubric_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def run_mastering_shape_agenda(ctx: RunContext) -> None:
     if not soft_gate_enabled():
+        _persist_shape_agenda_skip(ctx, "soft_gate_disabled")
+        _heal_shape_stage(ctx, "mastering_shape_agenda")
         return
     try:
         if shape_llm_enabled():
@@ -332,28 +427,35 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                     _, heuristic_rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=False)
                     rubric = heuristic_rubric
                     rubric["notes"] = list(rubric.get("notes") or []) + ["rubric_llm_failed"]
-                ctx.write_json(AGENDA_REL, agenda)
+                ctx.write_json(AGENDA_REL, ensure_schema_agenda(agenda))
                 ctx.write_json(RUBRIC_REL, rubric)
+                _heal_shape_stage(ctx, "mastering_shape_agenda")
                 return
             agenda, rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=True)
-            ctx.write_json(AGENDA_REL, agenda)
+            ctx.write_json(AGENDA_REL, ensure_schema_agenda(agenda))
             ctx.write_json(RUBRIC_REL, rubric)
+            _heal_shape_stage(ctx, "mastering_shape_agenda")
             return
 
         agenda, rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=False)
-        ctx.write_json(AGENDA_REL, agenda)
+        ctx.write_json(AGENDA_REL, ensure_schema_agenda(agenda))
         ctx.write_json(RUBRIC_REL, rubric)
+        _heal_shape_stage(ctx, "mastering_shape_agenda")
     except Exception as exc:
         ctx.write_json(
             AGENDA_REL,
-            {
-                "version": 1,
-                "pass": "provisional",
-                "status": "degraded",
-                "error": str(exc),
-                "mode_candidates": ["sparse_source", "conversational_host"],
-                "generated_at": _now(),
-            },
+            ensure_schema_agenda(
+                {
+                    "version": 1,
+                    "pass": "provisional",
+                    "status": "degraded",
+                    "error": str(exc),
+                    "source": "stub",
+                    "skipped": "agenda_exception",
+                    "mode_candidates": ["sparse_source", "conversational_host"],
+                    "generated_at": _now(),
+                }
+            ),
         )
         ctx.write_json(
             RUBRIC_REL,
@@ -367,6 +469,7 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                 "generated_at": _now(),
             },
         )
+        _heal_shape_stage(ctx, "mastering_shape_agenda")
 
 
 def _heuristic_candidates(ctx: RunContext, *, llm_failed: bool = False) -> dict[str, Any]:
@@ -440,6 +543,8 @@ def _candidates_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def run_mastering_shape_candidates(ctx: RunContext) -> None:
     if not soft_gate_enabled():
+        _persist_shape_candidates_skip(ctx, "soft_gate_disabled")
+        _heal_shape_stage(ctx, "mastering_shape_candidates")
         return
     try:
         if shape_llm_enabled():
@@ -457,10 +562,13 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
             doc = _candidates_from_llm(arts)
             if doc is not None:
                 ctx.write_json(CANDIDATES_REL, doc)
+                _heal_shape_stage(ctx, "mastering_shape_candidates")
                 return
             ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=True))
+            _heal_shape_stage(ctx, "mastering_shape_candidates")
             return
         ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=False))
+        _heal_shape_stage(ctx, "mastering_shape_candidates")
     except Exception as exc:
         ctx.write_json(
             CANDIDATES_REL,
@@ -479,6 +587,7 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
                 "generated_at": _now(),
             },
         )
+        _heal_shape_stage(ctx, "mastering_shape_candidates")
 
 
 def _plan_from_candidate(
@@ -687,6 +796,9 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
                 llm_plan = attach_shape_order(ctx, llm_plan)
                 write_plan(ctx, llm_plan)
                 _maybe_shadow_diff(ctx, llm_plan)
+                from interview_mux.stage_completion import heal_or_raise
+
+                heal_or_raise(ctx, "mastering_plan_confirm")
                 return
 
         provisional_mode = str(prev.get("narrative_mode") or prev.get("provisional_mode") or "conversational_host")
@@ -739,6 +851,9 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
         plan = attach_shape_order(ctx, plan)
         write_plan(ctx, plan)
         _maybe_shadow_diff(ctx, plan)
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, "mastering_plan_confirm")
     except Exception as exc:
         # Keep provisional if present
         if ctx.artifact_exists("mastering/mastering_plan.json"):

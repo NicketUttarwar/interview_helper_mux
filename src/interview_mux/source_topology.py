@@ -700,14 +700,17 @@ def _find_speaker_sample_ms(transcript: dict[str, Any], speaker_id: str) -> tupl
 
 def ensure_source_topology(ctx: RunContext) -> dict[str, Any]:
     """Build topology when the conductor skipped it; clone VO needs speaker stats."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
     topo = load_topology(ctx)
-    if isinstance(topo, dict) and topo.get("speaker_stats"):
+    inc = stage_artifact_incompleteness(ctx, "source_topology_build")
+    if inc is None:
         if not ctx.is_done("source_topology_build"):
             try:
                 heal_or_refuse_mark(ctx, "source_topology_build", force=True)
             except Exception:
                 pass
-        return topo
+        return load_topology(ctx) or (topo if isinstance(topo, dict) else {})
     if not ctx.artifact_exists("transcript/full.json"):
         return topo if isinstance(topo, dict) else {}
     if not ctx.artifact_exists("understanding/speakers.json"):

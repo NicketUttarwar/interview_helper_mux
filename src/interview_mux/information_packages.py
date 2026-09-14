@@ -442,6 +442,9 @@ def run_information_package_plan(ctx: RunContext) -> None:
                 "episode_close": plan.get("episode_close"),
             },
         )
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, "information_package_plan")
         return
 
     selected = select_commits(candidates, cfg=cfg)
@@ -471,6 +474,9 @@ def run_information_package_plan(ctx: RunContext) -> None:
         "regroup_applied": False,
     }
     ctx.write_json(AUDIT_REL, audit)
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, "information_package_plan")
 
 
 def count_before_vo_for_target(gap_report: dict[str, Any] | None, segment_id: str) -> int:

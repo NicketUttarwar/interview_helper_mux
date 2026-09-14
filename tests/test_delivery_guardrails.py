@@ -307,63 +307,6 @@ def test_promote_complete_orphan_stamps_assembly_preview_wav(
     assert seed_stage_complete(ctx, "assembly_preview") is True
 
 
-def test_earliest_seed_skips_orphan_assembly_and_waived_delight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """exec_5404: master_finalize must not thrash on hollow assembly_preview / delight."""
-    from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
-
-    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
-    ctx = _ctx(tmp_path, "seed_asm_delight")
-    preview = ctx.final_path("master", "assembly_preview.wav")
-    preview.parent.mkdir(parents=True, exist_ok=True)
-    preview.write_bytes(b"RIFF" + b"\x00" * 4096)
-    asm = ctx.final_path("master", "assembly.wav")
-    asm.write_bytes(b"RIFF" + b"\x00" * 4096)
-    _write_raw(
-        ctx,
-        "mastering/listen_delight_audit.json",
-        {"pass": "post_master", "passed": False, "advisory": True},
-    )
-    _write_raw(
-        ctx,
-        "run_meta.json",
-        {"automation_driver": True, "run_mode": "full-auto"},
-    )
-    monkeypatch.setattr(
-        "interview_mux.automation_run.automation_driver_run",
-        lambda *_a, **_k: True,
-    )
-    # Force every delivery seed incomplete except what we promote/waive.
-    real_seed = seed_stage_complete
-
-    def _seed(c: RunContext, sid: str) -> bool:
-        if sid == "assembly_preview":
-            return real_seed(c, sid)
-        if sid == "listen_delight_audit":
-            return False
-        return True
-
-    monkeypatch.setattr(
-        "interview_mux.delivery_guardrails.seed_stage_complete",
-        _seed,
-    )
-    monkeypatch.setattr(
-        "interview_mux.homunculus.agenda.stage_outputs_present",
-        lambda _ctx, sid: sid in {"assembly_preview", "listen_delight_audit"},
-    )
-    monkeypatch.setattr(
-        "interview_mux.stage_completion.stage_artifact_incompleteness",
-        lambda _ctx, sid: None,
-    )
-    assert not ctx.is_done("assembly_preview")
-    earliest = _earliest_incomplete_seed_stage(ctx, "master_finalize")
-    assert earliest != "assembly_preview"
-    assert earliest != "listen_delight_audit"
-    assert ctx.is_done("assembly_preview")
-    assert listen_delight_waived_unattended(ctx) is True
-
-
 def test_vo_synth_blocked_when_g1_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "g8")

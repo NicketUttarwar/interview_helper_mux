@@ -35,6 +35,57 @@ SEAM_VERDICTS_PATH = "analysis/connector_seam_verdicts.json"
 FUSE_AUDIT_PATH = "analysis/connector_fuse_audit.json"
 FUSE_ROUNDS_PATH = "analysis/connector_fuse_rounds.json"
 
+
+def fuse_writer_stage(pass_id: str) -> str:
+    """Map a fuse pass_id onto the pipeline stage that owns the write.
+
+    HS-3: ``pre_ranking`` must not stamp shared bounds/manifest as the
+    analysis pass (``connector_fuse_pass``).
+    """
+    blob = str(pass_id or "").strip()
+    if blob == "pre_ranking" or blob.startswith("pre_ranking:") or blob.startswith("pre_ranking"):
+        return "connector_fuse_pass_pre_ranking"
+    return "connector_fuse_pass"
+
+
+def persist_fuse_skip(
+    ctx: RunContext,
+    *,
+    pass_id: str,
+    skip_reason: str,
+    rounds_doc: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Write rounds.json plus an audit stub so skip is not a hollow done.
+
+    HS-3: analysis skip/disabled/empty-packet must leave
+    ``analysis/connector_fuse_audit.json`` (keep rounds too).
+    """
+    doc = dict(rounds_doc or {})
+    doc.setdefault("version", 1)
+    doc.setdefault("pass_id", pass_id)
+    doc.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
+    doc.setdefault("rounds", [])
+    doc.setdefault("total_applied", 0)
+    doc.setdefault("fixed_point", True)
+    doc["skip_reason"] = skip_reason
+    ctx.write_json(FUSE_ROUNDS_PATH, doc)
+    # Analysis contract is the audit. Pre-ranking skip must not mint
+    # connector_fuse_audit.json (that would look like the analysis pass ran).
+    if fuse_writer_stage(pass_id) == "connector_fuse_pass":
+        _append_audit(
+            ctx,
+            {
+                "applied": 0,
+                "applied_fuses": [],
+                "stay_independent": [],
+                "skipped": [],
+                "skip_reason": skip_reason,
+            },
+            verdicts=[],
+            pass_id=pass_id,
+        )
+    return doc
+
 SEAM_STAGE_KEY = "connector_seam_adjudicate"
 SEAM_PROMPT_REL = "segmentation/connector-seam-adjudicate.system.txt"
 
@@ -1003,12 +1054,12 @@ def apply_connector_fuses(
     if applied:
         surviving = [by_id[sid] for sid in order if sid not in consumed and sid in by_id]
         surviving.sort(key=lambda s: _ms(s, "start_ms"))
-        _write_manifest(ctx, surviving)
+        _write_manifest(ctx, surviving, pass_id=pass_id)
         _write_boundaries(ctx, surviving, consumed=consumed, pass_id=pass_id)
 
     _append_audit(ctx, result, verdicts=verdicts, pass_id=pass_id)
     if applied:
-        _remap_downstream_ids(ctx, result.get("id_remap") or {})
+        _remap_downstream_ids(ctx, result.get("id_remap") or {}, pass_id=pass_id)
         ctx.log(
             f"Connector fuse ({pass_id or 'pass'}): merged {len(applied)} seam(s) into "
             f"{len({row['fused_into'] for row in applied})} segment(s)",
@@ -1024,7 +1075,9 @@ def _rewrite_id_list(ids: list[Any], remap: dict[str, str]) -> list[str]:
     return remap_fused_ids(ids, remap)
 
 
-def _remap_downstream_ids(ctx: RunContext, remap: dict[str, str]) -> None:
+def _remap_downstream_ids(
+    ctx: RunContext, remap: dict[str, str], *, pass_id: str = ""
+) -> None:
     """Rewrite every known ``seg_*`` consumer onto surviving fused ids."""
     if not remap:
         return
@@ -1032,12 +1085,14 @@ def _remap_downstream_ids(ctx: RunContext, remap: dict[str, str]) -> None:
     from interview_mux.segment_id_remap import apply_full_segment_id_remap
 
     apply_full_segment_id_remap(
-        ctx, remap, stage_key="connector_fuse_pass", skip_handoff=True
+        ctx, remap, stage_key=fuse_writer_stage(pass_id), skip_handoff=True
     )
     stamp_fused_segment_ids(ctx, remap)
 
 
-def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = None) -> dict[str, Any]:
+def rerun_air_bounds_on_fused(
+    ctx: RunContext, *, fused_ids: list[str] | None = None, pass_id: str = ""
+) -> dict[str, Any]:
     """Re-run keeper air-bound trims on fused slabs (legal hinge snap)."""
     audit = _read_audit(ctx)
     ids = list(fused_ids or [])
@@ -1102,7 +1157,8 @@ def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = 
                 seg["air_bound_meta"] = meta
             changed += 1
     if changed:
-        ctx.write_json("segments/manifest.json", manifest, stage_key="connector_fuse_pass")
+        writer = fuse_writer_stage(pass_id)
+        ctx.write_json("segments/manifest.json", manifest, stage_key=writer)
         try:
             from interview_mux.asset_transcripts import sync_speech_sidecars
 
@@ -1111,22 +1167,25 @@ def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = 
             ctx.log(
                 f"speech sidecar sync after air-bound trim skipped: {exc}",
                 level="warning",
-                stage="connector_fuse_pass",
+                stage=writer,
             )
         _write_boundaries(
             ctx,
             [s for s in (manifest.get("segments") or []) if isinstance(s, dict)],
             consumed=set(),
-            pass_id="air_bounds_after_fuse",
+            pass_id=pass_id or "air_bounds_after_fuse",
         )
     return {"trimmed": changed, "segment_ids": ids}
 
 
-def _write_manifest(ctx: RunContext, segments: list[dict[str, Any]]) -> None:
+def _write_manifest(
+    ctx: RunContext, segments: list[dict[str, Any]], *, pass_id: str = ""
+) -> None:
     manifest = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else {}
     out = dict(manifest) if isinstance(manifest, dict) else {}
     out["segments"] = segments
-    ctx.write_json("segments/manifest.json", out, stage_key="connector_fuse_pass")
+    writer = fuse_writer_stage(pass_id)
+    ctx.write_json("segments/manifest.json", out, stage_key=writer)
     try:
         from interview_mux.asset_transcripts import sync_speech_sidecars
 
@@ -1135,7 +1194,7 @@ def _write_manifest(ctx: RunContext, segments: list[dict[str, Any]]) -> None:
         ctx.log(
             f"speech sidecar sync after fuse skipped: {exc}",
             level="warning",
-            stage="connector_fuse_pass",
+            stage=writer,
         )
 
 
@@ -1177,10 +1236,12 @@ def _write_boundaries(
     try:
         from interview_mux.stage_coupling import publish_boundary_contract
 
-        out = publish_boundary_contract(out, publisher_stage="connector_fuse_pass")
+        out = publish_boundary_contract(out, publisher_stage=fuse_writer_stage(pass_id))
     except Exception:
         pass
-    ctx.write_json("segments/boundaries.json", out, stage_key="connector_fuse_pass")
+    ctx.write_json(
+        "segments/boundaries.json", out, stage_key=fuse_writer_stage(pass_id)
+    )
 
 
 def _append_audit(
@@ -1199,6 +1260,11 @@ def _append_audit(
             "verdict_count": len(verdicts),
             "applied": result.get("applied"),
             "skipped": len(result.get("skipped") or []),
+            **(
+                {"skip_reason": result.get("skip_reason")}
+                if result.get("skip_reason")
+                else {}
+            ),
         },
     ][-40:]
     audit["applied_fuses"] = [*audit.get("applied_fuses", []), *(result.get("applied_fuses") or [])]
@@ -1783,13 +1849,11 @@ def run_connector_fuse_pass(
         "fixed_point": False,
     }
     if not conf.get("enabled", True):
-        rounds_doc["skip_reason"] = "disabled"
-        ctx.write_json(FUSE_ROUNDS_PATH, rounds_doc)
-        return rounds_doc
+        return persist_fuse_skip(ctx, pass_id=pass_id, skip_reason="disabled", rounds_doc=rounds_doc)
     if not ctx.artifact_exists("segments/manifest.json"):
-        rounds_doc["skip_reason"] = "missing_manifest"
-        ctx.write_json(FUSE_ROUNDS_PATH, rounds_doc)
-        return rounds_doc
+        return persist_fuse_skip(
+            ctx, pass_id=pass_id, skip_reason="missing_manifest", rounds_doc=rounds_doc
+        )
 
     hv_rounds = run_high_value_cluster_fuse_rounds(ctx, pass_id=pass_id, cfg=conf)
     hv_applied = int(hv_rounds.get("total_applied") or 0)
@@ -1910,13 +1974,23 @@ def run_connector_fuse_pass(
 
     rounds_doc["total_applied"] = total_applied
     if total_applied:
-        air = rerun_air_bounds_on_fused(ctx)
+        air = rerun_air_bounds_on_fused(ctx, pass_id=pass_id)
         rounds_doc["air_bounds"] = air
     encompass = encompass_straddling_islands(ctx, pass_id=pass_id, cfg=conf)
     rounds_doc["encompassed"] = encompass.get("applied") or 0
     split_qc = assert_no_split_suspect_islands(ctx)
     rounds_doc["split_island_qc"] = split_qc
     ctx.write_json(FUSE_ROUNDS_PATH, rounds_doc)
+    if (
+        fuse_writer_stage(pass_id) == "connector_fuse_pass"
+        and not ctx.artifact_exists(FUSE_AUDIT_PATH)
+    ):
+        persist_fuse_skip(
+            ctx,
+            pass_id=pass_id,
+            skip_reason=str(rounds_doc.get("skip_reason") or "empty_packets"),
+            rounds_doc=rounds_doc,
+        )
     ctx.log(
         f"Connector fuse pass '{pass_id}': {total_applied} fuse(s) over "
         f"{len(rounds_doc['rounds'])} round(s) (fixed_point={rounds_doc['fixed_point']})",
@@ -2009,10 +2083,10 @@ def encompass_straddling_islands(
         return {"applied": 0, "applied_fuses": []}
     surviving = [by_id[sid] for sid in order if sid not in consumed and sid in by_id]
     surviving.sort(key=lambda s: _ms(s, "start_ms"))
-    _write_manifest(ctx, surviving)
+    _write_manifest(ctx, surviving, pass_id=pass_id)
     _write_boundaries(ctx, surviving, consumed=consumed, pass_id=pass_id or "island_encompass")
     remap = {row["absorbed_segment_id"]: row["fused_into"] for row in applied}
-    _remap_downstream_ids(ctx, remap)
+    _remap_downstream_ids(ctx, remap, pass_id=pass_id)
     result = {
         "applied": len(applied),
         "applied_fuses": applied,
@@ -2094,7 +2168,9 @@ __all__ = [
     "enabled",
     "encompass_straddling_islands",
     "enumerate_seam_packets",
+    "fuse_writer_stage",
     "fused_id_remap",
+    "persist_fuse_skip",
     "plan_cluster_fuses",
     "plan_high_value_fuses",
     "remap_fused_ids",

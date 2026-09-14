@@ -314,12 +314,16 @@ def run_episode_cover_prompt_craft(ctx: RunContext) -> None:
                 or None,
             }
         _persist_cover_artifacts(ctx, arts, source="llm_volley")
-        ctx.mark_done(stage_key)
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, stage_key)
         return
     except Exception as exc:
         ctx.log(f"cover craft finalize failed; harvest fallback: {exc}", level="warning", stage=stage_key)
         _cover_craft_fallback(ctx, source="exception_fallback", reason=str(exc))
-        ctx.mark_done(stage_key)
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, stage_key)
 
 
 def run_podcast_encode_mp3(ctx: RunContext) -> None:
@@ -340,7 +344,9 @@ def run_podcast_encode_mp3(ctx: RunContext) -> None:
         f"Encoded podcast MP3 ({bitrate}k, {channels}ch)",
         stage="podcast_encode_mp3",
     )
-    ctx.mark_done("podcast_encode_mp3")
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, "podcast_encode_mp3")
 
 
 def _vision_pick_cfg(ctx: RunContext | None = None) -> dict[str, Any]:
@@ -586,6 +592,9 @@ def run_podcast_publish(ctx: RunContext) -> None:
         master_vtt = ctx.read_path("master/transcript.vtt")
     if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
         raise FileNotFoundError("master/transcript.vtt missing — cannot package Apple transcript")
+    from interview_mux.asset_transcripts import require_packagable_master_transcript
+
+    require_packagable_master_transcript(ctx)
     shutil.copy2(master_vtt, transcript_dest)
     master_pub = ctx.path(f"publish/{files['master']}")
     if not master_pub.is_file():

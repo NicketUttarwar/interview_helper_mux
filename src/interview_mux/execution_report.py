@@ -50,8 +50,12 @@ def _read_meta(ctx: RunContext) -> dict[str, Any]:
 
 def _g0_block(ctx: RunContext, meta: dict[str, Any]) -> dict[str, Any]:
     milestones = meta.get("journey_milestones") if isinstance(meta.get("journey_milestones"), dict) else {}
-    accepted = bool(milestones.get("g0_complete") or ctx.is_done("transcript_review"))
+    signed_off = ctx.is_done("transcript_review")
+    # Sticky stored g0_complete is not ship-accepted (HP-1).
+    accepted = False
     poison_hints: list[str] = []
+    if bool(milestones.get("g0_complete")) and not signed_off:
+        poison_hints.append("stale journey_milestones.g0_complete without transcript_review sign-off")
     try:
         from interview_mux.artifact_completeness import compute_gaps
 

@@ -258,24 +258,27 @@ def _routing_from_llm_artifacts(arts: dict[str, Any] | None) -> dict[str, Any] |
         return None
     out = dict(candidate)
     out.setdefault("version", 1)
-    out.setdefault("mode", "advisory")
+    if out.get("mode") not in {"off", "advisory", "authoritative"}:
+        out["mode"] = "advisory"
     out["source"] = "llm"
     out.setdefault("generated_at", _now())
     return out
 
 
 def _sequential_stub_routing(*, llm_failed: bool = False) -> dict[str, Any]:
+    """HM-1 2A: schema-valid skip stub (mode off/advisory, fields: [])."""
     routing: dict[str, Any] = {
         "version": 1,
-        "mode": "sequential_waves",
+        "mode": "advisory" if llm_failed else "off",
+        "fields": [],
+        "source": "stub",
+        "skipped": "llm_failed" if llm_failed else "research_llm_disabled",
         "waves": sorted(WAVE_FIELDS.keys()),
         "field_count": sum(len(v) for v in WAVE_FIELDS.values()),
-        "source": "stub",
         "generated_at": _now(),
     }
     if llm_failed:
         routing["notes"] = ["llm_failed"]
-        routing["mode"] = "advisory"
     return routing
 
 
@@ -294,12 +297,15 @@ def run_research_routing(ctx: RunContext) -> None:
             routing = _routing_from_llm_artifacts(arts)
             if routing is not None:
                 ctx.write_json(ROUTING_REL, routing)
+                _heal_research_stage(ctx, "mastering_research_routing")
                 return
         except Exception:
             pass
         ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=True))
+        _heal_research_stage(ctx, "mastering_research_routing")
         return
     ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=False))
+    _heal_research_stage(ctx, "mastering_research_routing")
 
 
 def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
@@ -319,6 +325,19 @@ def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
         "version": 1,
         "waves": wave_summaries,
         "fields": fields_out,
+        "field_reports": [
+            {
+                "field_id": fid,
+                "wave": wave,
+                "status": str((fields_out.get(fid) or {}).get("status") or "skipped_or_thin")
+                if isinstance(fields_out.get(fid), dict)
+                else "skipped_or_thin",
+                "path": f"{RESEARCH_DIR}/{fid}.json",
+            }
+            for wave, fids in sorted(WAVE_FIELDS.items())
+            for fid in fids
+        ],
+        "salience_map": {},
         "complete_fields": [k for k, v in fields_out.items() if v.get("status") == "complete"],
         "thin_fields": [k for k, v in fields_out.items() if v.get("status") != "complete"],
         "shape_core": _shape_core_status_from_fields(fields_out),
@@ -326,6 +345,7 @@ def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
     }
     ctx.write_json(DOSSIER_REL, dossier)
     ctx.write_json("mastering/research/rollup.json", dossier)
+    _heal_research_stage(ctx, "mastering_research_rollup")
     return dossier
 
 
@@ -430,6 +450,12 @@ def compile_shape_evidence(ctx: RunContext, *, consumer_id: str, pass_name: str)
     return packet
 
 
+def _heal_research_stage(ctx: RunContext, stage: str) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, stage, force=True)
+
+
 # Stage entry points
 
 def run_mastering_research_routing(ctx: RunContext) -> None:
@@ -447,6 +473,7 @@ def run_mastering_research_waves(ctx: RunContext) -> None:
             "generated_at": _now(),
         },
     )
+    _heal_research_stage(ctx, "mastering_research_waves")
 
 
 def run_mastering_research_rollup(ctx: RunContext) -> None:

@@ -34,7 +34,7 @@ def test_w0_unknown_profile_raises(ctx: RunContext) -> None:
 def test_archive_allowlist_archives_only_listed_paths(ctx: RunContext) -> None:
     import json
 
-    profile = INVALIDATION_PROFILES["seg_resplit_heal"]
+    profile = INVALIDATION_PROFILES["shared_path_restamp"]
     assert profile.archive_allowlist
 
     def _raw(rel: str, data: dict) -> None:
@@ -49,7 +49,7 @@ def test_archive_allowlist_archives_only_listed_paths(ctx: RunContext) -> None:
     for sid in profile.allowed_clear[:3]:
         mark_done_raw(ctx, sid)
 
-    result = apply_bounded_invalidation(ctx, "seg_resplit_heal", reason="b06_archive")
+    result = apply_bounded_invalidation(ctx, "shared_path_restamp", reason="b06_archive")
     archived = set(result.get("archived") or [])
     assert "segments/boundaries.json" in archived
     assert "understanding/content_brief.json" in archived

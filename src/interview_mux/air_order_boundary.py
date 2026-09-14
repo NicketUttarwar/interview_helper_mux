@@ -343,6 +343,100 @@ def commit_selection_mutation(
             end_admit(ctx)
 
 
+SELECTION_COMMIT_REFUSED_REL = "operator/selection_commit_refused.json"
+
+
+def stamp_selection_commit_refused(
+    ctx: RunContext, *, stage_key: str, error: str
+) -> None:
+    """HR-2: sidecar so seed-complete cannot mark the writer after a bus refuse."""
+    try:
+        ctx.write_json(
+            SELECTION_COMMIT_REFUSED_REL,
+            {
+                "version": 1,
+                "active": True,
+                "stage": str(stage_key or ""),
+                "error": str(error or "")[:240],
+            },
+            skip_handoff=True,
+        )
+    except Exception:
+        pass
+
+
+def clear_selection_commit_refused(ctx: RunContext, *, stage_key: str) -> None:
+    if not ctx.artifact_exists(SELECTION_COMMIT_REFUSED_REL):
+        return
+    try:
+        doc = ctx.read_json(SELECTION_COMMIT_REFUSED_REL)
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    if str(doc.get("stage") or "") != str(stage_key or ""):
+        return
+    if not doc.get("active"):
+        return
+    out = dict(doc)
+    out["active"] = False
+    try:
+        ctx.write_json(SELECTION_COMMIT_REFUSED_REL, out, skip_handoff=True)
+    except Exception:
+        pass
+
+
+def selection_commit_refused_reason(ctx: RunContext, stage_id: str) -> str | None:
+    """Incompleteness prose when this writer last failed an on-bus selection commit."""
+    sid = str(stage_id or "").strip()
+    if not sid or not ctx.artifact_exists(SELECTION_COMMIT_REFUSED_REL):
+        return None
+    try:
+        doc = ctx.read_json(SELECTION_COMMIT_REFUSED_REL)
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or not doc.get("active"):
+        return None
+    if str(doc.get("stage") or "") != sid:
+        return None
+    err = str(doc.get("error") or "commit_refused")
+    return f"selection_commit_refused — resume {sid}: {err}"
+
+
+def commit_selection_or_refuse(
+    ctx: RunContext,
+    selection: dict[str, Any],
+    *,
+    producer: str,
+    stage_key: str,
+    checkpoint_mode: CheckpointMode = "repair",
+    merge_from_disk: bool = False,
+    write_committed: bool = False,
+    skip_checkpoint: bool = False,
+    skip_handoff: bool = False,
+) -> dict[str, Any]:
+    """HR-2: on-bus persist or raise a pin-able refuse (never off-bus write_json)."""
+    try:
+        out = commit_selection_mutation(
+            ctx,
+            selection,
+            producer=producer,
+            stage_key=stage_key,
+            checkpoint_mode=checkpoint_mode,
+            merge_from_disk=merge_from_disk,
+            write_committed=write_committed,
+            skip_checkpoint=skip_checkpoint,
+            skip_handoff=skip_handoff,
+        )
+    except Exception as exc:
+        stamp_selection_commit_refused(ctx, stage_key=stage_key, error=str(exc))
+        raise RuntimeError(
+            f"selection_commit_refused — resume {stage_key}: {exc}"
+        ) from exc
+    clear_selection_commit_refused(ctx, stage_key=stage_key)
+    return out
+
+
 def commit_selection_via(
     ctx: RunContext,
     selection: dict[str, Any],

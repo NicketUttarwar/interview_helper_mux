@@ -23,9 +23,9 @@ FRAMING_VO_MAX_OBSERVATIONS = 3
 # When the error names no producer, heal resumes this producer — never the
 # later gate consumer alone (absolute producer-before-consumer for FP class).
 FINGERPRINT_PRODUCER_BY_CONSUMER: dict[str, str] = {
-    "sonic_context_build": "content_brief_reanchor",
+    "sonic_context_build": "sonic_context_build",
     "topic_coverage_audit": "content_brief_reanchor",
-    "sound_design_palettes": "content_brief_reanchor",
+    "sound_design_palettes": "sound_design_palettes",
     "edl": "full_master_ranking",
     "edl_narrative_audit": "edl",
     "assembly_preview": "edl",
@@ -115,10 +115,14 @@ def resolve_fingerprint_heal_resume(
                 pass
 
     ranked = [p for p in producers if p in order]
+    gate = str(gate_stage or "").strip()
+    # HM-2 2A: unnamed sonic/palettes fingerprint self-pins unless the brief is named.
+    if gate in {"sonic_context_build", "sound_design_palettes"}:
+        if "content_brief.json" in low or "content_brief_reanchor" in low:
+            return "content_brief_reanchor"
+        return gate
     if ranked:
         return min(ranked, key=lambda p: order.index(p))
-
-    gate = str(gate_stage or "").strip()
     mapped = FINGERPRINT_PRODUCER_BY_CONSUMER.get(gate)
     if mapped and mapped in order:
         return mapped
@@ -961,15 +965,26 @@ def playbook_post_master_quality_missing(ctx: RunContext) -> list[str]:
 
 def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
     from interview_mux.artifact_repairs import repair_gap_report
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
 
-    if not ctx.artifact_exists("understanding/gap_report.json"):
-        return []
-    doc = ctx.read_json("understanding/gap_report.json")
-    if not isinstance(doc, dict):
-        return []
-    repaired, _notes = repair_gap_report(ctx, doc)
-    ctx.write_json("understanding/gap_report.json", repaired)
-    return ["understanding/gap_report.json"]
+    written: list[str] = []
+    repaired: dict[str, Any] | None = None
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        doc = ctx.read_json("understanding/gap_report.json")
+        if isinstance(doc, dict):
+            repaired, _notes = repair_gap_report(ctx, doc)
+            ctx.write_json("understanding/gap_report.json", repaired)
+            written.append("understanding/gap_report.json")
+    if repaired is None:
+        return written
+    # Compose persist already demotes leftovers after fill. Heal must do the
+    # same so lint can commit when fill cannot cover (no key / exhausted).
+    demoted = demote_uncovered_high_gaps(
+        ctx, gap_report=repaired, origin="uncovered_after_fill"
+    )
+    if demoted and ctx.artifact_exists("understanding/gap_evaluations.json"):
+        written.append("understanding/gap_evaluations.json")
+    return written
 
 
 def playbook_skip_never_touch_cta_layups(ctx: RunContext) -> list[str]:
@@ -1021,8 +1036,14 @@ def playbook_host_cta_omit(ctx: RunContext) -> list[str]:
 
 def playbook_rebuild_edl(ctx: RunContext) -> list[str]:
     from interview_mux.homunculus.agenda import invalidate_downstream
+    from interview_mux.stage_completion import edl_vo_bind_unsanitary
 
+    # Snapshot before invalidate — structural clear can drop gap/plan evidence.
+    unsanitary = edl_vo_bind_unsanitary(ctx)
     invalidate_downstream(ctx, "edl")
+    # HE-2: an existing edl.json is not recovered while VO/bind is unsanitary.
+    if unsanitary or edl_vo_bind_unsanitary(ctx):
+        return []
     return ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
 
 
@@ -1271,6 +1292,18 @@ def handle_stage_failure(
             spec = PLAYBOOK_REGISTRY.get(error_class)
             if spec and spec.resume_stage:
                 resume = spec.resume_stage
+            if error_class == "high_gap_unframed":
+                from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+                resume = high_gap_heal_resume_stage(ctx)
+            if error_class in {
+                "vo_audibility_drift",
+                "opening_orientation_inaudible",
+                "never_touch_zeroed_keep",
+            }:
+                from interview_mux.stage_completion import edl_heal_resume_stage
+
+                resume = edl_heal_resume_stage(ctx)
         except Exception:
             pass
         return _result(
@@ -1517,22 +1550,30 @@ def handle_stage_failure(
             playbook_id = "high_gap_unframed"
             artifacts = playbook_high_gap_unframed(ctx)
             recovered = bool(artifacts)
-            resume_stage = "gap_framing_compose"
+            from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+            resume_stage = high_gap_heal_resume_stage(ctx)
         elif error_class == "never_touch_zeroed_keep":
             playbook_id = "never_touch_zeroed_keep"
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            resume_stage = edl_heal_resume_stage(ctx)
             artifacts = playbook_never_touch_zeroed_keep(ctx)
-            recovered = True
-            resume_stage = "edl"
+            recovered = bool(artifacts) and resume_stage == "edl"
         elif error_class == "vo_audibility_drift":
             playbook_id = "vo_audibility_drift"
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            resume_stage = edl_heal_resume_stage(ctx)
             artifacts = playbook_vo_audibility_drift(ctx)
-            recovered = True
-            resume_stage = "edl"
+            recovered = bool(artifacts) and resume_stage == "edl"
         elif error_class == "opening_orientation_inaudible":
             playbook_id = "opening_orientation_inaudible"
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            resume_stage = edl_heal_resume_stage(ctx)
             artifacts = playbook_opening_orientation_inaudible(ctx)
-            recovered = True
-            resume_stage = "edl"
+            recovered = bool(artifacts) and resume_stage == "edl"
         elif error_class == "pending_write_barrier":
             playbook_id = "pending_write_barrier"
             artifacts = playbook_pending_write_barrier(ctx)

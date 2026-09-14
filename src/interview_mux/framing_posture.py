@@ -175,6 +175,33 @@ def build_monologue_decision(ctx: RunContext) -> dict[str, Any]:
     )
 
 
+def build_allow_stub_decision(*, decided_by: DecidedBy) -> dict[str, Any]:
+    """Schema-complete stub so seed/delivery can proceed without the advisory LLM.
+
+    Does not skip gap fill (HU-2 3A). G-Framing still runs as a normal gate.
+    """
+    if decided_by == "feature_disabled":
+        rationale = (
+            "Framing posture advisory is disabled. G-Framing still runs as a normal gate."
+        )
+        codes = ["feature_disabled"]
+    else:
+        rationale = (
+            "Framing posture advisory skipped for this brain. "
+            "G-Framing still runs as a normal gate."
+        )
+        codes = ["homunculus_skip"]
+    return _normalize_decision(
+        {
+            "recommended_framing": "yes",
+            "posture_hint": "framing_full",
+            "rationale_plain": rationale,
+            "reason_codes": codes,
+        },
+        decided_by=decided_by,
+    )
+
+
 def persist_framing_decision(ctx: RunContext, decision: dict[str, Any]) -> None:
     from interview_mux.artifact_writes import write_validated_artifact
 
@@ -228,6 +255,7 @@ def should_run_framing_posture_llm(ctx: RunContext) -> bool:
 __all__ = [
     "FRAMING_POSTURE_DECISION_REL",
     "apply_host_gate",
+    "build_allow_stub_decision",
     "build_framing_posture_input",
     "build_monologue_decision",
     "framing_posture_cfg",

@@ -183,6 +183,12 @@ def normalize_reason(reason: str) -> str:
     return text[:240].strip().lower()
 
 
+def fail_key_signature(fail_key: str) -> str:
+    """Stable ledger signature for a driver ``fail_key`` (same hash as ``record_failure``)."""
+    key = str(fail_key or "").strip()
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
 def failure_signature(
     *,
     failed_stage: str,
@@ -296,6 +302,58 @@ def _cascade_suppressed_row(
     return out
 
 
+_PREDICATE_UNCHANGED_MARKERS = (
+    "batch_fill",
+    "filled_by",
+    "predicate_unchanged",
+    "hollow-refuse",
+    "coverage_cap",
+    "vo_unsanitary",
+    "coverage exhaust",
+    "coverage-exhaust",
+    "still_missing",
+    "missing_framing batch_fill",
+)
+
+
+def predicate_is_unchanged_rewrite(reason: str = "", token: str = "") -> bool:
+    """Wave 2b: same hollow-refuse rewrite is not ESR progress (mtime ≠ new work)."""
+    blob = f"{reason} {token}".lower()
+    return any(m in blob for m in _PREDICATE_UNCHANGED_MARKERS)
+
+
+def _finalize_halt_stamp(
+    ctx: RunContext,
+    row: dict[str, Any],
+    prev: dict[str, Any],
+) -> None:
+    """HC-2: new halt follows ESR freshness (1B); a stamped halt stays (3A)."""
+    if bool(prev.get("halt")):
+        row["halt"] = True
+        row.pop("esr_softened", None)
+        row.pop("esr_error", None)
+        return
+    if not row.get("halt"):
+        return
+    reason = str(row.get("reason") or "")
+    token = str(row.get("predicate_token") or "")
+    if predicate_is_unchanged_rewrite(reason, token):
+        # Wave 2b: rewrite of the same hollow-refuse primary is not ESR progress.
+        return
+    try:
+        from interview_mux.execution_status import may_hard_halt
+
+        pin = str(row.get("failed_stage") or row.get("resume_attempted") or "")
+        if not may_hard_halt(ctx, pin=pin, predicate_token=token):
+            row["halt"] = False
+            row["esr_softened"] = True
+    except Exception:
+        # Fail-closed for HARD: prefer wait over false sticky
+        row["halt"] = False
+        row["esr_softened"] = True
+        row["esr_error"] = True
+
+
 def _mirror_forensics_error(ctx: RunContext, row: dict[str, Any]) -> None:
     """Always capture forensics error detail when MUX_FORENSICS is on."""
     try:
@@ -406,7 +464,7 @@ def record_failure(
 
     if kind_key == "fail_key":
         key = str(fail_key or "").strip()
-        sig = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+        sig = fail_key_signature(key)
         doc = read_identical_failures(ctx)
         signatures = dict(doc.get("signatures") or {})
         prev = dict(signatures.get(sig) or {})
@@ -436,6 +494,7 @@ def record_failure(
         ).strip()
         if token:
             row["predicate_token"] = token
+        _finalize_halt_stamp(ctx, row, prev)
         signatures[sig] = row
         order = [s for s in (doc.get("order") or []) if s != sig]
         order.append(sig)
@@ -520,23 +579,7 @@ def record_failure(
             or ""
         ).strip(),
     }
-    # a8: do not stamp HARD while ESR says producers are still progressing
-    if row["halt"]:
-        try:
-            from interview_mux.execution_status import may_hard_halt
-
-            if not may_hard_halt(
-                ctx,
-                pin=stage,
-                predicate_token=str(row.get("predicate_token") or ""),
-            ):
-                row["halt"] = False
-                row["esr_softened"] = True
-        except Exception:
-            # Fail-closed for HARD: prefer wait over false sticky
-            row["halt"] = False
-            row["esr_softened"] = True
-            row["esr_error"] = True
+    _finalize_halt_stamp(ctx, row, prev)
     signatures[sig] = row
     order = [s for s in (doc.get("order") or []) if s != sig]
     order.append(sig)
@@ -681,7 +724,7 @@ def record_failure_unified(
         n = int(count) if count is not None else None
         if n is None:
             # Increment relative to prior fail_key row.
-            sig = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+            sig = fail_key_signature(key)
             prev = dict((read_identical_failures(ctx).get("signatures") or {}).get(sig) or {})
             n = int(prev.get("count") or 0) + 1
         return upsert_fail_key(
@@ -721,6 +764,9 @@ def is_halted(ctx: RunContext, signature: str) -> bool:
 
     Forensics mode → always False (campaign patch-and-resume). Advisory
     ``error_class`` rows stay telemetry-only even at ×3.
+
+    HC-2: a stamped ``halt: true`` stands even if ESR sees a newer mtime.
+    Unstamped count≥limit still waits while ESR says producer progress is fresh.
     """
     if forensics_mode():
         return False
@@ -743,16 +789,28 @@ def is_halted(ctx: RunContext, signature: str) -> bool:
             return False
     except Exception:
         pass
-    # ESR: do not treat as halted while producer progress is fresh
+    # HC-2 3A: a stamped halt stands (mtime/ESR must not un-halt).
+    if bool(row.get("halt")):
+        return True
+    # HC-2 1B: unstamped ×3 still waits while producer progress is fresh.
     try:
         from interview_mux.execution_status import may_hard_halt
 
         pin = str(row.get("failed_stage") or row.get("resume_attempted") or "")
-        if pin and not may_hard_halt(ctx, pin=pin):
+        if pin and not may_hard_halt(
+            ctx,
+            pin=pin,
+            predicate_token=str(row.get("predicate_token") or ""),
+        ):
             return False
     except Exception:
         pass
-    return bool(row.get("halt")) or int(row.get("count") or 0) >= halt_after()
+    return int(row.get("count") or 0) >= halt_after()
+
+
+def is_fail_key_halted(ctx: RunContext, fail_key: str) -> bool:
+    """``is_halted`` for a driver fail_key (one authority)."""
+    return is_halted(ctx, fail_key_signature(fail_key))
 
 
 def halted_rows(ctx: RunContext) -> list[dict[str, Any]]:

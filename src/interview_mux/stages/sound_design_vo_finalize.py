@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from interview_mux.acoustic_profile import load_profile, placement_hints
@@ -11,6 +12,19 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly import resolve_vo_pickup_path
 from interview_mux.stages.sound_design_stages import _validate_sound_design_plan
+
+FINALIZE_REL = "mastering/sound_design_vo_finalize.json"
+STAGE_ID = "sound_design_vo_finalize"
+
+
+def _write_finalize_sidecar(ctx: RunContext, doc: dict[str, Any]) -> None:
+    ctx.write_json(FINALIZE_REL, doc, skip_handoff=True, stage_key=STAGE_ID)
+
+
+def _heal_finalize_mark(ctx: RunContext) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, STAGE_ID)
 
 
 def run_sound_design_vo_finalize(ctx: RunContext) -> None:
@@ -30,12 +44,19 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
         ctx.log(
             f"opening_adjacency repair skipped: {exc}",
             level="warning",
-            stage="sound_design_vo_finalize",
+            stage=STAGE_ID,
         )
     sdp_path = "understanding/sound_design_plan.json"
     if not ctx.artifact_exists(sdp_path):
-        ctx.log("vo_finalize: no sound_design_plan — skip", level="info", stage="sound_design_vo_finalize")
-        ctx.mark_done("sound_design_vo_finalize")
+        ctx.log("vo_finalize: no sound_design_plan — refuse", level="info", stage=STAGE_ID)
+        _write_finalize_sidecar(
+            ctx,
+            {
+                "skipped": False,
+                "refused": True,
+                "reason": "no_sound_design_plan",
+            },
+        )
         return
 
     plan = ctx.read_json(sdp_path)
@@ -87,8 +108,18 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
             adjusted += 1
 
     if adjusted == 0 and skipped == 0:
-        ctx.log("vo_finalize: no VO bridge cues to adjust — skip", level="info", stage="sound_design_vo_finalize")
-        ctx.mark_done("sound_design_vo_finalize")
+        ctx.log("vo_finalize: no VO bridge cues to adjust — skip", level="info", stage=STAGE_ID)
+        _write_finalize_sidecar(
+            ctx,
+            {
+                "skipped": True,
+                "refused": False,
+                "reason": "no_vo_bridge_cues",
+                "adjusted": 0,
+                "skipped_cues": 0,
+            },
+        )
+        _heal_finalize_mark(ctx)
         return
 
     if missing_vo_bridge:
@@ -120,26 +151,41 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
             level="warning",
             stage="sound_design_vo_finalize",
         )
-        ctx.write_json(
-            "mastering/sound_design_vo_finalize.json",
-            {"skipped": True, "errors": [str(e) for e in errors[:6]]},
-            skip_handoff=True,
-            stage_key="sound_design_vo_finalize",
+        _write_finalize_sidecar(
+            ctx,
+            {
+                "skipped": True,
+                "refused": False,
+                "reason": "sdp_validation_failed",
+                "errors": [str(e) for e in errors[:6]],
+            },
         )
         if adjusted:
             _patch_sonic_context_vo_bridges(ctx, plan)
-        ctx.mark_done("sound_design_vo_finalize")
         return
-    with logged_step("sound_design_vo_finalize/write", ctx=ctx, stage="sound_design_vo_finalize"):
+    with logged_step("sound_design_vo_finalize/write", ctx=ctx, stage=STAGE_ID):
         _validate_sound_design_plan(plan)
-        ctx.write_json(sdp_path, plan)
+        # Persist adjusted SDP without admit oscillation (C-02 plant path).
+        dest = ctx.final_path("understanding", "sound_design_plan.json")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(plan), encoding="utf-8")
         _patch_sonic_context_vo_bridges(ctx, plan)
     ctx.log(
         f"vo_finalize: adjusted={adjusted} skipped={skipped}",
         level="success",
-        stage="sound_design_vo_finalize",
+        stage=STAGE_ID,
     )
-    ctx.mark_done("sound_design_vo_finalize")
+    _write_finalize_sidecar(
+        ctx,
+        {
+            "skipped": False,
+            "refused": False,
+            "reason": "adjusted",
+            "adjusted": adjusted,
+            "skipped_cues": skipped,
+        },
+    )
+    _heal_finalize_mark(ctx)
 
 
 def _gap_line(gap_report: dict[str, Any], line_id: str) -> dict[str, Any] | None:

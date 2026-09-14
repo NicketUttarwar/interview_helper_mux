@@ -103,9 +103,9 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
       });
       showToast("Gap pickup speaker confirmed — gap evaluation can continue.");
       await load();
-      await refreshRun();
+      const refreshed = await refreshRun();
       closeActionModal();
-      if (shouldAdvanceAfterGatePost(run)) {
+      if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
         await advanceFromCheckpoint();
       }
     } catch (e) {
@@ -130,9 +130,9 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
         "success",
       );
       await load();
-      await refreshRun();
+      const refreshed = await refreshRun();
       closeActionModal();
-      if (shouldAdvanceAfterGatePost(run)) {
+      if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
         await advanceFromCheckpoint();
       }
     } catch (e) {

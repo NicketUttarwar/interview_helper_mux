@@ -495,6 +495,24 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         return
 
     if not ctx.artifact_exists("segments/boundaries.json"):
+        wrote_then_lost = False
+        try:
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            if isinstance(meta, dict):
+                wrote_then_lost = bool(meta.get("boundary_topic_resplit_wrote"))
+        except Exception:
+            wrote_then_lost = False
+        if wrote_then_lost:
+            # HS-2: this invoke (or a prior one) wrote then lost the primary —
+            # do not hollow-stamp a hole we created. True empty-at-start skip
+            # still completes below.
+            ctx.log(
+                "boundary_topic_resplit refused hollow skip after own write — "
+                "segments/boundaries.json is pending",
+                level="error",
+                stage="boundary_topic_resplit",
+            )
+            return
         ctx.log("boundary_topic_resplit skipped — no boundaries", level="warning", stage="boundary_topic_resplit")
         # Intentional skip: nothing to resplit. Hollow-stamp done — heal_or_refuse
         # would refuse on pending boundaries.json incompleteness.
@@ -562,6 +580,12 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         out["boundaries"] = normalized
         publish_boundary_contract(out)
         ctx.write_json("segments/boundaries.json", out, stage_key="boundary_topic_resplit")
+
+    if ctx.artifact_exists("segments/boundaries.json"):
+        def _stamp_wrote(m: dict) -> None:
+            m["boundary_topic_resplit_wrote"] = True
+
+        ctx.mutate_run_meta(_stamp_wrote)
 
     # Classification/reanchor consumed pre-resplit boundaries — drop their done markers
     # without clear_from(segment_classification), which would archive this write.
@@ -899,7 +923,9 @@ def run_classification(ctx: RunContext) -> None:
                 )
             merged = {"segments": [by_id[sid] for sid in required_ids if sid in by_id]}
             persist(ctx, merged)
-            ctx.mark_done("segment_classification")
+            from interview_mux.stage_completion import heal_or_raise
+
+            heal_or_raise(ctx, "segment_classification")
             ctx.log(
                 f"segment_classification batched complete ({len(merged['segments'])} segments)",
                 level="success",

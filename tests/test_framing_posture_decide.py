@@ -133,16 +133,18 @@ def test_monologue_skips_llm_and_skips_gap_path(
     assert gap_fill_was_skipped(ctx)
 
 
-def test_non_homunculus_skips_stage_without_artifact(tmp_path: Path) -> None:
+def test_non_homunculus_writes_allow_stub(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "legacy_skip")
     _write_homunculus_meta(ctx, version="0.0.0")
     _write_hosted_interview_fixtures(ctx)
 
     stage_mod.run_framing_posture_decide(ctx)
 
-    # Legacy brain skips without writing posture; hollow mark is refused.
-    assert not ctx.is_done("framing_posture_decide")
-    assert not ctx.artifact_exists(FRAMING_POSTURE_DECISION_REL)
+    assert ctx.is_done("framing_posture_decide")
+    doc = ctx.read_json(FRAMING_POSTURE_DECISION_REL)
+    assert doc["decided_by"] == "homunculus_skip"
+    assert doc["recommended_framing"] == "yes"
+    assert not gap_fill_was_skipped(ctx)
 
 
 def test_llm_advisory_does_not_skip_gap_path(

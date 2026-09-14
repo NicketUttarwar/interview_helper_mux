@@ -75,10 +75,14 @@ def recommended_framing_action(ctx: RunContext) -> str:
         pass
 
     # 3) LLM framing posture decision — never auto-Yes over explicit no/sparse
+    stub_decided = False
     try:
         if ctx.artifact_exists("understanding/framing_posture_decision.json"):
             doc = ctx.read_json("understanding/framing_posture_decision.json")
             if isinstance(doc, dict):
+                decided = str(doc.get("decided_by") or "").strip()
+                if decided in {"feature_disabled", "homunculus_skip"}:
+                    stub_decided = True
                 rec = str(doc.get("recommended_framing") or "").strip().lower()
                 if rec == "no":
                     return "skip"
@@ -88,25 +92,29 @@ def recommended_framing_action(ctx: RunContext) -> str:
         pass
 
     # 4) Hosted topologies that default to Yes (clone least-spoken host)
-    try:
-        from interview_mux.homunculus.source_card import read_source_card
+    # HU-2: allow-stub posture is not auto_resolve — G-Framing still runs.
+    if not stub_decided:
+        try:
+            from interview_mux.homunculus.source_card import read_source_card
 
-        card = read_source_card(ctx) or {}
-        topo = str(card.get("topology") or "").lower()
-        posture = str(card.get("framing_posture") or "")
-        if not topo and ctx.artifact_exists("understanding/source_topology.json"):
-            raw_topo = ctx.read_json("understanding/source_topology.json")
-            if isinstance(raw_topo, dict):
-                topo = str(raw_topo.get("topology_class") or "").lower()
-        if posture == "least_spoken_host" or topo in {
-            "one_on_one_asymmetric",
-            "one_on_one_balanced",
-            "balanced_1on1",
-            "multi_idea_sparse_host",
-        }:
-            return "auto_resolve"
-    except Exception:
-        pass
+            card = read_source_card(ctx) or {}
+            topo = str(card.get("topology") or "").lower()
+            posture = str(card.get("framing_posture") or "")
+            if not topo and ctx.artifact_exists("understanding/source_topology.json"):
+                raw_topo = ctx.read_json("understanding/source_topology.json")
+                if isinstance(raw_topo, dict):
+                    topo = str(raw_topo.get("topology_class") or "").lower()
+            if posture == "least_spoken_host" or topo in {
+                "one_on_one_asymmetric",
+                "one_on_one_balanced",
+                "balanced_1on1",
+                "multi_idea_sparse_host",
+            }:
+                return "auto_resolve"
+        except Exception:
+            pass
+    else:
+        return "present_operator"
 
     # 5) Eligibility silent-skip / eligible
     try:

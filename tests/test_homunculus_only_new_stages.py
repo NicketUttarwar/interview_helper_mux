@@ -27,8 +27,12 @@ def test_framing_posture_homunculus_guard(tmp_path: Path, version: str) -> None:
     )
     framing_stage.run_framing_posture_decide(ctx)
     if version == "0.0.0":
-        assert not ctx.is_done("framing_posture_decide")
-        assert not ctx.artifact_exists("understanding/framing_posture_decision.json")
+        assert ctx.is_done("framing_posture_decide")
+        assert ctx.artifact_exists("understanding/framing_posture_decision.json")
+        assert (
+            ctx.read_json("understanding/framing_posture_decision.json").get("decided_by")
+            == "homunculus_skip"
+        )
     else:
         assert ctx.is_done("framing_posture_decide")
 

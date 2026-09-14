@@ -62,13 +62,23 @@ PREPARE_STAGE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "preclean/isolated.wav",
         "preclean/provider.json",
         "preclean/lineage.json",
+        # HP-3: operator skip is a finished skip — do not hollow-unmark it.
+        "preclean/skip.json",
     ),
     "ingest": ("ingest/normalized.wav",),
     "transcribe": ("transcript/full.json",),
+    "transcript_review_build": ("transcript/review_queue.json",),
 }
 
 
 def prepare_outputs_present(ctx: RunContext, stage: str) -> bool:
+    if stage == "transcript_review_build":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("transcript/review_queue.json")
     needed = PREPARE_STAGE_OUTPUTS.get(stage)
     if not needed:
         return True
@@ -174,12 +184,27 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
         _restore_skipped_gap_prereqs(ctx)
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
+    def _keep_if_incomplete(stage_id: str, *, already_healed: bool = False) -> None:
+        """Wave 1a: file-exists is not delivery-ready when heal refuses or not done."""
+        if not already_healed:
+            heal_or_refuse_mark(ctx, stage_id, force=True)
+        try:
+            inc_after = stage_artifact_incompleteness(ctx, stage_id)
+        except Exception:
+            inc_after = "incompleteness_check_failed"
+        if inc_after or not ctx.is_done(stage_id):
+            if stage_id not in pending:
+                pending.append(stage_id)
+
     for stage, rel in DELIVERY_ANALYSIS_PREREQS:
         if gap_skipped and stage in _GAP_FILL_ANALYSIS_PREREQS:
             if ctx.artifact_exists(rel):
                 if not ctx.is_done(stage):
                     heal_or_refuse_mark(ctx, stage, force=True)
+                _keep_if_incomplete(stage, already_healed=True)
                 continue
+            pending.append(stage)
+            continue
         if ctx.artifact_exists(rel):
             # Stale shared producers (e.g. boundaries.json stamped by
             # clear_from(boundary_detection)) must stay pending even when
@@ -191,9 +216,14 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
             if inc and "stale" in str(inc).lower():
                 pending.append(stage)
                 continue
-            if ctx.is_done(stage):
+            if stage == "source_topology_build" and inc:
+                if ctx.is_done(stage):
+                    heal_or_refuse_mark(ctx, stage)
+                pending.append(stage)
                 continue
-            heal_or_refuse_mark(ctx, stage, force=True)
+            if ctx.is_done(stage) and not inc:
+                continue
+            _keep_if_incomplete(stage)
             continue
         pending.append(stage)
     return pending
@@ -208,6 +238,14 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
     if not g0_closed(ctx):
         return
     if stage == "transcript_review_build":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            if stage_artifact_incompleteness(ctx, stage):
+                return
+        except Exception:
+            if not ctx.artifact_exists("transcript/review_queue.json"):
+                return
         if not ctx.is_done(stage):
             heal_or_refuse_mark(ctx, stage, force=True)
         raise RuntimeError(
@@ -235,6 +273,10 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
 PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "ingest": ("ingest/normalized.wav",),
     "transcribe": ("transcript/full.json",),
+    "transcript_review_build": ("transcript/review_queue.json",),
+    "speaker_roles": ("understanding/speakers.json",),
+    "source_acoustic_profile": ("understanding/source_acoustic_profile.json",),
+    "sonic_context_build": ("understanding/sonic_context.json",),
     "source_topology_build": (
         "understanding/source_topology.json",
         "understanding/flow_adaptation.json",
@@ -247,7 +289,9 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "segment_classification": ("segments/manifest.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
     "framing_posture_decide": ("understanding/framing_posture_decision.json",),
-    "episode_structure_compose": (),
+    "delivery_brief_build": ("understanding/delivery_brief.json",),
+    "soundscape_policy_build": ("understanding/soundscape_policy.json",),
+    "episode_structure_compose": ("understanding/episode_structure.json",),
     "chapter_close_hitch": ("mastering/chapter_close_hitch.json",),
     "full_master_ranking": ("master/selection.json",),
     "transitions": ("master/transitions.json",),
@@ -283,7 +327,10 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
     "episode_meta_build": ("publish/episode_meta.json",),
     "episode_cover_prompt_craft": ("publish/cover_prompt.json",),
     "podcast_encode_mp3": ("publish/audio.mp3",),
-    "podcast_publish": ("publish/chapters.json",),
+    # HPUB-2: cover generate is hollow without the jpg; publish remaining is
+    # package_ready (ready:true), not chapters.json written mid-package.
+    "episode_cover_generate": ("publish/cover.jpg",),
+    "podcast_publish": ("publish/package_ready.json",),
 }
 
 MUSIC_SKIP_GUARD = frozenset(
@@ -530,6 +577,15 @@ def constrain_conductor_to_seed_front(
             return remaining
     front = earliest_incomplete_seed_stage(ctx, phase, set(remaining))
     if front:
+        # Never pin EDL while narrative audit is still fail — re-audit / remutate first.
+        if phase == "delivery" and front == "edl":
+            try:
+                from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
+
+                if narrative_audit_blocks_edl(ctx):
+                    front = "edl_narrative_audit"
+            except Exception:
+                pass
         if phase == "delivery" and remaining[0] != front:
             try:
                 from interview_mux.delivery_guardrails import record_wasted_work
@@ -705,7 +761,22 @@ def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
     return True
 
 
+def _package_ready_true(ctx: RunContext) -> bool:
+    """HPUB-2: podcast_publish seed requires package_ready with ready:true."""
+    if not ctx.artifact_exists("publish/package_ready.json"):
+        return False
+    try:
+        doc = ctx.read_json("publish/package_ready.json")
+    except Exception:
+        return False
+    return isinstance(doc, dict) and doc.get("ready") is True
+
+
 def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
+    if stage == "gap_framing_recompose":
+        return ctx.artifact_exists(
+            "understanding/gap_framing_recompose.json"
+        ) or ctx.artifact_exists("understanding/refinement_skip_copy.json")
     if stage == "low_conf_island_scan":
         return ctx.artifact_exists("analysis/low_conf_islands.json") or ctx.artifact_exists(
             "analysis/low_conf_must_keep.json"
@@ -822,6 +893,71 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
         # and rewrote G1 after a selection-order heal.
         rels = stage_required_outputs(stage)
         return bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)
+    if stage == "source_acoustic_profile":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("understanding/source_acoustic_profile.json")
+    if stage == "sonic_context_build":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("understanding/sonic_context.json")
+    if stage in {
+        "delivery_brief_build",
+        "soundscape_policy_build",
+        "episode_structure_compose",
+    }:
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            rels = stage_required_outputs(stage)
+            return bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)
+    if stage == "missing_framing":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("understanding/gap_evaluations.json")
+    if stage == "vernacular_segment_sanitize":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("vernacular/resplit_report.json")
+    if stage in {
+        "mastering_research_routing",
+        "mastering_research_waves",
+        "mastering_research_rollup",
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
+    }:
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            rels = stage_required_outputs(stage)
+            return bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)
+    if stage == "transcript_review_build":
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            return ctx.artifact_exists("transcript/review_queue.json")
+    if stage == "episode_cover_generate":
+        return ctx.artifact_exists("publish/cover.jpg")
+    if stage == "podcast_publish":
+        return _package_ready_true(ctx)
     needed = stage_required_outputs(stage)
     if not needed:
         return ctx.is_done(stage)
@@ -1007,11 +1143,46 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
     }
 
 
+def _truncate_analysis_while_g0_open(ctx: RunContext, stages: list[str]) -> list[str]:
+    """HP-4 2A: while the review queue exists unsigned, do not walk past G0."""
+    from interview_mux.gates import g0_blocks_analysis
+
+    if not g0_blocks_analysis(ctx):
+        return list(stages)
+    order = {sid: idx for idx, sid in enumerate(ANALYSIS_ORDER + DELIVERY_ORDER)}
+    g0_idx = order.get("transcript_review_build")
+    if g0_idx is None:
+        return list(stages)
+    return [s for s in stages if order.get(s, 10**9) <= g0_idx]
+
+
+def _drop_delivery_while_voice_ref_open(ctx: RunContext, stages: list[str]) -> list[str]:
+    """HG-4 2A: while G-VoiceRef is open, do not walk into delivery topic coverage."""
+    try:
+        from interview_mux.gap_vo_gates import check_voice_reference_pending
+
+        if not check_voice_reference_pending(ctx):
+            return list(stages)
+    except Exception:
+        return list(stages)
+    return [s for s in stages if s not in DELIVERY_ORDER]
+
+
 def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
-    # Analysis remainder is .stage_done. Delivery remainder is seated outputs,
+    # Analysis remainder is .stage_done, except island/fuse (HS-1) which drop
+    # when outputs exist. Delivery remainder is seated outputs,
     # plus G1 incompleteness so hollow VO / music cannot drop off the agenda.
     if phase != "delivery":
-        return [s for s in _order_for(phase) if not ctx.is_done(s)]
+        rem: list[str] = []
+        for sid in _order_for(phase):
+            if ctx.is_done(sid):
+                continue
+            # HS-1: island/fuse outputs complete the analysis seat even without
+            # a done marker (wrappers historically skipped heal-mark).
+            if sid in PROTECTED_ISLAND_STAGES and stage_outputs_present(ctx, sid):
+                continue
+            rem.append(sid)
+        return _truncate_analysis_while_g0_open(ctx, rem)
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
     remutate_force: set[str] = set()
@@ -1037,7 +1208,7 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
             if stage_artifact_incompleteness(ctx, sid) is None:
                 continue
         out.append(sid)
-    return out
+    return _drop_delivery_while_voice_ref_open(ctx, out)
 
 
 def ship_after_master_remaining(ctx: RunContext) -> list[str]:
@@ -1284,7 +1455,7 @@ def rerun_stage(
     try:
         from interview_mux.homunculus.runtime import dispatch_stage
 
-        dispatch_stage(ctx, stage, lambda: run_single_stage(ctx, stage), source="rerun")
+        dispatch_stage(ctx, stage, lambda sid: run_single_stage(ctx, sid), source="rerun")
     finally:
         if hasattr(ctx, "_homunculus_inner_stage"):
             delattr(ctx, "_homunculus_inner_stage")
@@ -1575,6 +1746,7 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             blockers.append(f"upstream_incomplete:{up}")
     try:
         from interview_mux.delivery_guardrails import (
+            MIX_EPOCH_RUN_BLOCK,
             current_delivery_phase,
             mix_epoch_block,
             upstream_stale_blockers,
@@ -1587,7 +1759,7 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             vo_b = vo_synthesize_stability_block(ctx)
             if vo_b:
                 blockers.append(f"vo_synth_unstable:{vo_b}")
-        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+        if stage in MIX_EPOCH_RUN_BLOCK:
             mix_b = mix_epoch_block(ctx)
             if mix_b:
                 blockers.append(f"mix_epoch:{mix_b}")
@@ -1771,16 +1943,9 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
     try:
         from interview_mux.web.job_progress import notify_batch_plan
 
-        walk_stages = list(stages)
-        if g0_blocks_analysis(ctx) and ctx.artifact_exists("ingest/transcript.json"):
-            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
-
-            stage_order = {sid: idx for idx, sid in enumerate(ANALYSIS_ORDER + DELIVERY_ORDER)}
-            g0_idx = stage_order.get("transcript_review_build")
-            if g0_idx is not None:
-                walk_stages = [
-                    s for s in walk_stages if stage_order.get(s, 10**9) <= g0_idx
-                ]
+        walk_stages = _drop_delivery_while_voice_ref_open(
+            ctx, _truncate_analysis_while_g0_open(ctx, list(stages))
+        )
 
         notify_batch_plan(
             ctx.run_id,
@@ -1834,6 +1999,27 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                         )
                         return
                 continue
+            if stage == "transcript_review":
+                # 3A: remainder walk must not sign G0 off. Driver owns complete_g0 / wait.
+                ctx.log(
+                    "g0_pending: transcript_review operator must-act — walk will not run the gate",
+                    level="warning",
+                    stage="transcript_review",
+                )
+                break
+            if stage == "topic_coverage_audit":
+                try:
+                    from interview_mux.gap_vo_gates import check_voice_reference_pending
+
+                    if check_voice_reference_pending(ctx):
+                        ctx.log(
+                            "voice_reference_pending: walk will not enter topic_coverage_audit",
+                            level="warning",
+                            stage="missing_framing",
+                        )
+                        break
+                except Exception:
+                    pass
             try:
                 run_single_stage(ctx, stage)
             except Exception as exc:

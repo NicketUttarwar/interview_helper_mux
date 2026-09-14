@@ -13,7 +13,9 @@ REPO = Path(__file__).resolve().parents[1]
 
 # Binary / non-JSON stage outputs — write validators + Zod only apply to JSON.
 _NON_JSON_DISK_PATHS = frozenset(
-    path for path in STAGE_ARTIFACT_DISK_PATHS.values() if path.endswith(".wav")
+    path
+    for path in STAGE_ARTIFACT_DISK_PATHS.values()
+    if path.endswith((".wav", ".mp3"))
 )
 
 
@@ -45,13 +47,18 @@ def test_stage_disk_paths_have_write_validators():
             "analysis/low_conf_islands.json",
             "analysis/connector_fuse_audit.json",
             "analysis/connector_fuse_rounds.json",
+            "vernacular/resplit_report.json",
             "mastering/vo_synthesize.json",
             "mastering/listen_delight_audit.json",
             "mastering/mastering_plan.json",
             "sound_design/music_palette_compose.json",
-            "mastering/research/routing.json",
-            "mastering/research/waves.json",
-            "mastering/research/rollup.json",
+            "understanding/gap_framing_recompose.json",
+            "understanding/selection_framing_apply.json",
+            "understanding/interview_spine.json",
+            "analysis/run_golden_facts.json",
+            "mastering/shape/information_packages_audit.json",
+            "publish/episode_meta.json",
+            "publish/cover_prompt.json",
         }
     )
     unexpected = [p for p in missing if p not in allowed_missing]
@@ -76,6 +83,7 @@ def test_stage_disk_paths_have_zod_schemas():
             "analysis/low_conf_islands.json",
             "analysis/connector_fuse_audit.json",
             "analysis/connector_fuse_rounds.json",
+            "vernacular/resplit_report.json",
             "understanding/nugget_corpus.json",
             "understanding/vo_line_adjudication.json",
             "mastering/vo_synthesize.json",
@@ -86,6 +94,18 @@ def test_stage_disk_paths_have_zod_schemas():
             "mastering/research/routing.json",
             "mastering/research/waves.json",
             "mastering/research/rollup.json",
+            "mastering/shape/agenda.json",
+            "mastering/shape/candidates.json",
+            "understanding/delivery_brief.json",
+            "understanding/soundscape_policy.json",
+            "understanding/episode_structure.json",
+            "understanding/gap_framing_recompose.json",
+            "understanding/selection_framing_apply.json",
+            "understanding/interview_spine.json",
+            "analysis/run_golden_facts.json",
+            "mastering/shape/information_packages_audit.json",
+            "publish/episode_meta.json",
+            "publish/cover_prompt.json",
         }
     )
     unexpected = [p for p in missing if p not in allowed_missing]

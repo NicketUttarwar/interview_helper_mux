@@ -78,6 +78,11 @@ export function isPartialAcceleratedRun(run: RunData | null | undefined): boolea
   );
 }
 
+export function isFullAutoRun(run: RunData | null | undefined): boolean {
+  if (!run?.meta) return false;
+  return run.meta.run_mode === "full-auto" || Boolean(run.meta.full_auto);
+}
+
 function jobLooksLikeTranscriptReview(run: RunData): boolean {
   const msg = `${run.job?.message || ""} ${run.job?.error || ""}`.toLowerCase();
   if (msg.includes("transcript review")) return true;
@@ -95,11 +100,48 @@ export function isTranscriptReviewCheckpoint(run: RunData | null | undefined): b
   return false;
 }
 
+/** True when Full-auto / Partial driver owns G-Framing (auto-Yes) and later sub-gates. */
+function driverOwnsFramingFamily(run: RunData): boolean {
+  const gate = run.operator_gates?.missing_framing;
+  if (gate?.operator_must_act === true) return false;
+  if (gate?.severity === "automation_pending") return true;
+  if (run.meta?.partial_auto_complete === true) return false;
+  if (run.meta?.partial_auto_driver_active === false) return false;
+  return Boolean(
+    run.meta?.full_auto ||
+      run.meta?.partial_auto ||
+      run.meta?.partial_auto_driver_active === true ||
+      run.meta?.run_mode === "full-auto" ||
+      run.meta?.run_mode === "partially-accelerated",
+  );
+}
+
+function isFramingFamilyJob(run: RunData): boolean {
+  const stage = String(run.job?.stage || run.job?.current_stage || "");
+  const msg = `${run.job?.message || ""} ${run.job?.error || ""}`.toLowerCase();
+  if (stage === "missing_framing" || stage === "voice_reference") return true;
+  return (
+    msg.includes("gap framing") ||
+    msg.includes("pickup speaker") ||
+    msg.includes("voice reference") ||
+    msg.includes("voice sample")
+  );
+}
+
+const FRAMING_FAMILY_BLOCK_REASONS = new Set([
+  "gap_framing",
+  "missing_framing",
+  "pickup_speaker",
+]);
+
 function blockingNeedsOperator(run: RunData): boolean {
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) return false;
   const reason = String(blocking.reason || "");
   if (reason === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
+    return false;
+  }
+  if (FRAMING_FAMILY_BLOCK_REASONS.has(reason) && driverOwnsFramingFamily(run)) {
     return false;
   }
   if (OPERATOR_BLOCK_REASONS.has(reason)) return true;
@@ -116,17 +158,15 @@ export function isPartialAutoCheckpoint(
 ): boolean {
   if (!run) return false;
   if (isTranscriptReviewCheckpoint(run)) return true;
-  if (run.gap_framing_decision_pending) {
-    const framingGate = run.operator_gates?.missing_framing;
-    if (framingGate && framingGate.severity === "automation_pending") {
-      // Driver resolving framing — keep accelerated overlay.
-    } else {
-      return true;
-    }
-  }
-  if (run.pickup_speaker_pending) return true;
+  const driverOwns = driverOwnsFramingFamily(run);
+  if (run.gap_framing_decision_pending && !driverOwns) return true;
+  if (run.pickup_speaker_pending && !driverOwns) return true;
   const status = run.job?.status || "";
-  if (OPERATOR_JOB_STATUSES.has(status)) return true;
+  if (OPERATOR_JOB_STATUSES.has(status)) {
+    const driverOwnedFramingGate =
+      status === "gate" && driverOwns && isFramingFamilyJob(run);
+    if (!driverOwnedFramingGate) return true;
+  }
   if (run.job?.needs_stage_reuse) return true;
   if (gPublish?.pending && gPublish.package_ready && !gPublish.skipped) return true;
   if (blockingNeedsOperator(run)) return true;
@@ -185,11 +225,10 @@ export function shouldShowAcceleratedRunOverlay(
 }
 
 /**
- * D-02: After a successful gate POST, Manual keeps advance; Partial with an
- * active driver refreshes only (driver owns resume).
+ * After a successful gate POST: GUI Continues in Manual, Partial, and Full-auto
+ * (operator clicked). Dual walk is the gate_advance_lease, not this flag.
  */
 export function shouldAdvanceAfterGatePost(run: RunData | null | undefined): boolean {
-  if (!isPartialAcceleratedRun(run)) return true;
-  if (run?.meta?.partial_auto_driver_active) return false;
+  void run;
   return true;
 }

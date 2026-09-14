@@ -168,6 +168,17 @@ def test_a01_shape_core_complete_allows_shape_despite_late_waves_thin(
         "fields": fields,
         "complete_fields": [k for k, v in fields.items() if v["status"] == "complete"],
         "thin_fields": [k for k, v in fields.items() if v["status"] != "complete"],
+        "field_reports": [
+            {
+                "field_id": fid,
+                "wave": int(fields[fid]["wave"]),
+                "status": fields[fid]["status"],
+                "path": f"mastering/research/{fid}.json",
+            }
+            for fid in fields
+        ],
+        "salience_map": {},
+        "generated_at": "2026-01-01T00:00:00+00:00",
     }
     ctx.write_json(DOSSIER_REL, dossier, skip_handoff=True)
     ctx.write_json("mastering/research/rollup.json", dossier, skip_handoff=True)
@@ -231,11 +242,9 @@ def test_field_probes_use_canon_g0_and_speaker_paths(
     assert fields.get("interview_spine_windows", {}).get("status") == "complete"
     assert research_shape_core_thin(ctx) is False
     # Orphan shape agenda must not late-refuse rollup once core probes hit.
-    ctx.write_json(
-        "mastering/shape/agenda.json",
-        {"version": 1, "items": []},
-        skip_handoff=True,
-    )
+    agenda_path = ctx.path("mastering/shape/agenda.json")
+    agenda_path.parent.mkdir(parents=True, exist_ok=True)
+    agenda_path.write_text('{"version": 1, "items": []}', encoding="utf-8")
     assert _research_thin_late_refuse(ctx, "mastering_research_rollup") is None
 
 

@@ -151,7 +151,7 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
 
         setattr(ctx, "_homunculus_inner_stage", True)
         try:
-            dispatch_stage(ctx, stage, lambda: _orig(ctx, stage), source="conductor")
+            dispatch_stage(ctx, stage, lambda sid: _orig(ctx, sid), source="conductor")
         finally:
             if hasattr(ctx, "_homunculus_inner_stage"):
                 delattr(ctx, "_homunculus_inner_stage")

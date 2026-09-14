@@ -302,7 +302,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
         raise RuntimeError(
             "mmaudio_sfx incomplete — sound_design/mmaudio_qa.json missing from committed tree"
         )
-    ctx.mark_done(stage)
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, stage)
 
 
 def execute_fitness_remediation(ctx: RunContext, *, stage: str) -> list[str]:

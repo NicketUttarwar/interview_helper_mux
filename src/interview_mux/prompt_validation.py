@@ -72,15 +72,22 @@ PERSIST_ARTIFACT_JUNK_KEYS: frozenset[str] = frozenset(
 
 STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "speaker_roles": "understanding/speakers.json",
+    "source_acoustic_profile": "understanding/source_acoustic_profile.json",
+    "sonic_context_build": "understanding/sonic_context.json",
+    "transcript_review_build": "transcript/review_queue.json",
     "content_context": "understanding/content_brief.json",
     "talking_points_compose": "understanding/talking_points.json",
     "ideal_cuts_propose": "understanding/ideal_cuts.json",
     "ideal_cuts_materialize": "understanding/ideal_cuts_materialized.json",
     "content_brief_reanchor": "understanding/content_brief.json",
     "framing_posture_decide": "understanding/framing_posture_decision.json",
+    "delivery_brief_build": "understanding/delivery_brief.json",
+    "soundscape_policy_build": "understanding/soundscape_policy.json",
+    "episode_structure_compose": "understanding/episode_structure.json",
     "boundary_detection": "segments/boundaries.json",
     "boundary_topic_resplit": "segments/boundaries.json",
     "segment_classification": "segments/manifest.json",
+    "vernacular_segment_sanitize": "vernacular/resplit_report.json",
     "sound_design_palettes": "understanding/sound_design_plan.json",
     "missing_framing": "understanding/gap_evaluations.json",
     "gap_framing_compose": "understanding/gap_report.json",
@@ -110,6 +117,10 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "synthetic_framing_plan": "understanding/synthetic_framing_plan.json",
     "podcast_sfx_brief": "master/podcast_sfx_brief.json",
     "sound_design_plan": "understanding/sound_design_plan.json",
+    "sound_design_vo_finalize": "mastering/sound_design_vo_finalize.json",
+    "refinement_agenda": "understanding/refinement_agenda.json",
+    "gap_framing_recompose": "understanding/gap_framing_recompose.json",
+    "selection_framing_apply": "understanding/selection_framing_apply.json",
     "music_palette_compose": "sound_design/music_palette_compose.json",
     "sfx_prompt_craft": "sound_design/sfx_prompts.json",
     "sfx_prompt_refine": "sound_design/sfx_prompts.json",
@@ -126,6 +137,12 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "mastering_plan_synthesize": "mastering/mastering_plan.json",
     "mastering_plan_confirm": "mastering/mastering_plan.json",
     "sfx_brief": "master/podcast_sfx_brief.json",
+    "interview_spine_build": "understanding/interview_spine.json",
+    "audio_probe_build": "analysis/run_golden_facts.json",
+    "information_package_plan": "mastering/shape/information_packages_audit.json",
+    "episode_meta_build": "publish/episode_meta.json",
+    "episode_cover_prompt_craft": "publish/cover_prompt.json",
+    "podcast_encode_mp3": "publish/audio.mp3",
 }
 
 def _schemas_dir() -> Path:
@@ -604,6 +621,55 @@ def validate_ideal_cuts(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("ideal_cuts_artifact.schema.json", data)
 
 
+def validate_mastering_research_routing(data: dict[str, Any]) -> list[str]:
+    """HM-1: routing.json — fields + mode∈{off,advisory,authoritative}."""
+    return _validate_by_artifact_schema("mastering_research_routing.schema.json", data)
+
+
+def validate_mastering_research_waves(data: dict[str, Any]) -> list[str]:
+    """HM-1: waves.json is complete only with version + waves list (not {})."""
+    if not isinstance(data, dict):
+        return ["(root): waves document must be an object"]
+    body = {k: v for k, v in data.items() if k != "_meta"}
+    if not body:
+        return ["(root): empty waves document"]
+    errs: list[str] = []
+    if "version" not in body:
+        errs.append("version: required")
+    if not isinstance(body.get("waves"), list):
+        errs.append("waves: must be an array")
+    if not body.get("generated_at"):
+        errs.append("generated_at: required")
+    return errs
+
+
+def validate_mastering_research_rollup(data: dict[str, Any]) -> list[str]:
+    """HM-1: rollup.json against the published dossier schema (fields dict may remain)."""
+    return _validate_by_artifact_schema("mastering_research_dossier.schema.json", data)
+
+
+def validate_mastering_shape_agenda(data: dict[str, Any]) -> list[str]:
+    """HM-1: agenda.json — steps / budgets / north_star_pillars."""
+    return _validate_by_artifact_schema("mastering_shape_agenda.schema.json", data)
+
+
+def validate_mastering_shape_candidates(data: dict[str, Any]) -> list[str]:
+    """HM-1: candidates.json is complete only with version + candidates list (not {})."""
+    if not isinstance(data, dict):
+        return ["(root): candidates document must be an object"]
+    body = {k: v for k, v in data.items() if k != "_meta"}
+    if not body:
+        return ["(root): empty candidates document"]
+    errs: list[str] = []
+    if "version" not in body:
+        errs.append("version: required")
+    if not isinstance(body.get("candidates"), list):
+        errs.append("candidates: must be an array")
+    if not body.get("generated_at"):
+        errs.append("generated_at: required")
+    return errs
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
@@ -674,6 +740,11 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/synthetic_framing_plan.json": validate_synthetic_framing_plan,
     "operator/delivery_checkpoint.json": validate_delivery_checkpoint,
     "operator/wasted_work.json": validate_wasted_work,
+    "mastering/research/routing.json": validate_mastering_research_routing,
+    "mastering/research/waves.json": validate_mastering_research_waves,
+    "mastering/research/rollup.json": validate_mastering_research_rollup,
+    "mastering/shape/agenda.json": validate_mastering_shape_agenda,
+    "mastering/shape/candidates.json": validate_mastering_shape_candidates,
 }
 
 def validate_artifact_write(rel_path: str, data: dict[str, Any]) -> list[str]:

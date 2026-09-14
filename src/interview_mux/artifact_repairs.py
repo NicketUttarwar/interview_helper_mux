@@ -1088,6 +1088,10 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
                     "severity": "low",
                     "listener_confusion": "",
                     "ready": True,
+                    "_meta": {
+                        "filled_by": "repair_gap_evaluations",
+                        "reason": "fabricate_evaluation",
+                    },
                 }
             )
             applied.append({"action": "fabricate_evaluation", "segment_id": sid})
@@ -1098,11 +1102,16 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
         for i, row in enumerate(out["evaluations"]):
             if not isinstance(row, dict):
                 continue
+            producer = str((row.get("_meta") or {}).get("producer") or "")
+            if producer == "gap_fill_skip":
+                continue
             if row.get("severity") and row.get("gap_type"):
                 continue
+            tagged = False
             if not row.get("severity"):
                 row["severity"] = "low"
                 applied.append({"action": "default_value", "path": f"evaluations[{i}].severity", "value": "low"})
+                tagged = True
             if not row.get("gap_type"):
                 row["gap_type"] = "ok_with_light_bridge"
                 applied.append(
@@ -1112,10 +1121,16 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
                         "value": "ok_with_light_bridge",
                     }
                 )
+                tagged = True
             if "self_explanatory" not in row:
                 row["self_explanatory"] = True
             if "listener_confusion" not in row:
                 row["listener_confusion"] = ""
+            if tagged:
+                meta = dict(row.get("_meta") or {})
+                meta["filled_by"] = "repair_gap_evaluations"
+                meta.setdefault("reason", "default_value")
+                row["_meta"] = meta
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied

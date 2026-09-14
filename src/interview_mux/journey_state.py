@@ -7,7 +7,6 @@ from typing import Any
 from interview_mux.analysis_memory import ANALYSIS_STATE_PATH
 from interview_mux.gates import (
     check_g1_vo,
-    check_transcript_review_pending,
 )
 from interview_mux.sfx_prompt_review import can_run_sfx_generation
 from interview_mux.config import merged_config
@@ -146,12 +145,9 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
     else:
         base = {}
 
-    tr_pending = check_transcript_review_pending(ctx)
-    g0_complete = not tr_pending and ctx.is_done("transcript_review_build")
-    if ctx.is_done("transcript_review") or (
-        not tr_pending and ctx.artifact_exists("transcript/corrections.json")
-    ):
-        g0_complete = True
+    # HP-1: G0 complete only after transcript_review sign-off — not build-done
+    # without a queue, empty corrections.json, or a sticky stored milestone.
+    g0_complete = ctx.is_done("transcript_review")
 
     profile_verified = False
     if ctx.artifact_exists(ANALYSIS_STATE_PATH):
@@ -224,8 +220,8 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         if key not in computed:
             computed[key] = stored_val
             continue
-        # G6: g1_complete must track live check_g1_vo — never sticky-OR true.
-        if key == "g1_complete":
+        # G6 / HP-1: live G0/G1 must not sticky-OR stored true.
+        if key in {"g0_complete", "g1_complete"}:
             continue
         if isinstance(stored_val, bool) and isinstance(computed.get(key), bool):
             computed[key] = bool(computed[key] or stored_val)

@@ -511,13 +511,6 @@ def run_selection_order_sanitize(ctx: Any) -> None:
         skip_checkpoint=False,
         write_committed=True,
     )
-    try:
-        from interview_mux.stage_completion import heal_or_refuse_mark
+    from interview_mux.stage_completion import heal_or_raise
 
-        heal_or_refuse_mark(ctx, "selection_order_sanitize")
-    except Exception:
-        if result.ok:
-            try:
-                ctx.mark_done("selection_order_sanitize")
-            except Exception:
-                pass
+    heal_or_raise(ctx, "selection_order_sanitize")

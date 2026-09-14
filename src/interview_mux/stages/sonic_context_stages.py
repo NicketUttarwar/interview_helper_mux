@@ -4,6 +4,7 @@ from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import build_sonic_context
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def run_sonic_context_build(ctx: RunContext) -> None:
@@ -27,4 +28,5 @@ def run_sonic_context_build(ctx: RunContext) -> None:
             "sonic_context_hash": doc.get("sonic_context_hash"),
         },
     )
-    ctx.mark_done("sonic_context_build")
+    # HM-4 3A: heal-mark only after a schema-valid write (no raw hollow stamp).
+    heal_or_refuse_mark(ctx, "sonic_context_build", force=True)

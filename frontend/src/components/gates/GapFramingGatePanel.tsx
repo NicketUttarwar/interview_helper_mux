@@ -68,9 +68,9 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
         enabled ? "success" : "info",
       );
       await load();
-      await refreshRun();
+      const refreshed = await refreshRun();
       closeActionModal();
-      if (shouldAdvanceAfterGatePost(run)) {
+      if (shouldAdvanceAfterGatePost(refreshed ?? run)) {
         await advanceFromCheckpoint();
       }
     } catch (e) {

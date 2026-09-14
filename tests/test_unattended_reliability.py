@@ -278,7 +278,7 @@ def test_execution_report_written_on_halt(tmp_path: Path):
         decisions=[{"severity": "major", "action": "pause"}],
     )
     assert report["outcome"] == "halted_identical_failure"
-    assert report["g0"]["accepted_unreviewed"] is True
+    assert report["g0"]["accepted_unreviewed"] is False
     assert report["research_next"]
     md = ctx.run_dir / REPORT_MD_REL
     assert md.is_file()

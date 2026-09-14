@@ -204,6 +204,31 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
         )
 
 
+def commit_layup_cta_selection(
+    ctx: RunContext,
+    previous: dict[str, Any] | None,
+    pruned: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """HR-2: persist CTA prune on the selection bus. None if order is unchanged."""
+    if not isinstance(previous, dict) or not isinstance(pruned, dict):
+        return None
+    if pruned.get("ordered_segment_ids") is None:
+        return None
+    prev_ids = [str(s) for s in (previous.get("ordered_segment_ids") or []) if s]
+    new_ids = [str(s) for s in (pruned.get("ordered_segment_ids") or []) if s]
+    if new_ids == prev_ids:
+        return None
+    from interview_mux.air_order_boundary import commit_selection_or_refuse
+
+    return commit_selection_or_refuse(
+        ctx,
+        pruned,
+        producer="nugget_layup_compose",
+        stage_key="nugget_layup_compose",
+        checkpoint_mode="detect",
+    )
+
+
 def run_nugget_layup_compose(ctx: RunContext) -> None:
     """Flagship per-native lay-up plan → authoritative gap_report before-VO lines."""
     from interview_mux.nugget_layup import (
@@ -239,25 +264,17 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         from interview_mux.media_ip_cta import apply_cta_judgments, heal_on_air_cta_residue
 
         # Wave 4: pre-layup fragment omit via existing CTA helpers only.
-        try:
-            sel = (
-                ctx.read_json("master/selection.json")
-                if ctx.artifact_exists("master/selection.json")
-                else None
-            )
-            pruned = apply_cta_judgments(ctx, sel if isinstance(sel, dict) else None)
-            if (
-                isinstance(pruned, dict)
-                and pruned.get("ordered_segment_ids") is not None
-                and isinstance(sel, dict)
-            ):
-                ctx.write_json(
-                    "master/selection.json",
-                    pruned,
-                    stage_key="nugget_layup_compose",
-                )
-        except Exception:
-            pass
+        sel = (
+            ctx.read_json("master/selection.json")
+            if ctx.artifact_exists("master/selection.json")
+            else None
+        )
+        pruned = apply_cta_judgments(ctx, sel if isinstance(sel, dict) else None)
+        commit_layup_cta_selection(
+            ctx,
+            sel if isinstance(sel, dict) else None,
+            pruned if isinstance(pruned, dict) else None,
+        )
         healed = heal_on_air_cta_residue(ctx)
         if isinstance(healed, dict) and healed.get("ordered_segment_ids") is not None:
             ctx.log(
@@ -268,30 +285,11 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     "natives": len(healed.get("ordered_segment_ids") or []),
                 },
             )
-        # CTA settle → selection sanitize → re-check sanitary before compose LLM.
-        try:
-            from interview_mux.artifact_sanitize.preflight import sanitary_preflight_errors
-            from interview_mux.artifact_sanitize.selection import run_selection_order_sanitize
-
-            sel_errs = sanitary_preflight_errors(ctx, "nugget_layup_compose")
-            if any("selection" in e for e in sel_errs):
-                if ctx.artifact_exists("master/selection.json"):
-                    run_selection_order_sanitize(ctx)
-                sel_errs = sanitary_preflight_errors(ctx, "nugget_layup_compose")
-                if any("selection" in e for e in sel_errs):
-                    raise RuntimeError(
-                        "selection_unsanitary after CTA settle: "
-                        + "; ".join(sel_errs[:3])
-                    )
-        except RuntimeError:
-            raise
-        except Exception as san_exc:
-            ctx.log(
-                f"nugget_layup_compose: post-CTA sanitary recheck skipped: {san_exc}",
-                level="warning",
-                stage="nugget_layup_compose",
-            )
+    except RuntimeError:
+        raise
     except Exception as exc:
+        if "selection_commit_refused" in str(exc):
+            raise
         ctx.log(
             f"nugget_layup_compose: CTA residue prune skipped: {exc}",
             level="warning",

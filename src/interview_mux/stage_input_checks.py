@@ -427,6 +427,38 @@ def _check_assembly_preview(ctx: RunContext) -> list[StageInputIssue]:
     if issue:
         issues.append(issue)
     issues.extend(_edl_seat_preflight_issues(ctx, consumer="assembly_preview"))
+    stale = compact_vo_coverage_stale_or_missing(ctx)
+    if stale:
+        issues.append(
+            StageInputIssue(
+                f"VO coverage not rendered: {stale[:4]}",
+                "Re-run vo_synthesize so seated WAVs exist before assembly_preview.",
+                kind="vo_coverage",
+                related_stage="vo_synthesize",
+            )
+        )
+    try:
+        from interview_mux.stage_completion import assembly_preview_unsourced_glue_ids
+
+        edl = (
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else None
+        )
+        unsourced = assembly_preview_unsourced_glue_ids(
+            edl if isinstance(edl, dict) else None
+        )
+    except Exception:
+        unsourced = []
+    if unsourced:
+        issues.append(
+            StageInputIssue(
+                f"current transition pairs missing WAV: {unsourced[:4]}",
+                "Re-run vo_synthesize; do not skip unsourced glue then stamp preview done.",
+                kind="vo_coverage",
+                related_stage="vo_synthesize",
+            )
+        )
     return issues
 
 
@@ -735,12 +767,15 @@ def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def _check_edl_narrative_audit(ctx: RunContext) -> list[StageInputIssue]:
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
     issues: list[StageInputIssue] = []
-    if not ctx.is_done("vo_synthesize"):
+    if not seed_stage_complete(ctx, "vo_synthesize"):
         issues.append(
             StageInputIssue(
-                "vo_synthesize not complete — EDL narrative audit requires heard WAV flow (5C).",
+                "vo_synthesize not seed-complete — EDL narrative audit requires heard WAV flow (5C).",
                 "Run vo_line_adjudicate then vo_synthesize before edl_narrative_audit.",
+                related_stage="vo_synthesize",
             )
         )
     synth_missing = compact_vo_coverage_stale_or_missing(ctx)

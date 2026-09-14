@@ -593,35 +593,39 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         except Exception:
             plan = None
         if isinstance(plan, dict):
-            plan_mode = str(
-                plan.get("confirmed_mode")
-                or plan.get("narrative_mode")
-                or plan.get("provisional_mode")
-                or ""
-            ).strip()
-            if plan_mode in {"sparse_source", "conversational_host"}:
-                underscore = "sparse"
-                dens = dict(dens)
-                if creative_delivery_required():
-                    dens["max_beds"] = min(max(int(dens.get("max_beds") or 2), 2), 2)
-                else:
-                    dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
-                dens["max_foley"] = 0
-                # Soft modes still allow musically dense beds up to the product max.
-                coverage = min(max(coverage, 0.40), 0.75)
-                mix["max_bed_coverage_ratio"] = coverage
-                mix["underscore_policy"] = underscore
-                standards["max_bed_coverage_ratio"] = coverage
-                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:sparse")
-            elif plan_mode in {"guide_summary", "documentary_bridge"}:
-                underscore = "normal" if underscore == "skip" else underscore
-                mix["underscore_policy"] = underscore
-                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:normal")
-            elif plan_mode == "hook_montage":
-                dens = dict(dens)
-                dens["max_punctuators"] = max(int(dens.get("max_punctuators") or 2), 3)
-                mix["stinger_max_per_minute"] = max(float(mix.get("stinger_max_per_minute") or 4), 5.0)
-                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:stinger_bias")
+            from interview_mux.mastering_plan_loader import plan_is_authoritative
+
+            if plan_is_authoritative(plan):
+                plan_mode = str(
+                    plan.get("confirmed_mode")
+                    or plan.get("narrative_mode")
+                    or plan.get("provisional_mode")
+                    or ""
+                ).strip()
+                if plan_mode in {"sparse_source", "conversational_host"}:
+                    underscore = "sparse"
+                    dens = dict(dens)
+                    if creative_delivery_required():
+                        dens["max_beds"] = min(max(int(dens.get("max_beds") or 2), 2), 2)
+                    else:
+                        dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
+                    dens["max_foley"] = 0
+                    coverage = min(max(coverage, 0.40), 0.75)
+                    mix["max_bed_coverage_ratio"] = coverage
+                    mix["underscore_policy"] = underscore
+                    standards["max_bed_coverage_ratio"] = coverage
+                    rationale.append(f"mastering_plan_mode_overlay={plan_mode}:sparse")
+                elif plan_mode in {"guide_summary", "documentary_bridge"}:
+                    underscore = "normal" if underscore == "skip" else underscore
+                    mix["underscore_policy"] = underscore
+                    rationale.append(f"mastering_plan_mode_overlay={plan_mode}:normal")
+                elif plan_mode == "hook_montage":
+                    dens = dict(dens)
+                    dens["max_punctuators"] = max(int(dens.get("max_punctuators") or 2), 3)
+                    mix["stinger_max_per_minute"] = max(
+                        float(mix.get("stinger_max_per_minute") or 4), 5.0
+                    )
+                    rationale.append(f"mastering_plan_mode_overlay={plan_mode}:stinger_bias")
 
     # Preserve prior operator overrides if rebuilding
     prior_overrides: dict[str, Any] = {}
@@ -837,10 +841,32 @@ def role_bucket(role: str) -> str:
     return "punctuators"
 
 
+def persist_soundscape_skip_stub(ctx: RunContext) -> dict[str, Any]:
+    """HG-2 2A: schema-valid disabled stub (rationale marks skip; extra keys fail schema)."""
+    stub: dict[str, Any] = {
+        "version": 1,
+        "underscore_policy": "skip",
+        "pace_class": "conversational",
+        "sfx_density": {},
+        "mix_contract": {"underscore_policy": "skip"},
+        "standards": {},
+        "cue_slots": [],
+        "operator_overrides": {},
+        "rationale": ["disabled"],
+    }
+    ctx.write_json(POLICY_PATH, stub, stage_key="soundscape_policy_build")
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, "soundscape_policy_build", force=True)
+    return stub
+
+
 def run_soundscape_policy_build(ctx: RunContext) -> None:
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
     if not soundscape_enabled():
         ctx.log("soundscape_policy_build skipped (soundscape.enabled=false)", level="info", stage="soundscape_policy_build")
-        ctx.mark_done("soundscape_policy_build")
+        persist_soundscape_skip_stub(ctx)
         return
     with logged_step("soundscape_policy_build/build", ctx=ctx, stage="soundscape_policy_build"):
         if not ctx.artifact_exists("understanding/delivery_brief.json"):
@@ -863,4 +889,4 @@ def run_soundscape_policy_build(ctx: RunContext) -> None:
                 "policy_hash": policy.get("policy_hash"),
             },
         )
-    ctx.mark_done("soundscape_policy_build")
+    heal_or_refuse_mark(ctx, "soundscape_policy_build", force=True)

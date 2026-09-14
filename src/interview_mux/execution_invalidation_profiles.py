@@ -230,10 +230,10 @@ INVALIDATION_PROFILES: dict[str, InvalidationProfile] = {
                 "nugget_layup_compose",
             }
         ),
-        # Markers-only for the brief: nested content_brief_reanchor must still
-        # read understanding/content_brief.json. Archiving it hollows
-        # content_context and seed-order-blocks missing_framing (forensics).
-        archive_allowlist=("segments/boundaries.json",),
+        # Markers/pending only. Never archive segments/boundaries.json — that is
+        # this producer's own primary (HS-2). Nested content_brief_reanchor must
+        # still read understanding/content_brief.json.
+        archive_allowlist=(),
         pending_clear=SEG_RESPLIT_HEAL_STAGES,
         max_invocations=2,
         require_fingerprint_flip=True,
@@ -442,6 +442,84 @@ def _bump_invocation_count(ctx: RunContext, profile_id: str) -> int:
     return n
 
 
+def _boundaries_fingerprint(ctx: RunContext) -> str:
+    """Stable short hash of live ``segments/boundaries.json`` (empty if missing)."""
+    import hashlib
+    import json
+
+    try:
+        bounds_doc = (
+            ctx.read_json("segments/boundaries.json")
+            if ctx.artifact_exists("segments/boundaries.json")
+            else {}
+        )
+        return hashlib.sha256(
+            json.dumps(bounds_doc, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def seg_resplit_fingerprint_flipped(ctx: RunContext) -> bool:
+    """True when live bounds hash differs from the stamped resplit fingerprint.
+
+    No prior stamp, missing file, or matching hash → not a flip (do not archive).
+    HS-2: ``require_fingerprint_flip`` must actually gate archive.
+    """
+    prev = ""
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict):
+            prev = str(meta.get("boundary_topic_resplit_bounds_fp") or "")
+    except Exception:
+        prev = ""
+    if not prev:
+        return False
+    current = _boundaries_fingerprint(ctx)
+    if not current:
+        return False
+    return current != prev
+
+
+def _boundaries_doc_valid(ctx: RunContext) -> bool:
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return False
+    try:
+        doc = ctx.read_json("segments/boundaries.json")
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    return isinstance(doc.get("boundaries"), list)
+
+
+def archive_corrupt_boundaries_if_needed(ctx: RunContext) -> dict[str, Any]:
+    """HS-2 leftover: archive corrupt live bounds; never a just-written valid file.
+
+    Empty ``seg_resplit_heal`` allowlist still cannot nuclear-archive. This path
+    uses an explicit one-file allowlist only when the live JSON is unreadable
+    or missing ``boundaries``.
+    """
+    rel = "segments/boundaries.json"
+    wrote = False
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict):
+            wrote = bool(meta.get("boundary_topic_resplit_wrote"))
+    except Exception:
+        wrote = False
+    if wrote and _boundaries_doc_valid(ctx):
+        return {"archived": [], "reason": "fresh_write"}
+    if not ctx.artifact_exists(rel):
+        return {"archived": [], "reason": "missing"}
+    if _boundaries_doc_valid(ctx):
+        return {"archived": [], "reason": "valid"}
+    archived = _archive_allowlisted_paths(
+        ctx, (rel,), profile_id="seg_corrupt_bounds", reason="corrupt_bounds"
+    )
+    return {"archived": archived, "reason": "corrupt"}
+
+
 def _archive_allowlisted_paths(
     ctx: RunContext,
     allowlist: tuple[str, ...],
@@ -558,8 +636,16 @@ def apply_bounded_invalidation(
             pass
 
     # B-06: archive only explicit allowlist paths; empty = markers/pending only.
+    # HS-2: require_fingerprint_flip skips archive when the resplit hash is unchanged.
     archived: list[str] = []
-    if profile.archive_allowlist:
+    archive_skipped_fingerprint = False
+    if (
+        profile.require_fingerprint_flip
+        and profile.profile_id == "seg_resplit_heal"
+        and not seg_resplit_fingerprint_flipped(ctx)
+    ):
+        archive_skipped_fingerprint = True
+    if profile.archive_allowlist and not archive_skipped_fingerprint:
         archived = _archive_allowlisted_paths(
             ctx,
             profile.archive_allowlist,
@@ -621,6 +707,7 @@ def apply_bounded_invalidation(
         "archived": archived,
         "archive_allowlist": list(profile.archive_allowlist),
         "require_fingerprint_flip": bool(profile.require_fingerprint_flip),
+        "archive_skipped_fingerprint": archive_skipped_fingerprint,
         "reason": reason,
         "invocation": invocation,
         "max_invocations": max_n,

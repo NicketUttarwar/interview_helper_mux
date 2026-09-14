@@ -56,7 +56,7 @@ def test_edl_narrative_audit_build_input_notes_heard_wav(tmp_path: Path, monkeyp
     mark_done_raw(ctx, "vo_synthesize")
     run_edl_narrative_audit(ctx)
     assert captured.get("audit_mode") == "heard_wav_flow"
-    assert captured.get("vo_synthesis_complete") is True
+    assert captured.get("vo_synthesis_complete") is False
     assert "vo_coverage" in captured
 
 

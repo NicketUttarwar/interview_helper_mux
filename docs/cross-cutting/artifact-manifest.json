@@ -13,6 +13,30 @@
       ],
       "has_write_validator": true
     },
+    "understanding/source_acoustic_profile.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "source_acoustic_profile"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "understanding/sonic_context.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "sonic_context_build"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "transcript/review_queue.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "transcript_review_build"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "understanding/content_brief.json": {
       "schemas_by_producer": {
         "content_context": "content_brief_artifact.schema.json",
@@ -68,6 +92,30 @@
       "consumers": [],
       "has_write_validator": false
     },
+    "understanding/delivery_brief.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "delivery_brief_build"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "understanding/soundscape_policy.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "soundscape_policy_build"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "understanding/episode_structure.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "episode_structure_compose"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "segments/boundaries.json": {
       "schemas_by_producer": {
         "boundary_detection": "boundaries_artifact.schema.json",
@@ -94,6 +142,14 @@
         "segment_classification"
       ],
       "has_write_validator": true
+    },
+    "vernacular/resplit_report.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "vernacular_segment_sanitize"
+      ],
+      "consumers": [],
+      "has_write_validator": false
     },
     "understanding/sound_design_plan.json": {
       "schemas_by_producer": {
@@ -410,6 +466,38 @@
       ],
       "has_write_validator": true
     },
+    "mastering/sound_design_vo_finalize.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "sound_design_vo_finalize"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "understanding/refinement_agenda.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "refinement_agenda"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "understanding/gap_framing_recompose.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "gap_framing_recompose"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "understanding/selection_framing_apply.json": {
+      "schemas_by_producer": {},
+      "producers": [
+        "selection_framing_apply"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
     "sound_design/music_palette_compose.json": {
       "schemas_by_producer": {
         "music_palette_compose": "music_palette_compose_artifact.schema.json"
@@ -498,7 +586,7 @@
         "mastering_research_routing"
       ],
       "consumers": [],
-      "has_write_validator": false
+      "has_write_validator": true
     },
     "mastering/research/waves.json": {
       "schemas_by_producer": {
@@ -508,7 +596,7 @@
         "mastering_research_waves"
       ],
       "consumers": [],
-      "has_write_validator": false
+      "has_write_validator": true
     },
     "mastering/research/rollup.json": {
       "schemas_by_producer": {
@@ -518,7 +606,7 @@
         "mastering_research_rollup"
       ],
       "consumers": [],
-      "has_write_validator": false
+      "has_write_validator": true
     },
     "mastering/shape/agenda.json": {
       "schemas_by_producer": {
@@ -528,7 +616,7 @@
         "mastering_shape_agenda"
       ],
       "consumers": [],
-      "has_write_validator": false
+      "has_write_validator": true
     },
     "mastering/shape/candidates.json": {
       "schemas_by_producer": {
@@ -538,7 +626,7 @@
         "mastering_shape_candidates"
       ],
       "consumers": [],
-      "has_write_validator": false
+      "has_write_validator": true
     },
     "sound_design/musicgen_candidates.json": {
       "schemas_by_producer": {

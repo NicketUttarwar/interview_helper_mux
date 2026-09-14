@@ -43,8 +43,12 @@ MUSIC_BEFORE_MIX: tuple[str, ...] = (
     "sfx_prompt_craft",
     "mmaudio_sfx",
 )
+# Execute/dispatch honor this set. Filter also defers SHIP_AFTER_MASTER (HX-1 2A).
+MIX_EPOCH_RUN_BLOCK: frozenset[str] = frozenset(
+    {"mix", "junction_snip_qa", "master_finalize"}
+)
 MIX_EPOCH_CONSUMERS: frozenset[str] = frozenset(
-    {"mix", "junction_snip_qa", "master_finalize", *SHIP_AFTER_MASTER}
+    {*MIX_EPOCH_RUN_BLOCK, *SHIP_AFTER_MASTER}
 )
 G3_RECONCILE_CHAIN: tuple[str, ...] = (
     "nugget_layup_compose",
@@ -393,15 +397,17 @@ def music_epoch_complete(ctx: RunContext) -> bool:
 
 
 def mix_epoch_block(ctx: RunContext) -> str | None:
-    """B3: mix/master/ship wait until music_epoch_complete (no hollow QA bypass)."""
+    """B3: mix/master/ship wait until music_epoch_complete (no hollow QA bypass).
+
+    HX-1: while music is incomplete this never returns ``None`` — including when
+    Phase A is unsealed / delivery is unstable. Execute and 0.1.0 dispatch honor
+    a present token; a no-op let mix/junction/finalize run.
+    """
     epoch = read_delivery_epoch(ctx)
     if epoch.get("music_complete_at") and music_epoch_complete(ctx):
         return None
     if music_epoch_complete(ctx):
         stamp_delivery_epoch(ctx, music_complete_at=_utc_now())
-        return None
-    stable, _ = delivery_stable_for_music(ctx)
-    if not stable and not phase_a_sealed(ctx):
         return None
     try:
         from interview_mux.homunculus.agenda import assembly_stale_versus_edl
@@ -693,6 +699,20 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             except Exception:
                 pass
             # Hollow/incomplete — keep in candidates so quality can finish.
+        # Never enqueue edl while narrative audit verdict is fail.
+        if sid == "edl":
+            try:
+                from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
+
+                if narrative_audit_blocks_edl(ctx):
+                    if "edl_narrative_audit" not in out and not seed_stage_complete(
+                        ctx, "edl_narrative_audit"
+                    ):
+                        out.append("edl_narrative_audit")
+                    deferred.append(sid)
+                    continue
+            except Exception:
+                pass
         # Only skip junction when it is actually seed-complete. ship_path_ready
         # already requires that, but keep the guard explicit for thrash safety.
         if (
@@ -1292,12 +1312,18 @@ def premature_cap_hard_pin(
     if ctx is None:
         return resume
     # Expensive-stage lease: do not rewrite pin away from active producer.
+    # HX-4: mix/junction/finalize leases do not hold the pin while music is
+    # still incomplete — pin MUSIC_BEFORE_MIX. Music/VO/transcribe leases stay.
+    # After music_epoch_complete, mix-family leases still win (HX-2 seating later).
     try:
         from interview_mux.thrash_hardening import expensive_stage_lease_active
 
         leased, lease_stage = expensive_stage_lease_active(ctx)
         if leased and lease_stage:
-            return lease_stage
+            held = str(lease_stage).strip()
+            if held in MIX_EPOCH_RUN_BLOCK and not music_epoch_complete(ctx):
+                return _music_epoch_producer_pin(ctx)
+            return held
     except Exception:
         pass
     # Prefer stable fail-class pins (T4) for known epochs before earliest walk.
@@ -2806,19 +2832,19 @@ def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:
     except Exception:
         return False, "critical_residual_check_failed"
     if ctx.artifact_exists("master/post_master_quality.json"):
+        # HPUB-1: unreadable envelope fail-closes. e2e_soft may still walk
+        # encode/cover/publish when publish_allowed is false (operator 1C).
+        # Filter still keys off this result (3A). Dead extra keys unused.
         try:
             from interview_mux.e2e_soft import e2e_soft_enabled
 
             pmq = ctx.read_json("master/post_master_quality.json")
-            if isinstance(pmq, dict) and pmq.get("publish_allowed") is False:
-                # e2e_soft must not waive authoritative PMQ / delight for ship-ready.
-                if not e2e_soft_enabled():
-                    return False, "pmq_not_publishable"
-                # Soft mode: still refuse if authoritative floors failed hard.
-                if pmq.get("authoritative_block") or pmq.get("listen_delight_floors_failed"):
-                    return False, "pmq_not_publishable"
+            if not isinstance(pmq, dict):
+                return False, "pmq_not_publishable"
+            if pmq.get("publish_allowed") is False and not e2e_soft_enabled():
+                return False, "pmq_not_publishable"
         except Exception:
-            pass
+            return False, "pmq_not_publishable"
     # Bare master.wav without commitment is not ship-ready (RSTM committed-master-honesty).
     try:
         from interview_mux.delivery_invariants import committed_master_wav
@@ -2827,6 +2853,21 @@ def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:
             return False, "master_uncommitted"
     except Exception:
         pass
+    return True, ""
+
+
+def remote_publish_allowed(ctx: RunContext) -> tuple[bool, str]:
+    """S3/RSS must not follow the e2e_soft local-walk waiver (HPUB-1)."""
+    if not ctx.artifact_exists("master/post_master_quality.json"):
+        return False, "pmq_missing"
+    try:
+        pmq = ctx.read_json("master/post_master_quality.json")
+    except Exception:
+        return False, "pmq_not_publishable"
+    if not isinstance(pmq, dict):
+        return False, "pmq_not_publishable"
+    if pmq.get("publish_allowed") is not True:
+        return False, "pmq_not_publishable"
     return True, ""
 
 

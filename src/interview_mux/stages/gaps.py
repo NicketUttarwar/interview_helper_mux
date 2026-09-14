@@ -16,7 +16,7 @@ from interview_mux.source_topology import attach_adaptation_to_payload, pickup_e
 from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
-from interview_mux.stage_completion import heal_or_refuse_mark
+from interview_mux.stage_completion import heal_or_raise, heal_or_refuse_mark
 
 
 def _compact_segments_payload(
@@ -78,6 +78,98 @@ def _merge_gap_evaluations(parts: list[dict[str, Any]], required_ids: list[str])
         if sid not in {str(r.get("segment_id")) for r in ordered}:
             ordered.append(row)
     return {"evaluations": ordered}
+
+
+MISSING_FRAMING_COVERAGE_CAP = 2
+
+
+def _gap_eval_filled_by(row: dict[str, Any]) -> str:
+    return str((row.get("_meta") or {}).get("filled_by") or "")
+
+
+def _missing_framing_fill_row(sid: str) -> dict[str, Any]:
+    from interview_mux.stage_completion import BATCH_FILL_BY
+
+    return {
+        "segment_id": sid,
+        "self_explanatory": True,
+        "gap_type": "ok_with_light_bridge",
+        "severity": "low",
+        "listener_confusion": "",
+        "_meta": {
+            "filled_by": BATCH_FILL_BY,
+            "reason": "llm_sparse_shard_output",
+        },
+    }
+
+
+def _existing_gap_evaluations(ctx: RunContext) -> dict[str, Any]:
+    rel = "understanding/gap_evaluations.json"
+    if not ctx.artifact_exists(rel):
+        return {}
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _split_keep_and_leftover(
+    required_ids: list[str],
+    existing_rows: list[Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from interview_mux.stage_completion import MISSING_FRAMING_FILL_TAGS
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in existing_rows:
+        if isinstance(row, dict) and row.get("segment_id"):
+            by_id[str(row["segment_id"])] = row
+    keep: list[dict[str, Any]] = []
+    leftover: list[str] = []
+    for sid in required_ids:
+        row = by_id.get(sid)
+        if row is None:
+            leftover.append(sid)
+            continue
+        producer = str((row.get("_meta") or {}).get("producer") or "")
+        if producer == "gap_fill_skip":
+            keep.append(row)
+            continue
+        if _gap_eval_filled_by(row) in MISSING_FRAMING_FILL_TAGS:
+            leftover.append(sid)
+            continue
+        keep.append(row)
+    return keep, leftover
+
+
+def _coverage_pass_count(doc: dict[str, Any]) -> int:
+    try:
+        return int((doc.get("_meta") or {}).get("coverage_passes") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _stamp_coverage_passes(merged: dict[str, Any], count: int) -> dict[str, Any]:
+    out = dict(merged)
+    meta = dict(out.get("_meta") or {})
+    meta["coverage_passes"] = max(0, int(count))
+    out["_meta"] = meta
+    return out
+
+
+def _fill_missing_evaluations(
+    merged: dict[str, Any],
+    missing: list[str],
+) -> dict[str, Any]:
+    filled = [r for r in (merged.get("evaluations") or []) if isinstance(r, dict)]
+    present = {str(r.get("segment_id") or "") for r in filled}
+    for sid in missing:
+        if sid and sid not in present:
+            filled.append(_missing_framing_fill_row(sid))
+            present.add(sid)
+    out = dict(merged)
+    out["evaluations"] = filled
+    return out
 
 
 def ensure_gap_fill_skipped(
@@ -312,47 +404,108 @@ def run_missing_framing(ctx: RunContext) -> None:
     prompt_rel = prompt_variant("interviewer-gap/missing-framing.system.txt", ctx)
     required_ids = _gap_segment_ids(ctx)
     batch_size = _gap_pass_batch_size()
+    existing = _existing_gap_evaluations(ctx)
+    keep_rows, leftover_ids = _split_keep_and_leftover(
+        required_ids,
+        list(existing.get("evaluations") or []) if existing else [],
+    )
+    prev_passes = _coverage_pass_count(existing)
+    leftover_reentry = bool(keep_rows) and bool(leftover_ids)
+    target_ids = leftover_ids if leftover_ids else ([] if keep_rows else required_ids)
 
     def build_input(c: RunContext) -> dict:
+        if target_ids:
+            return _missing_framing_payload(c, segment_ids=list(target_ids))
         return _missing_framing_payload(c)
 
+    if leftover_ids and prev_passes >= MISSING_FRAMING_COVERAGE_CAP:
+        merged = _merge_gap_evaluations(
+            [{"evaluations": keep_rows}, existing],
+            required_ids,
+        )
+        merged = _fill_missing_evaluations(merged, leftover_ids)
+        merged = _stamp_coverage_passes(merged, prev_passes)
+        persist(ctx, merged)
+        sync_gaps_to_state(ctx, merged)
+        raise RuntimeError(
+            "needs_operator: missing_framing coverage exhausted after "
+            f"{MISSING_FRAMING_COVERAGE_CAP} extra passes — resume missing_framing: "
+            f"{len(leftover_ids)} leftover segment(s)"
+        )
+
+    if keep_rows and not leftover_ids:
+        merged = _stamp_coverage_passes(
+            _merge_gap_evaluations([{"evaluations": keep_rows}], required_ids),
+            prev_passes,
+        )
+        persist(ctx, merged)
+        sync_gaps_to_state(ctx, merged)
+        heal_or_raise(ctx, "missing_framing", force=True)
+        _assert_gap_evaluations_complete(ctx)
+        return
+
     # Pre-specialists on the full 300+ segment tape blow mini context; skip when sharding.
-    if len(required_ids) <= batch_size:
+    if len(target_ids or required_ids) <= batch_size:
         with logged_step("missing_framing/pre_specialists", ctx=ctx, stage="missing_framing"):
             maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
+    from interview_mux.stage_completion import MISSING_FRAMING_FILL_TAGS
+
+    def _still_unscored(merged: dict[str, Any]) -> list[str]:
+        by_id: dict[str, dict[str, Any]] = {}
+        for row in merged.get("evaluations") or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                by_id[str(row["segment_id"])] = row
+        still: list[str] = []
+        for sid in required_ids:
+            row = by_id.get(sid)
+            if row is None:
+                still.append(sid)
+                continue
+            producer = str((row.get("_meta") or {}).get("producer") or "")
+            if producer == "gap_fill_skip":
+                continue
+            if _gap_eval_filled_by(row) in MISSING_FRAMING_FILL_TAGS:
+                still.append(sid)
+        return still
+
     with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
-        if len(required_ids) <= batch_size:
-            run_analysis_llm_stage(
-                ctx,
-                "missing_framing",
-                prompt_rel,
-                build_input,
-                persist,
-                sync_fn=lambda c, a: sync_gaps_to_state(c, a),
-            )
-        else:
-            batches = [
-                required_ids[i : i + batch_size]
-                for i in range(0, len(required_ids), batch_size)
-            ]
-            ctx.log(
-                f"missing_framing proactive batch: {len(required_ids)} segments → "
-                f"{len(batches)} shard(s) of ≤{batch_size}",
-                level="info",
-                stage="missing_framing",
-                action_id="missing_framing.proactive_batch",
-                detail={
-                    "required_count": len(required_ids),
-                    "batch_size": batch_size,
-                    "batches": len(batches),
-                },
-            )
 
-            def _noop_persist(_c: RunContext, _artifacts: dict) -> None:
-                return None
+        def _noop_persist(_c: RunContext, _artifacts: dict) -> None:
+            return None
 
-            parts: list[dict[str, Any]] = []
+        parts: list[dict[str, Any]] = []
+        if keep_rows:
+            parts.append({"evaluations": keep_rows})
+
+        extra_used = int(prev_passes)
+        if leftover_reentry:
+            extra_used += 1
+
+        def _run_id_shards(
+            ids: list[str],
+            *,
+            coverage_pass: bool,
+        ) -> None:
+            if not ids:
+                return
+            shard_size = max(8, min(batch_size, 20)) if coverage_pass else batch_size
+            batches = [ids[i : i + shard_size] for i in range(0, len(ids), shard_size)]
+            if not coverage_pass:
+                ctx.log(
+                    f"missing_framing proactive batch: {len(ids)} segments → "
+                    f"{len(batches)} shard(s) of ≤{shard_size}",
+                    level="info",
+                    stage="missing_framing",
+                    action_id="missing_framing.proactive_batch",
+                    detail={
+                        "required_count": len(required_ids),
+                        "target_count": len(ids),
+                        "batch_size": shard_size,
+                        "batches": len(batches),
+                        "leftover_reentry": leftover_reentry,
+                    },
+                )
             for bi, batch_ids in enumerate(batches):
 
                 def build_batch(
@@ -361,6 +514,7 @@ def run_missing_framing(ctx: RunContext) -> None:
                     _ids: list[str] = list(batch_ids),
                     _bi: int = bi,
                     _total: int = len(batches),
+                    _cov: bool = coverage_pass,
                 ) -> dict:
                     return _missing_framing_payload(
                         c,
@@ -369,6 +523,7 @@ def run_missing_framing(ctx: RunContext) -> None:
                             "index": _bi + 1,
                             "total": _total,
                             "segment_ids": list(_ids),
+                            "coverage_pass": _cov,
                         },
                     )
 
@@ -377,7 +532,9 @@ def run_missing_framing(ctx: RunContext) -> None:
                     f"({len(batch_ids)} segment ids)",
                     level="action",
                     stage="missing_framing",
-                    action_id="missing_framing.shard",
+                    action_id="missing_framing.coverage_pass"
+                    if coverage_pass
+                    else "missing_framing.shard",
                 )
                 envelope = run_llm_stage_simple(
                     ctx,
@@ -387,114 +544,51 @@ def run_missing_framing(ctx: RunContext) -> None:
                     _noop_persist,
                     auto_complete=False,
                 )
-                arts = envelope.get("artifacts") if isinstance(envelope.get("artifacts"), dict) else {}
+                arts = (
+                    envelope.get("artifacts")
+                    if isinstance(envelope.get("artifacts"), dict)
+                    else {}
+                )
                 if isinstance(arts, dict) and arts:
                     parts.append(arts)
 
-            merged = _merge_gap_evaluations(parts, required_ids)
-            missing = [
-                sid
-                for sid in required_ids
-                if sid
-                not in {
-                    str(r.get("segment_id"))
-                    for r in (merged.get("evaluations") or [])
-                    if isinstance(r, dict)
-                }
-            ]
-            # One coverage pass for LLM-sparse shards (common when context is huge).
-            if missing:
-                ctx.log(
-                    f"missing_framing coverage pass for {len(missing)} uncovered segment(s)",
-                    level="warning",
-                    stage="missing_framing",
-                    action_id="missing_framing.coverage_pass",
-                )
-                cov_batches = [
-                    missing[i : i + max(8, min(batch_size, 20))]
-                    for i in range(0, len(missing), max(8, min(batch_size, 20)))
-                ]
-                for ci, cov_ids in enumerate(cov_batches):
-
-                    def build_cov(
-                        c: RunContext,
-                        *,
-                        _ids: list[str] = list(cov_ids),
-                        _ci: int = ci,
-                        _total: int = len(cov_batches),
-                    ) -> dict:
-                        return _missing_framing_payload(
-                            c,
-                            segment_ids=_ids,
-                            shard_meta={
-                                "index": _ci + 1,
-                                "total": _total,
-                                "segment_ids": list(_ids),
-                                "coverage_pass": True,
-                            },
-                        )
-
-                    envelope = run_llm_stage_simple(
-                        ctx,
-                        "missing_framing",
-                        prompt_rel,
-                        build_cov,
-                        _noop_persist,
-                        auto_complete=False,
-                    )
-                    arts = (
-                        envelope.get("artifacts")
-                        if isinstance(envelope.get("artifacts"), dict)
-                        else {}
-                    )
-                    if isinstance(arts, dict) and arts:
-                        parts.append(arts)
-                merged = _merge_gap_evaluations(parts, required_ids)
-                missing = [
-                    sid
-                    for sid in required_ids
-                    if sid
-                    not in {
-                        str(r.get("segment_id"))
-                        for r in (merged.get("evaluations") or [])
-                        if isinstance(r, dict)
-                    }
-                ]
-            if missing:
-                # Deterministic fill — LLM sparsely samples even with sharded ids.
-                # Prefer progress over infinite re-runs; severity stays low.
-                filled = list(merged.get("evaluations") or [])
-                for sid in missing:
-                    filled.append(
-                        {
-                            "segment_id": sid,
-                            "self_explanatory": True,
-                            "gap_type": "ok_with_light_bridge",
-                            "severity": "low",
-                            "listener_confusion": "",
-                            "_meta": {
-                                "filled_by": "missing_framing_batch_coverage",
-                                "reason": "llm_sparse_shard_output",
-                            },
-                        }
-                    )
-                merged = {"evaluations": filled}
-                ctx.log(
-                    f"missing_framing: filled {len(missing)} uncovered segment(s) with defaults",
-                    level="warning",
-                    stage="missing_framing",
-                    action_id="missing_framing.batch_fill",
-                    detail={"filled_count": len(missing), "examples": missing[:8]},
-                )
-            persist(ctx, merged)
-            sync_gaps_to_state(ctx, merged)
-            ctx.mark_done("missing_framing")
+        _run_id_shards(list(target_ids), coverage_pass=leftover_reentry)
+        merged = _merge_gap_evaluations(parts, required_ids)
+        still = _still_unscored(merged)
+        while still and extra_used < MISSING_FRAMING_COVERAGE_CAP:
+            extra_used += 1
             ctx.log(
-                f"missing_framing batched complete ({len(merged.get('evaluations') or [])} evaluations)",
-                level="success",
+                f"missing_framing coverage pass {extra_used}/{MISSING_FRAMING_COVERAGE_CAP} "
+                f"for {len(still)} unscored segment(s)",
+                level="warning",
                 stage="missing_framing",
-                action_id="missing_framing.proactive_batch_complete",
+                action_id="missing_framing.coverage_pass",
             )
+            _run_id_shards(still, coverage_pass=True)
+            merged = _merge_gap_evaluations(parts, required_ids)
+            still = _still_unscored(merged)
+        if still:
+            # Deterministic fill — LLM sparsely samples even with sharded ids.
+            # Fills stay on disk and refuse done (HG-3); leftover re-volley scores them.
+            merged = _fill_missing_evaluations(merged, still)
+            ctx.log(
+                f"missing_framing: filled {len(still)} uncovered segment(s) with defaults",
+                level="warning",
+                stage="missing_framing",
+                action_id="missing_framing.batch_fill",
+                detail={"filled_count": len(still), "examples": still[:8]},
+            )
+        merged = _stamp_coverage_passes(merged, extra_used)
+        persist(ctx, merged)
+        sync_gaps_to_state(ctx, merged)
+        # HG-3 1A/2B / Wave 1d: heal-mark; batch_fill and omitted ids refuse done.
+        heal_or_raise(ctx, "missing_framing", force=True)
+        ctx.log(
+            f"missing_framing batched complete ({len(merged.get('evaluations') or [])} evaluations)",
+            level="success",
+            stage="missing_framing",
+            action_id="missing_framing.proactive_batch_complete",
+        )
     _assert_gap_evaluations_complete(ctx)
 
 
@@ -529,6 +623,13 @@ def _assert_gap_evaluations_complete(ctx: RunContext) -> None:
                         merge_from_disk=False,
                         stage_key="missing_framing",
                     )
+                    from interview_mux.stage_completion import (
+                        stage_artifact_incompleteness as _inc,
+                    )
+
+                    tagged = _inc(ctx, "missing_framing")
+                    if tagged and "batch_fill" in str(tagged):
+                        raise RuntimeError(tagged)
         except Exception as exc:
             ctx.log(
                 f"gap_evaluations repair before completeness assert failed: {exc}",
@@ -1054,7 +1155,9 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 )
 
                 assert_stage_artifacts_complete(ctx, "gap_framing_compose")
-                ctx.mark_done("gap_framing_compose")
+                from interview_mux.stage_completion import heal_or_raise
+
+                heal_or_raise(ctx, "gap_framing_compose")
             except StageArtifactsIncompleteError as exc:
                 ctx.log(
                     f"gap_framing_compose not marked done — {exc.reason}",

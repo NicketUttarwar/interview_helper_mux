@@ -379,6 +379,13 @@ def _finalize_analysis_completion(ctx: RunContext) -> None:
 def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
     if stage == "transcript_review":
+        if getattr(ctx, "_homunculus_seed_walk", False) or getattr(
+            ctx, "_homunculus_inner_stage", False
+        ):
+            raise SystemExit(
+                "g0_pending: transcript_review operator must-act — "
+                "driver owns complete_g0 / wait_for_operator_g0"
+            )
         transcript_review.mark_transcript_review_complete(ctx)
         return
     if stage == "sfx_prompt_refine":
@@ -498,9 +505,13 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     except Exception:
         pass
     try:
-        from interview_mux.delivery_guardrails import mix_epoch_block, upstream_stale_blockers
+        from interview_mux.delivery_guardrails import (
+            MIX_EPOCH_RUN_BLOCK,
+            mix_epoch_block,
+            upstream_stale_blockers,
+        )
 
-        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+        if stage in MIX_EPOCH_RUN_BLOCK:
             mix_b = mix_epoch_block(ctx)
             if mix_b:
                 raise ValueError(f"cannot run {stage}: delivery epoch {mix_b}")
@@ -556,12 +567,18 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
 
         inner = bool(getattr(ctx, "_homunculus_inner_stage", False))
         if is_homunculus_run(ctx) and not inner:
-            dispatch_stage(
-                ctx,
-                stage,
-                lambda: run_wrapped_stage(ctx, stage, _impl),
-                source="operator",
-            )
+            def _host(sid: str) -> None:
+                prev = getattr(ctx, "_homunculus_inner_stage", False)
+                ctx._homunculus_inner_stage = True
+                try:
+                    run_single_stage(ctx, sid)
+                finally:
+                    if prev:
+                        ctx._homunculus_inner_stage = prev
+                    elif hasattr(ctx, "_homunculus_inner_stage"):
+                        delattr(ctx, "_homunculus_inner_stage")
+
+            dispatch_stage(ctx, stage, _host, source="operator")
         else:
             run_wrapped_stage(ctx, stage, _impl)
         if stage in {"master_finalize", "master_transcript_build"} and ctx.artifact_exists(

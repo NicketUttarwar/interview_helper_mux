@@ -238,10 +238,11 @@ def test_heal_under_mix_staging_does_not_hollow_committed_qa(tmp_path, monkeypat
     assert heal["dropped"] == [] or heal["healed"] is False
 
 
-def test_mix_mark_done_succeeds_when_assembly_seating_stale(tmp_path, monkeypatch):
-    """mix reseats assembly — seating_stale must not block mark_done(mix)."""
+def test_mix_mark_done_refuses_when_assembly_seating_stale(tmp_path, monkeypatch):
+    """HX-2 3A: mix cannot complete while seating is stale/unseated; flag stays."""
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("MUX_FORENSICS", "0")
     ctx = isolated_run_ctx(tmp_path, "mix_seating")
     asm = ctx.final_path("master", "assembly.wav")
     asm.parent.mkdir(parents=True, exist_ok=True)
@@ -261,9 +262,11 @@ def test_mix_mark_done_succeeds_when_assembly_seating_stale(tmp_path, monkeypatc
 
     ok, reason = artifact_usable(ctx, "master/assembly.wav", consumer="mix")
     assert ok, reason
-    assert stage_artifact_incompleteness(ctx, "mix") is None
+    hollow = stage_artifact_incompleteness(ctx, "mix")
+    assert hollow is not None
+    assert "mix unseated" in hollow
     ctx.mark_done("mix")
-    assert ctx.is_done("mix")
+    assert not ctx.is_done("mix")
     meta = ctx.read_json("run_meta.json")
-    assert not meta.get("assembly_seating_stale")
+    assert meta.get("assembly_seating_stale") is True
 
