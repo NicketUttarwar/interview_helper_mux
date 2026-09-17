@@ -1,6 +1,6 @@
 # Artifact generation and validation
 
-**Status: shipped** — flagship OpenAI generation for all structured LLM artifacts, incremental gap-fill, JSON Schema validation on every disk write, and Zod validation in the GUI before save.
+**Status: shipped** — flagship OpenAI generation for all structured LLM artifacts, JSON Schema validation on every disk write, and Zod validation in the GUI before save. **Incremental gap-fill is partially absent:** gap *detection* and merge-on-persist are live, but nothing injects `gap_fill_context` into the model's packet — see [gap-fill-capability-gap.md](./gap-fill-capability-gap.md).
 
 **Related:**
 
@@ -11,13 +11,14 @@
 - [artifact-layout.md](./artifact-layout.md) — on-disk paths per stage
 - [gui-surface-map.md](../workflows/gui-surface-map.md) — Stage outputs UI
 - [api-reference.md](../workflows/api-reference.md) — `artifacts_status`, `fill-artifact-gaps`
+- [gap-fill-capability-gap.md](./gap-fill-capability-gap.md) — **gap-fill context injection absent since 2026-07-20**
 
 ---
 
 ## Goals
 
 1. **Every descriptive JSON artifact** under a run workspace is produced by an **OpenAI flagship** primary call (not economy/standard tiers, not local-only pilot).
-2. **Incremental fill** — when a file already exists but is incomplete, the model receives `gap_fill_context` and returns **patches only** for missing fields; satisfied keys are listed in `skip_fields`.
+2. **Incremental fill** *(design goal — the injection half is currently absent)* — when a file already exists but is incomplete, the model should receive `gap_fill_context` and return **patches only** for missing fields, with satisfied keys listed in `skip_fields`. **Not in force since 2026-07-20:** the v2 reset (`f99f228b`) rewrote `stages/analysis_stage.py` and dropped the injection call; nothing has produced the block since. Detection (`compute_gaps`) and merge (`merge_artifact`) still work, so a re-running stage regenerates blind and the merge layer absorbs a full rewrite. Full record: [gap-fill-capability-gap.md](./gap-fill-capability-gap.md).
 3. **Validate before write** — no artifact is persisted unless it passes the on-disk JSON Schema registered in `ARTIFACT_WRITE_VALIDATORS`.
 4. **Operator review** — GUI shows `pending` / `partial` / `complete` per artifact; Open / edit / save with client-side Zod + server-side jsonschema.
 5. **Auto-commit** — stage outputs are written straight to their final paths (`v2.auto_commit_artifacts: true`). Inter-stage handoff acks and per-stage write approval were removed ([operator-gates.md](../workflows/operator-gates.md)).
@@ -34,8 +35,8 @@ flowchart TD
     Disk[Read existing artifact]
     Gaps[compute_gaps + validate_artifact_write]
     Disk --> Gaps
-    Gaps --> Ctx[gap_fill_context in stage JSON]
-    Ctx --> Volley[stage_input_helpers]
+    Gaps -.-> Ctx["gap_fill_context in stage JSON — ABSENT since 2026-07-20"]
+    Ctx -.-> Volley[stage_input_helpers]
   end
   subgraph openai [OpenAI]
     Volley --> Primary["primary task_kind — tier flagship"]
@@ -56,16 +57,21 @@ flowchart TD
   end
 ```
 
+**Dotted edges = designed but not currently wired.** The `Ctx` node is kept as the design record; no
+code has produced `gap_fill_context` since 2026-07-20 ([gap-fill-capability-gap.md](./gap-fill-capability-gap.md)).
+Everything on the solid path — `compute_gaps`, `validate_artifact_write`, the persist chain and the GUI
+surface — is live.
+
 ---
 
 ## Code modules
 
 | Module | Path | Role |
 |--------|------|------|
-| Gap-fill + merge + completeness | `src/interview_mux/artifact_completeness.py` | `compute_gaps`, `merge_artifact`, `build_gap_fill_context`, `artifact_status`, `should_run_stage_for_artifact`, `make_stage_persist` |
+| Gap-fill + merge + completeness | `src/interview_mux/artifact_completeness.py` | `compute_gaps`, `merge_artifact`, `artifact_status`, `should_run_stage_for_artifact`, `make_stage_persist`; plus `build_gap_fill_context` — **intact but zero callers** |
 | Validated write | `src/interview_mux/artifact_writes.py` | `write_validated_artifact` — merge, validate, log, `RunContext.write_json` |
 | Schema registry | `src/interview_mux/prompt_validation.py` | `STAGE_ARTIFACT_SCHEMAS`, `STAGE_ARTIFACT_DISK_PATHS`, `ARTIFACT_WRITE_VALIDATORS`, `validate_artifact_write` |
-| Stage runner | `src/interview_mux/stages/analysis_stage.py` | **`attach_gap_fill_to_input` no longer exists** — deleted by guardrail subtraction ([subtraction-holes.md](./subtraction-holes.md) §1.4). Nothing injects `gap_fill_context` into stage input today |
+| Stage runner | `src/interview_mux/stages/analysis_stage.py` | **`attach_gap_fill_to_input` no longer exists.** The *call* was dropped by the v2 reset `f99f228b` (2026-07-20); the then-orphaned *definition* was later deleted by guardrail subtraction ([subtraction-holes.md](./subtraction-holes.md) §1.4). Nothing injects `gap_fill_context` into stage input today — [gap-fill-capability-gap.md](./gap-fill-capability-gap.md) |
 | Call path | `src/interview_mux/llm_simple.py` | Single OpenAI call per attempt, max 2 attempts |
 | Pipeline | `src/interview_mux/pipeline.py` | Re-run LLM stage if `should_run_stage_for_artifact` even when `.stage_done` exists |
 | GUI API | `src/interview_mux/web/server.py` | `artifacts_status`, `POST …/fill-artifact-gaps` |
@@ -108,13 +114,17 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 
 ### Input: `gap_fill_context`
 
-> **REMOVED — no live code path produces this block.** `attach_gap_fill_to_input()` was deleted by the
-> guardrail-subtraction campaign ([subtraction-holes.md](./subtraction-holes.md) §1.4). Its builder
-> `artifact_completeness.build_gap_fill_context` still exists but has no callers, and no caller passes
-> `gap_fill_context` to `build_required_response_block()` / `volley_format_footer()`. **No replacement
-> route was found in the source** — stage inputs currently carry no gap-fill block. The shape below is
-> kept as the record of the contract, not as current behaviour. Gap *detection* (`compute_gaps`,
-> `artifact_status`, `should_run_stage_for_artifact`) and the re-run rule below are unaffected.
+> **ABSENT since 2026-07-20 — no live code path produces this block.** The v2 reset `f99f228b`
+> rewrote `stages/analysis_stage.py` (+14/−572) and dropped the `attach_gap_fill_to_input()` call;
+> the function then sat orphaned for two months before guardrail subtraction deleted the definition
+> ([subtraction-holes.md](./subtraction-holes.md) §1.4). **The subtraction campaign did not cause this
+> gap.** Its builder `artifact_completeness.build_gap_fill_context` still exists intact but has no
+> callers, and no caller passes `gap_fill_context` to `build_required_response_block()` /
+> `volley_format_footer()`. **No replacement route exists in the source** — stage inputs currently
+> carry no gap-fill block. The shape below is kept as the record of the contract, not as current
+> behaviour. Gap *detection* (`compute_gaps`, `artifact_status`, `should_run_stage_for_artifact`) and
+> the re-run rule below are unaffected. Timeline, affected prompts and a suggested (unvalidated) fix:
+> [gap-fill-capability-gap.md](./gap-fill-capability-gap.md).
 
 Formerly injected by `attach_gap_fill_to_input()` into the final user turn JSON for each LLM stage:
 
@@ -130,7 +140,7 @@ Formerly injected by `attach_gap_fill_to_input()` into the final user turn JSON 
 }
 ```
 
-Documented in [analysis-preamble.system.txt](../prompts/_shared/analysis-preamble.system.txt). Per-stage prompts should repeat the one-line rule when they write structured `artifacts`.
+Documented in [analysis-preamble.system.txt](../prompts/_shared/analysis-preamble.system.txt). Per-stage prompts should repeat the one-line rule when they write structured `artifacts`. **Six live prompt files still carry that rule** and therefore instruct the model about a block it never receives; they are enumerated in [gap-fill-capability-gap.md](./gap-fill-capability-gap.md) §3.1 and are deliberately left unedited pending a decision on restoring the injection.
 
 ### Semantic completeness rules
 
@@ -213,7 +223,9 @@ From `GET /api/runs/{id}` → each stage has:
 
 ### Fill gaps
 
-`POST /api/runs/{run_id}/fill-artifact-gaps` body `{ "path": "understanding/content_brief.json" }` starts a background job (`mode: stage`) for the first stage in `stage_keys_for_artifact_path(path)`.
+`POST /api/runs/{run_id}/fill-artifact-gaps` (`web/server.py:2964`) body `{ "path": "understanding/content_brief.json" }` starts a background job (`mode: stage`) for the first stage in `stage_keys_for_artifact_path(path)`.
+
+**Caveat — the route is live, the name overstates it.** It re-runs the stage; it does not tell the model which fields are already satisfied, because no `gap_fill_context` is injected. The model regenerates the whole artifact and `merge_artifact` absorbs the result. See [gap-fill-capability-gap.md](./gap-fill-capability-gap.md).
 
 ### Edit and save
 
@@ -257,7 +269,7 @@ cd frontend && npm run build
 4. Add validator to `ARTIFACT_WRITE_VALIDATORS` (thin wrapper around `_validate_by_artifact_schema` or dedicated function).
 5. Add `ARTIFACT_COMPLETENESS_RULES[rel_path]` if semantic gaps matter beyond JSON Schema.
 6. Use `make_stage_persist` or `write_validated_artifact` in the stage `persist` callback.
-7. Update stage prompt with gap-fill one-liner; add example under `docs/prompts/_shared/examples/` if non-trivial.
+7. Add example under `docs/prompts/_shared/examples/` if non-trivial. *(The stage-prompt gap-fill one-liner is dormant — no `gap_fill_context` is injected today; do not add new ones until the injection is restored: [gap-fill-capability-gap.md](./gap-fill-capability-gap.md).)*
 8. Run `python tools/codegen_zod_schemas.py` and extend [json-schema-coverage.md](./json-schema-coverage.md).
 9. Update [stage-contracts/00-INDEX.md](./stage-contracts/00-INDEX.md) and [gui-surface-map.md](../workflows/gui-surface-map.md).
 
