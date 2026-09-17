@@ -341,10 +341,11 @@ def test_the_flipped_groups_are_pinned():
 # closed by declaring another input, which is why the ratchet stopped here.
 REPORT_ONLY_REASONS: dict[str, str] = {
     "fill_gaps": (
-        "missing_framing and gap_framing_compose write "
-        "understanding/interviewer_script.txt with Path.write_text, bypassing the "
-        "commit path; the artifact has no ownership catalog row, so it can be "
-        "neither declared as an output nor honestly ignored"
+        "flipping the group drops episode_structure_compose from "
+        "soundscape_policy_build's invalidation set; compose does not read "
+        "understanding/soundscape_policy.json, so there is no honest contract "
+        "edge that would keep it, and STRICT_GROUPS may grow only while "
+        "transitive_invalidate equals _blanket_invalidate everywhere"
     ),
     "build": (
         "5 of 11 stages have no row in tools/contract_dependency_data.py, so "

@@ -63,11 +63,12 @@ _ENV_STRICT_GROUPS = "MUX_CONTRACT_STRICT_GROUPS"
 # `plan_rank`, 1 for `understand-b`, all of them under-invalidation. Reading the
 # whole permitted-writer set from the ownership catalog takes both to 0.
 #
-# That second condition is why the other four groups are still report-only, and
-# why this reverses D11's payoff-first order rather than leading with `build`.
-# The reasons are per-group and are recorded in
-# `tests/test_contract_conformance.py::test_the_report_only_groups_are_pinned`;
-# none of them is fixable by editing a contract.
+# `fill_gaps` is still report-only on that second condition: with it strict,
+# `soundscape_policy_build` drops `episode_structure_compose` (compose does not
+# read `understanding/soundscape_policy.json`). The interviewer-script / compact
+# digest unknown_path writes are closed; this remaining drop is why the group
+# stays held. `build` and `ship` stay report-only for the reasons pinned in
+# `tests/test_contract_conformance.py::test_the_report_only_groups_are_pinned`.
 #
 # NOTE on what a flip does and does not assert today: nothing in the tree has a
 # recorded `operator/contract_observed.json`, so

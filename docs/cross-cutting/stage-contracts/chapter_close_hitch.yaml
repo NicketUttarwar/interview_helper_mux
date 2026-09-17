@@ -17,6 +17,10 @@ outputs:
   staging: true
 - path: mastering/chapter_close_hitch/remap.json
   staging: true
+- path: understanding/episode_structure_compact.txt
+  staging: true
+- path: segments/boundaries.json
+  staging: true
 - path: mastering/chapter_close_hitch/hitch_keepers.json
 - path: mastering/chapter_close_hitch/pre_keepers.json
 - path: mastering/chapter_close_hitch/omit_ledger.json

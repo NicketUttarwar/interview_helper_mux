@@ -1124,6 +1124,12 @@ _FILL_GAPS: dict[str, dict[str, Any]] = {
         "consumers": ["sound_design_plan", "music_palette_compose", "sfx_prompt_craft"],
     },
     "episode_structure_compose": {
+        # The last three are a cross-module helper read no stage-body scan can
+        # see: `run_episode_structure_compose` calls
+        # `analysis_memory.update_completion_from_analysis`, which walks
+        # `llm_flow_hardening.ANALYSIS_READY_ARTIFACT_PATHS` through
+        # `artifact_completeness.artifact_status` — a content read that parses
+        # and schema-validates each one, not an existence probe.
         "inputs": {
             "soft": deps(
                 "understanding/content_brief.json",
@@ -1136,8 +1142,12 @@ _FILL_GAPS: dict[str, dict[str, Any]] = {
                 "segments/manifest.json",
                 "segments/boundaries.json",
                 "transcript/full.json",
+                "understanding/gap_evaluations.json",
+                "understanding/gap_report.json",
+                "understanding/delivery_brief.json",
             )
         },
+        "outputs": [{"path": "understanding/episode_structure_compact.txt"}],
         "consumers": [
             "mastering_plan_synthesize",
             "mastering_plan_confirm",
@@ -1325,6 +1335,8 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
             {"path": "mastering/chapter_close_hitch/omit_ledger.json"},
             {"path": "mastering/chapter_close_hitch/vo_snapshot.json"},
             {"path": "master/narrative_plan.qc.json"},
+            {"path": "understanding/episode_structure_compact.txt"},
+            {"path": "segments/boundaries.json"},
         ],
     },
     "connector_fuse_pass_pre_ranking": {
@@ -1725,7 +1737,10 @@ _SOUND: dict[str, dict[str, Any]] = {
         # `persist` calls `_load_sound_design_plan(c)` and merges into it, so the
         # plan is a read-modify-write — declared as an output already, which
         # `evaluate` counts as readable.
-        "outputs": [{"path": "understanding/music_brief.json"}],
+        "outputs": [
+            {"path": "understanding/music_brief.json"},
+            {"path": "understanding/episode_structure_compact.txt"},
+        ],
         "consumers": ["sound_design_palettes", "mmaudio_sfx", "music_palette_compose"],
     },
     "vo_line_adjudicate": {

@@ -238,6 +238,11 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "connector_fuse_pass",
         "connector_fuse_pass_pre_ranking",
         "boundary_topic_resplit",
+        # chapter_close_hitch remints the contract after the hitch remap
+        # (`chapter_close_hitch.py` persist of BOUNDARIES_REL). Keep it a
+        # co-producer, not last: edl_overlap_repair stays the overlap-union
+        # rewriter, and boundary_detection stays first (full-tape resume).
+        "chapter_close_hitch",
         # Same overlap union pass keeps boundaries coherent with the merged row.
         "edl_overlap_repair",
         mode="committed_ok",
@@ -343,6 +348,17 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/delivery_brief.json", "delivery_brief_build"),
     _row("understanding/soundscape_policy.json", "soundscape_policy_build"),
     _row("understanding/episode_structure.json", "episode_structure_compose"),
+    # Compact digest of episode_structure.json (plain text, LX-03 / LLM-volley
+    # attach). Three writers, all legitimate: sound_design_plan refreshes after
+    # ranking, chapter_close_hitch realigns after the hitch remap, and
+    # episode_structure_compose is the canonical minter — so it stays last.
+    _row(
+        "understanding/episode_structure_compact.txt",
+        "sound_design_plan",
+        "chapter_close_hitch",
+        "episode_structure_compose",
+        end="C",
+    ),
     # Delivery
     _row("master/coverage_audit.json", "topic_coverage_audit", end="C"),
     _row("master/narrative_plan.json", "narrative_arc_plan", end="C"),

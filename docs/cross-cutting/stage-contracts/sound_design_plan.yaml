@@ -12,6 +12,8 @@ outputs:
 - path: understanding/sound_design_plan.json
   schema: sound_design_plan_artifact.schema.json
   staging: true
+- path: understanding/episode_structure_compact.txt
+  staging: true
 - path: understanding/music_brief.json
 inputs:
   hard:

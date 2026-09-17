@@ -15,6 +15,27 @@ STRUCTURE_PATH = "understanding/episode_structure.json"
 COMPACT_DIGEST_PATH = "understanding/episode_structure_compact.txt"
 PACKS_DIR_REL = "docs/cross-cutting/episode-structure-packs"
 
+
+def commit_episode_structure_compact(ctx: RunContext, text: str, *, stage_key: str) -> Any:
+    """Persist the compact digest under the ownership constitution.
+
+    The digest is plain text, so ``ctx.write_json`` cannot carry it. This mirrors
+    ``gap_framing.commit_interviewer_script``: assert authority for the named
+    stage first, then write through ``ctx.path`` so the write lands in that
+    stage's staging root and commits on the normal flush. A raw
+    ``Path.write_text`` skipped the authority check entirely.
+    """
+    from interview_mux.artifact_ownership import assert_write
+    from interview_mux.file_store import write_text as fs_write_text
+    from interview_mux.write_staging import active_stage_id
+
+    sk = str(stage_key or "").strip() or (active_stage_id() or "")
+    assert_write(ctx, COMPACT_DIGEST_PATH, sk, role="producer", verb="persist")
+    dest = ctx.path(*COMPACT_DIGEST_PATH.split("/"))
+    fs_write_text(dest, text)
+    return dest
+
+
 MUSIC_VERBS = frozenset(
     {
         "into_speech",
@@ -751,10 +772,7 @@ def persist_structure(ctx: RunContext, doc: dict[str, Any], *, stage: str) -> No
         raise ValueError(f"episode_structure invalid: {all_errs[:5]}")
     ctx.write_json(STRUCTURE_PATH, doc)
     digest = str(doc.get("compact_digest") or build_compact_digest(doc))
-    # text digest for LX-03 path
-    path = ctx.path(*COMPACT_DIGEST_PATH.split("/"))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(digest, encoding="utf-8")
+    commit_episode_structure_compact(ctx, digest, stage_key=stage)
     ctx.log(
         f"episode_structure: {len(doc.get('slot_plan') or [])} slots, "
         f"{len(doc.get('omit_reasons') or [])} omits, integrity_ok={(doc.get('integrity') or {}).get('ok')}",
@@ -788,6 +806,9 @@ def persist_structure_skip_stub(ctx: RunContext) -> dict[str, Any]:
         "skipped": "feature_disabled",
     }
     ctx.write_json(STRUCTURE_PATH, stub, stage_key="episode_structure_compose")
+    commit_episode_structure_compact(
+        ctx, "disabled", stage_key="episode_structure_compose"
+    )
     from interview_mux.stage_completion import heal_or_refuse_mark
 
     heal_or_refuse_mark(ctx, "episode_structure_compose", force=True)

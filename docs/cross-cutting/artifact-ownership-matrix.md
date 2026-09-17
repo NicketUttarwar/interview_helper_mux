@@ -1,6 +1,6 @@
 # Artifact ownership — ALLOW / DENY
 
-matrix_version: `1185248c78f80616`
+matrix_version: `8f5b9a53a9932b4a`
 
 ## Primary paths (live stages)
 
@@ -51,8 +51,6 @@ matrix_version: `1185248c78f80616`
 | `missing_framing` | `understanding/gap_evaluations.json` |
 | `mix` | `master/assembly.wav` |
 | `mmaudio_sfx` | `sound_design/mmaudio_qa.json` |
-| `mmaudio_sfx` | `master/sfx/manifest.json` |
-| `mmaudio_sfx` | `master/sfx/*.wav` |
 | `music_palette_compose` | `sound_design/music_palette_compose.json` |
 | `narrative_arc_plan` | `master/narrative_plan.json` |
 | `nugget_corpus_mine` | `understanding/nugget_corpus.json` |
@@ -61,17 +59,12 @@ matrix_version: `1185248c78f80616`
 | `podcast_publish` | `publish/package_ready.json` |
 | `refinement_agenda` | `understanding/refinement_agenda.json` |
 | `segment_classification` | `segments/manifest.json` |
-| `edl_overlap_repair` | `segments/manifest.json`, `segments/boundaries.json` (overlap union survivor row) + `segment_id_remap` ALLOW on every remap-walker path |
 | `selection_framing_apply` | `understanding/selection_framing_apply.json` |
 | `selection_order_sanitize` | `master/selection.json` |
-| `junction_snip_qa` | `master/selection.json` (fuse/omit of unrecoverable incomplete cuts) |
 | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
 | `sonic_context_build` | `understanding/sonic_context.json` |
 | `sound_design_palettes` | `understanding/sound_design_plan.json` |
 | `sound_design_plan` | `understanding/sound_design_plan.json` |
-| `music_palette_compose` | `understanding/sound_design_plan.json` |
-| `sfx_prompt_craft` | `understanding/sound_design_plan.json` |
-| `sound_design_vo_finalize` | `understanding/sound_design_plan.json` |
 | `sound_design_vo_finalize` | `mastering/sound_design_vo_finalize.json` |
 | `soundscape_policy_build` | `understanding/soundscape_policy.json` |
 | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
@@ -121,3 +114,4 @@ matrix_version: `1185248c78f80616`
 - Owner re-execute is ALLOW; consumer re-execute never becomes owner.
 - Nested VO staging under EDL is ALLOW; flushing `vo_pickup` from non-owner pending is DENY.
 - Empty heal pin must not execute (no delivery rewind / no music_palette_compose coalesce).
+

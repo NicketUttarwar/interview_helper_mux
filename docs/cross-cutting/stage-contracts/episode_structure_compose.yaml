@@ -12,6 +12,8 @@ outputs:
 - path: understanding/episode_structure.json
   schema: null
   staging: false
+- path: understanding/episode_structure_compact.txt
+  staging: true
 inputs:
   hard: []
   soft:
@@ -35,6 +37,12 @@ inputs:
     producer: boundary_detection
   - path: transcript/full.json
     producer: transcribe
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
 sufficiency: []
 propagation:
   invalidates_stages: []

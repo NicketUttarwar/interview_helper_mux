@@ -346,7 +346,10 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Episode structure",
         "Deterministic sparse slot plan + segment order (optional phases; no forced payoff/outro).",
         "analysis",
-        ("understanding/episode_structure.json",),
+        (
+            "understanding/episode_structure.json",
+            "understanding/episode_structure_compact.txt",
+        ),
         ("understanding/episode_structure.json",),
     ),
 )
@@ -406,6 +409,8 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
             "mastering/chapter_close_hitch.json",
             "mastering/chapter_close_hitch/intent_plan.json",
             "mastering/chapter_close_hitch/remap.json",
+            "understanding/episode_structure_compact.txt",
+            "segments/boundaries.json",
         ),
         (),
     ),
@@ -541,7 +546,10 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Sound design plan",
         "Build Flow 1 reusable sound design assets and cues in the shared sound design plan.",
         "delivery",
-        ("understanding/sound_design_plan.json",),
+        (
+            "understanding/sound_design_plan.json",
+            "understanding/episode_structure_compact.txt",
+        ),
         ("understanding/sound_design_plan.json",),
     ),
     StageInfo(
