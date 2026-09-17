@@ -1,18 +1,25 @@
 """The replay harness must not be able to manufacture a green promotion verdict.
 
 ``tools/solver_replay.py`` stands in for the live full-auto run the forensics campaign
-forbids, so its failure mode is not "wrong number" — it is "reassuring number". Three
+forbids, so its failure mode is not "wrong number" — it is "reassuring number". Four
 ways it could reassure wrongly, each pinned here:
 
 1. **False green from emptiness.** ``solver.shadow_summary()["zero"]`` keys on
    ``disagree`` alone, and a solver with no justified opinion disagrees with nobody. So
-   zero disagreements must NOT be sufficient: the verdict has to veto on coverage too.
+   zero disagreements must not be sufficient — which under **D12** is bought by the
+   second condition (no regression against the driver) rather than by a coverage
+   percentage. The coverage numbers stay in the report and must stay *out* of the
+   verdict; both halves of that are pinned.
 2. **Merged divergence classes.** A dispatch the solver would have *skipped* is the
    thrash refusal this campaign exists to produce; a dispatch it would have *replaced*
-   is a real disagreement. Summing them hides the second inside the first.
+   is a real disagreement. Summing them hides the second inside the first. A dispatch of
+   an **already-complete** stage is neither, and folding it into `skip` (590 of 1,107)
+   or into `blocked` is what made the headline unreadable.
 3. **Drift from the live classifier.** The harness reuses
    ``solver.compare_walk_choice`` rather than reimplementing it, and its deferral
    buckets must stay exhaustive over the unknowns the solver actually emits.
+4. **A laundered explanation.** ``KNOWN_DIVERGENCES`` is prose next to the numbers and
+   must never be able to clear a gate.
 
 Plus the safety property the corpus depends on: replaying a run must never write into
 ``ASSETS/executions``.
@@ -37,7 +44,7 @@ from interview_mux import solver  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# 1. the verdict cannot go green on emptiness
+# 1. the verdict is D12's two conditions, and only those
 # ---------------------------------------------------------------------------
 
 def _summary(**patch) -> dict:
@@ -45,6 +52,7 @@ def _summary(**patch) -> dict:
         "choice_divergences": 0,
         "choice_unexplained": 0,
         "choice_reconstruction_limited": 0,
+        "driver_regressions": 0,
         "authority_rate": 0.95,
         "structural_defer_rate": 0.0,
     }
@@ -52,11 +60,9 @@ def _summary(**patch) -> dict:
     return base
 
 
-def test_zero_disagreements_alone_does_not_promote() -> None:
-    """The exact false green: no disagreements because there are no opinions."""
-    verdict = replay.promotion_verdict(_summary(authority_rate=0.06))
-    assert verdict["promote"] is False
-    assert "solver_has_authority" in verdict["vetoes"]
+def test_the_gate_is_exactly_d12s_two_conditions() -> None:
+    ids = [c["id"] for c in replay.promotion_verdict(_summary())["checks"]]
+    assert ids == ["no_unexplained_disagreements", "no_regression_against_driver"]
 
 
 def test_a_real_disagreement_vetoes_even_with_perfect_coverage() -> None:
@@ -65,6 +71,12 @@ def test_a_real_disagreement_vetoes_even_with_perfect_coverage() -> None:
     )
     assert verdict["promote"] is False
     assert "no_unexplained_disagreements" in verdict["vetoes"]
+
+
+def test_a_regression_against_the_driver_vetoes_on_its_own() -> None:
+    verdict = replay.promotion_verdict(_summary(driver_regressions=1))
+    assert verdict["promote"] is False
+    assert "no_regression_against_driver" in verdict["vetoes"]
 
 
 def test_a_reconstruction_limited_divergence_is_reported_but_does_not_veto() -> None:
@@ -83,21 +95,161 @@ def test_evidence_is_read_off_the_ledger_not_guessed() -> None:
     assert replay.choice_evidence("content_brief_reanchor", {"mix"}) == "mtime_only"
 
 
-def test_structural_deferral_vetoes_because_population_will_never_fix_it() -> None:
-    verdict = replay.promotion_verdict(_summary(structural_defer_rate=0.4))
-    assert verdict["promote"] is False
-    assert "structural_deferral_bounded" in verdict["vetoes"]
-
-
 def test_promotion_needs_every_condition_at_once() -> None:
     assert replay.promotion_verdict(_summary())["promote"] is True
-    assert replay.promotion_verdict(_summary(authority_rate=None))["promote"] is False
+    assert (
+        replay.promotion_verdict(_summary(choice_unexplained=1, driver_regressions=1))[
+            "vetoes"
+        ]
+        == ["no_unexplained_disagreements", "no_regression_against_driver"]
+    )
 
 
-def test_the_authority_bar_is_a_majority_not_a_token() -> None:
-    """A bar low enough to pass on a handful of opinions is the bug, not the gate."""
-    assert replay.MIN_AUTHORITY_RATE >= 0.5
+# --- D12 retired two bars. They must report and must never veto. -----------
+
+def test_a_dismal_authority_rate_no_longer_vetoes() -> None:
+    """D12: a deferring solver is safe, because deferral hands the pick to the walk.
+
+    This is the exact inversion of the pre-D12 behaviour, so it is pinned as an
+    assertion rather than left to the absence of a test.
+    """
+    verdict = replay.promotion_verdict(_summary(authority_rate=0.06))
+    assert verdict["promote"] is True
+    assert "solver_has_authority" not in verdict["vetoes"]
+
+
+def test_unbounded_structural_deferral_no_longer_vetoes() -> None:
+    verdict = replay.promotion_verdict(_summary(structural_defer_rate=0.4))
+    assert verdict["promote"] is True
+    assert "structural_deferral_bounded" not in verdict["vetoes"]
+
+
+def test_a_missing_coverage_number_cannot_block_promotion() -> None:
+    verdict = replay.promotion_verdict(
+        _summary(authority_rate=None, structural_defer_rate=None)
+    )
+    assert verdict["promote"] is True
+
+
+def test_the_retired_bars_are_still_reported_with_their_old_scale() -> None:
+    """Retiring a gate must not delete the number — it is the D10/D11 progress signal."""
+    verdict = replay.promotion_verdict(_summary(authority_rate=0.252))
+    metrics = {m["id"]: m for m in verdict["metrics"]}
+    assert set(metrics) == set(replay.RETIRED_GATE_IDS)
+    assert metrics["solver_has_authority"]["value"] == 0.252
+    assert metrics["solver_has_authority"]["retired_bar"] == replay.RETIRED_AUTHORITY_BAR
+    assert "25.2%" in metrics["solver_has_authority"]["detail"]
+    assert (
+        metrics["structural_deferral_bounded"]["retired_bar"]
+        == replay.RETIRED_STRUCTURAL_DEFER_BAR
+    )
+
+
+def test_no_retired_metric_is_wired_into_the_veto_list() -> None:
+    """The structural guard: a future edit that re-gates coverage trips here."""
+    worst = replay.promotion_verdict(
+        _summary(authority_rate=0.0, structural_defer_rate=1.0)
+    )
+    assert worst["vetoes"] == []
+    assert set(replay.RETIRED_GATE_IDS).isdisjoint(
+        {c["id"] for c in worst["checks"]}
+    )
+
+
+def test_the_disagreement_bars_are_zero_because_being_wrong_is_the_thing() -> None:
     assert replay.MAX_CHOICE_DIVERGENCES == 0
+    assert replay.MAX_DRIVER_REGRESSIONS == 0
+
+
+def test_the_report_prints_the_retired_metrics_prominently() -> None:
+    markdown = replay.render_markdown(replay.summarise([]))
+    head = markdown.split("## Corpus")[0]
+    assert "Retired" in head
+    assert "solver_has_authority" in head
+    assert "never as vetoes" in head
+
+
+def test_a_traced_explanation_cannot_clear_a_gate() -> None:
+    """KNOWN_DIVERGENCES is prose next to the numbers, never an input to them."""
+    source = (REPO / "tools" / "solver_replay.py").read_text(encoding="utf-8")
+    body = source.split("def promotion_verdict")[1].split("\ndef ")[0]
+    assert "KNOWN_DIVERGENCES" not in body
+
+
+# ---------------------------------------------------------------------------
+# 1b. the driver-regression witness
+# ---------------------------------------------------------------------------
+
+def test_a_stage_the_driver_finished_and_never_reran_is_a_regression() -> None:
+    proof = replay.regression_proof(
+        "edl", 200.0, dones=[(100.0, "edl")], invalidations=[], starts={"edl": [90.0]}
+    )
+    assert proof
+    assert "never started it again" in proof
+
+
+def test_a_stage_the_driver_reran_later_proves_nothing() -> None:
+    """The driver re-dispatching it is the opposite of proof, so this must not count."""
+    assert (
+        replay.regression_proof(
+            "edl",
+            200.0,
+            dones=[(100.0, "edl")],
+            invalidations=[],
+            starts={"edl": [90.0, 300.0]},
+        )
+        == ""
+    )
+
+
+def test_an_invalidated_completion_is_not_proof() -> None:
+    assert (
+        replay.regression_proof(
+            "edl",
+            200.0,
+            dones=[(100.0, "edl")],
+            invalidations=[(150.0, frozenset({"edl"}))],
+            starts={},
+        )
+        == ""
+    )
+
+
+def test_a_stage_with_no_completion_on_record_is_not_proof() -> None:
+    assert replay.regression_proof("edl", 200.0, dones=[], invalidations=[], starts={}) == ""
+    assert (
+        replay.regression_proof(
+            "edl", 50.0, dones=[(100.0, "edl")], invalidations=[], starts={}
+        )
+        == ""
+    )
+
+
+def test_only_choice_observations_can_regress() -> None:
+    """A skip or already_done point proposes no stage, so it has nothing to regress on."""
+    for klass in (replay.SKIP, replay.ALREADY_DONE, replay.AGREE, replay.DEFER):
+        obs = _observation(klass, regression_proof="driver recorded `done`")
+        assert obs.driver_regression is False
+    assert (
+        _observation(replay.CHOICE, regression_proof="driver recorded `done`").driver_regression
+        is True
+    )
+
+
+def test_the_summary_counts_regressions_and_shows_the_proof() -> None:
+    run = replay.RunReplay(run_id="r", points=1, evaluated=1)
+    run.observations.append(
+        _observation(
+            replay.CHOICE,
+            choice_evidence="ledger",
+            regression_proof="driver recorded `done` at T and never started it again",
+        )
+    )
+    summary = replay.summarise([run])
+    assert summary["driver_regressions"] == 1
+    assert summary["verdict"]["promote"] is False
+    assert "no_regression_against_driver" in summary["verdict"]["vetoes"]
+    assert summary["driver_regression_examples"][0]["regression_proof"]
 
 
 # ---------------------------------------------------------------------------
@@ -105,10 +257,17 @@ def test_the_authority_bar_is_a_majority_not_a_token() -> None:
 # ---------------------------------------------------------------------------
 
 class _Comparison:
-    def __init__(self, verdict: str, chosen: str = "mix", choice: str | None = None) -> None:
+    def __init__(
+        self,
+        verdict: str,
+        chosen: str = "mix",
+        choice: str | None = None,
+        reason: str = "hard_input_missing:master/edl.json",
+    ) -> None:
         self.verdict = verdict
         self.chosen = chosen
         self.solver_choice = choice
+        self.reason = reason
 
 
 def test_a_refused_dispatch_is_skip_and_a_replaced_one_is_choice() -> None:
@@ -122,6 +281,33 @@ def test_a_refused_dispatch_is_skip_and_a_replaced_one_is_choice() -> None:
 def test_agree_and_defer_pass_through_unchanged() -> None:
     assert replay.classify(_Comparison(solver.AGREE), set())[0] == replay.AGREE
     assert replay.classify(_Comparison(solver.DEFER), set())[0] == replay.DEFER
+
+
+def test_redispatching_a_finished_stage_is_its_own_class_not_a_skip() -> None:
+    """590 of 1,107 'skip divergences' were this. A finished stage is not a blocker."""
+    klass, _ = replay.classify(
+        _Comparison(solver.DISAGREE, reason="already_done"), set()
+    )
+    assert klass == replay.ALREADY_DONE
+    assert klass != replay.SKIP
+
+
+def test_a_real_blocker_stays_a_skip() -> None:
+    for reason in (
+        "hard_input_missing:master/edl.json",
+        "door_refused:max_invokes_per_identity",
+        "lease_held_by_gui",
+    ):
+        klass, _ = replay.classify(_Comparison(solver.DISAGREE, reason=reason), set())
+        assert klass == replay.SKIP, reason
+
+
+def test_a_solver_preference_outranks_the_already_done_class() -> None:
+    """A choice divergence must never be reclassified as bookkeeping."""
+    klass, _ = replay.classify(
+        _Comparison(solver.DISAGREE, choice="edl", reason="already_done"), {"edl"}
+    )
+    assert klass == replay.CHOICE
 
 
 def _observation(klass: str, **patch) -> replay.Observation:
@@ -151,6 +337,27 @@ def test_the_summary_never_folds_skip_into_choice() -> None:
     assert summary["skip_divergences"] == 1
     assert summary["choice_divergences"] == 1
     assert "disagreements" not in summary
+
+
+def test_the_summary_keeps_already_done_out_of_the_skip_count() -> None:
+    run = replay.RunReplay(run_id="r", points=3, evaluated=3)
+    run.observations.append(_observation(replay.SKIP))
+    run.observations.append(_observation(replay.ALREADY_DONE, source="rerun"))
+    run.observations.append(_observation(replay.ALREADY_DONE, source="conductor"))
+    summary = replay.summarise([run])
+    assert summary["skip_divergences"] == 1
+    assert summary["already_done_dispatches"] == 2
+    assert summary["already_done_sources"] == {"rerun": 1, "conductor": 1}
+
+
+def test_already_done_stays_out_of_the_agreement_denominator() -> None:
+    """Otherwise the agreement rate moves for a reason that is not about the solver."""
+    run = replay.RunReplay(run_id="r", points=2, evaluated=2)
+    run.observations.append(_observation(replay.AGREE))
+    run.observations.append(_observation(replay.ALREADY_DONE))
+    summary = replay.summarise([run])
+    assert summary["agreement_denominator"] == 1
+    assert summary["agreement_rate"] == 1.0
 
 
 def test_the_summary_keeps_unexplained_and_reconstruction_limited_apart() -> None:
@@ -366,10 +573,17 @@ def test_the_harness_never_writes_to_the_executions_tree() -> None:
 # ---------------------------------------------------------------------------
 
 class _Verdict:
-    def __init__(self, stage: str, admissible: bool, unknowns: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        stage: str,
+        admissible: bool,
+        unknowns: tuple[str, ...] = (),
+        reasons: tuple[str, ...] = (),
+    ) -> None:
         self.stage = stage
         self.admissible = admissible
         self.unknowns = unknowns
+        self.reasons = reasons or (() if admissible else ("hard_input_missing:x",))
 
     @property
     def confident(self) -> bool:
@@ -394,8 +608,48 @@ def test_the_census_counts_confident_deferred_and_blocked_separately() -> None:
     )
     census = replay.census_for(decision)
     assert (census.confident, census.deferred, census.blocked) == (1, 2, 1)
+    assert census.complete == 0
     assert census.has_authority is True
     assert census.defer_buckets == {"coverage": 1, "structural": 1}
+
+
+def test_a_finished_stage_is_counted_complete_and_not_blocked() -> None:
+    """`already_done` is a blocker for admissibility and a lie in a census: the blocked
+    count would climb toward 72 precisely because the run was succeeding."""
+    decision = _Decision(
+        [
+            _Verdict("ingest", False, reasons=("already_done",)),
+            _Verdict("mix", False, reasons=("hard_input_missing:master/edl.json",)),
+        ],
+        None,
+    )
+    census = replay.census_for(decision)
+    assert (census.complete, census.blocked) == (1, 1)
+
+
+def test_already_done_must_be_the_sole_reason_to_count_as_complete() -> None:
+    """Otherwise a genuinely blocked stage gets laundered into the complete bucket."""
+    assert replay.verdict_is_complete(_Verdict("mix", False, reasons=("already_done",)))
+    assert not replay.verdict_is_complete(
+        _Verdict("mix", False, reasons=("already_done", "lease_held_by_gui"))
+    )
+    assert not replay.verdict_is_complete(_Verdict("mix", False, reasons=()))
+
+
+def test_the_verdict_total_still_accounts_for_every_stage() -> None:
+    """Splitting a bucket must not drop a verdict on the floor."""
+    run = replay.RunReplay(run_id="r", points=1, evaluated=1)
+    run.census = replay.Census(confident=2, deferred=5, blocked=3, complete=4)
+    run.census_points = 1
+    summary = replay.summarise([run])
+    assert summary["stage_verdicts"] == 14
+    assert (
+        summary["confident_admissible"]
+        + summary["deferred_stages"]
+        + summary["blocked_stages"]
+        + summary["complete_stages"]
+        == summary["stage_verdicts"]
+    )
 
 
 def test_no_confident_pick_means_the_walk_still_decides() -> None:
@@ -412,7 +666,26 @@ def test_the_report_headline_carries_coverage_and_agreement_together() -> None:
     headline = markdown.split("## Corpus")[0]
     assert "authority" in headline.lower()
     assert "deferred" in headline.lower()
-    assert "worthless on its own" in headline
+    assert "worthless as a gate" in headline
+
+
+def test_the_report_states_plainly_whether_the_d12_bar_is_met() -> None:
+    run = replay.RunReplay(run_id="r", points=1, evaluated=1)
+    run.observations.append(_observation(replay.CHOICE, choice_evidence="ledger"))
+    vetoed = replay.render_markdown(replay.summarise([run]))
+    assert "D12 gate NOT MET" in vetoed
+    assert "VETOED" in vetoed
+    assert "D12 gate MET" in replay.render_markdown(replay.summarise([]))
+
+
+def test_the_report_shows_the_already_complete_split_in_the_census() -> None:
+    run = replay.RunReplay(run_id="r", points=1, evaluated=1)
+    run.census = replay.Census(confident=1, deferred=1, blocked=1, complete=9)
+    run.census_points = 1
+    run.observations.append(_observation(replay.ALREADY_DONE, source="rerun"))
+    markdown = replay.render_markdown(replay.summarise([run]))
+    assert "already complete" in markdown
+    assert "solver.py:602" in markdown
 
 
 def test_the_verdict_section_precedes_every_number(tmp_path: Path) -> None:
@@ -484,6 +757,7 @@ def test_a_synthetic_run_replays_without_touching_the_source(
         replay.DEFER,
         replay.SKIP,
         replay.CHOICE,
+        replay.ALREADY_DONE,
     }
     assert result.census_points == 1
     assert {p: p.stat().st_mtime for p in run.rglob("*") if p.is_file()} == before

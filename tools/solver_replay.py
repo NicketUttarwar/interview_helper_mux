@@ -7,13 +7,13 @@ harness answers the question from runs that already happened: for every dispatch
 completed execution actually made, reconstruct the on-disk state as it stood at that
 moment and ask the solver what it would have done.
 
-**Zero disagreements is not the gate, and on its own it is a false green.**
+**Zero disagreements is not the whole story, and on its own it is a false green.**
 ``solver.shadow_summary()["zero"]`` keys on ``disagree`` alone — deferrals are excluded
 by design so they cannot block promotion. But a solver that has no justified opinion
 about most of the pipeline disagrees with nobody, so that number is trivially
 satisfiable while contract population is unfinished. This harness therefore reports a
-**deferral census** alongside the disagreement count and treats a low coverage number
-as a veto in its own right:
+**deferral census** alongside the disagreement count, and never quotes one without the
+other:
 
     authority rate   decision points where the solver could pick on its own authority
                      (``Decision.would_choose_confident`` is not None) — i.e. where
@@ -23,10 +23,22 @@ as a veto in its own right:
     defer causes     split into COVERAGE (contract population removes it) and
                      STRUCTURAL (population never will)
 
+Neither coverage number gates. **D12 (plan §11) retired the 80% authority bar and the
+5% structural-deferral bar**, because a solver that defers is *safe* — deferral hands
+the pick back to the walk — so the thing that must be zero is being confidently wrong,
+not being quiet. Both numbers are still published, prominently, as the D10/D11 progress
+signal. See ``promotion_verdict``.
+
 Divergences are classified, never summed into one number::
 
-    skip      solver proves the dispatched stage was not runnable   (agreement in spirit)
-    choice    solver would confidently have run a different stage   (real disagreement)
+    already_done  the driver re-dispatched a stage that was already complete
+    skip          solver proves the dispatched stage was not runnable (agreement in spirit)
+    choice        solver would confidently have run a different stage (real disagreement)
+
+``already_done`` is held apart from ``skip`` on purpose. A completed stage is not a
+blocked stage, and a refusal to re-run finished work is not a divergence about control
+flow — it is the driver re-walking ground it had covered. Folding the two together put
+590 of 1,107 "skip divergences" in the wrong bucket and made the headline meaningless.
 
 The classifier is ``solver.compare_walk_choice`` — reused, not reimplemented, so the
 numbers stay comparable with live shadow logging. Comparison scope is the candidate
@@ -98,6 +110,12 @@ AGREE = "agree"
 DEFER = "defer"
 SKIP = "skip"
 CHOICE = "choice"
+# Not a divergence: the dispatched stage was already complete. `evaluate_stage` scores
+# `already_done` as a positive blocker (solver.py:602), which is right for admissibility
+# and wrong for a census — a finished stage is not a blocked one. Held in its own class
+# so neither the blocked count nor the skip count absorbs it.
+ALREADY_DONE = "already_done"
+DONE_BLOCKER = "already_done"
 
 # --- deferral cause split (amendment item 3) -------------------------------
 # COVERAGE: the contract does not yet say enough. Populating it removes the unknown,
@@ -123,9 +141,10 @@ STRUCTURAL_UNKNOWNS: tuple[str, ...] = (
     "door_indeterminate",
 )
 
-# --- promotion gate --------------------------------------------------------
-# Every condition must hold. Any one of them failing is a veto, and a veto is a
-# successful outcome for this harness — it is what "validate first" bought.
+# --- promotion gate (D12, plan §11) ----------------------------------------
+# Exactly two conditions gate, and every condition must hold. A veto is a successful
+# outcome for this harness — it is what "validate first" bought.
+#
 # Only *unexplained* choice divergences veto. A choice divergence whose preferred
 # stage has no ledger dispatch row anywhere in the run is not evidence about the
 # solver: that stage's done-timeline is reconstructed from marker mtime alone, which
@@ -133,12 +152,19 @@ STRUCTURAL_UNKNOWNS: tuple[str, ...] = (
 # reported in full and separately, never folded into the explained count and never
 # silently dropped.
 MAX_CHOICE_DIVERGENCES = 0
-# Fraction of decision points where the solver could pick on its own authority.
-# Below this, promotion buys an indirection layer and nothing else: the walk still
-# decides, and the operator believes otherwise.
-MIN_AUTHORITY_RATE = 0.80
-# Fraction of stage verdicts deferring for a reason contract population cannot fix.
-MAX_STRUCTURAL_DEFER_RATE = 0.05
+# D12's second condition: no regression against the driver. See `driver_regressions`.
+MAX_DRIVER_REGRESSIONS = 0
+
+# --- retired gates, kept as reported metrics -------------------------------
+# D12 dropped both of these as vetoes. The rationale is that a deferring solver is
+# *safe* — `authoritative_sequence` hands a deferred stage back to seed order — so a
+# coverage percentage is the wrong shape for a gate. They stay in the report as the
+# progress signal for D10/D11, quoted against the bar that used to gate them so the
+# number keeps its scale. Nothing reads these to decide anything.
+RETIRED_AUTHORITY_BAR = 0.80
+RETIRED_STRUCTURAL_DEFER_BAR = 0.05
+# Named so a future edit that tries to gate on them trips a test rather than a reader.
+RETIRED_GATE_IDS: tuple[str, ...] = ("solver_has_authority", "structural_deferral_bounded")
 
 # Evidence from outside the replay that bears on the same question. Recorded here so
 # the report is not read as if replay were the only input.
@@ -146,7 +172,18 @@ EXTERNAL_EVIDENCE: tuple[str, ...] = (
     "Live shadow mode on a fresh run measured the solver **confidently admissible on "
     "2 of 72 stages, deferring on 35**, because only the `prepare` contract group is "
     "conformance-strict. That is an independent measurement of the same coverage "
-    "problem this replay reports, and on its own it vetoes promotion.",
+    "problem this replay reports. Under D12 it is a progress signal, not a veto.",
+    "**The fresh-run census is a tautology, not a measurement.** Exactly **37 of the "
+    "72 seed-order stages declare a concrete hard input and 35 do not** (verified "
+    "against `load_contract` for all 72). That partition *is* the fresh-run census: "
+    "on an empty run directory the 37 return `hard_input_missing` — the correct "
+    "answer — and the 35 return `hard_inputs_undeclared`, which is an *unknown* and "
+    "never an exclusion. `confident` means zero unknowns, so it needs at least one "
+    "*satisfied* declared hard input, which no stage can have against an empty "
+    "directory. Probing an empty run reproduces `0 confident / 35 deferred / 37 "
+    "blocked` exactly. A statistic that can only take one value cannot rank solver "
+    "quality, which is the concrete reason D12's retirement of the authority bar is "
+    "right rather than merely convenient.",
 )
 
 # Hand-maintained accounts of individual divergences that have been traced to root
@@ -154,15 +191,28 @@ EXTERNAL_EVIDENCE: tuple[str, ...] = (
 # verdict, so an explanation can never quietly promote anything.
 KNOWN_DIVERGENCES: dict[str, str] = {
     "missing_framing": (
-        "`stage_outputs_present('missing_framing')` routes through "
-        "`stage_artifact_incompleteness`, which reads the CONTENT of "
-        "`understanding/gap_evaluations.json`. The replay can restore that file's "
-        "existence from the producer's ledger `done` row but only ever has its "
-        "end-of-run bytes, so a content-sensitive completeness check is being asked "
-        "about the wrong revision. Note the driver re-dispatched `missing_framing` "
-        "twice within four minutes of the divergence (exec_5188 seq 235 and 245), so "
-        "the solver's preference was not obviously wrong — but the replay cannot "
-        "settle it, and it is left in the unexplained count rather than argued away."
+        "**Traced, and it is not a replay artifact.** At exec_5188 seq 207 the "
+        "driver's own ledger has `missing_framing` *done* eight seconds earlier (seq "
+        "198, 04:34:05Z) and never invalidated, yet the solver calls it confidently "
+        "runnable. The cause is `stage_outputs_present('missing_framing')` → "
+        "`stage_completion._research_thin_late_refuse`, which refuses every "
+        "Shape/gap consumer while `research_shape_core_thin(ctx)` holds. "
+        "`mastering_research_rollup` *had* run (seq 181–183, 04:30:27Z) and wrote a "
+        "**thin** dossier, and it is dispatched exactly once in the whole run — so "
+        "the thinness never clears, `missing_framing` reads incomplete for the rest "
+        "of the phase, and `solver.stage_done` returns False on a stage that "
+        "finished. Reproducing the seq-207 snapshot gives "
+        "`stage_artifact_incompleteness('missing_framing')` = \"research shape-core "
+        "thin — resume mastering_research_rollup\" from the run's real bytes: the "
+        "dossier is present in the snapshot and thin, not a wrong revision. So this "
+        "is a genuine defect in the completeness predicate, where an early gap-phase "
+        "stage can never look complete until a research artifact is thick. The "
+        "solver is arguably *right* — the driver reached the same conclusion three "
+        "minutes later and re-dispatched `missing_framing` twice (seq 235, 245) — but "
+        "it is still a real ordering disagreement, so it stays in the unexplained "
+        "count. Because the driver did re-run the stage after the divergence, its "
+        "history does not prove the stage was unrunnable, so this is **not** a D12 "
+        "driver regression."
     ),
     "content_brief_reanchor": (
         "`content_brief_reanchor` executes as a substep and never emits a "
@@ -209,6 +259,11 @@ FIDELITY: tuple[str, ...] = (
     "cannot prove what the run would have DONE: a refused dispatch changes every "
     "subsequent state, and the replay always follows the driver's actual path. No "
     "counterfactual trajectory is explored.",
+    "The regression check (D12 condition 2) can only prove unrunnability one way: the "
+    "driver recorded the stage `done`, nothing invalidated it, and it was never started "
+    "again. A stage the driver never dispatched at all leaves no trace either way, so "
+    "the check is sound but not exhaustive — zero regressions means 'the driver's "
+    "history contradicts the solver nowhere it can speak', not 'the solver is right'.",
     "Deferral causes are read off StageVerdict.unknowns, which is the solver's own "
     "account of what it could not answer. A check the solver never attempts cannot "
     "appear as an unknown, so the census measures declared ignorance, not total "
@@ -678,12 +733,21 @@ class Census:
     ``confident`` stages are ones the solver can act on. ``deferred`` stages are
     admissible but unprovable, and ``authoritative_sequence`` hands each of them back
     to seed order — so a run made mostly of deferrals is a run the walk still decides.
+
+    ``complete`` is split out of ``blocked``. `evaluate_stage` returns
+    ``already_done`` as a positive blocker (solver.py:602) because for admissibility
+    that is the correct answer — a finished stage must not be offered. But counting it
+    as *blocked* makes the census say the pipeline seizes up as it succeeds: the
+    blocked count climbs toward 72 precisely because the run is finishing. Only
+    ``blocked`` now means "the solver proved this cannot run", and that is the number
+    the report leads with.
     """
 
     candidates: int = 0
     confident: int = 0
     deferred: int = 0
     blocked: int = 0
+    complete: int = 0
     has_authority: bool = False
     defer_families: dict[str, int] = field(default_factory=dict)
     defer_buckets: dict[str, int] = field(default_factory=dict)
@@ -695,8 +759,26 @@ class Census:
             "confident_admissible": self.confident,
             "deferred": self.deferred,
             "blocked": self.blocked,
+            "complete": self.complete,
             "has_authority": self.has_authority,
         }
+
+
+def verdict_is_complete(verdict: Any) -> bool:
+    """True when the *only* thing stopping this stage is that it already finished.
+
+    ``evaluate_stage`` returns on ``already_done`` before any other check runs, so a
+    complete stage carries that one reason and nothing else. Requiring it to be the
+    sole reason is what keeps a genuinely blocked stage from being laundered into the
+    complete bucket by an incidental match.
+
+    The fix belongs in ``solver.py:602`` — ``already_done`` is not a blocker in the
+    same sense as ``hard_input_missing`` — but that module is owned elsewhere, so the
+    correction lives in the replay tool's classification and the underlying issue is
+    reported rather than patched here.
+    """
+    reasons = tuple(str(r) for r in (getattr(verdict, "reasons", ()) or ()))
+    return reasons == (DONE_BLOCKER,)
 
 
 def census_for(decision: Any) -> Census:
@@ -707,7 +789,10 @@ def census_for(decision: Any) -> Census:
     out.has_authority = decision.would_choose_confident is not None
     for verdict in decision.verdicts:
         if not verdict.admissible:
-            out.blocked += 1
+            if verdict_is_complete(verdict):
+                out.complete += 1
+            else:
+                out.blocked += 1
             continue
         if verdict.confident:
             out.confident += 1
@@ -732,6 +817,7 @@ def merge_census(target: Census, other: Census) -> None:
     target.confident += other.confident
     target.deferred += other.deferred
     target.blocked += other.blocked
+    target.complete += other.complete
     target.defer_non_strict_group += other.defer_non_strict_group
     for key, n in other.defer_families.items():
         target.defer_families[key] = target.defer_families.get(key, 0) + n
@@ -759,10 +845,16 @@ class Observation:
     candidate_origin: str
     choice_ever_dispatched: bool | None = None
     choice_evidence: str = ""
+    regression_proof: str = ""
 
     @property
     def family(self) -> str:
         return self.reason.split(":", 1)[0] if self.reason else "unknown"
+
+    @property
+    def driver_regression(self) -> bool:
+        """D12 condition 2 — the solver proposed a stage the driver proved was done."""
+        return self.klass == CHOICE and bool(self.regression_proof)
 
     @property
     def unexplained(self) -> bool:
@@ -791,6 +883,10 @@ class Observation:
         if self.choice_evidence:
             row["choice_evidence"] = self.choice_evidence
             row["unexplained"] = self.unexplained
+        if self.klass == CHOICE:
+            row["driver_regression"] = self.driver_regression
+            if self.regression_proof:
+                row["regression_proof"] = self.regression_proof
         return row
 
 
@@ -809,7 +905,7 @@ class RunReplay:
     seconds: float = 0.0
 
     def counts(self) -> dict[str, int]:
-        out = {AGREE: 0, DEFER: 0, SKIP: 0, CHOICE: 0}
+        out = {AGREE: 0, DEFER: 0, SKIP: 0, CHOICE: 0, ALREADY_DONE: 0}
         for obs in self.observations:
             out[obs.klass] = out.get(obs.klass, 0) + 1
         return out
@@ -833,18 +929,89 @@ def choice_evidence(stage: str, ledger_stages: set[str]) -> str:
     return "ledger" if stage in ledger_stages else "mtime_only"
 
 
-def classify(comparison: Any, dispatched_ever: set[str]) -> tuple[str, bool | None]:
-    """Map a ``solver.ShadowComparison`` onto the two divergence classes.
+def started_epochs(entries: list[dict[str, Any]]) -> dict[str, list[float]]:
+    """``stage -> every epoch the driver actually started it``."""
+    out: dict[str, list[float]] = {}
+    for row in entries:
+        if str(row.get("kind") or "") != "stage":
+            continue
+        if str(row.get("status") or "") != "started":
+            continue
+        epoch = _epoch(row.get("at"))
+        stage = str(row.get("identity") or "")
+        if epoch is not None and stage:
+            out.setdefault(stage, []).append(epoch)
+    for values in out.values():
+        values.sort()
+    return out
 
-    ``compare_walk_choice`` returns one ``disagree`` verdict for two very different
+
+def regression_proof(
+    stage: str,
+    epoch: float,
+    *,
+    dones: list[tuple[float, str]],
+    invalidations: list[tuple[float, frozenset[str]]],
+    starts: dict[str, list[float]],
+) -> str:
+    """D12 condition 2: does the driver's own history prove ``stage`` was unrunnable?
+
+    The only witness the ledger can supply is completion. ``stage`` was not runnable at
+    ``epoch`` if the driver recorded it **done** at or before ``epoch``, nothing
+    invalidated it in between, **and** the driver never started it again afterwards.
+    That last clause is what makes this a proof rather than a guess: a driver that
+    re-dispatches the stage minutes later has demonstrated the opposite, so its history
+    proves nothing and the divergence is an ordering argument instead of a regression.
+
+    Only choice divergences can regress. At an ``agree`` point the solver's pick is the
+    stage the driver ran, and at a ``skip``, ``already_done`` or ``defer`` point the
+    solver proposes nothing of its own — so there is nothing to check.
+
+    Returns the proof text, or ``""`` when the driver's history does not settle it.
+    """
+    if not stage:
+        return ""
+    completed: float | None = None
+    for at, sid in dones:
+        if at > epoch:
+            break
+        if sid == stage:
+            completed = at
+    if completed is None:
+        return ""
+    for at, stages in invalidations:
+        if at > epoch:
+            break
+        if stage in stages and completed <= at:
+            return ""
+    if any(at > epoch for at in starts.get(stage, ())):
+        return ""
+    done_at_iso = datetime.fromtimestamp(completed, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return f"driver recorded `done` at {done_at_iso} and never started it again"
+
+
+def classify(comparison: Any, dispatched_ever: set[str]) -> tuple[str, bool | None]:
+    """Map a ``solver.ShadowComparison`` onto the divergence classes.
+
+    ``compare_walk_choice`` returns one ``disagree`` verdict for three very different
     events, and collapsing them is exactly the number that would overstate the
     evidence:
 
-    * the dispatched stage is provably not runnable → the solver would have **skipped**
-      the dispatch. That is the refusal-of-thrash this campaign exists to produce, and
-      it counts as agreement in spirit.
+    * the dispatched stage was **already complete** → the solver would have declined to
+      re-run finished work. That is not a disagreement about control flow at all, so it
+      gets its own class and is counted in neither the skip nor the agreement column.
+    * the dispatched stage is provably not runnable for some other reason → the solver
+      would have **skipped** the dispatch. That is the refusal-of-thrash this campaign
+      exists to produce, and it counts as agreement in spirit.
     * the solver confidently prefers a **different** stage → a real disagreement about
       control flow, which has to be explained one by one.
+
+    The ``already_done`` reconstruction is sound in the one direction that matters
+    here: a surviving marker whose final mtime is at or before ``T`` did exist at
+    ``T``, so this class cannot be inflated by the mtime witness. Its failure mode is
+    the opposite — under-counting, which shows up as a choice divergence instead.
     """
     from interview_mux import solver
 
@@ -854,6 +1021,9 @@ def classify(comparison: Any, dispatched_ever: set[str]) -> tuple[str, bool | No
         return DEFER, None
     if comparison.solver_choice and comparison.solver_choice != comparison.chosen:
         return CHOICE, comparison.solver_choice in dispatched_ever
+    reason = str(getattr(comparison, "reason", "") or "")
+    if reason.split(":", 1)[0] == DONE_BLOCKER:
+        return ALREADY_DONE, None
     return SKIP, None
 
 
@@ -889,6 +1059,7 @@ def replay_run(
     }
     dones = done_timeline(entries)
     invalidations = invalidation_timeline(spec.path)
+    starts = started_epochs(entries)
     markers = marker_mtimes(spec.path)
     outputs = stage_output_paths()
     by_seq = sorted(entries, key=lambda r: int(r.get("seq") or 0))
@@ -968,6 +1139,17 @@ def replay_run(
                     if klass == CHOICE
                     else ""
                 ),
+                regression_proof=(
+                    regression_proof(
+                        comparison.solver_choice or "",
+                        point.epoch,
+                        dones=dones,
+                        invalidations=invalidations,
+                        starts=starts,
+                    )
+                    if klass == CHOICE
+                    else ""
+                ),
             )
         )
         if census_stride > 0 and index % census_stride == 0:
@@ -1000,7 +1182,13 @@ def replay_run(
 # ---------------------------------------------------------------------------
 
 def promotion_verdict(summary: dict[str, Any]) -> dict[str, Any]:
-    """Every condition must hold. A veto is a successful outcome for this harness."""
+    """D12's two conditions. Both must hold; a veto is a successful outcome here.
+
+    The coverage percentages are still computed and still returned — as ``metrics``,
+    which nothing in this function reads. That separation is the whole point of the
+    re-gate: keeping the numbers visible while making it structurally impossible for
+    them to veto.
+    """
     checks: list[dict[str, Any]] = []
     unexplained = summary["choice_unexplained"]
     checks.append(
@@ -1015,34 +1203,50 @@ def promotion_verdict(summary: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     )
-    rate = summary["authority_rate"]
+    regressions = summary.get("driver_regressions", 0)
     checks.append(
         {
-            "id": "solver_has_authority",
-            "pass": rate is not None and rate >= MIN_AUTHORITY_RATE,
+            "id": "no_regression_against_driver",
+            "pass": regressions <= MAX_DRIVER_REGRESSIONS,
             "detail": (
-                f"solver could decide on its own authority at "
-                f"{_pct(rate)} of decision points; gate needs "
-                f"{_pct(MIN_AUTHORITY_RATE)}"
-            ),
-        }
-    )
-    structural = summary["structural_defer_rate"]
-    checks.append(
-        {
-            "id": "structural_deferral_bounded",
-            "pass": structural is not None and structural <= MAX_STRUCTURAL_DEFER_RATE,
-            "detail": (
-                f"{_pct(structural)} of stage verdicts defer for a reason contract "
-                f"population cannot fix; gate allows {_pct(MAX_STRUCTURAL_DEFER_RATE)}"
+                f"{regressions} decision point(s) where the solver proposed a stage "
+                "the driver's own history proves was not runnable (recorded `done`, "
+                "not invalidated, never started again); gate allows "
+                f"{MAX_DRIVER_REGRESSIONS}"
             ),
         }
     )
     failed = [c for c in checks if not c["pass"]]
+
+    rate = summary["authority_rate"]
+    structural = summary["structural_defer_rate"]
+    metrics: list[dict[str, Any]] = [
+        {
+            "id": "solver_has_authority",
+            "value": rate,
+            "retired_bar": RETIRED_AUTHORITY_BAR,
+            "detail": (
+                f"solver could decide on its own authority at {_pct(rate)} of "
+                f"decision points (retired bar: {_pct(RETIRED_AUTHORITY_BAR)})"
+            ),
+        },
+        {
+            "id": "structural_deferral_bounded",
+            "value": structural,
+            "retired_bar": RETIRED_STRUCTURAL_DEFER_BAR,
+            "detail": (
+                f"{_pct(structural)} of stage verdicts defer for a reason contract "
+                "population cannot fix (retired bar: "
+                f"{_pct(RETIRED_STRUCTURAL_DEFER_BAR)})"
+            ),
+        },
+    ]
     return {
         "promote": not failed,
         "checks": checks,
         "vetoes": [c["id"] for c in failed],
+        "metrics": metrics,
+        "retired_gates": list(RETIRED_GATE_IDS),
     }
 
 
@@ -1052,24 +1256,30 @@ def _pct(value: float | None) -> str:
 
 def summarise(replays: list[RunReplay]) -> dict[str, Any]:
     observations = [o for r in replays for o in r.observations]
-    counts: dict[str, int] = {AGREE: 0, DEFER: 0, SKIP: 0, CHOICE: 0}
+    counts: dict[str, int] = {AGREE: 0, DEFER: 0, SKIP: 0, CHOICE: 0, ALREADY_DONE: 0}
     for obs in observations:
         counts[obs.klass] = counts.get(obs.klass, 0) + 1
     skip_families: dict[str, int] = {}
     choice_pairs: dict[str, int] = {}
+    already_done_sources: dict[str, int] = {}
     for obs in observations:
         if obs.klass == SKIP:
             skip_families[obs.family] = skip_families.get(obs.family, 0) + 1
         elif obs.klass == CHOICE:
             key = f"{obs.stage} -> {obs.solver_choice}"
             choice_pairs[key] = choice_pairs.get(key, 0) + 1
+        elif obs.klass == ALREADY_DONE:
+            already_done_sources[obs.source] = already_done_sources.get(obs.source, 0) + 1
 
     census = Census()
     for replay in replays:
         merge_census(census, replay.census)
     census_points = sum(r.census_points for r in replays)
     authority_points = sum(r.authority_points for r in replays)
-    verdicts = census.confident + census.deferred + census.blocked
+    verdicts = census.confident + census.deferred + census.blocked + census.complete
+    # `already_done` is excluded from the agreement denominator: it is neither an
+    # agreement about control flow nor a divergence, so leaving it in would move the
+    # rate for a reason that has nothing to do with the solver.
     decided = counts[AGREE] + counts[SKIP] + counts[CHOICE]
 
     summary: dict[str, Any] = {
@@ -1081,9 +1291,18 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
         "evaluated": sum(r.evaluated for r in replays),
         "counts": counts,
         "agreement_rate": (counts[AGREE] / decided) if decided else None,
+        "agreement_denominator": decided,
         "skip_divergences": counts[SKIP],
+        "already_done_dispatches": counts[ALREADY_DONE],
+        "already_done_sources": dict(
+            sorted(already_done_sources.items(), key=lambda kv: -kv[1])
+        ),
         "choice_divergences": counts[CHOICE],
         "choice_unexplained": sum(1 for o in observations if o.unexplained),
+        "driver_regressions": sum(1 for o in observations if o.driver_regression),
+        "driver_regression_examples": [
+            o.as_row() for o in observations if o.driver_regression
+        ][:40],
         "choice_reconstruction_limited": sum(
             1 for o in observations if o.klass == CHOICE and not o.unexplained
         ),
@@ -1100,6 +1319,7 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
         "confident_admissible": census.confident,
         "deferred_stages": census.deferred,
         "blocked_stages": census.blocked,
+        "complete_stages": census.complete,
         "confident_rate": (census.confident / verdicts) if verdicts else None,
         "defer_rate": (census.deferred / verdicts) if verdicts else None,
         "defer_buckets": dict(sorted(census.defer_buckets.items(), key=lambda kv: -kv[1])),
@@ -1123,6 +1343,7 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
                 "confident_admissible": r.census.confident,
                 "deferred": r.census.deferred,
                 "blocked": r.census.blocked,
+                "complete": r.census.complete,
                 "seconds": round(r.seconds, 1),
                 **r.counts(),
             }
@@ -1131,8 +1352,11 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
         ],
         "gate": {
             "max_choice_divergences": MAX_CHOICE_DIVERGENCES,
-            "min_authority_rate": MIN_AUTHORITY_RATE,
-            "max_structural_defer_rate": MAX_STRUCTURAL_DEFER_RATE,
+            "max_driver_regressions": MAX_DRIVER_REGRESSIONS,
+            "retired": {
+                "authority_rate": RETIRED_AUTHORITY_BAR,
+                "structural_defer_rate": RETIRED_STRUCTURAL_DEFER_BAR,
+            },
         },
         "fidelity": list(FIDELITY),
     }
@@ -1188,20 +1412,47 @@ def render_markdown(summary: dict[str, Any]) -> str:
 
     add("## Verdict")
     add("")
-    add(f"**Promotion: {'APPROVED' if verdict['promote'] else 'VETOED'}**")
+    add(
+        "The bar is **D12** (plan §11): zero unexplained replay disagreements, and no "
+        "regression against the driver. Those are the only two conditions, and both "
+        "must hold."
+    )
     add("")
-    add("| Gate condition | Result | Detail |")
+    add(f"**D12 gate {'MET' if verdict['promote'] else 'NOT MET'} — promotion "
+        f"{'APPROVED' if verdict['promote'] else 'VETOED'}**")
+    add("")
+    add("| D12 condition | Result | Detail |")
     add("|---|---|---|")
     for check in verdict["checks"]:
         add(f"| `{check['id']}` | {'pass' if check['pass'] else '**VETO**'} | {check['detail']} |")
     add("")
     if not verdict["promote"]:
         add(
-            "A veto here is the intended outcome of validating first. The headline "
-            "below is deliberately two numbers, not one: agreement is only meaningful "
-            "next to coverage."
+            "A veto here is the intended outcome of validating first. `MUX_SOLVER_"
+            "AUTHORITATIVE` stays OFF."
         )
         add("")
+
+    add("### Retired bars — reported as context, never as vetoes")
+    add("")
+    add(
+        "D12 dropped the 80% authority condition and the 5% structural-deferral "
+        "condition. A solver that defers is *safe* — `authoritative_sequence` hands a "
+        "deferred stage back to seed order — so what must be zero is being "
+        "confidently **wrong**, not being quiet. Both numbers stay here as the "
+        "progress signal for D10 (gate state on disk) and D11 (the strict ratchet), "
+        "quoted against the bar that used to gate them so the scale is still legible. "
+        "`promotion_verdict` cannot read them."
+    )
+    add("")
+    add("| Retired metric | Today | Retired bar | Status |")
+    add("|---|---|---|---|")
+    for metric in verdict.get("metrics", ()):
+        add(
+            f"| `{metric['id']}` | {_pct(metric['value'])} | "
+            f"{_pct(metric['retired_bar'])} | reported only |"
+        )
+    add("")
     add("### Corroborating evidence from outside the replay")
     add("")
     for note in EXTERNAL_EVIDENCE:
@@ -1217,17 +1468,28 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"Across {summary['stage_verdicts']} stage verdicts it was confidently "
         f"admissible on **{summary['confident_admissible']}** "
         f"({_pct(summary['confident_rate'])}), deferred on "
-        f"**{summary['deferred_stages']}** ({_pct(summary['defer_rate'])}) and blocked "
-        f"**{summary['blocked_stages']}**."
+        f"**{summary['deferred_stages']}** ({_pct(summary['defer_rate'])}), genuinely "
+        f"blocked on **{summary['blocked_stages']}** and **{summary['complete_stages']}** "
+        "were already complete."
     )
     add("")
     add(
         f"Real disagreements: **{summary['choice_unexplained']} unexplained** "
         f"(of {summary['choice_divergences']} choice divergences; "
         f"{summary['choice_reconstruction_limited']} are attributable to mtime-only "
-        "state reconstruction, see below). That number is worthless on its own — a "
-        "solver with no justified opinion disagrees with nobody — which is why it is "
-        "never quoted apart from the coverage figure above."
+        f"state reconstruction, see below), and **{summary['driver_regressions']}** "
+        "regression(s) against the driver. Those two numbers are the D12 gate. The "
+        "coverage figure above is worthless as a gate in either direction — a solver "
+        "with no justified opinion disagrees with nobody — which is why it is never "
+        "quoted alone and no longer vetoes."
+    )
+    add("")
+    add(
+        f"Separated out of the old headline: **{summary['already_done_dispatches']}** "
+        "dispatches were of a stage that was **already complete**. Those used to be "
+        "counted as `skip` divergences and their verdicts as `blocked`, which is what "
+        "made both numbers unreadable — a finished stage is neither blocked nor a "
+        "disagreement."
     )
     add("")
 
@@ -1251,8 +1513,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "recorded history, with `exec_11871` pinned to the front."
     )
     add("")
-    add("| Run | Master | Points | Agree | Defer | Skip | Choice | Authority |")
-    add("|---|---|---|---|---|---|---|---|")
+    add("| Run | Master | Points | Agree | Defer | Done | Skip | Choice | Authority |")
+    add("|---|---|---|---|---|---|---|---|---|")
     for row in summary["runs"]:
         authority = (
             f"{row['authority_points']}/{row['census_points']}"
@@ -1261,8 +1523,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         )
         add(
             f"| `{row['run_id']}` | {'yes' if row['reached_master'] else 'no'} | "
-            f"{row['evaluated']} | {row[AGREE]} | {row[DEFER]} | {row[SKIP]} | "
-            f"{row[CHOICE]} | {authority} |"
+            f"{row['evaluated']} | {row[AGREE]} | {row[DEFER]} | "
+            f"{row[ALREADY_DONE]} | {row[SKIP]} | {row[CHOICE]} | {authority} |"
         )
     add("")
 
@@ -1276,6 +1538,20 @@ def render_markdown(summary: dict[str, Any]) -> str:
     )
     add(f"| deferred | {summary['deferred_stages']} | {_pct(summary['defer_rate'])} |")
     add(f"| blocked | {summary['blocked_stages']} | |")
+    add(f"| already complete | {summary['complete_stages']} | |")
+    add("")
+    add(
+        "`already complete` is split out of `blocked` on purpose. `evaluate_stage` "
+        "returns `already_done` as a positive blocker (`solver.py:602`), which is the "
+        "right answer for admissibility — a finished stage must not be offered — but "
+        "counting it as *blocked* made the census say the pipeline seizes up as it "
+        "succeeds, with the blocked count climbing toward 72 precisely because the run "
+        "was finishing. `blocked` now means only \"the solver proved this cannot run\". "
+        "**The underlying issue is in `solver.py`, which this tool does not own**: the "
+        "correction is applied in the replay tool's classification "
+        "(`verdict_is_complete`), keyed on `already_done` being the sole reason, so a "
+        "genuinely blocked stage cannot be laundered into this bucket."
+    )
     add("")
     add("### Deferral causes, split by whether contract population can fix them")
     add("")
@@ -1308,16 +1584,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
     if summary["pipeline_census"]:
         add("### Whole-pipeline census (all dispatchable stages, sampled)")
         add("")
-        add("| Run | At | Confident | Deferred | Blocked |")
-        add("|---|---|---|---|---|")
+        add("| Run | At | Confident | Deferred | Blocked | Already complete |")
+        add("|---|---|---|---|---|---|")
         for row in summary["pipeline_census"][:20]:
             add(
                 f"| `{row['run_id'][:28]}` | {row['at']} | {row['confident_admissible']} | "
-                f"{row['deferred']} | {row['blocked']} |"
+                f"{row['deferred']} | {row['blocked']} | {row.get('complete', 0)} |"
             )
         add("")
 
-    add("## Divergences — the two classes, never merged")
+    add("## Divergences — the classes, never merged")
     add("")
     add("| Class | Meaning | Count |")
     add("|---|---|---|")
@@ -1327,14 +1603,52 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"indeterminate gate) | {counts[DEFER]} |"
     )
     add(
-        f"| **`skip`** | solver proves the dispatched stage was not runnable — it would "
-        f"have refused the dispatch. Agreement in spirit. | **{counts[SKIP]}** |"
+        f"| `already_done` | the dispatched stage was **already complete** — not a "
+        f"disagreement about control flow at all | {counts[ALREADY_DONE]} |"
+    )
+    add(
+        f"| **`skip`** | solver proves the dispatched stage was not runnable *for some "
+        f"other reason* — it would have refused the dispatch. Agreement in spirit. | "
+        f"**{counts[SKIP]}** |"
     )
     add(
         f"| **`choice`** | solver would confidently have run a *different* stage — a "
         f"real disagreement | **{counts[CHOICE]}** |"
     )
     add("")
+    add(
+        f"Agreement rate is {_pct(summary['agreement_rate'])} over the "
+        f"{summary['agreement_denominator']} points that produced an opinion about "
+        "control flow (`agree` + `skip` + `choice`). `already_done` and `defer` are "
+        "outside that denominator: neither is a statement about which stage should run "
+        "next."
+    )
+    add("")
+    if summary["already_done_dispatches"]:
+        add("### Already-complete dispatches — held apart from `skip`")
+        add("")
+        add(
+            f"**{summary['already_done_dispatches']}** dispatches re-ran a stage the "
+            "solver could see was already finished. This is real driver behaviour "
+            "worth reading, but it is not evidence about solver quality, so it is "
+            "counted in neither the skip column nor the agreement rate. The `rerun` "
+            "and `operator` sources are deliberate re-runs; a `conductor` or walk "
+            "source is the thrash the campaign is chasing."
+        )
+        add("")
+        add("| Dispatch source | Count |")
+        add("|---|---|")
+        for source, n in summary["already_done_sources"].items():
+            add(f"| `{source}` | {n} |")
+        add("")
+        add(
+            "This class is not inflatable by the reconstruction: a surviving "
+            "`.stage_done` marker whose final mtime is at or before `T` did exist at "
+            "`T`, so the mtime witness cannot invent a completion. Its failure mode is "
+            "the opposite — a marker rewritten late reads as absent, which surfaces as "
+            "a choice divergence instead."
+        )
+        add("")
     add(
         f"Of those {counts[CHOICE]} choice divergences, **{summary['choice_unexplained']}** "
         f"{'is' if summary['choice_unexplained'] == 1 else 'are'} unexplained and "
@@ -1346,8 +1660,46 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "that was written early, invalidated and rewritten late. Both groups are listed."
     )
     add("")
+
+    add("### Regressions against the driver (D12 condition 2)")
+    add("")
+    add(
+        f"**{summary['driver_regressions']}** of the {counts[CHOICE]} choice "
+        "divergences are regressions. A regression is a decision point where the "
+        "solver proposed a stage the *driver's own history proves* was not runnable: "
+        "the ledger recorded it `done` at or before that instant, nothing invalidated "
+        "it in between, and the driver never started it again for the rest of the run. "
+        "That last clause is what makes it a proof — a driver that re-dispatches the "
+        "stage minutes later has demonstrated the opposite, so its history settles "
+        "nothing and the divergence is an ordering argument rather than a regression."
+    )
+    add("")
+    add(
+        "Only `choice` points can regress. At an `agree` point the solver's pick is the "
+        "stage the driver ran, and at a `skip`, `already_done` or `defer` point the "
+        "solver proposes nothing of its own."
+    )
+    add("")
+    if summary["driver_regression_examples"]:
+        for row in summary["driver_regression_examples"]:
+            add(
+                f"- `{row['run_id']}` seq {row['seq']} ({row['at']}): driver ran "
+                f"`{row['stage']}`, solver would have run `{row['solver_choice']}` — "
+                f"{row.get('regression_proof', '')}"
+            )
+        add("")
+    else:
+        add("**None.** This D12 condition passes.")
+        add("")
+
     if summary["skip_families"]:
         add("### Skip divergences by blocker family")
+        add("")
+        add(
+            "`already_done` no longer appears here — it has its own class above. What "
+            "is left is the set of dispatches the solver would have refused on a real "
+            "blocker."
+        )
         add("")
         add("| Blocker | Count |")
         add("|---|---|")
@@ -1362,19 +1714,20 @@ def render_markdown(summary: dict[str, Any]) -> str:
     if summary["choice_pairs"]:
         add("### Choice divergences (real disagreements)")
         add("")
-        add("| Driver ran | Solver would have run | Count | Evidence |")
-        add("|---|---|---|---|")
+        add("| Driver ran | Solver would have run | Count | Evidence | Regression |")
+        add("|---|---|---|---|---|")
         evidence: dict[str, str] = {}
+        regressed: dict[str, bool] = {}
         for row in summary["choice_examples"]:
-            evidence.setdefault(
-                f"{row['stage']} -> {row['solver_choice']}",
-                str(row.get("choice_evidence") or ""),
-            )
+            key = f"{row['stage']} -> {row['solver_choice']}"
+            evidence.setdefault(key, str(row.get("choice_evidence") or ""))
+            regressed[key] = regressed.get(key, False) or bool(row.get("driver_regression"))
         for pair, n in summary["choice_pairs"].items():
             ran, would = pair.split(" -> ", 1)
             kind = evidence.get(pair, "")
             label = "**unexplained**" if kind == "ledger" else "mtime-only reconstruction"
-            add(f"| `{ran}` | `{would}` | {n} | {label} |")
+            reg = "**yes**" if regressed.get(pair) else "no"
+            add(f"| `{ran}` | `{would}` | {n} | {label} | {reg} |")
         add("")
         if summary["choice_unexplained_examples"]:
             add("Unexplained, each needing its own account:")
@@ -1444,14 +1797,20 @@ def main(argv: list[str] | None = None) -> int:
     counts = summary["counts"]
     print(
         f"runs={summary['runs_with_dispatches']} points={summary['evaluated']} "
-        f"agree={counts[AGREE]} defer={counts[DEFER]} skip={counts[SKIP]} "
+        f"agree={counts[AGREE]} defer={counts[DEFER]} "
+        f"already_done={counts[ALREADY_DONE]} skip={counts[SKIP]} "
         f"choice={counts[CHOICE]}"
     )
     print(
-        f"authority_rate={_pct(summary['authority_rate'])} "
+        f"D12: unexplained={summary['choice_unexplained']} "
+        f"regressions={summary['driver_regressions']}"
+    )
+    print(
+        f"reported-only: authority_rate={_pct(summary['authority_rate'])} "
+        f"structural_defer={_pct(summary['structural_defer_rate'])} | "
         f"confident={summary['confident_admissible']} "
         f"deferred={summary['deferred_stages']} blocked={summary['blocked_stages']} "
-        f"structural_defer={_pct(summary['structural_defer_rate'])}"
+        f"complete={summary['complete_stages']}"
     )
     print(
         f"verdict={'PROMOTE' if summary['verdict']['promote'] else 'VETO'} "
