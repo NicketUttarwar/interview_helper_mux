@@ -404,6 +404,33 @@ def research_shape_core_thin(ctx: RunContext) -> bool:
     return not bool(research_shape_core_status(ctx).get("ready"))
 
 
+def live_shape_core_status(ctx: RunContext) -> dict[str, Any]:
+    """W1–3 readiness re-probed from the run directory as it stands right now.
+
+    ``research_shape_core_status`` reports what the rollup saw when it ran. The
+    same probes against today's disk say whether that record still describes the
+    run: core evidence that landed afterwards is invisible to the dossier.
+    """
+    fields = {
+        fid: {"field_id": fid, "status": _probe(ctx, fid)[0]} for fid in shape_core_field_ids()
+    }
+    return _shape_core_status_from_fields(fields)
+
+
+def research_dossier_shape_core_stale(ctx: RunContext) -> bool:
+    """True when the dossier records a thin shape-core the run has since outgrown.
+
+    A stale record is what turns the A-01 refusal into a latch: the rollup has
+    completed, so it never re-probes, and consumers pinned to it can never be
+    released. Staleness clears the moment the rollup re-runs.
+    """
+    if not isinstance(load_dossier(ctx), dict):
+        return False
+    if not research_shape_core_thin(ctx):
+        return False
+    return bool(live_shape_core_status(ctx).get("ready"))
+
+
 def compile_shape_evidence(ctx: RunContext, *, consumer_id: str, pass_name: str) -> dict[str, Any]:
     """Compile evidence packet from dossier + key artifacts; fail-open thin."""
     items = []

@@ -254,11 +254,46 @@ def _shape_about_to_bind(ctx: RunContext) -> bool:
     return False
 
 
+DOSSIER_READING_STAGES: frozenset[str] = frozenset(
+    {
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
+    }
+)
+
+
+def _research_dossier_stale_incompleteness(ctx: RunContext) -> str | None:
+    """A-01 latch: a rollup whose record the run has outgrown has not finished its job.
+
+    Consumers are refused "resume mastering_research_rollup"; unless the rollup
+    itself reads incomplete while its dossier is stale, nothing ever re-probes and
+    the refusal holds for the rest of the phase. One re-run clears it.
+    """
+    try:
+        from interview_mux.mastering_research import research_dossier_shape_core_stale
+
+        if not research_dossier_shape_core_stale(ctx):
+            return None
+    except Exception:
+        return None
+    return (
+        "research dossier stale — resume mastering_research_rollup: "
+        "shape-core evidence landed after the rollup ran"
+    )
+
+
 def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
     """A-01: Shape/gap consumers always late for shape-core thin (flags OFF OK).
 
     Rollup stays advisory until Shape about-to-bind. Do not refuse on global
     majority thin (W4–W8 expected thin at Pass1).
+
+    The dossier records a probe taken when the rollup ran, so a completed rollup
+    can pin consumers to evidence the run has since acquired. Stages that read
+    the dossier stay refused on that record and the rollup re-runs to refresh it;
+    stages that only need the evidence itself are judged on the live probe.
     """
     try:
         from interview_mux.mastering_research import research_shape_core_thin
@@ -270,7 +305,7 @@ def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
                 "research dossier shape-core thin — resume mastering_research_rollup: "
                 "late refuse — Shape about to bind"
             )
-        return None
+        return _research_dossier_stale_incompleteness(ctx)
     if stage_id not in RESEARCH_CONSUMER_STAGES:
         return None
     if stage_id in {"missing_framing", "gap_framing_compose", "optimal_questions"}:
@@ -281,12 +316,16 @@ def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
                 return None
         except Exception:
             pass
-    if research_shape_core_thin(ctx):
-        return (
-            "research shape-core thin — resume mastering_research_rollup: "
-            "not ready for Shape/gap consumers"
-        )
-    return None
+    if not research_shape_core_thin(ctx):
+        return None
+    if stage_id not in DOSSIER_READING_STAGES and _research_dossier_stale_incompleteness(ctx):
+        # Thin is the rollup's record, not the run: the evidence these stages
+        # need is already on disk. Dossier readers keep waiting for the refresh.
+        return None
+    return (
+        "research shape-core thin — resume mastering_research_rollup: "
+        "not ready for Shape/gap consumers"
+    )
 
 
 def _mix_unseated_incompleteness(ctx: RunContext) -> str | None:
@@ -735,7 +774,12 @@ def stage_artifact_incompleteness(
         if confirm:
             return confirm
     if stage_id in _MASTERING_SCHEMA_STAGES:
-        return _mastering_schema_hollow_incompleteness(ctx, stage_id)
+        hollow = _mastering_schema_hollow_incompleteness(ctx, stage_id)
+        if hollow or stage_id != "mastering_research_rollup":
+            return hollow
+        # Schema-clean is not enough for the rollup: a dossier that no longer
+        # describes the run leaves its consumers with nothing to wait for.
+        return _research_dossier_stale_incompleteness(ctx)
     for path in stage_required_artifact_paths(stage_id):
         phase = (lifecycle or {}).get(path)
         if phase in ("n_a", "skipped"):
