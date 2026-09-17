@@ -1,6 +1,6 @@
 ---
 name: Solver brain 0.2.0 — contract-authoritative control plane
-overview: "Make stage selection a total function of on-disk state so no turn budget is needed. SHIPPED: brain 0.2.0 (deterministic walk, control_plane=deterministic, now default) removed the LLM conductor — 42 of 235 excess dispatches (17.9%). REMAINING: §5 kills the driver-side 193 (82.1%) via one dispatch door, a no-delta guard, an attempt memo, and precision invalidation — decided D1 advance-while-reachable + defect ledger, D2 precision-now gated on conformance, D3 0.2.0 stays default. Then contracts become authoritative (§4) and the admissible-set solver replaces the control layer (§6-7). LLM keeps artifact CONTENT; it loses control flow. All 72 stage bodies kept. IMPLEMENTED 2026-09-16: P0, the P1 harness, all six P1.5 steps and the P2 solver (shadow, non-authoritative) have landed; contract population is partial and no real pipeline run has validated any of it. Read the 'Implementation status' section below before trusting any number in this document — several load-bearing claims were measured false and are corrected in place."
+overview: "Make stage selection a total function of on-disk state so no turn budget is needed. SHIPPED: brain 0.2.0 (deterministic walk, control_plane=deterministic, now default) removed the LLM conductor. P0–P2, P1.5, D10, D12, D13 landed. D11 ratchet is 6/9 groups strict (fill_gaps/build/ship held with named defects). Solver is ARMED not enabled — MUX_SOLVER_AUTHORITATIVE stays default False until a D14 live full-auto. Read the Implementation status section before trusting any number. No real pipeline run has shipped a master under 0.2.0."
 todos:
   - id: plan-document
     content: Plan document — contract-authoritative solver, phased with shadow-mode promotion
@@ -27,8 +27,8 @@ todos:
     content: "P1: gate requires-edge consumption behind MUX_CONTRACT_REQUIRES=0 — DONE, but the flag does NOT cover contract-input consumption by dispatch_delta.hard_input_paths or artifact_lifecycle.run_phase_checks (see §3.4/§4 corrections)"
     status: completed
   - id: p1-populate-groups
-    content: "P1 PER GROUP upstream-first: prepare -> understand-a/b/c -> fill_gaps -> plan_rank -> sound -> build -> ship; each flips warn->fail on completion (DoD §3.5). PARTIAL: only `prepare` is proven strict; every other group is populated but report-only"
-    status: in_progress
+    content: "P1/D11: 6 of 9 groups strict (prepare, understand-a/b/c, plan_rank, sound). fill_gaps populated and owned (compact.txt + hitch boundaries, aaad505a) but HELD — flipping drops episode_structure_compose from soundscape_policy_build's invalidation set. build/ship HELD on named code defects in REPORT_ONLY_REASONS. Do not fabricate contract edges to force a flip"
+    status: completed
   - id: p15-budget-door
     content: "P1.5 step1 (§5.3): DONE — but the driver walk ALREADY called check_dispatch; the real fix was counting ledger attempts instead of done-marked identities (see §5.3 correction) + the exemption audit"
     status: completed
@@ -57,20 +57,29 @@ todos:
     content: "P2: DONE — one artifact operator/solver_decision.jsonl (solver_shadow.jsonl struck, §6.2) + SolverHaltPanel.tsx"
     status: completed
   - id: p2-shadow
-    content: "P2: shadow logging lands ON by default (MUX_SOLVER_SHADOW); the zero-disagreement observation is NOT done — it needs a real run and no fresh full-auto run will be made while the forensics campaign is open"
-    status: in_progress
+    content: "P2: DONE — shadow logging ON by default (MUX_SOLVER_SHADOW). D12 re-gated replay (docs/cross-cutting/solver-replay-validation.md, 1892ec5e): 0 genuine disagreements / 0 driver regressions. Authority 24.7% and structural deferral 26.0% are reported metrics, not vetoes. MUX_SOLVER_AUTHORITATIVE stays default False until the D14 live confirmation"
+    status: completed
   - id: p3-registry
     content: "DONE: 0.2.0 registered (kind=homunculus + control_plane=deterministic, NOT kind=solver — a new kind would flip is_homunculus_run False at 22 sites and drop the ledger); default via 'latest'; GUI is dynamic, no rebuild"
     status: completed
   - id: p3-capability-predicates
-    content: "P3: split is_homunculus_run into capability predicates (has_dispatch_ledger / llm_owns_control_flow) so rails and control flow stop being one flag"
-    status: in_progress
+    content: "P3: DONE — is_homunculus_run split into has_dispatch_ledger / llm_owns_control_flow across pipeline.py, conversation_context.py and homunculus/{__init__,version,loop,runtime}.py; one is_homunculus_run site remains, in runtime.py"
+    status: completed
   - id: p3-promote
-    content: "P3: promote solver to authoritative; demote LLM to content-only. BLOCKED: MUX_SOLVER_AUTHORITATIVE defaults OFF and requires zero non-deferred shadow disagreement on a real run first"
-    status: pending
+    content: "P3: ARMED not enabled. D12 engineering gate MET (0 genuine / 0 regressions). MUX_SOLVER_AUTHORITATIVE stays default False by operator choice — D14 live full-auto (docs/cross-cutting/solver-promotion-d14-runbook.md) is the remaining confirmation, not a missing code path. Do not read this row as 'the flag flipped'"
+    status: completed
   - id: p3-subtract
-    content: "P3 AUTHORISED WHOLESALE, NOT EXECUTED: delete superseded guardrail mass downstream-first. The 'cite the replacing contract rule' requirement is WAIVED; holes are patched in a later pass and recorded in docs/cross-cutting/subtraction-holes.md; pinned forensics tests are never deleted and may fail as the hole map"
-    status: pending
+    content: "P3: CLOSED at 427 gross / 21 shim / 406 net lines over 8 files, 19 symbols — docs/cross-cutting/subtraction-holes.md. The no-rewrite deletable set is exhausted (0 symbols / 0 lines). The 12-16k target was never reachable without rewriting call sites and is retired by D13 (§11); the 8,710-line EXTERNAL set is §12 of that doc"
+    status: completed
+  - id: p4-gate-decisions
+    content: "P4 (D10, §11): DONE — deterministic plane records via set_gate_decision at the Python closers (G0 complete, G-Framing auto-accept/GUI, G1 skip/complete, G-Publish). _gate_verdict reads gate_decisions.json; evaluate_stage stays read-only. New action `complete` (G0 cannot skip/auto_resolve). tests/test_solver_gate_decisions.py. ALLOW row already existed"
+    status: completed
+  - id: p4-strict-ratchet
+    content: "P4 (D11, §11): DONE as far as honest. Six groups strict. fill_gaps/build/ship remain report-only with pinned reasons (test_the_report_only_groups_are_pinned). Payoff-first was overridden by the precision-drop inertness gate — STRICT_GROUPS may grow only while transitive_invalidate equals _blanket_invalidate. Rollback still MUX_CONTRACT_STRICT_GROUPS"
+    status: completed
+  - id: p4-subtract-top
+    content: "P4 (D13, §11): DONE as declined. Final wave attempted seed_policy.py and recovery_controller.py, deleted nothing, shipped pinning tests (3dd0ebf4, 1ad4673f, subtraction-holes.md §0 + §6.06). Off-by-default flags and uniform contract remediation are not replacements. The 8,710-line EXTERNAL set stays unauthorised"
+    status: completed
 isProject: true
 ---
 
@@ -106,11 +115,26 @@ original reasoning survives. Section numbers and cross-references are unchanged.
 
 **Partial.**
 
-- **Contract population (§4.3).** Only the `prepare` group is proven strict. Every other group is
-  populated but **report-only**; its conformance failures warn and do not fail. The upstream-first
-  ratchet of §3.3 is therefore begun, not finished.
+- **Contract population (§4.3) / D11 ratchet.** Six groups are strict at HEAD: `prepare`,
+  `understand-a`, `understand-b`, `understand-c`, `plan_rank`, `sound`. `fill_gaps` is populated
+  and owned (`aaad505a`) but **held**: flipping it drops `episode_structure_compose` from
+  `soundscape_policy_build`'s invalidation set, and compose does not read
+  `understanding/soundscape_policy.json`. `build` and `ship` stay report-only — named code
+  defects in `REPORT_ONLY_REASONS`. Precision-drop inertness remains the flip gate.
 - **Precision invalidation (§5.4)** is live only for stages that are conformance-green on **both**
   sides of each edge, and its result is clamped to a subsequence of the blanket set.
+- **D10 gate persistence** is landed (`0e3fcd85`). Replay coverage of *historical*
+  folders will not move until those runs have `gate_decisions.json`; new 0.2.0 walks
+  record at the Python closers. Not a D14 blocker.
+
+**Validated offline.** `tools/solver_replay.py` first vetoed promotion (2026-09-16) on the old
+three-gate bar. D12 replaced that bar; a re-gate (`1892ec5e`,
+[solver-replay-validation.md](../../docs/cross-cutting/solver-replay-validation.md), generated
+2026-09-17) **MET** the only two remaining conditions: **0 genuine** disagreements of 14 choice
+divergences (13 mtime-only, 1 content-postdates-point) and **0** driver regressions. Authority
+**24.7%** and structural deferral **26.0%** are reported progress signals for D10/D11, not vetoes.
+`MUX_SOLVER_AUTHORITATIVE` stays default **False** — D14 (live full-auto, runbook committed
+`729c2163`) is the remaining confirmation. **§11 is still the coverage work**, not a failed gate.
 
 **Explicitly NOT validated.**
 
@@ -120,8 +144,9 @@ original reasoning survives. Section numbers and cross-references are unchanged.
   graph walks over the 72 stages, fixture run-dirs, and `pytest`. Where this document says
   "measured", that is the instrument. No number here is a runtime observation of 0.2.0 shipping a
   master.
-- Consequently the §10.1 targets are **unverified**, and P3 promotion (§7) is blocked on exactly the
-  run that has not happened.
+- Consequently the §10.1 targets are **unverified**. P3's *engineering* gate (D12) is met; the
+  flag stays off until a live D14 full-auto confirms. See
+  [solver-promotion-d14-runbook.md](../../docs/cross-cutting/solver-promotion-d14-runbook.md).
 
 ---
 
@@ -1065,7 +1090,7 @@ The campaign is only worth running if this number moves. Baseline is `exec_11871
 | Code interventions needed to ship | **54** | 0 |
 | Hollow contracts | ~~**45 / 90**~~ **48 / 91** (§1.1) | 0 |
 | `authority_denied` / `seed order` runtime failures | 10 fingerprints | **0 — statically impossible** |
-| Control-layer lines | ~12,900 | < 2,000 |
+| Control-layer lines | ~12,900 | ~~< 2,000~~ **RETIRED by D13 — see §11** |
 
 Measure excess with the same ledger arithmetic used in §3.2 so the numbers stay comparable.
 
@@ -1095,3 +1120,148 @@ without it a structural halt is less debuggable than today's thrash, which at le
 section said `solver_shadow.jsonl`, which never existed. `operator/solver_decision.jsonl` carries
 both the shadow comparison and the decision/halt payload. Landed, together with
 `frontend/src/components/workspace/SolverHaltPanel.tsx` as the "why is nothing runnable" panel.
+
+---
+
+## 11. Phase 4 — the promotion path (operator decisions D10–D15, 2026-09-16)
+
+Everything above is **built**. The replay harness then vetoed promotion (status section), and the
+veto is not about correctness — the solver is nearly always right when it has an opinion. It is
+about **coverage**: it has no opinion at 74.8% of decision points. This phase buys coverage.
+
+The three gate failures decompose into exactly two work items plus a recalibration:
+
+| Replay finding | Count | Cause | Owner |
+|---|---|---|---|
+| `hard_inputs_undeclared` | 4,956 unknowns | contracts populated but not enforced | **D11** — strict ratchet |
+| `gate_auto_accept_pending` + `gate_may_pause` | 3,132 unknowns | gate state is not on disk | **D10** — persist gate decisions |
+| authority 25.2% vs 80% | — | denominator assumed gates were solver-decidable | **D12** — replace the metric |
+
+### D10 — gate state becomes on-disk fact
+
+**Chosen:** record gate resolutions to `mastering/homunculus/gate_decisions.json` so `_gate_verdict`
+reads a fact instead of guessing. Rejected: optimistic auto-clear (asserts the unprovable),
+excluding gates from solver scope, and simply relaxing the 5% bar.
+
+**The finding that makes this small.** `set_gate_decision` (`homunculus/gates.py`) has exactly **one**
+production caller in the entire tree: the `set_gate` tool dispatch at `homunculus/loop.py:239`. That
+is the **LLM conductor tool loop**, which brain 0.2.0 removed. So under the current default brain
+**no gate decision is ever recorded** — `gate_decisions.json` is written only by the plane that no
+longer runs, and the solver's 2,486 `gate_auto_accept_pending` deferrals are the direct consequence.
+
+> This is a **second instance of the §5.0 strand-bug pattern** — a predicate written for the LLM
+> plane that 0.2.0 inherited and that can never fire. §5.0 predicted "look for this shape wherever
+> 0.2.0 inherited a predicate written for the LLM plane"; this is that shape, found. Audit the rest
+> of the `set_gate`-adjacent tool surface for more of them before building.
+
+Work:
+
+1. Record the resolution at the point the deterministic plane **acts on** a gate — auto-accept in
+   full-auto, and the pause/resume decision for `PARTIAL_MAY_PAUSE_GATES` — reusing
+   `set_gate_decision` so the ledger row and the validation rules in it still fire. Do **not** add a
+   parallel writer; the artifact already has its ALLOW row (`artifact_ownership.py:877`).
+2. `_gate_verdict` (`solver.py:477`) consumes the recorded decision: a resolved gate is clear or
+   blocked, never `unknown`. Keep `gate_indeterminate` for genuinely absent state.
+3. Preserve the §8.1 correction — `audio_preclean` **self-skips** and must stay dispatchable; this
+   work must not turn a recorded preclean decision into a blocking gate term.
+4. Preserve the §8.2 parity requirement: any gate-state change needs
+   `frontend/src/utils/partialOperatorGates.ts` updated in the same change.
+
+**Done when:** structural deferrals fall from 26.3% toward the `gate_indeterminate` floor, and a
+test proves a full-auto run records a decision for every gate it passes.
+
+### D11 — strict ratchet, payoff-first
+
+**Chosen:** flip `STRICT_GROUPS` (`contract_conformance.py:45`, today `("prepare",)`) in payoff
+order — **`build` first**, then `understand-a/b/c`, then `fill_gaps` / `plan_rank` / `sound` / `ship`.
+
+**This deliberately overrides §3.3's upstream-first rule, and the reason it is safe is specific:**
+§3.3 requires upstream-first because *declaring* a stage's `inputs.hard` before its producers declare
+`outputs` mints phantom blockers. **Population already happened repo-wide** — every group is
+populated and report-only (status section), and hollow contracts are down from 48/91 to **15/90**, of
+which only ~4 (`podcast_publish`, `selection_framing_apply`, `gap_framing_recompose`,
+`mastering_research_routing`) are pipeline stages. So what remains is an **enforcement** order, not a
+declaration order, and §3.3's hazard is largely spent. `build` leads because it is the worst group
+(7.5× thrash, 71 of 227 excess).
+
+**Residual risk to watch, since it is not zero:** flipping `build` strict while its upstream is
+report-only means `build`'s conformance failures get attributed to producers nobody is enforcing
+yet. If that noise dominates, fall back to §3.3 order for the remainder rather than fighting it.
+Per-group rollback is `MUX_CONTRACT_STRICT_GROUPS` (§8.10); the constant only ever grows.
+
+**Done when:** each flipped group meets the four-item Phase 1 bar (§3.5 as corrected), and the
+replay's `hard_inputs_undeclared` count drops measurably per flip.
+
+### D12 — replace the authority percentage gate
+
+**Chosen:** drop the "80% of decision points" condition. Promotion requires:
+
+1. **Zero unexplained disagreements** on replay (today: 1 of 14; the other 13 are mtime-reconstruction
+   artifacts and stay excluded), and
+2. **No regression against the driver** — for every replayed decision point the solver must not
+   propose a stage the driver's own history proves was not runnable.
+
+Rationale: an authority percentage is the wrong shape for a gate, because a solver that defers is
+*safe* — deferral falls back to the driver. The thing that must be zero is being confidently
+**wrong**. Keep publishing the coverage number in the report as the progress signal for D10/D11; it
+just stops being a veto. `structural_deferral_bounded` likewise becomes a reported metric, not a gate.
+
+**Note:** `tools/solver_replay.py` implements the current three gates and must be updated with this
+decision, or the report will keep vetoing on a bar this plan no longer holds.
+
+### D13 — subtraction: retire the target, authorise the top of §12 only
+
+**Chosen:** the ~12–16k-line / `< 2,000` control-layer target is **RETIRED** (struck in §10.1). It was
+never reachable without rewriting call sites; `p3-subtract` is **closed** at 427 gross / 406 net, and
+the no-rewrite deletable set is genuinely **exhausted** (0 symbols / 0 lines).
+
+Authorised: the **2–3 modules with the smallest caller-file blast radius** from §12.3 of
+[subtraction-holes.md](../../docs/cross-cutting/subtraction-holes.md) — sequence by `caller files`,
+not by line count. The remaining EXTERNAL set (256 symbols / 8,710 lines / 12 modules) stays
+**unauthorised**.
+
+**The §12.2 hazard governs this work and is not optional.** These call sites use function-local
+imports inside broad `except Exception: pass`, so deleting a symbol raises and is swallowed: **the
+guard silently stops guarding and the suite stays green.** Therefore each deletion needs *positive*
+evidence — a test that fails when the replacing contract rule is removed. A green suite is not
+evidence. D7's citation waiver does **not** extend here; these deletions cite their replacement.
+D8 still holds: pinned forensics tests are never deleted and may fail as the hole map.
+
+### D14 — validation sequencing
+
+**Chosen:** replay stays the instrument. A live full-auto is a **post-forensics** confirmation, run
+after the D12 gate is met, not a precondition for meeting it. D9 stands unchanged while the
+forensics campaign is open, and `MUX_SOLVER_AUTHORITATIVE` does not flip on replay evidence alone —
+it flips on the D12 gate, and the live run confirms.
+
+### D15 — plan vehicle
+
+**Chosen:** this plan is extended in place rather than superseded. §1–§10 are the record of what
+shipped and the corrections that came out of shipping it; §11 is the remaining work. Two stale todos
+were corrected with it: `p3-subtract` (was `pending`, is **closed**) and `p3-capability-predicates`
+(was `in_progress`, is **done** — `has_dispatch_ledger` / `llm_owns_control_flow` are live across six
+modules, one `is_homunculus_run` site left in `runtime.py`).
+
+### 11.1 Order of work
+
+D10 and D11 are independent and can run in parallel; both feed the same replay report.
+
+1. **D10** — audit the `set_gate`-adjacent tool surface for sibling strand bugs, then record gate
+   decisions from the deterministic plane and teach `_gate_verdict` to read them.
+2. **D11** — flip `build` strict; measure; then `understand-a/b/c`; then the rest.
+3. **D12** — update `tools/solver_replay.py` to the new gate, re-run, and read the coverage numbers
+   as progress rather than as a veto.
+4. **D13** — the two or three lowest-blast-radius EXTERNAL modules, each with a
+   rule-fires test.
+5. **Promotion** — flip `MUX_SOLVER_AUTHORITATIVE` when the D12 gate is met; live full-auto confirms
+   once the forensics campaign closes (D14).
+
+### 11.2 Verify
+
+```bash
+pytest tests/test_solver_replay.py tests/test_solver_posture.py tests/test_solver_admissible.py \
+       tests/test_contract_conformance.py tests/test_v2_phases_mirror.py
+python tools/solver_replay.py          # regenerates solver-replay-validation.md
+```
+
+Plus the standard §10 block, and `./scripts/build_gui.sh` if `partialOperatorGates.ts` changes.
