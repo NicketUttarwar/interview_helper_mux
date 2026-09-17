@@ -1,14 +1,16 @@
 # Subtraction holes — the `p3-subtract` worklist
 
 **Status: CLOSED.** **427 gross lines removed / 21 shim lines added / 406 net**, across eight
-guardrail files, reproducible from one `git diff --numstat 750f112c a31c0f81`. Where the claim is
-specifically *lines of guardrail logic*, the figure is **410 across 19 symbols** — the 17-line
-difference is blank separators that `git diff` counts and an AST measure does not (§1.4.6). Quote
-gross and net together; never gross alone. **The earlier totals 78, 421 and 393 are retracted**
-(§1.4.6a). Every wave passed its attribution gate. The no-rewrite deletable set is **exhausted**
-(`DELETABLE: 0 symbols / 0 lines`),
-not abandoned: what remains is 8,710 lines that cannot be deleted without rewriting their callers,
-scoped as a successor refactor in **§12**. Final accounting in **§1.4.6**.
+guardrail files, reproducible from one `git diff --numstat 750f112c a31c0f81` **scoped to those eight
+paths — copy the exact command from §1.4.6, because the scoping is not optional: the unscoped
+`-- src/interview_mux/` form gives −489 / +1,248, since it also captures the solver 0.2.0 rewrite,
+and −489 is not a campaign figure.** Where the claim is specifically *lines of guardrail logic*, the
+figure is **410 across 19 symbols** — the 17-line difference is blank separators that `git diff`
+counts and an AST measure does not (§1.4.6). Quote gross and net together; never gross alone. **The
+earlier totals 78, 421 and 393 are retracted** (§1.4.6a). Every wave passed its attribution gate. The
+no-rewrite deletable set is **exhausted** (`DELETABLE: 0 symbols / 0 lines`), not abandoned: what
+remains is 8,710 lines that cannot be deleted without rewriting their callers, scoped as a successor
+refactor in **§12**. Final accounting in **§1.4.6**.
 
 This document is the plan, the inventory, the execution record, and the worklist for the later
 patching pass.
