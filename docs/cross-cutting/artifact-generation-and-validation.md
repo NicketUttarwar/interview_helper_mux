@@ -65,7 +65,7 @@ flowchart TD
 | Gap-fill + merge + completeness | `src/interview_mux/artifact_completeness.py` | `compute_gaps`, `merge_artifact`, `build_gap_fill_context`, `artifact_status`, `should_run_stage_for_artifact`, `make_stage_persist` |
 | Validated write | `src/interview_mux/artifact_writes.py` | `write_validated_artifact` — merge, validate, log, `RunContext.write_json` |
 | Schema registry | `src/interview_mux/prompt_validation.py` | `STAGE_ARTIFACT_SCHEMAS`, `STAGE_ARTIFACT_DISK_PATHS`, `ARTIFACT_WRITE_VALIDATORS`, `validate_artifact_write` |
-| Stage runner | `src/interview_mux/stages/analysis_stage.py` | `attach_gap_fill_to_input` on every LLM stage input |
+| Stage runner | `src/interview_mux/stages/analysis_stage.py` | **`attach_gap_fill_to_input` no longer exists** — deleted by guardrail subtraction ([subtraction-holes.md](./subtraction-holes.md) §1.4). Nothing injects `gap_fill_context` into stage input today |
 | Call path | `src/interview_mux/llm_simple.py` | Single OpenAI call per attempt, max 2 attempts |
 | Pipeline | `src/interview_mux/pipeline.py` | Re-run LLM stage if `should_run_stage_for_artifact` even when `.stage_done` exists |
 | GUI API | `src/interview_mux/web/server.py` | `artifacts_status`, `POST …/fill-artifact-gaps` |
@@ -108,7 +108,15 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 
 ### Input: `gap_fill_context`
 
-Injected by `attach_gap_fill_to_input()` into the final user turn JSON for each LLM stage:
+> **REMOVED — no live code path produces this block.** `attach_gap_fill_to_input()` was deleted by the
+> guardrail-subtraction campaign ([subtraction-holes.md](./subtraction-holes.md) §1.4). Its builder
+> `artifact_completeness.build_gap_fill_context` still exists but has no callers, and no caller passes
+> `gap_fill_context` to `build_required_response_block()` / `volley_format_footer()`. **No replacement
+> route was found in the source** — stage inputs currently carry no gap-fill block. The shape below is
+> kept as the record of the contract, not as current behaviour. Gap *detection* (`compute_gaps`,
+> `artifact_status`, `should_run_stage_for_artifact`) and the re-run rule below are unaffected.
+
+Formerly injected by `attach_gap_fill_to_input()` into the final user turn JSON for each LLM stage:
 
 ```json
 {

@@ -84,7 +84,7 @@ Identify-only. Brain 0.1.0. Modes: Manual / Full-auto / Partial.
 
 - Surface: cross-cut
 - Modes: Full-auto | Partial
-- Call graph: `thrash_hardening.note_sticky_heal_attempt`, `record_wasted_work` → `maybe_sticky_halt_on_true_waste`
+- Call graph: `thrash_hardening.note_sticky_heal_attempt`, `record_wasted_work` → `maybe_sticky_halt_on_true_waste` — **`maybe_sticky_halt_on_true_waste` since deleted** (guardrail subtraction, W0; see `docs/cross-cutting/subtraction-holes.md` §1.4); graph left as recorded
 - Invariant: unchanged predicate ×3 → halt
 - Why weak: clear-halts wrongly applied; false sticky mid-delivery; GUI reconcile races
 - Likelihood: L2 | Severity: S3
