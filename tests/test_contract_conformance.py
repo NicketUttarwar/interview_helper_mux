@@ -326,35 +326,25 @@ def test_strict_group_env_override(monkeypatch: pytest.MonkeyPatch):
 
 def test_the_flipped_groups_are_pinned():
     """Pinned so a flip is a deliberate, reviewed change — and only ever adds."""
-    assert cc.STRICT_GROUPS == ("prepare", "understand-c", "sound")
+    assert cc.STRICT_GROUPS == (
+        "prepare",
+        "understand-a",
+        "understand-b",
+        "understand-c",
+        "plan_rank",
+        "sound",
+    )
 
 
 # Why each remaining group is still report-only. Every entry is a claim about
 # code or about the ownership catalog, not about a contract — none of them can be
-# closed by declaring another input, which is why the D11 ratchet stopped here.
+# closed by declaring another input, which is why the ratchet stopped here.
 REPORT_ONLY_REASONS: dict[str, str] = {
-    "understand-a": (
-        "flipping it makes content_context / talking_points_compose / "
-        "ideal_cuts_propose precision_droppable, which is the state "
-        "tests/test_precision_invalidation.py::test_an_ungreen_consumer_is_never_"
-        "dropped pins against"
-    ),
-    "understand-b": (
-        "flipping it drops boundary_topic_resplit from framing_posture_decide's "
-        "fan-out, and boundary_topic_resplit still reads protected_zones / "
-        "run_golden_facts / interview_spine through helpers no contract declares"
-    ),
     "fill_gaps": (
         "missing_framing and gap_framing_compose write "
         "understanding/interviewer_script.txt with Path.write_text, bypassing the "
         "commit path; the artifact has no ownership catalog row, so it can be "
         "neither declared as an output nor honestly ignored"
-    ),
-    "plan_rank": (
-        "flipping it drops gap_report_sanitize from nugget_layup_compose's "
-        "fan-out even though nugget_layup_compose is a permitted writer of "
-        "understanding/gap_report.json — _input_producers collapses that "
-        "five-writer artifact to one canonical producer"
     ),
     "build": (
         "5 of 11 stages have no row in tools/contract_dependency_data.py, so "
@@ -370,7 +360,7 @@ REPORT_ONLY_REASONS: dict[str, str] = {
 
 
 def test_the_report_only_groups_are_pinned():
-    """The six groups the ratchet stopped short of, each with its reason.
+    """The three groups the ratchet stopped short of, each with its reason.
 
     Pinned in the same shape as the flipped set so closing one of these gaps is a
     reviewed change too, and so the list can only shrink.

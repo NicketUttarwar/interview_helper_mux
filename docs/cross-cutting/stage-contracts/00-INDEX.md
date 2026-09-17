@@ -93,10 +93,10 @@ records what has to be defused before switching them on.
 | `framing_posture_decide` | llm_full | understanding/framing_posture_decision.json |
 | `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/order_reconcile.json, master/story_health.json, mastering/media_ip_cta.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, analysis/stt_lexicon_islands.json |
 | `g1_vo_pickup` | gate | — |
-| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, understanding/speaker_delivery_plan.json |
+| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, understanding/speaker_delivery_plan.json |
 | `gap_framing_recompose` | deterministic | understanding/gap_framing_recompose.json, understanding/gap_framing_plan.json, understanding/gap_report.draft.json, understanding/gap_vo_context_audit.json, understanding/nugget_layup_plan.json, understanding/cold_open_audition.json, understanding/listener_outcome_trajectory.json, understanding/refinement_plan.json, understanding/refinement_skip_copy.json |
 | `gap_report_sanitize` | process | understanding/gap_report.json |
-| `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json, understanding/ideal_cuts_selection_seed.json |
+| `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json, understanding/ideal_cuts_selection_seed.json, segments/boundaries.json |
 | `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
 | `information_package_plan` | process | mastering/shape/information_packages_audit.json, mastering/shape/information_package_candidates.json, mastering/mastering_plan.json |
 | `ingest` | process | ingest/normalized.wav, ingest/checksums.json, ingest/loudness.json |

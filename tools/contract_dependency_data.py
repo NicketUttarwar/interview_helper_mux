@@ -472,6 +472,12 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                 *back("segments/boundaries.json"),
             ]
         },
+        # Read-modify-write, and the write is the stage body's own, not a
+        # helper's: `run_ideal_cuts_materialize` rewrites the boundaries it
+        # materialised cuts against, and the catalog names this stage a producer
+        # of the path. Undeclared it was the one blocking finding in
+        # `understand-a` under `--entrypoint-only --call-depth 0`.
+        "outputs": [{"path": "segments/boundaries.json"}],
         "consumers": [
             "boundary_detection",
             "segment_classification",
@@ -600,6 +606,21 @@ _UNDERSTAND_B: dict[str, dict[str, Any]] = {
                     "path": "understanding/flow_adaptation.json",
                     "producer": "source_topology_build",
                 },
+                # Cross-module helper reads, invisible to a call-depth-0 scan of
+                # the stage body: `interview_spine.compact.attach_spine_to_payload`
+                # and `source_topology.attach_adaptation_to_payload` on the LLM
+                # path, `split_plan.propose_split_plan` on the way out.
+                *deps(
+                    "understanding/interview_spine.json",
+                    "understanding/source_topology.json",
+                    "understanding/ideal_cuts_materialized.json",
+                ),
+                # `full_master_ranking` is the only writer and sits downstream.
+                *back("understanding/speaker_delivery_plan.json"),
+                # Operator NLE edits — `ops`-written, no stage produces it.
+                *back("segments/nle_edits.json"),
+                # Own artifact: `propose_split_plan` reads the prior plan back.
+                *rmw("segments/split_plan.json"),
             ]
         },
         "consumers": [

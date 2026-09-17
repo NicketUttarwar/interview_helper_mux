@@ -12,6 +12,8 @@ outputs:
 - path: understanding/gap_report.json
   schema: gap_report.schema.json
   staging: true
+- path: understanding/interviewer_script.txt
+  staging: true
 - path: understanding/gap_framing_plan.json
 - path: understanding/gap_vo_context_audit.json
 - path: understanding/speaker_delivery_plan.json

@@ -43,19 +43,27 @@ _ENV_STRICT_GROUPS = "MUX_CONTRACT_STRICT_GROUPS"
 # reads and writes are all direct `ctx` calls in one entrypoint each, verified
 # against `web/stages.py::STAGE_BY_ID` and each stage's own raise sites.
 #
-# `understand-c` and `sound` join it on two pieces of evidence, both required.
-# First, every stage in them is clean under
-# `tools/extract_stage_artifact_touches.py --entrypoint-only --call-depth 0`
+# `understand-a`, `understand-b`, `understand-c`, `plan_rank` and `sound` join it
+# on two pieces of evidence, both required. First, every stage in them is clean
+# under `tools/extract_stage_artifact_touches.py --entrypoint-only --call-depth 0`
 # (the stage body plus its same-module helpers) fed through `evaluate()` — the
 # same matcher this module uses. Second, and the binding one: flipping a group
 # also makes its stages `precision_droppable` in
 # `artifact_dependency_graph.precision_eligible`, so a flip is a live claim that
-# those stages may be *left out* of an upstream redo's invalidation set. For
-# these two groups the claim costs nothing — `transitive_invalidate` still equals
+# those stages may be *left out* of an upstream redo's invalidation set. For all
+# of these the claim costs nothing — `transitive_invalidate` still equals
 # `_blanket_invalidate` for all 72 stages with them strict, so precision stays
 # inert and the flip cannot under-invalidate anything.
 #
-# That second condition is why the other six groups are still report-only, and
+# `understand-b` and `plan_rank` only reached that second condition once
+# `artifact_dependency_graph._input_producers` stopped collapsing a multi-writer
+# artifact to one canonical producer. `understanding/gap_report.json` has five
+# permitted writers, and naming only `gap_framing_compose` dropped
+# `gap_report_sanitize` from `nugget_layup_compose`'s fan-out — 14 drops for
+# `plan_rank`, 1 for `understand-b`, all of them under-invalidation. Reading the
+# whole permitted-writer set from the ownership catalog takes both to 0.
+#
+# That second condition is why the other four groups are still report-only, and
 # why this reverses D11's payoff-first order rather than leading with `build`.
 # The reasons are per-group and are recorded in
 # `tests/test_contract_conformance.py::test_the_report_only_groups_are_pinned`;
@@ -66,7 +74,14 @@ _ENV_STRICT_GROUPS = "MUX_CONTRACT_STRICT_GROUPS"
 # `test_recorded_run_conformance_for_flipped_groups` skips and the ratchet has no
 # runtime evidence to bite on yet. `MUX_CONTRACT_RECORD=1` on the next full-auto
 # is what turns these flips into a real assertion.
-STRICT_GROUPS: tuple[str, ...] = ("prepare", "understand-c", "sound")
+STRICT_GROUPS: tuple[str, ...] = (
+    "prepare",
+    "understand-a",
+    "understand-b",
+    "understand-c",
+    "plan_rank",
+    "sound",
+)
 
 # Infrastructure paths that no contract declares and none should: operator
 # telemetry, done markers, the run manifest, GUI plumbing, and the homunculus

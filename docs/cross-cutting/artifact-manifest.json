@@ -174,7 +174,8 @@
     "segments/boundaries.json": {
       "schemas_by_producer": {
         "boundary_detection": "boundaries_artifact.schema.json",
-        "boundary_topic_resplit": "boundaries_artifact.schema.json"
+        "boundary_topic_resplit": "boundaries_artifact.schema.json",
+        "ideal_cuts_materialize": null
       },
       "producers": [
         "boundary_detection",
@@ -189,7 +190,8 @@
         "interview_spine_build",
         "source_acoustic_profile",
         "source_topology_build",
-        "speaker_roles"
+        "speaker_roles",
+        "talking_points_compose"
       ],
       "has_write_validator": true
     },

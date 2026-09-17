@@ -27,6 +27,15 @@ inputs:
     producer: speaker_roles
   - path: understanding/flow_adaptation.json
     producer: source_topology_build
+  - path: understanding/interview_spine.json
+    producer: interview_spine_build
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/ideal_cuts_materialized.json
+    producer: ideal_cuts_materialize
+  - path: understanding/speaker_delivery_plan.json
+  - path: segments/nle_edits.json
+  - path: segments/split_plan.json
 sufficiency:
 - path: boundaries
   rule: min_rows

@@ -9,8 +9,16 @@ master built from stale parts.** So the invariants are one-sided on purpose.
 The near-miss these tests encode: `audio_probe_build` is conformance-green and its
 contract names four consumers, but `content_context`, `talking_points_compose` and
 `ideal_cuts_propose` all read its `transcript/protected_zones.json` through
-`stage_input_helpers.transcript_quality_for_ctx`, which no contract mentions. A
-gate that only asked about the *source* would have dropped them.
+`stage_input_helpers.transcript_quality_for_ctx`, which no contract mentioned. A
+gate that only asked about the *source* would have dropped them. That read is
+declared now, so the three survive a redo of `audio_probe_build` by declaration
+rather than by being ungreen — see `test_an_ungreen_consumer_is_never_dropped`.
+
+The second shape of the same bug is on the consumer side: an artifact with more
+than one permitted writer, declared with a single `producer`. Only that one
+producer looked like a dependency, so a redo of any of the other writers dropped
+the consumer. `_input_producers` answers with the whole permitted-writer set from
+the ownership catalog for exactly that reason.
 """
 
 from __future__ import annotations
@@ -25,14 +33,18 @@ from interview_mux.context_resolver import ARTIFACTS_REGISTRY
 from interview_mux.homunculus.budget import AUDIO_MUTATING
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.run_context import RunContext
+from interview_mux.stage_contract import load_contract
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 from run_fixtures import isolated_run_ctx
 
 ALL_STAGES = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
 
+PROBE_ZONES = "transcript/protected_zones.json"
+
 # Stages that read `transcript/protected_zones.json` via
-# `stage_input_helpers.transcript_quality_for_ctx` without declaring it.
-UNDECLARED_PROBE_CONSUMERS = ("content_context", "talking_points_compose", "ideal_cuts_propose")
+# `stage_input_helpers.transcript_quality_for_ctx` — a cross-module helper read
+# that a scan of the stage body cannot see.
+PROBE_CONSUMERS = ("content_context", "talking_points_compose", "ideal_cuts_propose")
 
 
 @pytest.fixture(autouse=True)
@@ -80,8 +92,16 @@ def test_precise_result_is_always_a_subsequence_of_the_blanket_result(
 
 
 def test_the_mechanism_is_live_not_dead_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Wind the ratchet forward and precision must actually subtract something."""
-    monkeypatch.setenv("MUX_CONTRACT_STRICT_GROUPS", "prepare,understand-a,understand-b")
+    """Wind the ratchet forward and precision must actually subtract something.
+
+    `fill_gaps` is in the witness set because it is the only group left that
+    subtracts anything at all: once `_input_producers` reads the whole
+    permitted-writer set, every drop the earlier groups used to make turns out to
+    have been a multi-writer artifact the old code collapsed. Narrowing the
+    witness is the correct move — the assertion is still that the code path runs
+    and removes a stage, not that any particular group does.
+    """
+    monkeypatch.setenv("MUX_CONTRACT_STRICT_GROUPS", "prepare,understand-a,understand-b,fill_gaps")
     shrunk = {
         sid: len(adg._blanket_invalidate(sid)) - len(adg.transitive_invalidate(sid))
         for sid in ALL_STAGES
@@ -90,7 +110,7 @@ def test_the_mechanism_is_live_not_dead_code(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_kill_switch_restores_blanket(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MUX_CONTRACT_STRICT_GROUPS", "prepare,understand-a,understand-b")
+    monkeypatch.setenv("MUX_CONTRACT_STRICT_GROUPS", "prepare,understand-a,understand-b,fill_gaps")
     monkeypatch.setenv("MUX_PRECISION_INVALIDATE", "0")
     assert not adg.precision_invalidate_enabled()
     for sid in ALL_STAGES:
@@ -102,11 +122,85 @@ def test_kill_switch_restores_blanket(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 def test_an_ungreen_consumer_is_never_dropped() -> None:
-    """The near-miss: undeclared readers of a green stage's output stay invalidated."""
+    """The near-miss, now carried by the declaration instead of by ungreenness.
+
+    These three used to survive a redo of `audio_probe_build` only because
+    `understand-a` was report-only, which is an accident of the ratchet rather
+    than a property of the pipeline — it evaporates the moment the group flips.
+    The read is declared now, so the three assertions below are the real
+    invariant: the contract names the path, the ownership catalog names
+    `audio_probe_build` among its writers, and the stage stays invalidated.
+
+    Written as "declared ⇒ kept" rather than "ungreen ⇒ kept" so it still fails
+    if somebody deletes the declaration, which is the failure this test was
+    created to catch.
+    """
     kept = adg.transitive_invalidate("audio_probe_build")
-    for sid in UNDECLARED_PROBE_CONSUMERS:
-        assert not adg.precision_droppable(sid), f"{sid} is not conformance-green yet"
+    writers = adg._permitted_writers(PROBE_ZONES)
+    assert writers and "audio_probe_build" in writers
+    for sid in PROBE_CONSUMERS:
+        contract = load_contract(sid)
+        assert contract is not None
+        declared = {i.path for i in contract.inputs if i.path}
+        assert PROBE_ZONES in declared, f"{sid} stopped declaring its helper read"
         assert sid in kept, f"{sid} reads protected_zones.json and must stay invalidated"
+
+
+def test_a_multi_writer_input_keeps_every_writer_as_a_dependency() -> None:
+    """`_input_producers` must not collapse an artifact to one canonical producer.
+
+    `understanding/gap_report.json` has five permitted writers.
+    `gap_report_sanitize` declares it with `producer: gap_framing_compose`, so a
+    single-producer reading made a redo of `nugget_layup_compose` — itself a
+    permitted writer of that report — look like it touched nothing the sanitizer
+    reads, and dropped the sanitizer from its fan-out.
+    """
+    writers = adg._permitted_writers("understanding/gap_report.json", "gap_framing_compose")
+    assert writers is not None
+    assert {
+        "gap_framing_compose",
+        "nugget_layup_compose",
+        "selection_framing_apply",
+        "vo_line_adjudicate",
+    } <= writers
+    assert "gap_report_sanitize" in adg.transitive_invalidate("nugget_layup_compose")
+
+
+def test_collapsing_to_one_producer_would_lose_that_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The teeth of the test above: restore the collapse and the sanitizer falls out.
+
+    Without this, `test_a_multi_writer_input_keeps_every_writer_as_a_dependency`
+    could pass for an unrelated reason — some other declared input of
+    `gap_report_sanitize` happening to name a writer that is being re-run.
+    """
+    def one_canonical_producer(rel: str, declared_producer: str = ""):
+        producer = declared_producer or adg._producer_of_path(rel)
+        return frozenset({producer}) if producer else None
+
+    monkeypatch.setattr(adg, "_permitted_writers", one_canonical_producer)
+    assert "gap_report_sanitize" not in adg.transitive_invalidate("nugget_layup_compose")
+
+
+def test_a_catalog_row_that_under_reports_is_widened_by_the_contracts() -> None:
+    """`transcript/protected_zones.json` names only `transcribe` in the catalog.
+
+    `audio_probe_build` mints it and `vernacular_segment_sanitize` rewrites it,
+    both of which say so in their contract `outputs`. A writer set taken from the
+    catalog alone would miss both and under-invalidate their readers.
+    """
+    from interview_mux.artifact_ownership import owners_of
+
+    assert "audio_probe_build" not in owners_of(PROBE_ZONES)
+    writers = adg._permitted_writers(PROBE_ZONES)
+    assert writers is not None
+    assert {"audio_probe_build", "vernacular_segment_sanitize"} <= writers
+
+
+def test_an_input_with_no_ownership_row_has_unknown_writers() -> None:
+    """No catalog row ⇒ writers unknown ⇒ `None`, never the disk-path owner."""
+    assert adg._permitted_writers("understanding/not_in_the_ownership_catalog.json") is None
 
 
 def test_droppability_requires_the_consumers_own_contract(

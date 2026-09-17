@@ -664,22 +664,93 @@ def _precision_droppable_cached(
     return True
 
 
-def _input_producers(stage_id: str) -> tuple[str | None, ...]:
-    """Producer of each declared input, `None` when unknown.
+def _input_producers(stage_id: str) -> tuple[frozenset[str] | None, ...]:
+    """Permitted writers of each declared input, `None` when unknown.
 
-    An unknown producer is an unknown dependency, so it makes the consumer
+    One entry per declared input, and each entry is the WHOLE set of stages the
+    ownership catalog lets write that artifact — never the single canonical
+    producer. Collapsing to one producer under-invalidates: `gap_report_sanitize`
+    declares `understanding/gap_report.json` with `producer: gap_framing_compose`,
+    but the artifact has five permitted writers, so a redo of
+    `nugget_layup_compose` looked like it touched nothing `gap_report_sanitize`
+    reads and dropped it — sanitizing a gap report against a pre-rewrite state.
+
+    An unknown writer set is an unknown dependency, so it makes the consumer
     un-droppable — the caller must not read a missing edge as an absent one.
     """
     contract = load_contract(stage_id)
     if contract is None:
         return ()
-    out: list[str | None] = []
+    out: list[frozenset[str] | None] = []
     for inp in contract.inputs:
         if not inp.path:
             continue
-        producer = inp.producer or _producer_of_path(inp.path)
-        out.append(producer or None)
+        out.append(_permitted_writers(inp.path, inp.producer or ""))
     return tuple(out)
+
+
+@lru_cache(maxsize=512)
+def _permitted_writers(rel: str, declared_producer: str = "") -> frozenset[str] | None:
+    """Every stage permitted to write ``rel``; `None` when the writers are unknown.
+
+    The ownership catalog is the SSOT for "permitted writer" (§4.2): the artifact
+    row's `producers`, plus every ALLOW row that names a stage, whatever role it
+    writes under — `air_contract_sanitize` writes `understanding/gap_report.json`
+    as `sanitize` and is a real writer of it.
+
+    Catalog rows can still under-report — `transcript/protected_zones.json` names
+    only `transcribe`, while `audio_probe_build` mints it and
+    `vernacular_segment_sanitize` rewrites it — so any stage that declares the
+    path as a contract output counts too, as does the input's own declared
+    `producer`.
+
+    Only ever a union, never a difference. DENY rows are deliberately not applied:
+    most are epoch-scoped, this call has no run to read an epoch from, and
+    subtracting a writer is the under-invalidating direction. A path the catalog
+    has no row for has *unknown* writers and answers `None` rather than falling
+    back to whichever stage happens to own the disk path.
+    """
+    try:
+        # `_path_matches` is the catalog's own glob matcher; re-implementing it
+        # here would let the two drift apart on exactly the glob rows
+        # (`vo_pickup/*.wav`) where a missed match under-invalidates.
+        from interview_mux.artifact_ownership import (
+            ALLOW,
+            _norm_path,
+            _path_matches,
+            row_for_path,
+        )
+    except Exception:
+        return None
+    row = row_for_path(rel)
+    if row is None:
+        return None
+    norm = _norm_path(rel)
+    writers = {p for p in row.producers if p}
+    writers.update(
+        a.stage for a in ALLOW if a.stage and a.verb == "persist" and _path_matches(a.path, norm)
+    )
+    writers.update(_declared_output_writers().get(norm, ()))
+    if declared_producer:
+        writers.add(declared_producer)
+    canonical = _producer_of_path(rel)
+    if canonical:
+        writers.add(canonical)
+    return frozenset(writers) or None
+
+
+@lru_cache(maxsize=1)
+def _declared_output_writers() -> dict[str, frozenset[str]]:
+    """Path -> stages whose contract declares it as an output."""
+    out: dict[str, set[str]] = {}
+    for sid in all_contract_stage_ids():
+        contract = load_contract(sid)
+        if contract is None:
+            continue
+        for o in contract.outputs:
+            if o.path:
+                out.setdefault(o.path, set()).add(sid)
+    return {p: frozenset(s) for p, s in out.items()}
 
 
 @lru_cache(maxsize=512)
@@ -778,8 +849,11 @@ def transitive_invalidate(from_stage: str) -> list[str]:
         for sid in list(kept):
             if sid in declared or not precision_droppable(sid):
                 continue
-            producers = _input_producers(sid)
-            if not producers or any(p is None or p in invalidated for p in producers):
+            writers = _input_producers(sid)
+            # One entry per declared input, holding every stage permitted to
+            # write it. Unknown writers, or any permitted writer still slated for
+            # a re-run, and the input may be about to change under `sid`.
+            if not writers or any(w is None or (w & invalidated) for w in writers):
                 continue
             kept.remove(sid)
             invalidated.discard(sid)
