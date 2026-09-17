@@ -3,8 +3,7 @@
 Progress ledger (Wave 0.3): telemetry always; hard halt only when
 ``not forensics_mode()`` **and** ``is_structural_halt_class``. Advisory classes
 sanitize/skip-with-ledger and continue other axes. Driver fail keys upsert via
-``upsert_fail_key`` / ``record_failure_unified`` — the in-memory driver map is
-a cache only.
+``upsert_fail_key`` — the in-memory driver map is a cache only.
 """
 
 from __future__ import annotations
