@@ -1,7 +1,12 @@
 # Subtraction holes — the `p3-subtract` worklist
 
-**Status: CLOSED.** **421 lines deleted** — W0 343 + batch 1 75 + closeout 3 — every wave passing its
-attribution gate. The no-rewrite deletable set is **exhausted** (`DELETABLE: 0 symbols / 0 lines`),
+**Status: CLOSED.** **427 gross lines removed / 21 shim lines added / 406 net**, across eight
+guardrail files, reproducible from one `git diff --numstat 750f112c a31c0f81`. Where the claim is
+specifically *lines of guardrail logic*, the figure is **410 across 19 symbols** — the 17-line
+difference is blank separators that `git diff` counts and an AST measure does not (§1.4.6). Quote
+gross and net together; never gross alone. **The earlier totals 78, 421 and 393 are retracted**
+(§1.4.6a). Every wave passed its attribution gate. The no-rewrite deletable set is **exhausted**
+(`DELETABLE: 0 symbols / 0 lines`),
 not abandoned: what remains is 8,710 lines that cannot be deleted without rewriting their callers,
 scoped as a successor refactor in **§12**. Final accounting in **§1.4.6**.
 
@@ -75,7 +80,9 @@ Rollback is `git checkout <tag> -- <specific paths>`, never a tree-wide reset.
 
 **Executed. Gate passed.** W0 deleted **343 lines / 12 functions** across six modules, as a pure
 deletion (zero added lines, verified by diffing the six files against
-`pre-subtraction-snapshot-full-w0`).
+`pre-subtraction-snapshot-full-w0`). That 343 is the `git diff` count; the same 12 symbols measure
+**332** by AST, the 11-line difference being blank separators. Summing 343 with the AST-counted later
+waves is what produced the retracted 421 — see §1.4.6a.
 
 | | |
 |---|---|
@@ -208,8 +215,9 @@ Two consequences, both now standing practice:
   whole class for 1% of the cost.
 - **The shim ruling is not a nicety, it is what makes attribution possible.** Deleted symbols that
   any test imports get a raising stub with a pointer to this document. The pinned test then fails on
-  its own assertion — a readable hole — instead of destroying the run. Batch 1 needed eleven shims
-  across five modules.
+  its own assertion — a readable hole — instead of destroying the run. Batch 1's **first attempt**
+  needed eleven shims across five modules — and that attempt was **reverted**. The batch as shipped
+  carries **three** shims in two modules; inventory in §1.4.6b.
 
 ### 1.4.6 Final accounting — the campaign is CLOSED
 
@@ -223,14 +231,92 @@ returns the four-bucket partition of the whole seed list:
 | EXTERNAL — deletable only by rewriting callers | 256 | 8,710 | **successor work item — §12** |
 | DELETABLE — no-rewrite | **0** | **0** | exhausted |
 
-**Shipped by this campaign: 421 lines.**
+**Shipped by this campaign: 427 gross lines removed, 21 shim lines added, 406 net.** Publish those
+two numbers **together** — "427 gross / 406 net". Quoting gross alone is what invited three rounds of
+re-derivation (§1.4.6a).
 
-| Wave | Lines | Symbols | Gate |
+The measurement is one command against the pre-W0 baseline tag (`750f112c`) through the campaign's
+current commit (`a31c0f81`):
+
+```
+git diff --numstat 750f112c a31c0f81 -- \
+  src/interview_mux/thrash_hardening.py src/interview_mux/artifact_completeness.py \
+  src/interview_mux/identical_failures.py src/interview_mux/remediation_framework.py \
+  src/interview_mux/stage_resilience.py src/interview_mux/delivery_guardrails.py \
+  src/interview_mux/heal_routing.py src/interview_mux/delivery_invariants.py
+```
+
+| Guardrail file | Gross removed | Shim lines added |
+|---|---:|---:|
+| `thrash_hardening.py` | 164 | 13 |
+| `artifact_completeness.py` | 79 | 0 |
+| `identical_failures.py` | 78 | 0 |
+| `remediation_framework.py` | 39 | 0 |
+| `stage_resilience.py` | 31 | 0 |
+| `delivery_guardrails.py` | 23 | 0 |
+| `heal_routing.py` | 8 | 8 |
+| `delivery_invariants.py` | 5 | 0 |
+| **Total** | **427** | **21** |
+
+**Eight files, and that is the whole scope.** Only two of them gained a line — the shims live in
+`thrash_hardening.py` and `heal_routing.py`; the other six are pure deletions. No ninth file belongs
+in this count; §1.4.6a covers the two that were wrongly included once.
+
+**Where the claim is specifically "lines of guardrail *logic*", the defensible figure is 410 lines
+across 19 symbols.** It differs from 427 for exactly one reason: `git diff` counts the blank
+separator lines that travel out with a deleted function, and an AST measure of symbol bodies does
+not. There are **17** such blank lines across the eight files, and 427 − 17 = 410. The 19 symbols are
+the reconciliation check — they are the same 19 the wave table below accounts for, which is what
+confirms the eight-file set is complete.
+
+| Wave | Symbol-body lines (AST) | Symbols | Gate |
 |---|---:|---:|---|
-| W0 — calibration wave (§1.4) | 343 | 12 | passed |
+| W0 — calibration wave (§1.4) | 332 | 12 | passed — reported as 343 from `git diff`; the 11-line gap is blank separators |
 | Batch 1 — ship+build+plan_rank merge (§6.05) | 75 | 6 | passed, 4 new failures all predicted |
 | Closeout — `delivery_invariants._active_listen_delight_remutate_stages` | 3 | 1 | passed, **zero** new failures |
-| **Total** | **421** | **19** | |
+| **Total** | **410** | **19** | |
+
+Sixteen of the 19 symbols are gone outright; the other three survive as raising shims and their old
+bodies are counted here as removed logic (§1.4.6b).
+
+### 1.4.6a Retracted totals — 78, 421, 393
+
+Three totals were published before the measurement above settled it. All three are **withdrawn**.
+They are recorded here, with their causes, so that a reader who encounters one in an older note does
+not re-derive a fourth number.
+
+- **78 — retracted.** Omitted the W0 wave entirely and counted only batch 1 plus closeout. Already
+  withdrawn at the time.
+- **421 — retracted; two incompatible rulers summed.** W0 was counted from `git diff` output, which
+  includes blank separators, and reported **343**; its symbols measure **332** by AST — a difference
+  of exactly 11 blank lines. Batch 1 (75) and the closeout (3) were counted by AST, with blanks
+  excluded. 343 + 75 + 3 = 421 therefore mixes the two conventions. On either consistent ruler the
+  campaign is **410** (AST symbol bodies) or **427** (gross `git diff` removals) — never 421.
+- **393 — retracted; two errors that masked each other.** It omitted `artifact_completeness.py`
+  altogether (79 gross, a pure deletion), and it wrongly included `ship_reachability.py` (−33) and
+  `defect_ledger.py` (−12). Those two are **solver 0.2.0 rewrites**, not guardrail subtraction: they
+  gained +264 and +451 lines respectively in the same commit, and their deletions are refactor churn
+  (`_contract_requirements`, `degrades_ship_bar`, `defects`, and a batch of `except Exception:`
+  lines). The arithmetic closes exactly: 427 − 79 + 45 = 393.
+
+The lesson is procedural, not arithmetic: **fix the ruler before summing, and name it when
+publishing.** Every one of the three errors was a convention mismatch or a scope mismatch, not a
+miscount.
+
+### 1.4.6b Shim inventory — three, not eleven
+
+Only **three** shims exist in the committed tree, costing the **21** added lines in the table above
+(13 lines of function body plus their comment banners and separators):
+
+| Shim | Module | Old body |
+|---|---|---:|
+| `gate_wait_tick` | `thrash_hardening.py` | 27L |
+| `wasted_work_is_true_waste` | `thrash_hardening.py` | 21L |
+| `apply_heal_route` | `heal_routing.py` | 7L |
+
+Each raises `NotImplementedError` with a pointer to this document, per the §1.4.5 ruling. **The
+"eleven shims across five modules" figure describes batch 1's first attempt, which was reverted**
+(§1.4.3); it never shipped and should not be quoted as the campaign's shim count.
 
 The closeout deletion gated clean on 4,693 tests collected before and after, with **zero new failures
 by node-id set comparison** — not merely a lower failure count, but proof that no node which passed
@@ -897,7 +983,8 @@ Every wave, in order. A wave that cannot tick every box does not run.
 
 ## 11. Definition of done for `p3-subtract` — MET, campaign CLOSED
 
-**Closed after 421 shipped lines** — W0 343 + batch 1 75 + closeout 3, per the table in §1.4.6. Every
+**Closed after 427 gross lines removed / 21 added / 406 net** — 410 of which are guardrail symbol
+body across 19 symbols (W0 332 + batch 1 75 + closeout 3), per the tables in §1.4.6. Every
 wave passed its attribution gate; the closeout deletion had zero new failures by node-id set
 comparison, on 4,693 tests collected before and after. `DELETABLE` is now **0 symbols / 0 lines** —
 the no-rewrite set is exhausted, not abandoned. The remaining 8,710 lines are scoped as a successor
