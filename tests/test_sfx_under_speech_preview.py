@@ -6,9 +6,7 @@ import struct
 import wave
 from pathlib import Path
 
-import pytest
-
-from run_fixtures import isolated_run_ctx
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx
 from interview_mux.sound_design import render_sfx_under_speech_preview
 
 
@@ -22,14 +20,19 @@ def _write_tone(path: Path, *, duration_sec: float = 1.0, amplitude: int = 8000)
         wf.writeframes(struct.pack(f"<{n}h", *([amplitude] * n)))
 
 
-# ctx.input_audio() falls back to the configured source audio under the live
-# ASSETS tree, so this one reads from the real repo root (it writes nothing there).
-@pytest.mark.real_executions_root
 def test_render_sfx_under_speech_preview(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "run-preview")
     ingest = ctx.path("ingest")
     ingest.mkdir(parents=True, exist_ok=True)
     _write_tone(ingest / "normalized.wav", duration_sec=3.0, amplitude=4000)
+
+    # The renderer resolves ctx.input_audio() even when normalized.wav wins the
+    # speech-source race; without run_meta that falls back to the configured
+    # source audio under the live ASSETS tree (an mp3 that ffmpeg would
+    # transcode whole). Point run_meta at a local tone instead.
+    source = tmp_path / "source.wav"
+    _write_tone(source, duration_sec=1.0)
+    init_run_meta_for_test(ctx, input_audio_path=str(source))
 
     assets = ctx.path("sound_design", "assets")
     assets.mkdir(parents=True, exist_ok=True)

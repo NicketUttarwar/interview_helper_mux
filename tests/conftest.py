@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -111,6 +112,83 @@ def redirect_executions_root(
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: sandbox)
 
 
+_ACTIVE_TEST: dict[str, Any] = {"nodeid": "<session>", "allow_pipeline_subprocess": False}
+_PIPELINE_SPAWNS: list[str] = []
+
+
+def _pipeline_module_spawn(args: Any) -> str | None:
+    """Return the command line when ``args`` runs an ``interview_mux`` module."""
+    if isinstance(args, (str, bytes, os.PathLike)):
+        argv = os.fsdecode(args).split()
+    else:
+        try:
+            argv = [os.fsdecode(a) if isinstance(a, (bytes, os.PathLike)) else str(a) for a in args]
+        except TypeError:
+            return None
+    for flag, mod in zip(argv, argv[1:]):
+        if flag == "-m" and (mod == "interview_mux" or mod.startswith("interview_mux.")):
+            return " ".join(argv)
+    return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def block_pipeline_subprocess():
+    """Refuse to fork the pipeline out of a test.
+
+    A child process inherits none of the patches above: it re-resolves the live
+    repo root and runs the real stage. ``audio_preclean`` (the only
+    ``SUBPROCESS_STAGES`` member) meant one execute test ran DeepFilterNet over
+    the operator's source audio and wrote 1.5G into ``ASSETS/executions``.
+
+    Session-scoped because the fork happens on a job thread that can outlive the
+    test that started it, so a ``monkeypatch`` has often unwound by then. Narrow
+    on purpose — only ``python -m interview_mux…`` trips it, which no test has a
+    reason to spawn; ffmpeg and the model venvs are untouched.
+    """
+    import subprocess
+
+    real_popen = subprocess.Popen
+
+    class _GuardedPopen(real_popen):  # type: ignore[misc,valid-type]
+        def __init__(self, args: Any, *pargs: Any, **kwargs: Any) -> None:
+            command = _pipeline_module_spawn(args)
+            if command is not None and not _ACTIVE_TEST["allow_pipeline_subprocess"]:
+                _PIPELINE_SPAWNS.append(f"{_ACTIVE_TEST['nodeid']}: {command}")
+                raise RuntimeError(
+                    f"Tests must not fork the pipeline ({command}). The child ignores "
+                    "fixtures and runs the real stage against the live ASSETS tree. "
+                    "Patch JobRunner._stage_worker_cmd, or opt out with "
+                    "@pytest.mark.allow_pipeline_subprocess."
+                )
+            super().__init__(args, *pargs, **kwargs)
+
+    subprocess.Popen = _GuardedPopen  # type: ignore[misc]
+    try:
+        yield
+    finally:
+        subprocess.Popen = real_popen  # type: ignore[misc]
+
+
+@pytest.fixture(autouse=True)
+def attribute_pipeline_subprocess(
+    request: pytest.FixtureRequest,
+    block_pipeline_subprocess: None,
+):
+    """Fail the test that tried to fork — the raise lands on a job thread otherwise."""
+    _ACTIVE_TEST["nodeid"] = request.node.nodeid
+    _ACTIVE_TEST["allow_pipeline_subprocess"] = bool(
+        request.node.get_closest_marker("allow_pipeline_subprocess")
+    )
+    seen = len(_PIPELINE_SPAWNS)
+    try:
+        yield
+    finally:
+        _ACTIVE_TEST["allow_pipeline_subprocess"] = False
+    blocked = _PIPELINE_SPAWNS[seen:]
+    if blocked:
+        pytest.fail("Blocked pipeline subprocess spawn:\n  " + "\n  ".join(blocked))
+
+
 @pytest.fixture(autouse=True)
 def clear_write_staging_context() -> None:
     """ContextVar staging must not leak across tests (writes route into .pending_writes)."""
@@ -135,6 +213,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "allow_network: permit outbound sockets")
     config.addinivalue_line(
         "markers", "real_executions_root: needs the live ASSETS/executions tree"
+    )
+    config.addinivalue_line(
+        "markers", "allow_pipeline_subprocess: permit forking python -m interview_mux…"
     )
 
 
