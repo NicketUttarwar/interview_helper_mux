@@ -367,11 +367,12 @@ def ensure_gap_fill_skipped(
     )
     # Do not double-write via bare write_json — that oscillates authority
     # action_class missing_framing↔write_json and trips authority_undo_thrash.
-    script_path = ctx.path("understanding", "interviewer_script.txt")
-    script_path.parent.mkdir(parents=True, exist_ok=True)
-    script_path.write_text(
+    from interview_mux.gap_framing import commit_interviewer_script
+
+    commit_interviewer_script(
+        ctx,
         "# Interviewer script — gap-fill skipped (no pickup lines required)\n",
-        encoding="utf-8",
+        stage_key="missing_framing",
     )
 
     sync_gaps_to_state(ctx, eval_doc)
@@ -1346,6 +1347,8 @@ def persist_optimal_questions_companion_artifacts(ctx: RunContext, artifacts: di
 
 
 def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
+    from interview_mux.gap_framing import commit_interviewer_script
+
     rows = [
         "# Interviewer script — record to vo_pickup/{line_id}.wav or synthesize at G1",
         "",
@@ -1356,7 +1359,7 @@ def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
         rows.append(f"Target: {line.get('targets_segment_id', '')} — {line.get('gap_type', '')}")
         rows.append(line.get("text", ""))
         rows.append("")
-    ctx.path("understanding", "interviewer_script.txt").write_text("\n".join(rows), encoding="utf-8")
+    commit_interviewer_script(ctx, "\n".join(rows), stage_key="optimal_questions")
 
 
 def ingest_vo_pickup(ctx: RunContext) -> None:

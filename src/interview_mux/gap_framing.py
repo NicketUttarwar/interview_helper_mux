@@ -11,6 +11,27 @@ from interview_mux.run_context import RunContext
 from interview_mux.source_topology import pickup_eligible_speaker_id
 
 GAP_FRAMING_PLAN_REL = "understanding/gap_framing_plan.json"
+INTERVIEWER_SCRIPT_REL = "understanding/interviewer_script.txt"
+
+
+def commit_interviewer_script(ctx: RunContext, text: str, *, stage_key: str) -> Any:
+    """Persist the operator VO script under the ownership constitution.
+
+    The script is plain text, so ``ctx.write_json`` cannot carry it. This mirrors
+    ``write_staging.write_committed_json``: assert authority for the named stage
+    first, then write through ``ctx.path`` so the write lands in that stage's
+    staging root and commits on the normal flush. A raw ``Path.write_text``
+    skipped the authority check entirely.
+    """
+    from interview_mux.artifact_ownership import assert_write
+    from interview_mux.file_store import write_text as fs_write_text
+    from interview_mux.write_staging import active_stage_id
+
+    sk = str(stage_key or "").strip() or (active_stage_id() or "")
+    assert_write(ctx, INTERVIEWER_SCRIPT_REL, sk, role="producer", verb="persist")
+    dest = ctx.path(*INTERVIEWER_SCRIPT_REL.split("/"))
+    fs_write_text(dest, text)
+    return dest
 
 LINE_CATEGORIES = frozenset(
     {
@@ -300,7 +321,7 @@ def _write_interviewer_script(ctx: RunContext, lines: list[dict]) -> None:
             rows.append(f"Replaces source: {', '.join(str(s) for s in replaces)}")
         rows.append(str(line.get("text") or ""))
         rows.append("")
-    ctx.path("understanding", "interviewer_script.txt").write_text("\n".join(rows), encoding="utf-8")
+    commit_interviewer_script(ctx, "\n".join(rows), stage_key="gap_framing_compose")
 
 
 def load_gap_framing_plan(ctx: RunContext) -> dict[str, Any] | None:

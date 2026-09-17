@@ -923,22 +923,54 @@ def map_cuts_onto_existing_boundaries(
     return out
 
 
-def boundaries_already_from_ideal_cuts(ctx: RunContext) -> bool:
+def committed_boundaries_publisher(ctx: RunContext) -> str:
+    """publisher_stage of a valid committed segment contract, else ""."""
     if not ctx.artifact_exists(BOUNDARIES_REL):
-        return False
+        return ""
     doc = ctx.read_json(BOUNDARIES_REL)
     if not isinstance(doc, dict):
-        return False
+        return ""
     meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
     contract = meta.get("segment_contract") if isinstance(meta, dict) else {}
     if not isinstance(contract, dict):
+        return ""
+    if not contract.get("timeline_valid") or int(contract.get("segment_count") or 0) < 1:
+        return ""
+    return str(contract.get("publisher_stage") or "")
+
+
+def boundaries_already_from_ideal_cuts(ctx: RunContext) -> bool:
+    return committed_boundaries_publisher(ctx) in {
+        "ideal_cuts_materialize",
+        "chapter_close_hitch",
+    }
+
+
+def retract_own_boundaries(ctx: RunContext) -> bool:
+    """Drop a coarse segment contract this stage published on an earlier walk.
+
+    Deleting a committed artifact is a mutation like any other, so it goes
+    through the ownership constitution (``verb="invalidate"``) instead of a raw
+    ``unlink``. It only ever retracts ``ideal_cuts_materialize``'s own
+    publication: a ``chapter_close_hitch`` contract belongs to that stage and
+    must survive a materialize re-walk.
+    """
+    from interview_mux.artifact_ownership import assert_write
+
+    if committed_boundaries_publisher(ctx) != "ideal_cuts_materialize":
         return False
-    publisher = str(contract.get("publisher_stage") or "")
-    return (
-        publisher in {"ideal_cuts_materialize", "chapter_close_hitch"}
-        and bool(contract.get("timeline_valid"))
-        and int(contract.get("segment_count") or 0) > 0
+    assert_write(
+        ctx,
+        BOUNDARIES_REL,
+        "ideal_cuts_materialize",
+        role="producer",
+        verb="invalidate",
     )
+    try:
+        (ctx.run_dir / BOUNDARIES_REL).unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
 
 
 def resolve_ideal_cuts_air_order(
@@ -1090,11 +1122,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
                 # defer the ranking seed until refresh_selection_seed_from_boundaries.
                 snapped = strip_provisional_segment_ids(snapped)
                 # Drop a prior coarse ideal-cuts contract so boundary_detection runs LLM.
-                if boundaries_already_from_ideal_cuts(ctx):
-                    try:
-                        (ctx.run_dir / BOUNDARIES_REL).unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                retract_own_boundaries(ctx)
             else:
                 ctx.write_json(BOUNDARIES_REL, boundaries, stage_key="ideal_cuts_materialize")
                 wrote_boundaries = True
@@ -1110,11 +1138,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
                 stage="ideal_cuts_materialize",
             )
             snapped = strip_provisional_segment_ids(snapped)
-            if boundaries_already_from_ideal_cuts(ctx):
-                try:
-                    (ctx.run_dir / BOUNDARIES_REL).unlink(missing_ok=True)
-                except OSError:
-                    pass
+            retract_own_boundaries(ctx)
             wrote_boundaries = False
     elif ctx.artifact_exists(BOUNDARIES_REL):
         # Seed-ranking path with legacy boundaries already present (rare at this point)

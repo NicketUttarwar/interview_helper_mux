@@ -224,9 +224,17 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/talking_points.json", "talking_points_compose"),
     _row("understanding/ideal_cuts.json", "ideal_cuts_propose"),
     _row("understanding/ideal_cuts_materialized.json", "ideal_cuts_materialize"),
+    # ideal_cuts_materialize publishes the segment contract itself when
+    # ``analysis.ideal_cuts.bind_mode`` binds boundaries (default ``both``) —
+    # boundary_detection then skips its LLM. That publication is stamped
+    # ``_meta.segment_contract.publisher_stage=ideal_cuts_materialize`` and read
+    # back by ``ideal_cuts.boundaries_already_from_ideal_cuts``, so it is a first
+    # class co-producer, not a stray write. boundary_detection stays first: it is
+    # the full-tape resume target when the bind is demoted.
     _row(
         "segments/boundaries.json",
         "boundary_detection",
+        "ideal_cuts_materialize",
         "connector_fuse_pass",
         "connector_fuse_pass_pre_ranking",
         "boundary_topic_resplit",
@@ -654,6 +662,19 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     ),
     _row("understanding/gap_report.draft.json", "gap_framing_compose", mode="operational", end="C"),
     _row("understanding/gap_framing_plan.json", "gap_framing_compose", mode="operational", end="C"),
+    # Operator-facing VO script (plain text, surfaced by the G1 gate and the
+    # gap_framing_compose workbench, and required by stage_completion before
+    # optimal_questions may be marked done). Three writers, all legitimate:
+    # missing_framing stamps the skip stub on the running stage, the retired
+    # optimal_questions path still writes it from llm_output_resilience's partial
+    # persist, and gap_framing_compose is the live author — so it stays last.
+    _row(
+        "understanding/interviewer_script.txt",
+        "missing_framing",
+        "optimal_questions",
+        "gap_framing_compose",
+        end="C",
+    ),
     _row("understanding/gap_vo_context_audit.json", "gap_framing_compose", mode="operational", end="C"),
     _row("understanding/gap_fill_skip.json", "ops", mode="operational", end="ops"),
     # Voice reference gate (GUI approve + candidate collect) — exec_11871 unknown_path.
