@@ -1220,13 +1220,27 @@ def test_cta_story_children_survive_repair_and_hydrate(monkeypatch) -> None:
 
 
 def test_short_story_child_survives_blank_repair() -> None:
-    """Recut remainders under 8s / 8 words stay content-candidates, not blank-drops."""
+    """Listen-complete admitted prefixes stamped story_keep_ok survive blank-repair."""
     ctx = _ctx_010()
+    keep_a = _seg(
+        "seg_003a",
+        "OneCell.ai is a precision oncology company.",
+        start=0,
+        end=1900,
+    )
+    keep_a["_meta"] = {"story_keep_ok": True}
+    keep_j = _seg(
+        "seg_003j",
+        "Let's welcome Mohan to the show.",
+        start=20000,
+        end=21500,
+    )
+    keep_j["_meta"] = {"story_keep_ok": True}
     ctx.write_json(
         "segments/manifest.json",
         _manifest(
-            _seg("seg_003a", "And what is OneCell.ai? OneCell", start=0, end=1900),
-            _seg("seg_003j", "let's welcome Mohan", start=20000, end=21500),
+            keep_a,
+            keep_j,
             _seg("seg_005", "Thank you for having me on the show today.", start=40000, end=50000),
         ),
     )
@@ -1239,15 +1253,19 @@ def test_short_story_child_survives_blank_repair() -> None:
             "never_touch_segment_ids": ["seg_003"],
         },
     )
-    from interview_mux.artifact_repairs import repair_master_selection
+    from interview_mux.artifact_repairs import (
+        _segment_is_blank_or_unusable,
+        repair_master_selection,
+    )
 
+    assert _segment_is_blank_or_unusable(ctx, "seg_003a") is False
+    assert _segment_is_blank_or_unusable(ctx, "seg_003j") is False
+    # Stamped kids already on air must not be blank-dropped (max_cta_readmit=0).
     repaired, actions = repair_master_selection(
         ctx,
         {
-            "ordered_segment_ids": ["seg_005"],
-            "excluded_segment_ids": [
-                {"segment_id": "seg_003a", "reason": "blank_or_unusable_answer_audio"},
-            ],
+            "ordered_segment_ids": ["seg_003a", "seg_003j", "seg_005"],
+            "excluded_segment_ids": [],
         },
     )
     assert "seg_003a" in repaired["ordered_segment_ids"]
@@ -1260,6 +1278,31 @@ def test_short_story_child_survives_blank_repair() -> None:
     assert "seg_003a" not in excl
     assert "seg_003j" not in excl
     assert not any(a.get("action") == "drop_blank_segments" for a in actions)
+
+
+def test_unstamped_short_admitted_story_is_blank_unusable() -> None:
+    """Admitted story kids without story_keep_ok stay blank (incomplete microfragments)."""
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_003a", "And what is OneCell.ai? OneCell", start=0, end=1900),
+            _seg("seg_003j", "let's welcome Mohan", start=20000, end=21500),
+        ),
+    )
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "admitted_story_segment_ids": ["seg_003a", "seg_003j"],
+            "considerable_segment_ids": ["seg_003a", "seg_003j"],
+            "never_touch_segment_ids": ["seg_003"],
+        },
+    )
+    from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
+
+    assert _segment_is_blank_or_unusable(ctx, "seg_003a") is True
+    assert _segment_is_blank_or_unusable(ctx, "seg_003j") is True
 
 
 def test_multi_parent_cta_in_one_apply() -> None:

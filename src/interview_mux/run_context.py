@@ -117,9 +117,28 @@ class RunContext:
         *,
         stage_key: str | None = None,
         skip_handoff: bool = False,
+        role: str | None = None,
     ) -> Path:
         prior_gap: Any = None
         prior_transitions: Any = None
+        # Ownership constitution — refuse illegal writers before any mutate.
+        try:
+            from interview_mux.artifact_ownership import assert_write
+            from interview_mux.write_staging import active_stage_id
+
+            sk = stage_key or active_stage_id()
+            role_s = str(role or "").strip()
+            if not role_s:
+                role_s = "producer" if sk else "ops"
+            assert_write(
+                self,
+                rel,
+                sk,
+                role=role_s,
+                verb="persist",
+            )
+        except ImportError:
+            pass
         if rel == "understanding/gap_report.json" and isinstance(data, dict):
             try:
                 if self.artifact_exists(rel):
@@ -360,9 +379,12 @@ class RunContext:
         *,
         stage_key: str | None = None,
         skip_handoff: bool = False,
+        role: str | None = None,
     ) -> Path:
         """Write JSON with schema validation (delegates to write_json)."""
-        return self.write_json(rel, data, stage_key=stage_key, skip_handoff=skip_handoff)
+        return self.write_json(
+            rel, data, stage_key=stage_key, skip_handoff=skip_handoff, role=role
+        )
 
     def init_run_meta(
         self,
@@ -401,6 +423,12 @@ class RunContext:
             meta["source_audio_hash"] = full
             meta["source_audio_hash_short"] = short
         meta["storage_root"] = str(self.run_dir.relative_to(self.root))
+        try:
+            from interview_mux.artifact_ownership import MATRIX_VERSION_META_KEY, matrix_version
+
+            meta[MATRIX_VERSION_META_KEY] = matrix_version()
+        except Exception:
+            pass
         fs_write_json(meta_path, meta)
         log_msg = f"Execution {self.run_id} initialized with input {stored_input}"
         if wav_input != resolved_input.resolve():
@@ -515,6 +543,26 @@ class RunContext:
         ):
             record_pending_approval(self, stage)
             return
+
+        # Ownership: refuse hollow mark_done for pipeline stages (raw stamp escapes).
+        if not getattr(self, "_mark_done_raw", False):
+            try:
+                from interview_mux.artifact_ownership import assert_may_mark_done
+
+                assert_may_mark_done(self, stage)
+            except ImportError:
+                pass
+            except Exception as exc:
+                from interview_mux.artifact_ownership import AuthorityDenied
+
+                if isinstance(exc, AuthorityDenied):
+                    self.log(
+                        f"Refusing mark_done({stage}): {exc}",
+                        level="warning",
+                        stage=stage,
+                    )
+                    return
+                raise
 
         from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
         from interview_mux.artifact_completeness import artifact_status

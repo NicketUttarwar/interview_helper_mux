@@ -1,14 +1,17 @@
 {
   "version": 1,
   "pipeline_stages": 72,
-  "breakpoint_count": 194,
+  "breakpoint_count": 186,
   "breakpoints": [
     {
       "id": "contract:air_contract_sanitize",
       "kind": "stage_contract",
       "stage": "air_contract_sanitize",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "mastering/mastering_plan.json",
+        "understanding/omit_ledger.json"
+      ]
     },
     {
       "id": "contract:air_script_compose",
@@ -16,7 +19,8 @@
       "stage": "air_script_compose",
       "tier": "llm_full",
       "outputs": [
-        "mastering/mastering_plan.json"
+        "mastering/mastering_plan.json",
+        "understanding/omit_ledger.json"
       ]
     },
     {
@@ -25,7 +29,8 @@
       "stage": "air_script_seams",
       "tier": "llm_full",
       "outputs": [
-        "mastering/mastering_plan.json"
+        "mastering/mastering_plan.json",
+        "understanding/gap_framing_plan.json"
       ]
     },
     {
@@ -42,14 +47,24 @@
       "kind": "stage_contract",
       "stage": "audio_preclean",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "preclean/isolated.wav",
+        "preclean/provider.json",
+        "preclean/lineage.json"
+      ]
     },
     {
       "id": "contract:audio_probe_build",
       "kind": "stage_contract",
       "stage": "audio_probe_build",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "analysis/run_golden_facts.json",
+        "transcript/protected_zones.json",
+        "transcript/speaker_flows.json",
+        "vernacular/probe_report.json",
+        "vernacular/audio_tags_by_flow.json"
+      ]
     },
     {
       "id": "contract:boundary_detection",
@@ -77,7 +92,12 @@
       "outputs": [
         "mastering/chapter_close_hitch.json",
         "mastering/chapter_close_hitch/intent_plan.json",
-        "mastering/chapter_close_hitch/remap.json"
+        "mastering/chapter_close_hitch/remap.json",
+        "mastering/chapter_close_hitch/hitch_keepers.json",
+        "mastering/chapter_close_hitch/pre_keepers.json",
+        "mastering/chapter_close_hitch/omit_ledger.json",
+        "mastering/chapter_close_hitch/vo_snapshot.json",
+        "master/narrative_plan.qc.json"
       ]
     },
     {
@@ -86,7 +106,9 @@
       "stage": "connector_fuse_pass",
       "tier": "process",
       "outputs": [
-        "analysis/connector_fuse_audit.json"
+        "analysis/connector_fuse_audit.json",
+        "analysis/connector_seam_packets.json",
+        "segments/manifest.json"
       ]
     },
     {
@@ -95,14 +117,15 @@
       "stage": "connector_fuse_pass_pre_ranking",
       "tier": "process",
       "outputs": [
-        "analysis/connector_fuse_rounds.json"
+        "analysis/connector_fuse_rounds.json",
+        "segments/manifest.json"
       ]
     },
     {
       "id": "contract:connector_seam_adjudicate",
       "kind": "stage_contract",
       "stage": "connector_seam_adjudicate",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "analysis/connector_seam_verdicts.json"
       ]
@@ -130,7 +153,9 @@
       "kind": "stage_contract",
       "stage": "delivery_brief_build",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "understanding/delivery_brief.json"
+      ]
     },
     {
       "id": "contract:edl",
@@ -138,7 +163,8 @@
       "stage": "edl",
       "tier": "process",
       "outputs": [
-        "master/edl.json"
+        "master/edl.json",
+        "master/transitions/"
       ]
     },
     {
@@ -154,7 +180,7 @@
       "id": "contract:edl_narrative_refine",
       "kind": "stage_contract",
       "stage": "edl_narrative_refine",
-      "tier": "deterministic",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -162,7 +188,11 @@
       "kind": "stage_contract",
       "stage": "episode_cover_generate",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "publish/cover.jpg",
+        "publish/cover_pick.json",
+        "publish/cover_meta.json"
+      ]
     },
     {
       "id": "contract:episode_cover_prompt_craft",
@@ -187,7 +217,9 @@
       "kind": "stage_contract",
       "stage": "episode_structure_compose",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "understanding/episode_structure.json"
+      ]
     },
     {
       "id": "contract:framing_posture_decide",
@@ -204,7 +236,14 @@
       "stage": "full_master_ranking",
       "tier": "llm_full",
       "outputs": [
-        "master/selection.json"
+        "master/selection.json",
+        "master/rank_candidates.json",
+        "master/order_reconcile.json",
+        "master/story_health.json",
+        "mastering/media_ip_cta.json",
+        "understanding/reorder_bridges.json",
+        "understanding/speaker_delivery_plan.json",
+        "analysis/stt_lexicon_islands.json"
       ]
     },
     {
@@ -220,7 +259,10 @@
       "stage": "gap_framing_compose",
       "tier": "llm_full",
       "outputs": [
-        "understanding/gap_report.json"
+        "understanding/gap_report.json",
+        "understanding/gap_framing_plan.json",
+        "understanding/gap_vo_context_audit.json",
+        "understanding/speaker_delivery_plan.json"
       ]
     },
     {
@@ -228,14 +270,26 @@
       "kind": "stage_contract",
       "stage": "gap_framing_recompose",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/gap_framing_recompose.json",
+        "understanding/gap_framing_plan.json",
+        "understanding/gap_report.draft.json",
+        "understanding/gap_vo_context_audit.json",
+        "understanding/nugget_layup_plan.json",
+        "understanding/cold_open_audition.json",
+        "understanding/listener_outcome_trajectory.json",
+        "understanding/refinement_plan.json",
+        "understanding/refinement_skip_copy.json"
+      ]
     },
     {
       "id": "contract:gap_report_sanitize",
       "kind": "stage_contract",
       "stage": "gap_report_sanitize",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "understanding/gap_report.json"
+      ]
     },
     {
       "id": "contract:ideal_cuts_materialize",
@@ -243,7 +297,8 @@
       "stage": "ideal_cuts_materialize",
       "tier": "process",
       "outputs": [
-        "understanding/ideal_cuts_materialized.json"
+        "understanding/ideal_cuts_materialized.json",
+        "understanding/ideal_cuts_selection_seed.json"
       ]
     },
     {
@@ -260,27 +315,37 @@
       "kind": "stage_contract",
       "stage": "information_package_plan",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "mastering/shape/information_packages_audit.json",
+        "mastering/shape/information_package_candidates.json",
+        "mastering/mastering_plan.json"
+      ]
     },
     {
       "id": "contract:ingest",
       "kind": "stage_contract",
       "stage": "ingest",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "ingest/normalized.wav",
+        "ingest/checksums.json",
+        "ingest/loudness.json"
+      ]
     },
     {
       "id": "contract:interview_spine_build",
       "kind": "stage_contract",
       "stage": "interview_spine_build",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/interview_spine.json"
+      ]
     },
     {
       "id": "contract:island_cluster_structure_adjudicate",
       "kind": "stage_contract",
       "stage": "island_cluster_structure_adjudicate",
-      "tier": "llm_advisory",
+      "tier": "meta",
       "outputs": [
         "analysis/island_cluster_structure_verdicts.json",
         "analysis/island_cluster_structure_packets.json"
@@ -290,7 +355,7 @@
       "id": "contract:junction_feel_audit",
       "kind": "stage_contract",
       "stage": "junction_feel_audit",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "master/junction_feel_audit.json"
       ]
@@ -299,16 +364,24 @@
       "id": "contract:junction_snip_qa",
       "kind": "stage_contract",
       "stage": "junction_snip_qa",
-      "tier": "process",
+      "tier": "llm_full",
       "outputs": [
-        "master/junction_snip_qa.json"
+        "master/junction_snip_qa.json",
+        "master/junction_thought_complete.json",
+        "master/junction_feel_audit.json",
+        "master/seam_autopsy.json",
+        "master/render_ledger.json",
+        "master/failure_review.json",
+        "master/remediation_plan.json",
+        "master/remediation_run_log.json",
+        "sound_design/placement_adjustments.json"
       ]
     },
     {
       "id": "contract:junction_thought_complete",
       "kind": "stage_contract",
       "stage": "junction_thought_complete",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "master/junction_thought_complete.json"
       ]
@@ -328,7 +401,9 @@
       "stage": "low_conf_island_scan",
       "tier": "process",
       "outputs": [
-        "analysis/low_conf_islands.json"
+        "analysis/low_conf_islands.json",
+        "analysis/low_conf_density_ranking.json",
+        "analysis/low_conf_must_keep.json"
       ]
     },
     {
@@ -337,7 +412,11 @@
       "stage": "master_finalize",
       "tier": "process",
       "outputs": [
-        "master/master.wav"
+        "master/master.wav",
+        "master/post_master_quality.json",
+        "master/listener_scorecard.json",
+        "mastering/listen_delight_audit.json",
+        "master/seam_autopsy.json"
       ]
     },
     {
@@ -357,7 +436,9 @@
       "stage": "mastering_plan_confirm",
       "tier": "process",
       "outputs": [
-        "mastering/mastering_plan.json"
+        "mastering/mastering_plan.json",
+        "mastering/shadow_diff.json",
+        "glob:mastering/evidence_packets/*.json"
       ]
     },
     {
@@ -366,7 +447,8 @@
       "stage": "mastering_plan_synthesize",
       "tier": "process",
       "outputs": [
-        "mastering/mastering_plan.json"
+        "mastering/mastering_plan.json",
+        "glob:mastering/evidence_packets/*.json"
       ]
     },
     {
@@ -375,7 +457,10 @@
       "stage": "mastering_research_rollup",
       "tier": "process",
       "outputs": [
-        "mastering/research/rollup.json"
+        "mastering/research/rollup.json",
+        "mastering/research_dossier.json",
+        "glob:mastering/research/*.json",
+        "mastering/research/routing.json"
       ]
     },
     {
@@ -393,7 +478,8 @@
       "stage": "mastering_research_waves",
       "tier": "process",
       "outputs": [
-        "mastering/research/waves.json"
+        "mastering/research/waves.json",
+        "mastering/research/"
       ]
     },
     {
@@ -402,7 +488,9 @@
       "stage": "mastering_shape_agenda",
       "tier": "process",
       "outputs": [
-        "mastering/shape/agenda.json"
+        "mastering/shape/agenda.json",
+        "mastering/shape/eval_rubric.json",
+        "glob:mastering/evidence_packets/*.json"
       ]
     },
     {
@@ -411,7 +499,9 @@
       "stage": "mastering_shape_candidates",
       "tier": "process",
       "outputs": [
-        "mastering/shape/candidates.json"
+        "mastering/shape/candidates.json",
+        "mastering/shape/diversity_report.json",
+        "glob:mastering/evidence_packets/*.json"
       ]
     },
     {
@@ -429,7 +519,8 @@
       "stage": "mix",
       "tier": "process",
       "outputs": [
-        "master/assembly.wav"
+        "master/assembly.wav",
+        "master/music_cue_coverage.json"
       ]
     },
     {
@@ -438,7 +529,9 @@
       "stage": "mmaudio_sfx",
       "tier": "process",
       "outputs": [
-        "sound_design/mmaudio_qa.json"
+        "sound_design/mmaudio_qa.json",
+        "sound_design/assets/",
+        "master/sfx/"
       ]
     },
     {
@@ -447,7 +540,8 @@
       "stage": "music_palette_compose",
       "tier": "llm_full",
       "outputs": [
-        "sound_design/music_palette_compose.json"
+        "sound_design/music_palette_compose.json",
+        "understanding/sound_design_plan.json"
       ]
     },
     {
@@ -463,7 +557,7 @@
       "id": "contract:narrative_arc_refine",
       "kind": "stage_contract",
       "stage": "narrative_arc_refine",
-      "tier": "deterministic",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -472,7 +566,8 @@
       "stage": "nugget_corpus_mine",
       "tier": "llm_full",
       "outputs": [
-        "understanding/nugget_corpus.json"
+        "understanding/nugget_corpus.json",
+        "understanding/nugget_layup_qc.json"
       ]
     },
     {
@@ -482,14 +577,18 @@
       "tier": "llm_full",
       "outputs": [
         "understanding/nugget_layup_plan.json",
-        "understanding/gap_report.json"
+        "understanding/gap_report.json",
+        "mastering/mastering_plan.json",
+        "understanding/native_comprehension_masks.json",
+        "understanding/nugget_comprehension_index.json",
+        "understanding/nugget_layup_qc.json"
       ]
     },
     {
       "id": "contract:optimal_questions",
       "kind": "stage_contract",
       "stage": "optimal_questions",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "understanding/gap_report.json"
       ]
@@ -499,20 +598,30 @@
       "kind": "stage_contract",
       "stage": "podcast_encode_mp3",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "publish/audio.mp3",
+        "publish/master.wav"
+      ]
     },
     {
       "id": "contract:podcast_publish",
       "kind": "stage_contract",
       "stage": "podcast_publish",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "publish/package_ready.json",
+        "publish/publish_result.json",
+        "publish/chapters.json",
+        "publish/transcript.vtt",
+        "publish/episode.json",
+        "publish/description.txt"
+      ]
     },
     {
       "id": "contract:podcast_sfx_brief",
       "kind": "stage_contract",
       "stage": "podcast_sfx_brief",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "master/podcast_sfx_brief.json"
       ]
@@ -521,7 +630,7 @@
       "id": "contract:ranking_refine",
       "kind": "stage_contract",
       "stage": "ranking_refine",
-      "tier": "deterministic",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -529,13 +638,15 @@
       "kind": "stage_contract",
       "stage": "refinement_agenda",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/refinement_agenda.json"
+      ]
     },
     {
       "id": "contract:sdp_intent_refine",
       "kind": "stage_contract",
       "stage": "sdp_intent_refine",
-      "tier": "deterministic",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -552,20 +663,28 @@
       "kind": "stage_contract",
       "stage": "selection_framing_apply",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/selection_framing_apply.json",
+        "understanding/gap_report.json",
+        "understanding/gap_report.draft.json",
+        "understanding/refinement_plan.json",
+        "understanding/refinement_skip_copy.json"
+      ]
     },
     {
       "id": "contract:selection_order_sanitize",
       "kind": "stage_contract",
       "stage": "selection_order_sanitize",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "master/selection.json"
+      ]
     },
     {
       "id": "contract:sfx_brief",
       "kind": "stage_contract",
       "stage": "sfx_brief",
-      "tier": "llm_full",
+      "tier": "meta",
       "outputs": [
         "REMOVED_flow2/sfx_brief.json"
       ]
@@ -583,17 +702,17 @@
       "id": "contract:sfx_prompt_refine",
       "kind": "stage_contract",
       "stage": "sfx_prompt_refine",
-      "tier": "llm_full",
-      "outputs": [
-        "sound_design/sfx_prompts.json"
-      ]
+      "tier": "meta",
+      "outputs": []
     },
     {
       "id": "contract:sonic_context_build",
       "kind": "stage_contract",
       "stage": "sonic_context_build",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/sonic_context.json"
+      ]
     },
     {
       "id": "contract:sound_design_palettes",
@@ -610,14 +729,15 @@
       "stage": "sound_design_plan",
       "tier": "llm_full",
       "outputs": [
-        "understanding/sound_design_plan.json"
+        "understanding/sound_design_plan.json",
+        "understanding/music_brief.json"
       ]
     },
     {
       "id": "contract:sound_design_plan_init",
       "kind": "stage_contract",
       "stage": "sound_design_plan_init",
-      "tier": "process",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -625,28 +745,41 @@
       "kind": "stage_contract",
       "stage": "sound_design_vo_finalize",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "mastering/sound_design_vo_finalize.json",
+        "understanding/sound_design_plan.json",
+        "vo_pickup/"
+      ]
     },
     {
       "id": "contract:soundscape_policy_build",
       "kind": "stage_contract",
       "stage": "soundscape_policy_build",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "understanding/soundscape_policy.json"
+      ]
     },
     {
       "id": "contract:source_acoustic_profile",
       "kind": "stage_contract",
       "stage": "source_acoustic_profile",
       "tier": "deterministic",
-      "outputs": []
+      "outputs": [
+        "understanding/source_acoustic_profile.json",
+        "understanding/source_readiness.json"
+      ]
     },
     {
       "id": "contract:source_topology_build",
       "kind": "stage_contract",
       "stage": "source_topology_build",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "understanding/source_topology.json",
+        "understanding/flow_adaptation.json",
+        "glob:understanding/speaker_samples/*.wav"
+      ]
     },
     {
       "id": "contract:speaker_roles",
@@ -661,10 +794,8 @@
       "id": "contract:synthetic_framing_plan",
       "kind": "stage_contract",
       "stage": "synthetic_framing_plan",
-      "tier": "llm_full",
-      "outputs": [
-        "understanding/synthetic_framing_plan.json"
-      ]
+      "tier": "meta",
+      "outputs": []
     },
     {
       "id": "contract:talking_points_compose",
@@ -689,7 +820,10 @@
       "kind": "stage_contract",
       "stage": "transcribe",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "transcript/full.json",
+        "transcript/speakers.json"
+      ]
     },
     {
       "id": "contract:transcript_review",
@@ -703,7 +837,11 @@
       "kind": "stage_contract",
       "stage": "transcript_review_build",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "transcript/review_queue.json",
+        "transcript/corrections.json",
+        "glob:transcript/review_clips/*.wav"
+      ]
     },
     {
       "id": "contract:transitions",
@@ -711,14 +849,23 @@
       "stage": "transitions",
       "tier": "llm_full",
       "outputs": [
-        "master/transitions.json"
+        "master/transitions.json",
+        "understanding/synthetic_framing_plan.json",
+        "understanding/synthetic_context_packet.json",
+        "master/deferred_transition_pairs.json",
+        "master/transitions_pair_freeze.json",
+        "master/order_reconcile.json",
+        "master/rank_candidates.json",
+        "master/story_health.json",
+        "understanding/reorder_bridges.json",
+        "understanding/speaker_delivery_plan.json"
       ]
     },
     {
       "id": "contract:transitions_refine",
       "kind": "stage_contract",
       "stage": "transitions_refine",
-      "tier": "deterministic",
+      "tier": "meta",
       "outputs": []
     },
     {
@@ -726,14 +873,20 @@
       "kind": "stage_contract",
       "stage": "vernacular_segment_sanitize",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "vernacular/resplit_report.json",
+        "segments/manifest.json",
+        "analysis/vernacular_must_keep.json"
+      ]
     },
     {
       "id": "contract:vo_ingest",
       "kind": "stage_contract",
       "stage": "vo_ingest",
-      "tier": "process",
-      "outputs": []
+      "tier": "gate",
+      "outputs": [
+        "vo_pickup/"
+      ]
     },
     {
       "id": "contract:vo_line_adjudicate",
@@ -741,7 +894,9 @@
       "stage": "vo_line_adjudicate",
       "tier": "llm_full",
       "outputs": [
-        "understanding/vo_line_adjudication.json"
+        "understanding/vo_line_adjudication.json",
+        "understanding/gap_report.json",
+        "understanding/nugget_allocation_plan.json"
       ]
     },
     {
@@ -750,7 +905,9 @@
       "stage": "vo_synthesize",
       "tier": "process",
       "outputs": [
-        "mastering/vo_synthesize.json"
+        "mastering/vo_synthesize.json",
+        "master/transitions/",
+        "vo_pickup/synthesized/"
       ]
     },
     {
@@ -874,6 +1031,62 @@
       "rule": "_gaps_mastering_plan"
     },
     {
+      "id": "disk_path:audio_preclean",
+      "kind": "stage_artifact_path",
+      "stage": "audio_preclean",
+      "path": "preclean/isolated.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:ingest",
+      "kind": "stage_artifact_path",
+      "stage": "ingest",
+      "path": "ingest/normalized.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:transcribe",
+      "kind": "stage_artifact_path",
+      "stage": "transcribe",
+      "path": "transcript/full.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:transcript_review_build",
+      "kind": "stage_artifact_path",
+      "stage": "transcript_review_build",
+      "path": "transcript/review_queue.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:audio_probe_build",
+      "kind": "stage_artifact_path",
+      "stage": "audio_probe_build",
+      "path": "analysis/run_golden_facts.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:source_acoustic_profile",
+      "kind": "stage_artifact_path",
+      "stage": "source_acoustic_profile",
+      "path": "understanding/source_acoustic_profile.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:interview_spine_build",
+      "kind": "stage_artifact_path",
+      "stage": "interview_spine_build",
+      "path": "understanding/interview_spine.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:source_topology_build",
+      "kind": "stage_artifact_path",
+      "stage": "source_topology_build",
+      "path": "understanding/source_topology.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
       "id": "disk_path:talking_points_compose",
       "kind": "stage_artifact_path",
       "stage": "talking_points_compose",
@@ -902,24 +1115,10 @@
       "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "disk_path:chapter_close_hitch",
+      "id": "disk_path:vernacular_segment_sanitize",
       "kind": "stage_artifact_path",
-      "stage": "chapter_close_hitch",
-      "path": "mastering/chapter_close_hitch.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:connector_seam_adjudicate",
-      "kind": "stage_artifact_path",
-      "stage": "connector_seam_adjudicate",
-      "path": "analysis/connector_seam_verdicts.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:island_cluster_structure_adjudicate",
-      "kind": "stage_artifact_path",
-      "stage": "island_cluster_structure_adjudicate",
-      "path": "analysis/island_cluster_structure_verdicts.json",
+      "stage": "vernacular_segment_sanitize",
+      "path": "vernacular/resplit_report.json",
       "note": "no dedicated completeness gap rule"
     },
     {
@@ -937,122 +1136,10 @@
       "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "disk_path:connector_fuse_pass_pre_ranking",
+      "id": "disk_path:sonic_context_build",
       "kind": "stage_artifact_path",
-      "stage": "connector_fuse_pass_pre_ranking",
-      "path": "analysis/connector_fuse_rounds.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:nugget_corpus_mine",
-      "kind": "stage_artifact_path",
-      "stage": "nugget_corpus_mine",
-      "path": "understanding/nugget_corpus.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:nugget_layup_compose",
-      "kind": "stage_artifact_path",
-      "stage": "nugget_layup_compose",
-      "path": "understanding/nugget_layup_plan.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:edl_narrative_audit",
-      "kind": "stage_artifact_path",
-      "stage": "edl_narrative_audit",
-      "path": "master/edl_narrative_audit.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:vo_line_adjudicate",
-      "kind": "stage_artifact_path",
-      "stage": "vo_line_adjudicate",
-      "path": "understanding/vo_line_adjudication.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:vo_synthesize",
-      "kind": "stage_artifact_path",
-      "stage": "vo_synthesize",
-      "path": "mastering/vo_synthesize.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:edl",
-      "kind": "stage_artifact_path",
-      "stage": "edl",
-      "path": "master/edl.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:assembly_preview",
-      "kind": "stage_artifact_path",
-      "stage": "assembly_preview",
-      "path": "master/assembly_preview.wav",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:listen_delight_audit",
-      "kind": "stage_artifact_path",
-      "stage": "listen_delight_audit",
-      "path": "mastering/listen_delight_audit.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:mix",
-      "kind": "stage_artifact_path",
-      "stage": "mix",
-      "path": "master/assembly.wav",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:master_finalize",
-      "kind": "stage_artifact_path",
-      "stage": "master_finalize",
-      "path": "master/master.wav",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:synthetic_framing_plan",
-      "kind": "stage_artifact_path",
-      "stage": "synthetic_framing_plan",
-      "path": "understanding/synthetic_framing_plan.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:music_palette_compose",
-      "kind": "stage_artifact_path",
-      "stage": "music_palette_compose",
-      "path": "sound_design/music_palette_compose.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:junction_snip_qa",
-      "kind": "stage_artifact_path",
-      "stage": "junction_snip_qa",
-      "path": "master/junction_snip_qa.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:junction_feel_audit",
-      "kind": "stage_artifact_path",
-      "stage": "junction_feel_audit",
-      "path": "master/junction_feel_audit.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:junction_thought_complete",
-      "kind": "stage_artifact_path",
-      "stage": "junction_thought_complete",
-      "path": "master/junction_thought_complete.json",
-      "note": "no dedicated completeness gap rule"
-    },
-    {
-      "id": "disk_path:master_transcript_build",
-      "kind": "stage_artifact_path",
-      "stage": "master_transcript_build",
-      "path": "master/transcript.json",
+      "stage": "sonic_context_build",
+      "path": "understanding/sonic_context.json",
       "note": "no dedicated completeness gap rule"
     },
     {
@@ -1084,160 +1171,193 @@
       "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:audio_preclean",
-      "kind": "no_unattended_check",
-      "stage": "audio_preclean",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:ingest",
-      "kind": "no_unattended_check",
-      "stage": "ingest",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:transcribe",
-      "kind": "no_unattended_check",
-      "stage": "transcribe",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:transcript_review_build",
-      "kind": "no_unattended_check",
-      "stage": "transcript_review_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:audio_probe_build",
-      "kind": "no_unattended_check",
-      "stage": "audio_probe_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:source_acoustic_profile",
-      "kind": "no_unattended_check",
-      "stage": "source_acoustic_profile",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:interview_spine_build",
-      "kind": "no_unattended_check",
-      "stage": "interview_spine_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:source_topology_build",
-      "kind": "no_unattended_check",
-      "stage": "source_topology_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:vernacular_segment_sanitize",
-      "kind": "no_unattended_check",
-      "stage": "vernacular_segment_sanitize",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:sonic_context_build",
-      "kind": "no_unattended_check",
-      "stage": "sonic_context_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:delivery_brief_build",
-      "kind": "no_unattended_check",
-      "stage": "delivery_brief_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:soundscape_policy_build",
-      "kind": "no_unattended_check",
+      "id": "disk_path:soundscape_policy_build",
+      "kind": "stage_artifact_path",
       "stage": "soundscape_policy_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "understanding/soundscape_policy.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:episode_structure_compose",
-      "kind": "no_unattended_check",
+      "id": "disk_path:episode_structure_compose",
+      "kind": "stage_artifact_path",
       "stage": "episode_structure_compose",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "understanding/episode_structure.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:selection_order_sanitize",
-      "kind": "no_unattended_check",
-      "stage": "selection_order_sanitize",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "id": "disk_path:chapter_close_hitch",
+      "kind": "stage_artifact_path",
+      "stage": "chapter_close_hitch",
+      "path": "mastering/chapter_close_hitch.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:information_package_plan",
-      "kind": "no_unattended_check",
+      "id": "disk_path:connector_fuse_pass_pre_ranking",
+      "kind": "stage_artifact_path",
+      "stage": "connector_fuse_pass_pre_ranking",
+      "path": "analysis/connector_fuse_rounds.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:nugget_corpus_mine",
+      "kind": "stage_artifact_path",
+      "stage": "nugget_corpus_mine",
+      "path": "understanding/nugget_corpus.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:information_package_plan",
+      "kind": "stage_artifact_path",
       "stage": "information_package_plan",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "mastering/shape/information_packages_audit.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:gap_report_sanitize",
-      "kind": "no_unattended_check",
-      "stage": "gap_report_sanitize",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "id": "disk_path:nugget_layup_compose",
+      "kind": "stage_artifact_path",
+      "stage": "nugget_layup_compose",
+      "path": "understanding/nugget_layup_plan.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:refinement_agenda",
-      "kind": "no_unattended_check",
+      "id": "disk_path:refinement_agenda",
+      "kind": "stage_artifact_path",
       "stage": "refinement_agenda",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "understanding/refinement_agenda.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:gap_framing_recompose",
-      "kind": "no_unattended_check",
+      "id": "disk_path:gap_framing_recompose",
+      "kind": "stage_artifact_path",
       "stage": "gap_framing_recompose",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "understanding/gap_framing_recompose.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:selection_framing_apply",
-      "kind": "no_unattended_check",
+      "id": "disk_path:selection_framing_apply",
+      "kind": "stage_artifact_path",
       "stage": "selection_framing_apply",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "understanding/selection_framing_apply.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:air_contract_sanitize",
-      "kind": "no_unattended_check",
-      "stage": "air_contract_sanitize",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "id": "disk_path:vo_line_adjudicate",
+      "kind": "stage_artifact_path",
+      "stage": "vo_line_adjudicate",
+      "path": "understanding/vo_line_adjudication.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:sound_design_vo_finalize",
-      "kind": "no_unattended_check",
+      "id": "disk_path:vo_synthesize",
+      "kind": "stage_artifact_path",
+      "stage": "vo_synthesize",
+      "path": "mastering/vo_synthesize.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:sound_design_vo_finalize",
+      "kind": "stage_artifact_path",
       "stage": "sound_design_vo_finalize",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "mastering/sound_design_vo_finalize.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:episode_meta_build",
-      "kind": "no_unattended_check",
+      "id": "disk_path:edl_narrative_audit",
+      "kind": "stage_artifact_path",
+      "stage": "edl_narrative_audit",
+      "path": "master/edl_narrative_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:edl",
+      "kind": "stage_artifact_path",
+      "stage": "edl",
+      "path": "master/edl.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:assembly_preview",
+      "kind": "stage_artifact_path",
+      "stage": "assembly_preview",
+      "path": "master/assembly_preview.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:listen_delight_audit",
+      "kind": "stage_artifact_path",
+      "stage": "listen_delight_audit",
+      "path": "mastering/listen_delight_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:music_palette_compose",
+      "kind": "stage_artifact_path",
+      "stage": "music_palette_compose",
+      "path": "sound_design/music_palette_compose.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:mix",
+      "kind": "stage_artifact_path",
+      "stage": "mix",
+      "path": "master/assembly.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:junction_snip_qa",
+      "kind": "stage_artifact_path",
+      "stage": "junction_snip_qa",
+      "path": "master/junction_snip_qa.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:master_finalize",
+      "kind": "stage_artifact_path",
+      "stage": "master_finalize",
+      "path": "master/master.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:master_transcript_build",
+      "kind": "stage_artifact_path",
+      "stage": "master_transcript_build",
+      "path": "master/transcript.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:episode_meta_build",
+      "kind": "stage_artifact_path",
       "stage": "episode_meta_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "publish/episode_meta.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:episode_cover_prompt_craft",
-      "kind": "no_unattended_check",
+      "id": "disk_path:episode_cover_prompt_craft",
+      "kind": "stage_artifact_path",
       "stage": "episode_cover_prompt_craft",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "publish/cover_prompt.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:podcast_encode_mp3",
-      "kind": "no_unattended_check",
+      "id": "disk_path:podcast_encode_mp3",
+      "kind": "stage_artifact_path",
       "stage": "podcast_encode_mp3",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "publish/audio.mp3",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:episode_cover_generate",
-      "kind": "no_unattended_check",
+      "id": "disk_path:episode_cover_generate",
+      "kind": "stage_artifact_path",
       "stage": "episode_cover_generate",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "publish/cover.jpg",
+      "note": "no dedicated completeness gap rule"
     },
     {
-      "id": "no_unattended_check:podcast_publish",
-      "kind": "no_unattended_check",
+      "id": "disk_path:podcast_publish",
+      "kind": "stage_artifact_path",
       "stage": "podcast_publish",
-      "reason": "process/gate stage without primary JSON completeness rule"
+      "path": "publish/package_ready.json",
+      "note": "no dedicated completeness gap rule"
     },
     {
       "id": "progression_layer:gate",
@@ -1283,6 +1403,11 @@
       "id": "progression_layer:audio",
       "kind": "progression_layer",
       "layer": "audio"
+    },
+    {
+      "id": "driver_fail_key:edl_narrative:{sig[:80]}",
+      "kind": "driver_fail_key",
+      "fail_key": "edl_narrative:{sig[:80]}"
     },
     {
       "id": "driver_fail_key:edl_qc:{msg[:160]}",

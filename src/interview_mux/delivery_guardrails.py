@@ -328,10 +328,6 @@ def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
     return True, ""
 
 
-def _listen_delight_quality_cleared(ctx: RunContext) -> bool:
-    """Alias for listen_delight_quality_waived (compat for older call sites)."""
-    return listen_delight_quality_waived(ctx)
-
 
 def phase_a_sealed(ctx: RunContext) -> bool:
     """True when Phase A checkpoint or delivery_epoch seal exists."""
@@ -915,12 +911,6 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
     cleared.extend(orphans)
     return list(dict.fromkeys(cleared))
 
-
-def _active_listen_delight_remutate_stages(ctx: RunContext) -> frozenset[str]:
-    """Compat: prefer ``active_remutate_stages`` (listen-delight + edl_narrative)."""
-    from interview_mux.delivery_invariants import active_remutate_stages
-
-    return active_remutate_stages(ctx)
 
 
 def promote_complete_orphan_stage_done(
@@ -2768,19 +2758,6 @@ def refuse_skip_then_consume(ctx: RunContext, consumer: str) -> str | None:
     return None
 
 
-def delivery_epoch_matches(ctx: RunContext, epoch_at_start: dict[str, Any] | None) -> bool:
-    """D2: expensive stages must not run after a structural epoch bump."""
-    if not epoch_at_start:
-        return True
-    live = read_delivery_epoch(ctx)
-    for key in ("phase_a_sealed_at", "music_complete_at", "structural_bump_at"):
-        if epoch_at_start.get(key) != live.get(key):
-            return False
-    return True
-
-
-def read_delivery_epoch_at_dispatch(ctx: RunContext) -> dict[str, Any]:
-    return dict(read_delivery_epoch(ctx))
 
 
 def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:

@@ -71,6 +71,7 @@ def test_effective_orders_use_v2_when_enabled():
 def test_v2_phases_module():
     from interview_mux.v2.phases import PHASES, phase_for_stage
 
-    assert len(PHASES) == 10
+    # 10 journey phases, with `understand` split into understand-a/b/c (plan §3.1).
+    assert len(PHASES) == 12
     assert phase_for_stage("transcript_review") is not None
     assert phase_for_stage("master_finalize") is not None

@@ -1,5 +1,5 @@
 stage_id: podcast_sfx_brief
-tier: llm_full
+tier: meta  # non-stage: brief packet built inside sfx_prompt_craft
 lifecycle:
   phases:
   - prestage

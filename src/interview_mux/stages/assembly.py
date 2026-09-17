@@ -18,8 +18,33 @@ from interview_mux.run_context import RunContext
 
 
 def _commit_edl_gap_report(ctx: RunContext, gap_report: dict) -> None:
-    """Persist gap_report to the committed tree during EDL staging (glue promote contract)."""
+    """Persist gap_report during EDL staging while the owner still allows writes.
+
+    Under hard freeze the gap-line repairs stay in memory: EDL still builds from
+    the repaired document, but disk authority stays with gap_report_sanitize
+    (EDL is not a gap_report producer).
+    """
     from interview_mux.write_staging import write_committed_json
+
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        ok, _reason = write_permitted(
+            ctx,
+            "understanding/gap_report.json",
+            "edl",
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        ok = False
+    if not ok:
+        ctx.log(
+            "edl: gap_report frozen — keeping repairs in memory (no disk rewrite)",
+            level="info",
+            stage="edl",
+        )
+        return
 
     write_committed_json(ctx, "understanding/gap_report.json", gap_report, stage_key="edl")
 
@@ -175,6 +200,114 @@ def heal_vo_pickup_clip_source(ctx: RunContext, clip: dict) -> Path | None:
         except Exception:
             pass
     return path
+
+
+def vo_clip_wav_resolvable(ctx: RunContext, clip: dict) -> bool:
+    """True when an unsourced EDL vo_pickup clip has a resolvable rendered WAV."""
+    if str(clip.get("type") or "") != "vo_pickup":
+        return False
+    try:
+        line = _gap_line_for_vo_clip(ctx, clip)
+        path = resolve_vo_pickup_path(ctx, line)
+    except Exception:
+        return False
+    return path is not None and path.is_file()
+
+
+def restamp_edl_vo_pickup_source_paths(ctx: RunContext) -> list[str]:
+    """Bind EDL ``vo_pickup`` clips to rendered WAVs (producer-side, post-synth).
+
+    ``heal_vo_pickup_clip_source`` only ever ran inside ``run_preview``, but the
+    assembly_preview *input check* refuses on exactly the unsourced clips that heal
+    would fix. VO rendered after the EDL was built therefore never bound: preview
+    could not start, nothing else re-bound, and mix silenced every host line
+    (exec_11871 — vo_layup_seg_004/047/055 → "missing VO pickup WAV — inserted
+    silence"). vo_synthesize owns those bytes, so it binds them here.
+    """
+    if not ctx.artifact_exists("master/edl.json"):
+        return []
+    try:
+        edl = ctx.read_json("master/edl.json")
+    except Exception:
+        return []
+    if not isinstance(edl, dict):
+        return []
+    healed: list[str] = []
+    clips: list[object] = []
+    retimed: list[str] = []
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            clips.append(clip)
+            continue
+        row = dict(clip)
+        path = heal_vo_pickup_clip_source(ctx, row)
+        if path is None and str(row.get("type") or "") == "vo_pickup":
+            # Already bound: keep duration honest against the rendered take so a
+            # placeholder length can never survive into the timeline.
+            src_rel = str(row.get("source_path") or "").strip()
+            if src_rel:
+                try:
+                    bound = ctx.read_path(src_rel)
+                except Exception:
+                    bound = None
+                if bound is not None and bound.is_file():
+                    path = bound
+        if path is not None:
+            try:
+                dur = int(_wav_duration_ms(path) or 0)
+            except Exception:
+                dur = 0
+            if dur > 0 and int(row.get("duration_ms") or 0) != dur:
+                row["duration_ms"] = dur
+                retimed.append(str(row.get("line_id") or path.name))
+            if not str(clip.get("source_path") or "").strip():
+                healed.append(str(row.get("line_id") or path.name))
+        clips.append(row)
+    if not healed and not retimed:
+        return []
+    out = dict(edl)
+    out["clips"] = clips
+    # A bound VO clip is seconds long where the placeholder was 500 ms — without
+    # re-timing, its tail overlaps the next speech head (exec_11871 EDL QC:
+    # "Overlapping speech: vo_layup_seg_047 … overlaps seg_047").
+    try:
+        from interview_mux.edl_overlap_repair import _retime_clips
+
+        total = _retime_clips(clips)
+        if total > 0:
+            out["timeline_duration_ms"] = int(total)
+    except Exception as exc:
+        ctx.log(
+            f"vo_synthesize: VO bind could not re-time the timeline ({exc})",
+            level="warning",
+            stage="vo_synthesize",
+        )
+    from interview_mux.air_order import write_live_edl
+
+    try:
+        write_live_edl(ctx, out, source="vo_synthesize_bind")
+    except Exception as exc:
+        ctx.log(
+            f"vo_synthesize: could not bind rendered VO into the EDL ({exc})",
+            level="warning",
+            stage="vo_synthesize",
+        )
+        return []
+    if healed:
+        ctx.log(
+            "vo_synthesize: bound rendered VO WAV(s) into the EDL: "
+            + ", ".join(healed[:12]),
+            level="warning",
+            stage="vo_synthesize",
+        )
+    if retimed:
+        ctx.log(
+            "vo_synthesize: re-timed VO clip length from the rendered take: "
+            + ", ".join(sorted(set(retimed))[:12]),
+            level="warning",
+            stage="vo_synthesize",
+        )
+    return healed or sorted(set(retimed))
 
 
 def vo_pickup_relpath(ctx: RunContext, path: Path) -> str:
@@ -508,6 +641,26 @@ def build_flow1_edl(
         def _emit_vo_line(line: dict, *, placement: str) -> None:
             nonlocal timeline_ms
             voice_speaker_id = str(line.get("voice_speaker_id") or "").strip()
+            if not voice_speaker_id and ctx is not None:
+                # Episode clone lock must land on every seated synthesize clip
+                # (exec_11630: orientation missing voice_speaker_id → narrative QC).
+                try:
+                    from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+                    voice_speaker_id = str(
+                        (episode_vo_identity(ctx) or {}).get("speaker_id") or ""
+                    ).strip()
+                except Exception:
+                    voice_speaker_id = ""
+                if not voice_speaker_id:
+                    try:
+                        from interview_mux.source_topology import pickup_eligible_speaker_id
+
+                        voice_speaker_id = str(
+                            pickup_eligible_speaker_id(ctx) or ""
+                        ).strip()
+                    except Exception:
+                        voice_speaker_id = ""
             target_speaker_id = str(seg.get("speaker_id") or "").strip()
             prev_speaker_id = (
                 str((prev_seg or {}).get("speaker_id") or "").strip() if prev_seg else ""
@@ -905,11 +1058,23 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
 
     When gap framing / chatterbox is active, every non-skipped synthesize line is
     eligible (not only orientation). Otherwise only orientation/required.
+
+    Must write under ``vo_synthesize`` staging and promote — synthesizing while
+    EDL staging is active lands bytes in ``.pending_writes/edl/vo_pickup/``, which
+    ``discard_non_owner_pending_vo_pickup`` deletes (exec_11630 missing 005/020).
     """
     from interview_mux.opening_orientation import is_episode_orientation
     from interview_mux.spoken_copy_guard import script_hash
     from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
     from interview_mux import s2s_runner
+    from interview_mux.write_staging import (
+        VO_PICKUP_OWNER_STAGES,
+        active_stage_id,
+        discard_non_owner_pending_vo_pickup,
+        enter_stage_staging,
+        exit_stage_staging,
+        promote_owner_vo_pickup,
+    )
 
     framing_active = False
     try:
@@ -931,48 +1096,90 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
     seated = seated_vo_line_ids(plan)
 
     notes: list[str] = []
-    for line in gap_report.get("interviewer_lines") or []:
-        if not isinstance(line, dict):
-            continue
-        if str(line.get("delivery") or "").lower() != "synthesize":
-            continue
-        if not gap_line_requires_synthesis(line, seated):
-            continue
-        if not framing_active:
-            requiredish = is_episode_orientation(line) or bool(line.get("required"))
-            lid = str(line.get("line_id") or "")
-            if lid not in seated and not requiredish:
+    parent = active_stage_id()
+    nested = parent not in VO_PICKUP_OWNER_STAGES
+    if nested:
+        enter_stage_staging("vo_synthesize")
+    try:
+        for line in gap_report.get("interviewer_lines") or []:
+            if not isinstance(line, dict):
                 continue
-        path = resolve_vo_pickup_path(ctx, line)
-        matches, reason = synthesis_entry_matches_line(ctx, line)
-        if path is not None and path.is_file() and matches:
-            continue
-        lid = str(line.get("line_id") or "")
-        try:
-            s2s_runner.synthesize_line(ctx, line, mode="synthesize")
-            notes.append(lid)
-        except Exception as exc:
+            if str(line.get("delivery") or "").lower() != "synthesize":
+                continue
+            if not gap_line_requires_synthesis(line, seated):
+                continue
+            if not framing_active:
+                requiredish = is_episode_orientation(line) or bool(line.get("required"))
+                lid = str(line.get("line_id") or "")
+                if lid not in seated and not requiredish:
+                    continue
+            path = resolve_vo_pickup_path(ctx, line)
+            matches, reason = synthesis_entry_matches_line(ctx, line)
+            if path is not None and path.is_file() and matches:
+                continue
+            lid = str(line.get("line_id") or "")
+            try:
+                s2s_runner.synthesize_line(ctx, line, mode="synthesize")
+                promote_owner_vo_pickup(ctx)
+                discard_non_owner_pending_vo_pickup(ctx)
+                notes.append(lid)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"edl: synthesize WAV stale/missing (line_id={lid} "
+                    f"reason={reason} path={path} "
+                    f"script_hash={script_hash(str(line.get('text') or ''))}): {exc}"
+                ) from exc
+            path2 = resolve_vo_pickup_path(ctx, line)
+            matches2, reason2 = synthesis_entry_matches_line(ctx, line)
+            # Audit match already proves script+bytes on disk (incl. pending). Do not
+            # also require resolve_vo_pickup_path — that gate includes speech-QA and
+            # can false-fail mid-stage while the take is still under .pending_writes
+            # (exec_10066: reason=match path=None → raise → orphan 019 WAV).
+            if matches2:
+                continue
+            if path2 is not None and path2.is_file():
+                continue
             raise RuntimeError(
                 f"edl: synthesize WAV stale/missing (line_id={lid} "
-                f"reason={reason} path={path} "
-                f"script_hash={script_hash(str(line.get('text') or ''))}): {exc}"
-            ) from exc
-        path2 = resolve_vo_pickup_path(ctx, line)
-        matches2, reason2 = synthesis_entry_matches_line(ctx, line)
-        # Audit match already proves script+bytes on disk (incl. pending). Do not
-        # also require resolve_vo_pickup_path — that gate includes speech-QA and
-        # can false-fail mid-stage while the take is still under .pending_writes
-        # (exec_10066: reason=match path=None → raise → orphan 019 WAV).
-        if matches2:
-            continue
-        if path2 is not None and path2.is_file():
-            continue
-        raise RuntimeError(
-            f"edl: synthesize WAV stale/missing (line_id={lid} "
-            f"reason={reason2} path={path2} "
-            f"script_hash={script_hash(str(line.get('text') or ''))})"
-        )
+                f"reason={reason2} path={path2} "
+                f"script_hash={script_hash(str(line.get('text') or ''))})"
+            )
+    finally:
+        if nested:
+            if parent:
+                enter_stage_staging(parent)
+            else:
+                exit_stage_staging()
     return notes
+
+
+def _selection_write_permitted(ctx: RunContext) -> bool:
+    """EDL must never rewrite a frozen selection (selection leads EDL)."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        ok, _reason = write_permitted(
+            ctx, "master/selection.json", "edl", role="producer", verb="persist"
+        )
+        return bool(ok)
+    except Exception:
+        return False
+
+
+def _persist_selection_for_edl(ctx: RunContext, selection: dict, *, note: str) -> None:
+    """Persist EDL-side selection repairs only while the owner still allows writes.
+
+    Under hard freeze the repairs stay in memory: the EDL build consumes the
+    repaired document, disk authority stays with the selection owner.
+    """
+    if _selection_write_permitted(ctx):
+        ctx.write_json("master/selection.json", selection)
+        return
+    ctx.log(
+        f"edl: selection frozen — keeping {note} in memory (no disk rewrite)",
+        level="info",
+        stage="edl",
+    )
 
 
 def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
@@ -980,6 +1187,7 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
         _segment_is_blank_or_unusable,
         reconcile_ordered_vs_excluded,
     )
+    from interview_mux.selection_order_repair import fill_chapter_list_membership_gaps
 
     selection = reconcile_ordered_vs_excluded(
         selection if isinstance(selection, dict) else {}
@@ -1006,6 +1214,22 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
                     str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep
                 ]
         selection = reconcile_ordered_vs_excluded(selection)
+    # Contiguous chapter membership: absorb unassigned air-order ids into the
+    # nearest chapter so edl_narrative_qc does not see split chapters (exec_11630
+    # Clinical-Trial split by leftover seg_041).
+    order_final = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    chapters = [
+        dict(ch) for ch in (selection.get("chapters") or []) if isinstance(ch, dict)
+    ]
+    if order_final and chapters:
+        filled, filled_ids = fill_chapter_list_membership_gaps(chapters, order_final)
+        if filled_ids:
+            selection["chapters"] = filled
+            ctx.log(
+                f"edl: filled chapter membership gaps {filled_ids[:8]}",
+                level="info",
+                stage="edl",
+            )
     return selection
 
 
@@ -1027,20 +1251,36 @@ def run_edl(ctx: RunContext) -> None:
             heal_nle_unplayable_keep_overrides(ctx)
         except Exception:
             pass
+        # An overlap/fuse union absorbs a consumed id into a survivor and marks it
+        # excluded in the NLE. Retire it from selection before the rebuild or the
+        # EDL is permanently one clip short of selection (exec_11871 seg_073 →
+        # `selection_edl_order_drift` on every dispatch).
+        try:
+            from interview_mux.edl_overlap_repair import (
+                retire_consumed_ids_from_selection,
+            )
+
+            retire_consumed_ids_from_selection(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"edl: could not retire union-absorbed ids from selection ({exc})",
+                level="warning",
+                stage="edl",
+            )
         selection = ctx.read_json("master/selection.json")
         from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
 
         selection = reconcile_ordered_vs_excluded(
             selection if isinstance(selection, dict) else {}
         )
-        ctx.write_json("master/selection.json", selection)
+        _persist_selection_for_edl(ctx, selection, note="ordered/excluded reconcile")
         nle = load_nle(ctx)
         by_id = _segment_by_id(ctx)
         if nle_has_operator_edits(nle):
             selection = apply_nle_to_selection(
                 selection, nle, segments_by_id=by_id
             )
-            ctx.write_json("master/selection.json", selection)
+            _persist_selection_for_edl(ctx, selection, note="NLE operator edits")
             ordered = selection.get("ordered_segment_ids") or []
             excluded = selection.get("excluded_segment_ids") or []
             ctx.log(
@@ -1055,7 +1295,7 @@ def run_edl(ctx: RunContext) -> None:
 
             if load_plan_raw(ctx):
                 selection = enforce_air_script_omits(ctx, selection)
-                ctx.write_json("master/selection.json", selection)
+                _persist_selection_for_edl(ctx, selection, note="air-script omit bind")
         except Exception as exc:
             ctx.log(f"edl: air_script omit bind skipped: {exc}", level="warning", stage="edl")
         gap_report = (
@@ -1069,7 +1309,7 @@ def run_edl(ctx: RunContext) -> None:
 
                 repaired, notes = repair_gap_report(ctx, gap_report)
                 if notes:
-                    ctx.write_json("understanding/gap_report.json", repaired)
+                    _commit_edl_gap_report(ctx, repaired)
                     ctx.log(
                         f"edl: repaired gap_report before build ({len(notes)} note(s))",
                         level="info",
@@ -1087,7 +1327,7 @@ def run_edl(ctx: RunContext) -> None:
                 ctx, gap_report, current_order
             )
             if opening_actions:
-                ctx.write_json("understanding/gap_report.json", gap_report)
+                _commit_edl_gap_report(ctx, gap_report)
                 ctx.log(
                     f"edl: opening orientation guard applied {len(opening_actions)} action(s)",
                     level="info",
@@ -1127,42 +1367,12 @@ def run_edl(ctx: RunContext) -> None:
                     gap_report = filtered
             except Exception as exc:
                 ctx.log(f"edl: air_script VO filter skipped: {exc}", level="warning", stage="edl")
-            resynced: list[str] = []
             try:
                 from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
 
                 discard_non_owner_pending_vo_pickup(ctx)
             except Exception:
                 pass
-            try:
-                resynced = resync_required_synthesize_wavs(ctx, gap_report)
-            except Exception as exc:
-                ctx.log(
-                    f"edl: VO resync incomplete: {exc}",
-                    level="warning",
-                    stage="edl",
-                )
-            try:
-                from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
-                from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
-
-                heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
-                discard_non_owner_pending_vo_pickup(ctx)
-                if heal.get("omitted") or heal.get("resynthesized"):
-                    ctx.log(
-                        "edl: seated bind heal "
-                        f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
-                        level="info",
-                        stage="edl",
-                    )
-            except Exception as exc:
-                ctx.log(f"edl: seated bind heal skipped: {exc}", level="warning", stage="edl")
-            if resynced:
-                ctx.log(
-                    f"edl: re-synthesized stale required VO {resynced}",
-                    level="info",
-                    stage="edl",
-                )
         from interview_mux.nugget_layup import (
             adopt_layup_plan_to_selection,
             assert_gap_report_layup_authority,
@@ -1175,14 +1385,14 @@ def run_edl(ctx: RunContext) -> None:
         if isinstance(gap_report, dict):
             gap_report, dedupe_notes = dedupe_gap_report_nugget_claims(gap_report)
             if dedupe_notes:
-                ctx.write_json("understanding/gap_report.json", gap_report)
+                _commit_edl_gap_report(ctx, gap_report)
                 ctx.log(
                     f"edl: deduped {len(dedupe_notes)} overlapping nugget claim(s)",
                     level="warning",
                     stage="edl",
                 )
         selection = _prepare_locked_selection(ctx, selection)
-        ctx.write_json("master/selection.json", selection)
+        _persist_selection_for_edl(ctx, selection, note="locked-selection prep")
         try:
             from interview_mux.nugget_layup import PLAN_REL
 
@@ -1204,7 +1414,7 @@ def run_edl(ctx: RunContext) -> None:
 
         ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
         selection = bump_order_lock(selection, source="edl")
-        ctx.write_json("master/selection.json", selection)
+        _persist_selection_for_edl(ctx, selection, note="order-lock bump")
 
         # F4: never soft-complete reorder glue. Hitch/skip cover omit spoken
         # rows; empty ungrounded seams fail closed.
@@ -1244,6 +1454,50 @@ def run_edl(ctx: RunContext) -> None:
     from interview_mux.air_order_integrity import audit_and_report
 
     audit_and_report(ctx, stage="edl", repair=False)
+
+    # Final VO seat AFTER all gap text mutations (repair/dedupe/filter). Resync
+    # before dedupe left audited WAVs stale when layup text changed (exec_11630).
+    if isinstance(gap_report, dict):
+        resynced: list[str] = []
+        try:
+            from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
+
+            discard_non_owner_pending_vo_pickup(ctx)
+        except Exception:
+            pass
+        try:
+            _commit_edl_gap_report(ctx, gap_report)
+        except Exception as exc:
+            ctx.log(f"edl: pre-resync gap commit: {exc}", level="warning", stage="edl")
+        try:
+            resynced = resync_required_synthesize_wavs(ctx, gap_report)
+        except Exception as exc:
+            ctx.log(
+                f"edl: VO resync incomplete: {exc}",
+                level="warning",
+                stage="edl",
+            )
+        try:
+            from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
+            from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
+
+            heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
+            discard_non_owner_pending_vo_pickup(ctx)
+            if heal.get("omitted") or heal.get("resynthesized"):
+                ctx.log(
+                    "edl: seated bind heal "
+                    f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
+                    level="info",
+                    stage="edl",
+                )
+        except Exception as exc:
+            ctx.log(f"edl: seated bind heal skipped: {exc}", level="warning", stage="edl")
+        if resynced:
+            ctx.log(
+                f"edl: re-synthesized stale required VO {resynced}",
+                level="info",
+                stage="edl",
+            )
 
     with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
         from interview_mux.transition_vo import (
@@ -1289,7 +1543,7 @@ def run_edl(ctx: RunContext) -> None:
         from interview_mux.ideal_cuts import load_air_bound_inputs
 
         selection = _prepare_locked_selection(ctx, selection)
-        ctx.write_json("master/selection.json", selection)
+        _persist_selection_for_edl(ctx, selection, note="build-time locked selection")
 
         ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
         wav_path = None

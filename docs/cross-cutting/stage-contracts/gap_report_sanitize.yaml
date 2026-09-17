@@ -8,14 +8,32 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/gap_report.json
+  schema: null
+  staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: master/selection.json
+    producer: full_master_ranking
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- nugget_layup_compose
+- gap_framing_recompose
+- selection_framing_apply
+- air_script_seams
+- air_contract_sanitize
+- transitions
+- vo_line_adjudicate
+- vo_synthesize
+- edl
+- mix
+- master_finalize
 remediation:
   strategies:
   - volley_retry

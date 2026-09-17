@@ -1,5 +1,5 @@
 stage_id: synthetic_framing_plan
-tier: llm_full
+tier: meta
 lifecycle:
   phases:
   - prestage
@@ -8,10 +8,7 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs:
-- path: understanding/synthetic_framing_plan.json
-  schema: synthetic_framing_plan.schema.json
-  staging: true
+outputs: []
 inputs:
   hard: []
   soft: []

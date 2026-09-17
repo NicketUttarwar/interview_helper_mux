@@ -16,7 +16,33 @@ inputs:
   hard:
   - path: segments/boundaries.json
     producer: boundary_topic_resplit
-  soft: []
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: segments/manifest.json
+    producer: segment_classification
+  soft:
+  - path: understanding/gap_evaluations.json
+  - path: transcript/full.json
+    producer: transcribe
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/talking_points.json
+    producer: talking_points_compose
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/value_features.json
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/speaker_delivery_plan.json
+    producer: full_master_ranking
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
 sufficiency:
 - path: evaluations
   rule: min_rows
@@ -24,7 +50,14 @@ sufficiency:
 propagation:
   invalidates_stages: []
 consumers:
-- missing_framing
+- mastering_plan_confirm
+- gap_framing_compose
+- air_script_compose
+- nugget_layup_compose
+- refinement_agenda
+- gap_framing_recompose
+- air_script_seams
+- edl
 remediation:
   strategies:
   - volley_retry

@@ -1064,6 +1064,18 @@ def create_app() -> FastAPI:
             include_flow1_spine=target_stage not in (None, "", "topic_coverage_audit"),
         )
 
+    @app.get("/api/runs/{run_id}/solver-decision")
+    def get_solver_decision(run_id: str, limit: int = 25) -> dict[str, Any]:
+        """Shadow-only solver telemetry: admissible set + per-stage exclusion reason.
+
+        Read-only — the solver decides nothing (`solver.py`); this is the backend for
+        the "why is nothing runnable" halt panel (plan §10.2).
+        """
+        ctx = _ctx(run_id)
+        from interview_mux.solver import decision_view
+
+        return decision_view(ctx, limit=limit)
+
     @app.get("/api/runs/{run_id}/resilience")
     def get_resilience(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -1546,7 +1558,7 @@ def create_app() -> FastAPI:
             errors = validate_coherence_report(report)
             if errors and report.get("gate", {}).get("activated"):
                 raise HTTPException(400, f"Coherence report invalid: {errors[:3]}")
-            ctx.write_json(COHERENCE_REPORT_PATH, report)
+            ctx.write_json(COHERENCE_REPORT_PATH, report, role="gui")
             sync_coherence_to_state(ctx, report)
             ctx.log(
                 "Coherence report recomputed.",
@@ -1823,8 +1835,26 @@ def create_app() -> FastAPI:
             _assert_artifact_path(body.path)
             if body.path.endswith(".json"):
                 raise HTTPException(400, "Use PUT /artifact with JSON body for .json files.")
+            if body.path in {"master/edl.json", "master/air_order.json", "master/selection.json"}:
+                raise HTTPException(403, f"Path not editable via GUI text: {body.path}")
             if not _is_editable_text_path(body.path):
                 raise HTTPException(400, f"Path not editable via GUI: {body.path}")
+            try:
+                from interview_mux.artifact_ownership import assert_write
+
+                assert_write(
+                    ctx,
+                    body.path,
+                    body.invalidate_from or "artifact_editor",
+                    role="gui",
+                    verb="persist",
+                )
+            except Exception as exc:
+                from interview_mux.artifact_ownership import AuthorityDenied
+
+                if isinstance(exc, AuthorityDenied):
+                    raise HTTPException(403, str(exc)) from exc
+                # Paths without ownership rows (md/txt notes) stay editable.
             full = ctx.path(body.path)
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(body.text, encoding="utf-8")
@@ -1862,7 +1892,7 @@ def create_app() -> FastAPI:
 
                 data = enrich_speakers_artifact(ctx, data)
                 sync_conversation_to_analysis_state(ctx, data)
-            ctx.write_json(body.path, data, stage_key=stage_key)
+            ctx.write_json(body.path, data, stage_key=stage_key, role="gui")
             stage = stage_key
             mirror_artifact_to_operator(ctx, body.path, data, source="artifact_json_editor")
             ctx.log(f"Saved artifact {body.path} from GUI editor.", level="info", stage=stage)
@@ -2239,7 +2269,7 @@ def create_app() -> FastAPI:
                 if not line.get("severity"):
                     line["severity"] = "medium"
                 skipped.append(lid)
-            ctx.write_json("understanding/gap_report.json", report)
+            ctx.write_json("understanding/gap_report.json", report, role="gui")
             from interview_mux.vo_synthesis_audit import record_skipped_vo
             from interview_mux.omit_ledger import record_gap_line_skip
 
@@ -2709,7 +2739,7 @@ def create_app() -> FastAPI:
             schema_errors = validate_prompts_payload({"prompts": rows})
             if schema_errors:
                 raise HTTPException(400, "; ".join(schema_errors[:5]))
-            write_json(ctx.path(body.path), {"prompts": rows})
+            ctx.write_json(body.path, {"prompts": rows}, role="gui", skip_handoff=True)
             review = _set_prompt_review_meta(
                 ctx,
                 approved=False,
@@ -3208,7 +3238,7 @@ def create_app() -> FastAPI:
             if not found:
                 raise HTTPException(404, f"Investigation item not found: {item_id}")
             queue["items"] = items
-            ctx.write_json(path, queue)
+            ctx.write_json(path, queue, role="gui")
             persist_operator_investigation_queue(ctx, source="investigation_patch")
             ctx.log(
                 f"Investigation {item_id} marked {body.status}.",
@@ -3229,6 +3259,19 @@ def create_app() -> FastAPI:
     def complete_transcript_review(run_id: str, body: TranscriptReviewCompleteBody) -> dict[str, Any]:
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
+            try:
+                from interview_mux.write_staging import (
+                    _commit_stage_writes,
+                    has_pending_writes,
+                    write_approval_enabled,
+                )
+
+                if not write_approval_enabled() and has_pending_writes(
+                    ctx, "transcript_review_build"
+                ):
+                    _commit_stage_writes(ctx, "transcript_review_build")
+            except Exception:
+                pass
             state = transcript_review.get_review_state(ctx)
             if not state.get("ready"):
                 raise HTTPException(400, "Review queue not ready.")
@@ -3257,7 +3300,7 @@ def create_app() -> FastAPI:
             job = read_gui_job(ctx) or {}
             reconciled = reconcile_operator_gate_job(ctx, job)
             if reconciled is not job:
-                ctx.write_json("gui_job.json", reconciled, skip_handoff=True)
+                ctx.write_json("gui_job.json", reconciled, skip_handoff=True, role="gui")
             refresh_journey_meta(ctx)
             return {"ok": True, "transcript_review_clear": True}
 
@@ -4519,7 +4562,7 @@ def _sync_tbiy_operator_profile(ctx: RunContext, state: dict[str, Any]) -> None:
             run_meta = ctx.read_json("run_meta.json")
             if isinstance(run_meta, dict):
                 run_meta["production_style"] = str(style)
-                ctx.write_json("run_meta.json", run_meta)
+                ctx.write_json("run_meta.json", run_meta, role="gui")
     narrative = state.get("narrative") if isinstance(state.get("narrative"), dict) else {}
     moat = narrative.get("strategic_moat_concept")
     if moat and ctx.artifact_exists("understanding/content_brief.json"):
@@ -4620,7 +4663,7 @@ def _start_podcast_sync_job(
                         if isinstance(pr, dict):
                             pr["uploaded"] = True
                             pr["uploaded_at"] = datetime.now(timezone.utc).isoformat()
-                            ctx.write_json("publish/publish_result.json", pr, skip_handoff=True)
+                            ctx.write_json("publish/publish_result.json", pr, skip_handoff=True, role="gui")
                 except Exception:
                     pass
         except Exception as exc:
@@ -5030,7 +5073,7 @@ def _record_preclean_offer(
     preclean["decisions"] = decisions
     meta["audio_preclean"] = preclean
     if changed:
-        ctx.write_json("run_meta.json", meta)
+        ctx.write_json("run_meta.json", meta, role="gui")
     return changed, preclean
 
 
@@ -5101,7 +5144,7 @@ def _set_prompt_review_meta(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     meta["sfx_prompt_review"] = review
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, role="gui")
     return review
 
 
@@ -5125,7 +5168,7 @@ def _append_speech_under_listen_result(
         entry["note"] = note
     results.append(entry)
     meta["speech_under_listen_results"] = results
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, role="gui")
     return entry, results
 
 
@@ -5149,5 +5192,5 @@ def _append_sfx_listen_result(
         entry["note"] = note
     results.append(entry)
     meta["sfx_listen_results"] = results
-    ctx.write_json("run_meta.json", meta)
+    ctx.write_json("run_meta.json", meta, role="gui")
     return entry, results

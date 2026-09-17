@@ -986,13 +986,29 @@ def infer_heal_intent(*, error: str = "", stage: str = "", intent: str = "") -> 
         return FAIL_CLASS_DELIVERY_BLOCKED
     if "edl_narrative_audit thrash cap" in text:
         return FAIL_CLASS_MUSIC_EPOCH
-    if "g1" in text or "vo pickup" in text or "vo_synth" in text:
+    # Gap VO missing WAV / seated coverage must not fall through to phase_a_edl
+    # just because the reason string starts with "edl:" (exec_11630 #16).
+    if (
+        "g1" in text
+        or "vo pickup" in text
+        or "vo_synth" in text
+        or "gap vo lines missing wav" in text
+        or "vo_seated_coverage" in text
+        or "seated_bind_stale" in text
+        or ("seated synthesize" in text and "missing wav" in text)
+    ):
         return FAIL_CLASS_VO_G1
     if "seam_autopsy" in text or "assembly_ledger" in text:
         return FAIL_CLASS_FINALIZE
     if "finalize" in text and "incomplete" not in text:
         return FAIL_CLASS_FINALIZE
-    if ("mix" in text or "assembly" in text) and "stale" in text:
+    # Mix seating incompleteness must win over MIX_EPOCH_CONSUMERS (mix is both
+    # a music-epoch consumer and a mix_seat producer — exec_11630 #24 / R5c).
+    if (
+        "unseated" in text
+        or "mix_outputs_seated" in text
+        or (("mix" in text or "assembly" in text) and "stale" in text)
+    ):
         return FAIL_CLASS_MIX_SEAT
     # Stage-id keywords only when the *stage arg* is a music producer, or the
     # error is clearly a music/sfx failure — not when music appears in a remaining list.
@@ -1366,43 +1382,6 @@ def note_authority_undo_attempt(
         pass
     return row
 
-
-def clear_sticky_heal(ctx: RunContext, *, kind: str = "", pin: str = "") -> None:
-    """Clear sticky heal counters after predicate progress or operator unstick."""
-    if not ctx.artifact_exists(STICKY_HEAL_REL):
-        return
-    try:
-        doc = ctx.read_json(STICKY_HEAL_REL)
-    except Exception:
-        return
-    if not isinstance(doc, dict):
-        return
-    attempts = dict(doc.get("attempts") or {})
-    kind_s = str(kind or "").strip()
-    pin_s = str(pin or "").strip()
-    if not kind_s and not pin_s:
-        doc["attempts"] = {}
-        doc["active_halt"] = None
-    else:
-        drop = [
-            k
-            for k, v in attempts.items()
-            if (not kind_s or str((v or {}).get("kind") or "") == kind_s)
-            and (not pin_s or str((v or {}).get("pin") or "") == pin_s)
-        ]
-        for k in drop:
-            attempts.pop(k, None)
-        doc["attempts"] = attempts
-        active = doc.get("active_halt")
-        if isinstance(active, dict):
-            if (not kind_s or active.get("kind") == kind_s) and (
-                not pin_s or active.get("pin") == pin_s
-            ):
-                doc["active_halt"] = None
-    try:
-        ctx.write_json(STICKY_HEAL_REL, doc, skip_handoff=True)
-    except Exception:
-        pass
 
 
 def heal_navigate(
@@ -1787,6 +1766,25 @@ def heal_navigate(
         from interview_mux.v2.config import DELIVERY_ORDER
 
         blob = f"{error} {stage} {intent}".strip().lower()
+        # End-E: seed-order named producer always wins (before sealed fall-through).
+        if "seed order" in blob or "seed_order" in blob:
+            seed_pin = producer_pin_for_token(blob, default="", ctx=ctx)
+            if seed_pin and seed_pin in DELIVERY_ORDER:
+                try:
+                    note_delivery_pin(
+                        ctx,
+                        from_stage=seed_pin,
+                        intent=str(intent or "seed_order_prereq"),
+                        reason=str(error or stage or "")[:240],
+                        source="heal_navigate_seed_order",
+                    )
+                except Exception:
+                    pass
+                return {
+                    "intent": str(intent or "seed_order_prereq"),
+                    "from_stage": seed_pin,
+                    "mode": "delivery",
+                }
         table_pin = producer_pin_for_token(blob, default="", ctx=ctx)
         if table_pin and table_pin in DELIVERY_ORDER:
             # Prefer table pin when the token explicitly names a known class.
@@ -3293,75 +3291,9 @@ def music_epoch_sealed_no_delight_rewind(ctx: RunContext) -> bool:
 GATE_WAIT_ESCALATE_TICKS = 8
 
 
-def classify_gate_wait(signature: str) -> bool:
-    """True when failure is a gate wait (not identical-halt class)."""
-    s = str(signature or "").lower()
-    needles = (
-        "voice_reference",
-        "voice-ref",
-        "voice reference",
-        "g0_pending",
-        "transcript_review",
-        "preclean",
-        "audio_preclean",
-        "g_framing",
-    )
-    return any(n in s for n in needles)
-
-
-def gate_wait_tick(ctx: RunContext, signature: str) -> dict[str, Any]:
-    """Count gate-wait ticks; escalate sticky halt after N (anti forever-suppress)."""
-    sig = str(signature or "gate_wait").strip() or "gate_wait"
-    rel = "operator/gate_wait_ticks.json"
-    doc: dict[str, Any] = {"by_signature": {}}
-    if ctx.artifact_exists(rel):
-        try:
-            loaded = ctx.read_json(rel)
-            if isinstance(loaded, dict):
-                doc = dict(loaded)
-        except Exception:
-            pass
-    by_sig = dict(doc.get("by_signature") or {})
-    n = int(by_sig.get(sig) or 0) + 1
-    by_sig[sig] = n
-    doc["by_signature"] = by_sig
-    try:
-        ctx.write_json(rel, doc, skip_handoff=True)
-    except Exception:
-        pass
-    escalate = n >= GATE_WAIT_ESCALATE_TICKS
-    return {
-        "signature": sig,
-        "ticks": n,
-        "escalate": escalate,
-        "halt_signature": f"gate_wait_escalate:{sig}" if escalate else "",
-    }
-
 
 TRUE_WASTE_STICKY_HALT_AFTER = 3
 
-
-def wasted_work_is_true_waste(event: str) -> bool:
-    """Intervene×3 only for true waste — not successful avoidance telemetry."""
-    ev = str(event or "").strip().lower()
-    if ev in {
-        "avoided_musicgen",
-        "avoided_junction_remaster",
-        "orphan_stage_done_promoted",
-        "phase_seal",
-        "restore_bundle",
-        "expensive_start",
-        "music_limbo_omit",
-    }:
-        return False
-    return ev in {
-        "orphan",
-        "orphan_artifact",
-        "music_deferred",
-        "music_seal_break",
-        "progress_stall",
-        "junction_budget_exhaust",
-    }
 
 
 def wasted_work_counts_toward_sticky_halt(
@@ -3388,66 +3320,18 @@ def wasted_work_counts_toward_sticky_halt(
     return True
 
 
-def maybe_sticky_halt_on_true_waste(
-    ctx: RunContext,
-    *,
-    event: str,
-    stage: str = "",
-    halt_after: int = TRUE_WASTE_STICKY_HALT_AFTER,
-) -> dict[str, Any]:
-    """TH5: N× true-waste events → sticky halt (optionally after one O8 unstick)."""
-    out: dict[str, Any] = {"halt": False, "count": 0, "event": str(event or "")}
-    if not wasted_work_counts_toward_sticky_halt(event):
-        return out
-    rel = "operator/true_waste_sticky.json"
-    doc: dict[str, Any] = {"by_event": {}, "halted": False}
-    if ctx.artifact_exists(rel):
-        try:
-            loaded = ctx.read_json(rel)
-            if isinstance(loaded, dict):
-                doc = dict(loaded)
-        except Exception:
-            pass
-    by_ev = dict(doc.get("by_event") or {})
-    key = str(event or "").strip().lower() or "waste"
-    n = int(by_ev.get(key) or 0) + 1
-    by_ev[key] = n
-    doc["by_event"] = by_ev
-    doc["updated_at"] = __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
-    ).isoformat()
-    out["count"] = n
-    if n >= max(1, int(halt_after)):
-        # Light wire: try O8 unstick once, then stamp needs_operator.
-        try:
-            from interview_mux.delivery_unstick import maybe_auto_unstick_once
 
-            sig = f"true_waste:{key}:{stage or 'delivery'}"
-            unstick = maybe_auto_unstick_once(ctx, sig)
-            out["unstick"] = unstick
-            if unstick.get("unstuck"):
-                doc["last_unstick_at"] = doc["updated_at"]
-                ctx.write_json(rel, doc, skip_handoff=True)
-                return out
-        except Exception:
-            pass
-        doc["halted"] = True
-        doc["halt_event"] = key
-        doc["halt_stage"] = str(stage or "")[:80]
-        try:
+# --- subtraction shim (p3-subtract batch 1) ---------------------------------
+# Gate-wait tick counting deleted: the dispatch door refuses on no-delta rather
+# than counting how many ticks a stage waited at a gate.
+def gate_wait_tick(*_args, **_kwargs):
+    raise NotImplementedError(
+        "gate_wait_tick removed by p3-subtract; see subtraction-holes.md"
+    )
 
-            def _halt(meta: dict[str, Any]) -> None:
-                meta["needs_operator"] = True
-                meta["needs_operator_stage"] = str(stage or "delivery")[:80] or "delivery"
-                meta["needs_operator_reason"] = f"true_waste_sticky:{key}×{n}"
 
-            if ctx.artifact_exists("run_meta.json"):
-                ctx.mutate_run_meta(_halt)
-        except Exception:
-            pass
-        out["halt"] = True
-    try:
-        ctx.write_json(rel, doc, skip_handoff=True)
-    except Exception:
-        pass
-    return out
+def wasted_work_is_true_waste(*_args, **_kwargs):
+    """Removed by p3-subtract; no-delta refusal at the door replaces waste classification."""
+    raise NotImplementedError(
+        "wasted_work_is_true_waste removed by p3-subtract; see subtraction-holes.md"
+    )

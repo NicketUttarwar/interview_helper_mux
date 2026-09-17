@@ -8,14 +8,37 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: analysis/run_golden_facts.json
+  schema: null
+  staging: false
+- path: transcript/protected_zones.json
+  staging: true
+- path: transcript/speaker_flows.json
+  staging: true
+- path: vernacular/probe_report.json
+  staging: true
+- path: vernacular/audio_tags_by_flow.json
+  staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: transcript/full.json
+    producer: transcribe
+  soft:
+  - path: ingest/normalized.wav
+    producer: ingest
+  - path: master/edl.json
+  - path: understanding/flow_adaptation.json
+  - path: understanding/gap_fill_skip.json
+  - path: understanding/source_topology.json
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- vernacular_segment_sanitize
+- low_conf_island_scan
+- boundary_detection
+- segment_classification
 remediation:
   strategies:
   - volley_retry

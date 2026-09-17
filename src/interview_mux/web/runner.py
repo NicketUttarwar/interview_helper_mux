@@ -42,6 +42,10 @@ from interview_mux.web.stages import EXECUTABLE_ORDER, STAGE_BY_ID
 
 SUBPROCESS_STAGES = frozenset({"audio_preclean"})
 
+# How far past the verify ceiling a true-peak read may sit and still count as
+# measurement noise (ffmpeg loudnorm vs libebur128 oversampling differences).
+_TRUE_PEAK_NOISE_BAND_DB = 0.15
+
 
 def refresh_journey_meta(ctx: RunContext) -> None:
     from interview_mux.journey_state import compute_milestones, compute_operator_phase
@@ -1530,6 +1534,25 @@ class JobRunner:
             f.startswith("SOFT:") or "True peak" in f for f in result.failures
         )
         tp_only = bool(result.failures) and all("True peak" in f for f in result.failures)
+        # Measurement noise is a fraction of a dB. exec_11871 shipped at −0.40 dBTP
+        # against a −0.75 pass ceiling because *any* true-peak miss was waived —
+        # tools/verify_master.py (the §2 ship bar) then FAILed the shipped master.
+        # Keep the noise band, refuse a real overshoot.
+        if (soft_only or tp_only) and "True peak" in detail:
+            from interview_mux.master_qc import TARGETS, true_peak_verify_ceiling_dbtp
+
+            ceiling = true_peak_verify_ceiling_dbtp(TARGETS[flow])
+            overshoot = float(result.metrics.true_peak_dbtp) - ceiling
+            if overshoot > _TRUE_PEAK_NOISE_BAND_DB:
+                ctx.log(
+                    f"Master QA true-peak overshoot ({flow}): "
+                    f"{result.metrics.true_peak_dbtp:.2f} dBTP is {overshoot:.2f} dB "
+                    f"over the {ceiling:.2f} dBTP pass ceiling — not measurement noise.",
+                    level="error",
+                    stage="verify_master",
+                    detail="; ".join(result.checks),
+                )
+                raise RuntimeError(f"verify_master failed for {master}: {detail}")
         if soft_only or tp_only:
             ctx.log(
                 f"Master QA soft warning ({flow}): {detail}",

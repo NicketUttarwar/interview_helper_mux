@@ -62,31 +62,61 @@ def _is_orientation(row: dict[str, Any]) -> bool:
     return "orientation" in lid or lid.startswith("vo_orient")
 
 
-def _strip_scaffolding(row: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """Omit active line if spoken scaffolding hits; return (row, changed)."""
-    text = str(row.get("text") or row.get("script") or "")
-    if not text.strip():
-        return row, False
+def _is_required_line(row: dict[str, Any]) -> bool:
+    if row.get("required") is True:
+        return True
+    if _is_orientation(row):
+        return True
+    cat = str(row.get("line_category") or "").lower()
+    return cat in {"episode_orientation", "episode_preface"}
+
+
+def _scaffolding_codes(text: str) -> set[str]:
+    """Live hard-structure + name-attribution codes (not dead spoken_scaffolding)."""
     try:
-        from interview_mux.spoken_meta_lint import spoken_structure_hits
+        from interview_mux.spoken_meta_lint import (
+            is_hard_structure_violation,
+            spoken_structure_hits,
+        )
 
         hits = spoken_structure_hits(text) or []
     except Exception:
-        hits = []
-    hard = {
-        "spoken_name_attribution",
-        "spoken_scaffolding",
-        "planner_voice",
-        "meta_instruction",
+        return set()
+    codes = {str(h) for h in hits}
+    return {
+        c
+        for c in codes
+        if is_hard_structure_violation(c) or c == "spoken_name_attribution"
     }
-    codes = {str(h.get("code") or h) if isinstance(h, dict) else str(h) for h in hits}
-    if not (codes & hard) and "spoken_name_attribution" not in str(hits):
-        # also catch soft name attribution used as post-commit fail on exec_5583
-        if "spoken_name_attribution" not in str(hits).lower() and not any(
-            "name_attribution" in c for c in codes
-        ):
-            return row, False
+
+
+def _strip_scaffolding(row: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Rewrite required scaffold hits; omit optional lines. Never omit required."""
+    text = str(row.get("text") or row.get("script") or "")
+    if not text.strip():
+        return row, False
+    codes = _scaffolding_codes(text)
+    if not codes:
+        return row, False
     out = dict(row)
+    if _is_required_line(row):
+        try:
+            from interview_mux.spoken_meta_lint import rewrite_speaker_role_labels
+
+            healed = rewrite_speaker_role_labels(text)
+        except Exception:
+            healed = text
+        changed = False
+        if healed != text:
+            out["text"] = healed
+            if "script" in out:
+                out["script"] = healed
+            changed = True
+            text = healed
+        # Remaining hits stay active (do not omit) so sanitize/ensure refuse.
+        if _scaffolding_codes(text):
+            return out, True
+        return out, changed
     out["skipped_optional"] = True
     out["omit"] = True
     out["skip_reason"] = out.get("skip_reason") or "sanitize_scaffolding"
@@ -246,19 +276,27 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         out["interviewer_lines"] = new_lines
         lines = new_lines
 
-    # 5. scaffolding strip (omit flags only — does not touch vo_seats)
+    # 5. scaffolding strip (omit optional only; rewrite/refuse required)
     scrubbed: list[dict[str, Any]] = []
     for row in lines:
         if not isinstance(row, dict):
             continue
         fixed, changed = _strip_scaffolding(row)
         if changed:
-            actions.append(
-                {
-                    "action": "omit_scaffolding",
-                    "line_id": fixed.get("line_id"),
-                }
-            )
+            if fixed.get("omit") or fixed.get("skipped_optional"):
+                actions.append(
+                    {
+                        "action": "omit_scaffolding",
+                        "line_id": fixed.get("line_id"),
+                    }
+                )
+            else:
+                actions.append(
+                    {
+                        "action": "rewrite_scaffolding",
+                        "line_id": fixed.get("line_id"),
+                    }
+                )
         scrubbed.append(fixed)
     out["interviewer_lines"] = scrubbed
     lines = scrubbed
@@ -269,7 +307,7 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             continue
         if row.get("skipped_optional") or row.get("omit"):
             continue
-        _, still = _strip_scaffolding(row)
+        still = _scaffolding_codes(str(row.get("text") or row.get("script") or ""))
         if still:
             errors.append(
                 f"scaffolding_active:{row.get('line_id') or _line_target(row)}"

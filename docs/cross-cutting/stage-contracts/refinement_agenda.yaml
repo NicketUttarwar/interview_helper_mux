@@ -8,14 +8,29 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/refinement_agenda.json
+  schema: null
+  staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/source_topology.json
+    producer: source_topology_build
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- gap_framing_recompose
+- selection_framing_apply
 remediation:
   strategies:
   - volley_retry

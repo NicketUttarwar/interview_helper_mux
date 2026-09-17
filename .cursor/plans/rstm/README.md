@@ -27,6 +27,6 @@ MUX_FORENSICS=0 .venv/bin/pytest tests/rstm/ -q --tb=line
 |------|------|
 | `CAMPAIGN_META.json` | Wave-B start/finish |
 | `matrix.json` / `matrix.md` | Cell list |
-| `results/summary.json` | Pass/fail aggregates |
-| `results/cells/*.json` | Per-cell |
+| `<repo>/rstm-results/summary.json` | Pass/fail aggregates |
+| `<repo>/rstm-results/cells/*.json` | Per-cell (outside `.cursor/` — bulk payload is not IDE-indexed) |
 | `../rstm_holistic_report.md` | Wave-A ∪ Wave-B report |

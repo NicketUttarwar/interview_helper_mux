@@ -16,9 +16,55 @@ from interview_mux.run_context import RunContext
 
 SEAT_FREEZE_META_KEY = "vo_seats_freeze"
 
+# End-A constitution — mutations legal under soft/hard seat freeze without meta-gate.
+# Paperwork / shrink / orientation-landing / redundant-transition strip only.
+# Never expand WAV demand (see HARD_FREEZE_FORBIDDEN_ACTIONS).
+HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(
+    {
+        "omit_ledger_order_lock_rebuild",
+        "omit_ledger_revive_orientation",
+        "protect_orientation_from_omit",
+        "stamp_gap_omit_flags",
+        "drop_seated_missing_from_gap",
+        "clamp_hosted_seats_to_rendered_wavs",
+        "drop_blank_segments_under_freeze",
+        "stamp_pair_freeze",
+        "trim_pair_freeze",
+        "framing_dedupe",
+        "normalize_omit_ids",
+    }
+)
+
+# Explicitly illegal under hard freeze (expand / invent seats).
+HARD_FREEZE_FORBIDDEN_ACTIONS: frozenset[str] = frozenset(
+    {
+        "protect_hosted_vo_floor_reseat",
+    }
+)
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def hard_freeze_action_permitted(action: str) -> bool:
+    """True if ``action`` is on the End-A allowlist (and not forbidden)."""
+    a = str(action or "").strip()
+    if not a or a in HARD_FREEZE_FORBIDDEN_ACTIONS:
+        return False
+    return a in HARD_FREEZE_ALLOWLIST_ACTIONS
+
+
+def hard_freeze_blocks_action(ctx: RunContext, action: str) -> bool:
+    """Under hard freeze, refuse unknown and forbidden actions; allow allowlist."""
+    if not hard_freeze_active(ctx):
+        return False
+    a = str(action or "").strip()
+    if a in HARD_FREEZE_FORBIDDEN_ACTIONS:
+        return True
+    if a in HARD_FREEZE_ALLOWLIST_ACTIONS:
+        return False
+    return True  # fail-closed on unknown seat mutations
 
 
 def _cfg_int(path: str, default: int) -> int:
@@ -278,12 +324,25 @@ def seat_mutation_allowed(
         return True, "unfrozen"
     if fr.get("one_shot_rewrite"):
         return True, "one_shot_token"
+    # End-A allowlist — paperwork / orientation / strip without meta-gate.
+    reason_exact = str(reason or "").strip()
+    if hard_freeze_action_permitted(reason_exact):
+        return True, "end_a_allowlist"
     # Catastrophe unlocks — still subject to rewrite budget (not unlimited).
+    # Hosted VO floor is NOT a catastrophe under hard freeze (ownership constitution).
     reason_l = str(reason or "").lower()
+    if "hosted_vo_floor" in reason_l or "hosted_framing" in reason_l:
+        if hard_freeze_active(ctx):
+            return False, "hard_freeze_blocks_hosted_floor_reseat"
     catastrophe = any(
         x in reason_l
-        for x in ("g1_red", "operator", "missing_seated_wav", "catastrophe")
-    )
+        for x in ("g1_red", "operator", "missing_seated_wav")
+    ) and "catastrophe_hosted_vo_floor" not in reason_l
+    # Legacy token still matched only when not under hard freeze.
+    if "catastrophe" in reason_l and "hosted_vo_floor" not in reason_l:
+        catastrophe = True
+    if "catastrophe_hosted_vo_floor" in reason_l and not hard_freeze_active(ctx):
+        catastrophe = True
     # Selection packaging (CTA / sanitize) is not a VO-seat fingerprint rewrite —
     # soft rewrite cap must not permanently block it (exec_11165 layup spin).
     packaging = any(

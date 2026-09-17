@@ -10,6 +10,8 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./master_edl_narrative_audit_jsonSchema")).master_edl_narrative_audit_jsonSchema,
   "master/junction_feel_audit.json": async () =>
     (await import("./master_junction_feel_audit_jsonSchema")).master_junction_feel_audit_jsonSchema,
+  "master/junction_snip_qa.json": async () =>
+    (await import("./master_junction_snip_qa_jsonSchema")).master_junction_snip_qa_jsonSchema,
   "master/junction_thought_complete.json": async () =>
     (await import("./master_junction_thought_complete_jsonSchema")).master_junction_thought_complete_jsonSchema,
   "master/listener_scorecard.json": async () =>
@@ -30,6 +32,8 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./mastering_chapter_close_hitch_jsonSchema")).mastering_chapter_close_hitch_jsonSchema,
   "mastering/media_ip_cta.json": async () =>
     (await import("./mastering_media_ip_cta_jsonSchema")).mastering_media_ip_cta_jsonSchema,
+  "mastering/sound_design_vo_finalize.json": async () =>
+    (await import("./mastering_sound_design_vo_finalize_jsonSchema")).mastering_sound_design_vo_finalize_jsonSchema,
   "run_meta.json": async () =>
     (await import("./run_meta_jsonSchema")).run_meta_jsonSchema,
   "segments/boundaries.json": async () =>

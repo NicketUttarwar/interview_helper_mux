@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     from rstm.harness import persist_result, run_cell  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULTS = ROOT / ".cursor/plans/rstm" / "results"
+RESULTS = ROOT / "rstm-results"
 SUMMARY = RESULTS / "summary.json"
 
 

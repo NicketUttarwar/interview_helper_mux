@@ -503,6 +503,105 @@ def _drop_self_transitions(ctx: RunContext) -> None:
         ctx.write_json("master/transitions.json", doc, skip_handoff=True, stage_key=STAGE_KEY)
 
 
+def consumed_segment_ids(ctx: RunContext) -> set[str]:
+    """Ids a fuse / overlap union absorbed into a survivor (no longer on air).
+
+    Sources: NLE overrides stamped by ``_update_nle`` and ``fused_from`` on live
+    manifest rows. Such an id is not a creative cut — the survivor's span already
+    covers its tape.
+    """
+    out: set[str] = set()
+    try:
+        from interview_mux.nle_state import load_nle
+
+        overrides = load_nle(ctx).get("segment_overrides") or {}
+    except Exception:
+        overrides = {}
+    if isinstance(overrides, dict):
+        for sid, row in overrides.items():
+            if not isinstance(row, dict) or not row.get("excluded"):
+                continue
+            if str(row.get("exclude_reason") or "") == STAGE_KEY:
+                out.add(str(sid))
+    if ctx.artifact_exists("segments/manifest.json"):
+        try:
+            manifest = ctx.read_json("segments/manifest.json")
+        except Exception:
+            manifest = None
+        rows = (manifest or {}).get("segments") or [] if isinstance(manifest, dict) else []
+        live = {str(r.get("segment_id") or "") for r in rows if isinstance(r, dict)}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("fuse_pass_id") or "") != STAGE_KEY:
+                continue
+            survivor = str(row.get("segment_id") or "")
+            for sid in row.get("fused_from") or []:
+                token = str(sid or "")
+                if token and token != survivor and token not in live:
+                    out.add(token)
+    return {s for s in out if s}
+
+
+def retire_consumed_ids_from_selection(ctx: RunContext) -> list[str]:
+    """Drop union-consumed ids from selection so it cannot outrun the EDL.
+
+    exec_11871: the merge's selection write was refused by seat freeze, selection
+    stayed at n+1 versus the EDL, and every mix / dispatch after that refused with
+    ``selection_edl_order_drift`` — with no overlap left on the EDL, the merge
+    could never retry.
+    """
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    consumed = consumed_segment_ids(ctx)
+    if not consumed:
+        return []
+    try:
+        selection = ctx.read_json("master/selection.json")
+    except Exception:
+        return []
+    if not isinstance(selection, dict):
+        return []
+    order = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    retired = [s for s in order if s in consumed]
+    if not retired:
+        return []
+    out = dict(selection)
+    out["ordered_segment_ids"] = [s for s in order if s not in consumed]
+    excl = list(out.get("excluded_segment_ids") or [])
+    have = {
+        str(r.get("segment_id") if isinstance(r, dict) else r or "") for r in excl
+    }
+    for sid in retired:
+        if sid not in have:
+            excl.append({"segment_id": sid, "reason": f"{STAGE_KEY}:absorbed_by_survivor"})
+    out["excluded_segment_ids"] = excl
+    for ch in out.get("chapters") or []:
+        if isinstance(ch, dict):
+            ch["segment_ids"] = [
+                str(x) for x in (ch.get("segment_ids") or []) if str(x) not in consumed
+            ]
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.order_hash import bump_order_lock
+
+    commit_selection_mutation(
+        ctx,
+        bump_order_lock(out, source=f"{STAGE_KEY}:retire_consumed"),
+        producer=STAGE_KEY,
+        stage_key=STAGE_KEY,
+        checkpoint_mode="detect",
+        write_committed=True,
+    )
+    ctx.log(
+        "EDL overlap merge: retired absorbed id(s) from selection: "
+        + ", ".join(retired[:6]),
+        level="success",
+        stage="edl",
+        detail=STAGE_KEY,
+    )
+    return retired
+
+
 def overlapping_source_components(
     ctx: RunContext,
     edl: dict[str, Any],
@@ -671,6 +770,15 @@ def repair_overlapping_source_ranges(
 
     apply_full_segment_id_remap(ctx, remap, stage_key=STAGE_KEY, skip_handoff=True)
     _drop_self_transitions(ctx)
+    try:
+        retire_consumed_ids_from_selection(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"EDL overlap merge: could not retire absorbed ids from selection ({exc})",
+            level="warning",
+            stage="edl",
+            detail=STAGE_KEY,
+        )
 
     labels = ", ".join(
         f"{','.join(c['consumed'])}→{c['survivor']}" for c in applied

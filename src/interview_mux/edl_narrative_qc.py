@@ -526,9 +526,12 @@ def _validate_framing_before_impact(
                 continue
             preceding = [vo_by_line[lid] for lid in framing_ids if lid in vo_by_line and vo_by_line[lid] < speech_ms]
             if not preceding:
+                from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+                pin = high_gap_heal_resume_stage(ctx)
                 errors.append(
                     f'master/edl.json: impact segment "{primary}" lacks preceding framing VO '
-                    f"({', '.join(framing_ids[:3])}). Re-run edl or gap_framing_compose."
+                    f"({', '.join(framing_ids[:3])}). Re-run {pin} (never soft-pass EDL)."
                 )
 
 

@@ -55,31 +55,39 @@ def _line(**patch: object) -> dict:
 
 
 def test_promote_glue_keeps_gap_report_when_discarding_edl(tmp_path: Path) -> None:
+    """Owner pending gap_report promotes; foreign edl pending is discarded (0F)."""
     ctx = isolated_run_ctx(tmp_path, "exec_glue_promote")
     ctx.write_json(
         "understanding/gap_report.json",
         {"interviewer_lines": []},
         skip_handoff=True,
     )
-    root = staging_root(ctx, "edl")
-    (root / "understanding").mkdir(parents=True, exist_ok=True)
-    (root / "master").mkdir(parents=True, exist_ok=True)
+    # Stage under an owner co-producer, not edl (foreign flush DENY).
+    owner_root = staging_root(ctx, "gap_framing_compose")
+    (owner_root / "understanding").mkdir(parents=True, exist_ok=True)
     good = {
         "interviewer_lines": [
             _line(line_id="vo_keep_001", targets_segment_id="seg_001"),
         ]
     }
-    (root / "understanding" / "gap_report.json").write_text(
+    (owner_root / "understanding" / "gap_report.json").write_text(
         json.dumps(good), encoding="utf-8"
     )
-    (root / "understanding" / "reorder_bridges.json").write_text(
-        json.dumps({"version": 1, "pairs": [{"after_id": "seg_001", "before_id": "seg_002"}]}),
+    edl_root = staging_root(ctx, "edl")
+    (edl_root / "understanding").mkdir(parents=True, exist_ok=True)
+    (edl_root / "master").mkdir(parents=True, exist_ok=True)
+    (edl_root / "understanding" / "gap_report.json").write_text(
+        json.dumps({"interviewer_lines": [_line(line_id="vo_foreign_edl")]}),
         encoding="utf-8",
     )
-    (root / "master" / "edl.json").write_text(json.dumps({"clips": []}), encoding="utf-8")
+    (edl_root / "master" / "edl.json").write_text(json.dumps({"clips": []}), encoding="utf-8")
 
     flush = promote_glue_then_discard_stale_edl(ctx)
-    assert any("gap_report.json" in p for p in flush.get("promoted") or [])
+    promoted = flush.get("promoted") or []
+    assert any(
+        "gap_framing_compose:understanding/gap_report.json" in p for p in promoted
+    ), promoted
+    assert not any(p.startswith("edl:understanding/gap_report") for p in promoted), promoted
     assert "edl" in (flush.get("discarded_edl") or [])
     committed = ctx.read_json("understanding/gap_report.json")
     lids = {
@@ -88,8 +96,8 @@ def test_promote_glue_keeps_gap_report_when_discarding_edl(tmp_path: Path) -> No
         if isinstance(ln, dict)
     }
     assert "vo_keep_001" in lids
-    assert not (root / "master" / "edl.json").is_file()
-    assert (root / "understanding" / "gap_report.json").is_file()
+    assert "vo_foreign_edl" not in lids
+    assert not (edl_root / "master" / "edl.json").is_file()
 
 
 def test_edl_vo_clips_subset_of_committed_gap_report(tmp_path: Path) -> None:

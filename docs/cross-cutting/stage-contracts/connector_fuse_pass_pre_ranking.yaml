@@ -12,16 +12,29 @@ outputs:
 - path: analysis/connector_fuse_rounds.json
   schema: null
   staging: false
+- path: segments/manifest.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+  - path: analysis/low_conf_islands.json
+    producer: low_conf_island_scan
+  - path: analysis/connector_fuse_audit.json
+    producer: connector_fuse_pass
+  - path: mastering/chapter_close_hitch.json
+    producer: chapter_close_hitch
 sufficiency: []
 propagation:
   invalidates_stages:
   - full_master_ranking
   - nugget_corpus_mine
   - nugget_layup_compose
-consumers: []
+consumers:
+- full_master_ranking
 remediation:
   strategies:
   - volley_retry

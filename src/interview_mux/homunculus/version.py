@@ -19,6 +19,12 @@ class HomunculusBrain:
     summary: str
     kind: str  # original_pipeline | homunculus
     prompt_tree: str | None = None
+    # Who picks the next stage. "llm" = conductor tool-calls (0.1.0);
+    # "deterministic" = seed-order walk, no conductor turns (0.2.0).
+    # kind stays "homunculus" for both, but rails no longer depend on that: ask
+    # brain_has_dispatch_ledger (ledger, admit, dispatch budget) for rails and
+    # llm_owns_control_flow for stage selection. Only control flow differs here.
+    control_plane: str = "llm"
 
 
 _BUILTIN: tuple[HomunculusBrain, ...] = (
@@ -41,6 +47,20 @@ _BUILTIN: tuple[HomunculusBrain, ...] = (
         ),
         kind="homunculus",
         prompt_tree="docs/prompts/homunculus/",
+        control_plane="llm",
+    ),
+    HomunculusBrain(
+        id="0.2.0",
+        label="Homunculus (deterministic walk)",
+        summary=(
+            "Same rails as 0.1.0 — ledger, admit, dispatch budgets, packing, "
+            "MusicGen ladder, ears — but stage order is the deterministic seed "
+            "walk. No conductor turns, so no turn budget to exhaust. The LLM "
+            "still writes artifact content; it no longer picks the next stage."
+        ),
+        kind="homunculus",
+        prompt_tree="docs/prompts/homunculus/",
+        control_plane="deterministic",
     ),
 )
 
@@ -66,6 +86,7 @@ def _yaml_brains() -> tuple[HomunculusBrain, ...]:
                 summary=str(row.get("summary") or ""),
                 kind=str(row.get("kind") or "homunculus"),
                 prompt_tree=row.get("prompt_tree"),
+                control_plane=str(row.get("control_plane") or "llm"),
             )
         )
     return tuple(out)
@@ -139,6 +160,49 @@ def is_homunculus_brain(version: str | None) -> bool:
         return False
 
 
+def _brain_kind(version: str | None) -> str:
+    try:
+        return resolve_brain(version).kind
+    except ValueError:
+        return ""
+
+
+def brain_has_dispatch_ledger(version: str | None) -> bool:
+    """Rails capability: ledger, telemetry, dispatch accounting, budget bookkeeping.
+
+    Keyed on "not the original linear pipeline" rather than ``kind == "homunculus"``
+    so a future ``kind="solver"`` keeps the rails instead of silently dropping them.
+    """
+    kind = _brain_kind(version)
+    return bool(kind) and kind != "original_pipeline"
+
+
+def brain_has_homunculus_features(version: str | None) -> bool:
+    """Content capability: per-stage brain features (CTA, perspective blocks, gate
+    auto-resolve, framing posture, adjudication, publishability enforcement).
+
+    Same keying as the rails: a solver brain still runs the feature set; only the
+    original linear pipeline does not.
+    """
+    kind = _brain_kind(version)
+    return bool(kind) and kind != "original_pipeline"
+
+
+def llm_owns_control_flow(version: str | None) -> bool:
+    """True when a conductor LLM picks the next stage (0.1.0), not the seed walk.
+
+    0.2.0 keeps every homunculus rail but hands stage selection to the
+    deterministic walk, so ``is_homunculus_brain`` stays True while this is False.
+    """
+    try:
+        brain = resolve_brain(version)
+    except ValueError:
+        return False
+    if brain.kind != "homunculus":
+        return False
+    return str(brain.control_plane or "llm").strip().lower() != "deterministic"
+
+
 def brains_public() -> list[dict[str, Any]]:
     current = default_version()
     return [
@@ -148,6 +212,7 @@ def brains_public() -> list[dict[str, Any]]:
             "summary": b.summary,
             "kind": b.kind,
             "prompt_tree": b.prompt_tree,
+            "control_plane": b.control_plane,
             "is_default": b.id == current,
         }
         for b in list_brains()
@@ -196,6 +261,7 @@ def stamp_run_meta(ctx: Any, raw: str | None = None) -> str:
     def _mut(meta: dict[str, Any]) -> None:
         meta.setdefault("homunculus_version", vid)
         meta.setdefault("homunculus_kind", brain.kind)
+        meta.setdefault("homunculus_control_plane", brain.control_plane)
 
     ctx.mutate_run_meta(_mut)
     if is_homunculus_brain(vid):

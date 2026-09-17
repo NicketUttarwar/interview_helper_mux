@@ -153,22 +153,40 @@ def sanitize_air_contract(ctx: Any, docs: dict[str, dict[str, Any]] | None = Non
                     protect_n = need - active_after
                     protect_floor = set(would_stamp_sorted[:protect_n])
                 if protect_floor:
-                    omitted = [o for o in omitted if o not in protect_floor]
-                    for lid in sorted(protect_floor):
-                        if lid not in seated:
-                            seated.append(lid)
-                    omit_set = set(omitted)
-                    seats["seated_line_ids"] = seated
-                    seats["omitted_line_ids"] = omitted
-                    air["vo_seats"] = seats
-                    plan = dict(plan)
-                    plan["air_script"] = air
-                    actions.append(
-                        {
-                            "action": "protect_hosted_vo_floor_reseat",
-                            "ids": sorted(protect_floor)[:24],
-                        }
-                    )
+                    # End-A: hard freeze must not expand WAV demand via floor reseat.
+                    refuse_reseat = False
+                    try:
+                        from interview_mux.seat_authority import hard_freeze_blocks_action
+
+                        refuse_reseat = hard_freeze_blocks_action(
+                            ctx, "protect_hosted_vo_floor_reseat"
+                        )
+                    except Exception:
+                        refuse_reseat = False
+                    if refuse_reseat:
+                        actions.append(
+                            {
+                                "action": "protect_hosted_vo_floor_reseat_refused_hard_freeze",
+                                "ids": sorted(protect_floor)[:24],
+                            }
+                        )
+                    else:
+                        omitted = [o for o in omitted if o not in protect_floor]
+                        for lid in sorted(protect_floor):
+                            if lid not in seated:
+                                seated.append(lid)
+                        omit_set = set(omitted)
+                        seats["seated_line_ids"] = seated
+                        seats["omitted_line_ids"] = omitted
+                        air["vo_seats"] = seats
+                        plan = dict(plan)
+                        plan["air_script"] = air
+                        actions.append(
+                            {
+                                "action": "protect_hosted_vo_floor_reseat",
+                                "ids": sorted(protect_floor)[:24],
+                            }
+                        )
         except Exception as exc:
             actions.append(
                 {"action": "protect_hosted_vo_floor_failed", "error": str(exc)[:120]}
@@ -407,10 +425,52 @@ def air_contract_sanitary_errors(ctx: Any) -> list[str]:
         return []
     if not result.ok:
         return list(result.errors or ["air_contract sanitize refused"])
+    # Safe self-heals: commit immediately so vo_synthesize/edl are not blocked
+    # forever waiting for a stage that only re-reads sanitary_errors (exec_11630
+    # protect_orientation_from_omit identical×N). End-A: never auto-commit
+    # hard-freeze-forbidden actions (floor reseat).
+    _AUTO_COMMIT_ACTIONS = frozenset(
+        {
+            "protect_orientation_from_omit",
+            "stamp_gap_omit_flags",
+            "drop_seated_missing_from_gap",
+            "clamp_hosted_seats_to_rendered_wavs",
+        }
+    )
+    actions = list(result.actions or [])
+    # Refuse-notes are observational — strip so they do not block consumers.
+    actions = [
+        a
+        for a in actions
+        if not str(a.get("action") or "").endswith("_refused_hard_freeze")
+    ]
+    try:
+        from interview_mux.seat_authority import (
+            HARD_FREEZE_FORBIDDEN_ACTIONS,
+            hard_freeze_active,
+        )
+
+        if hard_freeze_active(ctx):
+            actions = [
+                a
+                for a in actions
+                if str(a.get("action") or "") not in HARD_FREEZE_FORBIDDEN_ACTIONS
+            ]
+    except Exception:
+        pass
+    if actions and all(
+        str(a.get("action") or "") in _AUTO_COMMIT_ACTIONS for a in actions
+    ):
+        committed = commit_air_contract(ctx, reason="auto_sanitary_heal")
+        if committed.ok:
+            return []
+        return list(committed.errors or ["air_contract auto-commit failed"])
     # Would change — needs stage commit
+    if not actions:
+        return []
     return [
         "air_contract_needs_sanitize:"
-        + ",".join(str(a.get("action") or "") for a in (result.actions or [])[:6])
+        + ",".join(str(a.get("action") or "") for a in actions[:6])
     ]
 
 

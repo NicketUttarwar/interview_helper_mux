@@ -604,6 +604,14 @@ def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None
             pass
     earliest = _earliest_incomplete_seed_stage(ctx, stage_key)
     if earliest and earliest != stage_key:
+        if stage_key == "junction_snip_qa" and earliest == "mix":
+            try:
+                from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+
+                if junction_recut_precedes_mix(ctx):
+                    return
+            except Exception:
+                pass
         require_llm_stage_progress(ctx, earliest)
         return
     upstream = resolve_llm_upstream_stage(ctx, stage_key)

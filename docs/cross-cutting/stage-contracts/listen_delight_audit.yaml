@@ -14,11 +14,22 @@ outputs:
   staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: master/assembly.wav
+    producer: mix
+  - path: master/edl.json
+    producer: edl
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- master_finalize
 remediation:
   strategies:
   - volley_retry

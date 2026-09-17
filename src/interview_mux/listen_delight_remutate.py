@@ -207,9 +207,15 @@ def apply_listen_delight_remutate(
 
     try:
         from interview_mux.homunculus.issues import emit_issue
-        from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
+        from interview_mux.homunculus.runtime import (
+            conductor_owns_control_flow,
+            recovery_allowed,
+        )
 
-        if is_homunculus_run(ctx) and not recovery_allowed(ctx, "listen_delight_audit"):
+        # Control flow: wait for conductor analysis only when there is a conductor.
+        if conductor_owns_control_flow(ctx) and not recovery_allowed(
+            ctx, "listen_delight_audit"
+        ):
             emit_issue(
                 ctx,
                 kind="listen_delight_remutate",

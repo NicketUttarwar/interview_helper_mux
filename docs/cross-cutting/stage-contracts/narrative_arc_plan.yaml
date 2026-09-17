@@ -16,7 +16,23 @@ inputs:
   hard:
   - path: master/coverage_audit.json
     producer: topic_coverage_audit
-  soft: []
+  soft:
+  - path: master/narrative_plan.json
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/value_features.json
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/boundaries.json
+    producer: boundary_detection
 sufficiency:
 - path: chapters
   rule: min_rows
@@ -28,7 +44,25 @@ propagation:
   - full_master_ranking
   - transitions
 consumers:
-- narrative_arc_plan
+- mastering_plan_synthesize
+- mastering_plan_confirm
+- missing_framing
+- gap_framing_compose
+- soundscape_policy_build
+- chapter_close_hitch
+- full_master_ranking
+- air_script_compose
+- gap_framing_recompose
+- transitions
+- sound_design_plan
+- edl_narrative_audit
+- edl
+- music_palette_compose
+- sfx_prompt_craft
+- mix
+- junction_snip_qa
+- master_finalize
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

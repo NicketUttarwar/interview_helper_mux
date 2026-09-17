@@ -291,9 +291,11 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
     homunculus_auto = False
     try:
         from interview_mux.homunculus.gates import recommended_framing_action
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        homunculus_auto = is_homunculus_run(ctx) and recommended_framing_action(ctx) == "auto_resolve"
+        homunculus_auto = (
+            has_homunculus_features(ctx) and recommended_framing_action(ctx) == "auto_resolve"
+        )
     except Exception:
         homunculus_auto = False
     if not auto_accept_gap_gate_defaults_enabled() and not homunculus_auto:

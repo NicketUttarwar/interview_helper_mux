@@ -9,7 +9,12 @@ from interview_mux.homunculus.admit import admit
 from interview_mux.homunculus.budget import LimitExhausted, check_audio_serialize, check_dispatch
 from interview_mux.homunculus.issues import emit_issue, has_analysis
 from interview_mux.homunculus.ledger import append_ledger
-from interview_mux.homunculus.version import is_homunculus_brain
+from interview_mux.homunculus.version import (
+    brain_has_dispatch_ledger,
+    brain_has_homunculus_features,
+    is_homunculus_brain,
+    llm_owns_control_flow,
+)
 from interview_mux.run_context import RunContext
 
 _INFLIGHT: dict[str, set[str]] = {}
@@ -23,7 +28,51 @@ def homunculus_version(ctx: RunContext) -> str:
 
 
 def is_homunculus_run(ctx: RunContext) -> bool:
+    """Brain identity only: is this run a ``kind="homunculus"`` brain?
+
+    Kept as an alias for the two questions it used to conflate. Ask
+    ``has_dispatch_ledger`` for rails and ``conductor_owns_control_flow`` for
+    control flow — a call site that asks "should I write a ledger row?" must not
+    accidentally ask "is an LLM picking the next stage?".
+    """
     return is_homunculus_brain(homunculus_version(ctx))
+
+
+def has_dispatch_ledger(ctx: RunContext) -> bool:
+    """Rails: dispatch ledger, admit, telemetry, budget bookkeeping, packing.
+
+    True on 0.2.0 — the deterministic walk keeps every rail. This is the predicate
+    a future ``kind="solver"`` brain needs, because it is keyed on the capability
+    rather than on the brain being a homunculus.
+    """
+    return brain_has_dispatch_ledger(homunculus_version(ctx))
+
+
+def has_homunculus_features(ctx: RunContext) -> bool:
+    """Content tier: per-stage brain features, not rails and not control flow.
+
+    CTA copy, perspective prompt blocks, VO line adjudication, framing posture,
+    gate auto-resolve, publishability enforcement. True on 0.1.0 and 0.2.0.
+    """
+    return brain_has_homunculus_features(homunculus_version(ctx))
+
+
+def conductor_owns_control_flow(ctx: RunContext) -> bool:
+    """False on 0.2.0 — the seed walk picks stages, no conductor turns are spent.
+
+    Also false on *any* brain once the solver is authoritative (plan §7 step 3): that
+    is the LLM demotion to content-only. It stays a capability question rather than a
+    version check, so a 0.1.0 run promoted to the solver cannot spend a conductor turn
+    on stage selection while the solver is deciding.
+    """
+    try:
+        from interview_mux.solver import solver_authoritative
+
+        if solver_authoritative():
+            return False
+    except Exception:
+        pass
+    return llm_owns_control_flow(homunculus_version(ctx))
 
 
 def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
@@ -77,6 +126,23 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
         if stage == "junction_snip_qa" and earliest == "mix":
             try:
                 if ctx.artifact_exists("master/assembly.wav"):
+                    return None
+            except Exception:
+                pass
+            # exec_11871: mix refuses on live incomplete-cut residuals and pins
+            # junction_snip_qa, but seed order put mix first — nobody could recut
+            # (predicate x3/3 halt). The junction ladder owns recut/fuse/omit on
+            # the EDL and drives its own remaster, so let it run before first mix.
+            try:
+                from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+
+                if junction_recut_precedes_mix(ctx):
+                    ctx.log(
+                        "seed order: junction_snip_qa runs before first mix — "
+                        "live incomplete-cut residuals need recut/fuse/omit",
+                        level="info",
+                        stage="junction_snip_qa",
+                    )
                     return None
             except Exception:
                 pass
@@ -326,6 +392,19 @@ def dispatch_stage(
         pass
     identity = stage
     inflight = _INFLIGHT.setdefault(ctx.run_id, set())
+    from interview_mux.dispatch_door import (
+        evaluate_dispatch,
+        note_dispatch_outcome,
+        refuse_dispatch,
+    )
+
+    # One door for driver-issued dispatches: existing caps + state delta (§5.2/§5.3).
+    # A refusal records a defect and returns; D1 forbids stranding the walk here.
+    verdict = evaluate_dispatch(ctx, stage, source=source, layer="dispatch")
+    if verdict.refused:
+        refuse_dispatch(ctx, stage, verdict, source=source)
+        return
+    note_dispatch_outcome(ctx, stage, outcome="started", source=source)
     check_dispatch(ctx, identity=identity, kind="stage")
     check_audio_serialize(ctx, identity, inflight)
     append_ledger(
@@ -400,6 +479,7 @@ def dispatch_stage(
                     )
     except Exception as exc:
         inflight.discard(identity)
+        note_dispatch_outcome(ctx, stage, outcome="failed", source=source)
         if stage == "speaker_roles":
             try:
                 from interview_mux.recovery_controller import classify_error_class
@@ -476,6 +556,7 @@ def dispatch_stage(
     inflight.discard(identity)
     admit(ctx, identity=identity, action="keep", payload={"stage": stage, "source": source})
     append_ledger(ctx, {"kind": "stage", "identity": identity, "status": "done", "source": source})
+    note_dispatch_outcome(ctx, stage, outcome="done", source=source)
 
 
 def recovery_allowed(
@@ -484,8 +565,14 @@ def recovery_allowed(
     exc: BaseException | None = None,
     error_class: str | None = None,
 ) -> bool:
-    """0.1.0: classified playbooks run without analyze_issue; novel failures wait."""
-    if not is_homunculus_run(ctx):
+    """0.1.0: classified playbooks run without analyze_issue; novel failures wait.
+
+    Control flow, not rails: the last resort below waits for an ``analyze_issue``
+    verdict, and only the conductor loop can produce one. Under 0.2.0 no conductor
+    turn is ever spent, so gating this on the rails predicate would defer every
+    novel failure to an analysis that can never arrive.
+    """
+    if not conductor_owns_control_flow(ctx):
         return True
     cls = error_class
     if cls is None and exc is not None:
@@ -577,7 +664,8 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
         pass
     return {
         "homunculus_version": homunculus_version(ctx),
-        "active": is_homunculus_run(ctx),
+        "active": has_dispatch_ledger(ctx),
+        "conductor_owns_control_flow": conductor_owns_control_flow(ctx),
         "budget": budget_snapshot(ctx),
         "issues": read_issues(ctx)[-12:],
         "homunculus_plan": (

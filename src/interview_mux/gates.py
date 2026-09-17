@@ -204,10 +204,30 @@ def require_post_listen_clear(ctx: RunContext, *, stage: str) -> None:
 
 
 def check_transcript_review_pending(ctx: RunContext) -> bool:
-    """True when STT review queue exists but operator has not signed off."""
+    """True when STT review queue exists but operator has not signed off.
+
+    Staged-but-unflushed ``review_queue.json`` still means G0 is open — treating
+    that as clear made reconcile claim \"Transcript review complete\" while the
+    queue lived only under ``.pending_writes`` (exec_11871).
+    """
     if ctx.is_done("transcript_review"):
         return False
-    return ctx.artifact_exists("transcript/review_queue.json")
+    if ctx.artifact_exists("transcript/review_queue.json"):
+        return True
+    try:
+        from interview_mux.write_staging import has_pending_writes, staging_root
+
+        if has_pending_writes(ctx, "transcript_review_build"):
+            staged = (
+                staging_root(ctx, "transcript_review_build")
+                / "transcript"
+                / "review_queue.json"
+            )
+            if staged.is_file():
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def g0_blocks_analysis(ctx: RunContext) -> bool:

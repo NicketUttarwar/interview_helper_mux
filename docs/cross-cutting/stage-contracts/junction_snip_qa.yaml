@@ -1,5 +1,5 @@
 stage_id: junction_snip_qa
-tier: process
+tier: llm_full
 lifecycle:
   phases:
   - prestage
@@ -10,15 +10,61 @@ lifecycle:
   - post_commit_validate
 outputs:
 - path: master/junction_snip_qa.json
-  schema: null
-  staging: false
+  schema: junction_snip_qa.schema.json
+  staging: true
+- path: master/junction_thought_complete.json
+  staging: true
+- path: master/junction_feel_audit.json
+  staging: true
+- path: master/seam_autopsy.json
+  staging: true
+- path: master/render_ledger.json
+  staging: true
+- path: master/failure_review.json
+  staging: true
+- path: master/remediation_plan.json
+  staging: true
+- path: master/remediation_run_log.json
+  staging: true
+- path: sound_design/placement_adjustments.json
+  staging: true
 inputs:
   hard: []
-  soft: []
-sufficiency: []
+  soft:
+  - path: master/assembly_ledger.json
+  - path: master/air_order.json
+  - path: master/render_ledger.json
+  - path: master/edl.json
+    producer: edl
+    correctness: true
+  - path: master/selection.json
+    producer: full_master_ranking
+    correctness: true
+  - path: master/assembly.wav
+    producer: mix
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/sonic_context.json
+    producer: sonic_context_build
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: mastering/media_ip_cta.json
+    producer: full_master_ranking
+sufficiency:
+- path: version
+  rule: required_fields
+  fields:
+  - version
+  - generated_at
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- mix
+- master_finalize
 remediation:
   strategies:
   - volley_retry

@@ -688,6 +688,11 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         (
             "master/post_master_quality.json",
             "master/listener_scorecard.json",
+            # The authoritative ship-time delight verdict is written here (staged);
+            # undeclared staged paths are dropped at flush, so exec_11871 shipped
+            # with a pre-mix advisory audit from hours earlier.
+            "mastering/listen_delight_audit.json",
+            "master/seam_autopsy.json",
         ),
         (),
         ("master/master.wav",),
@@ -744,10 +749,16 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Finalize local publish/ package (meta, chapters, markers). S3 upload is a separate this-run sync.",
         "delivery",
         (
+            # The whole local episode package — `operator_visible_staging_path`
+            # filters the flush by these specs, so anything missing here is written
+            # to staging and then dropped. exec_11871 shipped a package_ready.json
+            # that promised episode.json / description.txt neither of which existed.
             "publish/package_ready.json",
             "publish/publish_result.json",
             "publish/chapters.json",
             "publish/transcript.vtt",
+            "publish/episode.json",
+            "publish/description.txt",
         ),
         (),
     ),

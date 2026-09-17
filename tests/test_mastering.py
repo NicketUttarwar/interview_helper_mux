@@ -44,6 +44,10 @@ class _Ctx:
     def read_path(self, rel: str) -> Path:
         return self._run_dir / rel
 
+    def final_path(self, *parts: str) -> Path:
+        # End-E committed-master invariant reads the committed tree (never staging).
+        return self._run_dir.joinpath(*parts)
+
 
 def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) -> None:
     run_dir = tmp_path / "run"
@@ -93,7 +97,9 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
             self.stderr = io.StringIO("")
             out = Path(cmd[-1])
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(b"fake wav")
+            # End-E refuses a truncated master, so the fake render must clear
+            # MIN_COMMITTED_MASTER_BYTES.
+            out.write_bytes(b"RIFFfake wav" + b"\0" * 16_384)
 
         def wait(self, timeout=None):  # noqa: ANN001
             return 0
@@ -117,6 +123,10 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     assert master_filter.startswith("alimiter=limit=0.891251:attack=5:release=50,loudnorm=")
     assert "I=-16.0" in master_filter
     assert "TP=-1.0" in master_filter
+    # i53: loudnorm's make-up gain must be re-limited to the ceiling afterwards.
+    assert master_filter.endswith(
+        "alimiter=limit=0.891251:attack=5:release=50:level=disabled"
+    )
     assert any("Assembly bus measured -18.50 LUFS" in msg for msg, _ in ctx.logs)
 
 

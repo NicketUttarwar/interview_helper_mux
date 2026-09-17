@@ -95,6 +95,33 @@ def test_reconcile_prunes_stale_rationales_on_air_order_ids() -> None:
     )
 
 
+def test_normalize_only_prunes_stale_air_order_rationales() -> None:
+    """amplify=False must still clear exclude_rationales that contradict air order."""
+    from interview_mux.artifact_repairs import repair_master_selection
+    from interview_mux.run_context import RunContext
+
+    ctx = RunContext(create=True)
+    doc = {
+        "ordered_segment_ids": ["seg_002", "seg_010"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_099", "reason": "excluded_from_master"},
+        ],
+        "exclude_rationales": {
+            "seg_002": "finale_tail_leftover",
+            "seg_010": "finale_tail_leftover",
+            "seg_099": "excluded_from_master",
+        },
+        "chapters": [],
+    }
+    fixed, notes = repair_master_selection(ctx, doc, amplify=False)
+    assert fixed["ordered_segment_ids"] == ["seg_002", "seg_010"]
+    assert "seg_002" not in (fixed.get("exclude_rationales") or {})
+    assert "seg_010" not in (fixed.get("exclude_rationales") or {})
+    assert "seg_099" in (fixed.get("exclude_rationales") or {})
+    assert any(n.get("action") == "prune_stale_exclude_rationales" for n in notes)
+    assert any(n.get("action") == "normalize_selection_only" for n in notes)
+
+
 def test_repair_gap_report_drops_orphan_targets(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_gap")

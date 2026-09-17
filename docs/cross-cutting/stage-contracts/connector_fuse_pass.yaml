@@ -12,9 +12,21 @@ outputs:
 - path: analysis/connector_fuse_audit.json
   schema: null
   staging: false
+- path: analysis/connector_seam_packets.json
+  staging: true
+- path: segments/manifest.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+  - path: analysis/low_conf_islands.json
+    producer: low_conf_island_scan
+  - path: analysis/low_conf_must_keep.json
+    producer: low_conf_island_scan
 sufficiency: []
 propagation:
   invalidates_stages:
@@ -26,7 +38,15 @@ propagation:
   - nugget_layup_compose
   - transitions
   - edl
-consumers: []
+consumers:
+- connector_fuse_pass_pre_ranking
+- topic_coverage_audit
+- narrative_arc_plan
+- full_master_ranking
+- nugget_corpus_mine
+- nugget_layup_compose
+- transitions
+- edl
 remediation:
   strategies:
   - volley_retry

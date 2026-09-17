@@ -44,9 +44,9 @@ def _full_order() -> list[str]:
 
 def _homunculus_resume(ctx: RunContext) -> bool:
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        return is_homunculus_run(ctx)
+        return has_homunculus_features(ctx)
     except Exception:
         return False
 
@@ -147,15 +147,56 @@ def migrate_stale_stage_order_on_resume(ctx: RunContext) -> dict[str, Any]:
             }
     idx = order.index(first)
     cleared: list[str] = []
+    # Ownership (End-E): adjudicate migration must not wipe live VO outputs.
+    protect_vo = False
+    if first == "vo_line_adjudicate" and _stage_output_ok(ctx, "vo_synthesize"):
+        protect_vo = True
+        try:
+            heal_or_refuse_mark(ctx, "vo_line_adjudicate", force=True)
+        except Exception:
+            pass
+        if not ctx.is_done("vo_line_adjudicate"):
+            # Stamp a hollow-safe adjudicate skip only when VO already owns pickups.
+            try:
+                if not ctx.artifact_exists("understanding/vo_line_adjudication.json"):
+                    ctx.write_json(
+                        "understanding/vo_line_adjudication.json",
+                        {
+                            "schema_version": "vo_line_adjudication.v1",
+                            "status": "skipped_vo_already_present",
+                            "lines": [],
+                        },
+                        stage_key="vo_line_adjudicate",
+                    )
+                heal_or_refuse_mark(ctx, "vo_line_adjudicate", force=True)
+            except Exception:
+                pass
+        ctx.log(
+            "5A stage-order migration: vo_line_adjudicate healed without "
+            "unmarking live vo_synthesize outputs",
+            level="warning",
+            stage="vo_line_adjudicate",
+            detail={"reason": "protect_live_vo_outputs"},
+        )
+        return {
+            "migrated": False,
+            "from_stage": first,
+            "cleared": [],
+            "protect_live_vo": True,
+        }
     try:
         from interview_mux.homunculus.agenda import unmark_stage_only
 
         for stage in order[idx:]:
+            if protect_vo and stage in {"vo_synthesize", "sound_design_vo_finalize"}:
+                continue
             if ctx.is_done(stage):
                 unmark_stage_only(ctx, stage)
                 cleared.append(stage)
     except Exception:
         for stage in order[idx:]:
+            if protect_vo and stage in {"vo_synthesize", "sound_design_vo_finalize"}:
+                continue
             marker = ctx.final_path(".stage_done", stage)
             if marker.is_file():
                 marker.unlink(missing_ok=True)

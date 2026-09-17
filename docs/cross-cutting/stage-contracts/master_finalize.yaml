@@ -12,13 +12,51 @@ outputs:
 - path: master/master.wav
   schema: null
   staging: false
+- path: master/post_master_quality.json
+  staging: true
+- path: master/listener_scorecard.json
+  staging: true
+- path: mastering/listen_delight_audit.json
+  staging: true
+- path: master/seam_autopsy.json
+  staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: master/assembly.wav
+    producer: mix
+  soft:
+  - path: master/seam_autopsy.json
+  - path: master/render_ledger.json
+    producer: junction_snip_qa
+  - path: master/edl.json
+    producer: edl
+    correctness: true
+  - path: master/selection.json
+    producer: full_master_ranking
+    correctness: true
+  - path: master/junction_snip_qa.json
+    producer: junction_snip_qa
+  - path: master/transitions.json
+    producer: transitions
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: mastering/listen_delight_audit.json
+    producer: listen_delight_audit
+  - path: mastering/chapter_close_hitch.json
+    producer: chapter_close_hitch
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- master_transcript_build
+- podcast_encode_mp3
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

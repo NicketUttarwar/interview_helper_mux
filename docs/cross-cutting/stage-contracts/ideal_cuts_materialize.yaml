@@ -12,13 +12,25 @@ outputs:
 - path: understanding/ideal_cuts_materialized.json
   schema: null
   staging: false
+- path: understanding/ideal_cuts_selection_seed.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/ideal_cuts.json
+    producer: ideal_cuts_propose
+  - path: transcript/full.json
+    producer: transcribe
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- boundary_detection
+- segment_classification
+- mastering_shape_agenda
+- full_master_ranking
 remediation:
   strategies:
   - volley_retry

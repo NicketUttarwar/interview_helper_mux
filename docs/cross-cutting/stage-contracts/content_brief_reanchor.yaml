@@ -16,7 +16,13 @@ inputs:
   hard:
   - path: segments/manifest.json
     producer: segment_classification
-  soft: []
+  - path: understanding/content_brief.json
+    producer: content_context
+  soft:
+  - path: segments/boundaries.json
+    producer: boundary_detection
+  - path: understanding/speakers.json
+    producer: speaker_roles
 sufficiency:
 - path: thesis
   rule: non_empty_string
@@ -34,8 +40,10 @@ propagation:
   - missing_framing
   - optimal_questions
 consumers:
-- content_context
-- content_brief_reanchor
+- boundary_topic_resplit
+- sonic_context_build
+- sound_design_palettes
+- missing_framing
 remediation:
   strategies:
   - volley_retry

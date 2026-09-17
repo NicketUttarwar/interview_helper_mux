@@ -40,6 +40,31 @@ def _normalize_bridge_text(text: str) -> str:
     return " ".join(str(text or "").strip().lower().split())
 
 
+def deferred_pair_is_durable(row: dict[str, Any]) -> bool:
+    """End-C: deferred spoken text alone is not durable glue.
+
+    Counts only when WAV is seated, spoken is explicitly omitted/hitched, or the
+    row was deferred beyond pair freeze (mix last-chance owns synth).
+    """
+    if not isinstance(row, dict):
+        return False
+    if row.get("wav_path") or row.get("audio_path"):
+        return True
+    if row.get("omit_spoken") or row.get("hitch_cover") or row.get("hitch_covered"):
+        return True
+    if row.get("beyond_pair_freeze") or row.get("defer_beyond_freeze"):
+        return True
+    reason = str(row.get("deferred_reason") or row.get("defer_reason") or "").lower()
+    if reason in {"beyond_pair_freeze", "pair_freeze", "defer_beyond_freeze"}:
+        return True
+    return False
+
+
+def bridge_heal_may_soft_complete(*, waivers_enabled: bool) -> bool:
+    """End-C: forge complete / resume EDL only under e2e quality waivers."""
+    return bool(waivers_enabled)
+
+
 def _bridged_pairs(
     gap_report: dict[str, Any] | None,
     transitions: dict[str, Any] | None,
@@ -83,6 +108,18 @@ def _bridged_pairs(
             text = str(tr.get("text") or "").strip()
             # Spoken text required — silence_ms alone is not audible glue.
             if a and b and text:
+                bridged.add((a, b))
+        # End-C: deferred text is temporary heal intent — durable only when
+        # WAV / omit / hitch / beyond-pair-freeze is stamped (mix last-chance).
+        for tr in transitions.get("deferred_transition_pairs") or []:
+            if not isinstance(tr, dict):
+                continue
+            if not deferred_pair_is_durable(tr):
+                continue
+            a = str(tr.get("after_segment_id") or "")
+            b = str(tr.get("before_segment_id") or "")
+            text = str(tr.get("text") or tr.get("spoken_text") or "").strip()
+            if a and b and (text or tr.get("omit_spoken") or tr.get("hitch_cover")):
                 bridged.add((a, b))
     return bridged
 
@@ -185,6 +222,7 @@ def stub_reorder_bridges(
 
     if isinstance(transitions, dict):
         _scan(transitions.get("transitions"))
+        _scan(transitions.get("deferred_transition_pairs"))
     if isinstance(gap_report, dict):
         _scan(gap_report.get("interviewer_lines"))
 

@@ -2908,6 +2908,136 @@ def ensure_layup_gap_authority(ctx: RunContext) -> dict[str, Any] | None:
     return publish_layup_plan_to_gap_report(ctx)
 
 
+def _scrub_foreign_before_vo_for_hollow_preserve(
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Drop foreign before-VO origins when hollow-preserving under layup authority.
+
+    Prefer scrubbing ``gap_framing_compose`` / other non-authority before lines while
+    keeping orientation + layup/operator/fill origins. If foreign before-VO still
+    remain, clear ``nugget_layup_authority`` so lint does not greenwash.
+    """
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    if not isinstance(report, dict):
+        return report
+    lines = [ln for ln in (report.get("interviewer_lines") or []) if isinstance(ln, dict)]
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for ln in lines:
+        if is_episode_orientation(ln):
+            kept.append(ln)
+            continue
+        origin = str(ln.get("origin") or "").strip()
+        placement = str(ln.get("placement") or "").strip()
+        if placement == "before" and origin not in AUTHORITY_BODY_ORIGINS:
+            dropped += 1
+            continue
+        kept.append(ln)
+    if dropped == 0 and kept == lines:
+        return report
+    out = dict(report)
+    out["interviewer_lines"] = kept
+    still_foreign = sorted(
+        {
+            str(ln.get("origin") or "unknown")
+            for ln in kept
+            if not is_episode_orientation(ln)
+            and str(ln.get("placement") or "") == "before"
+            and str(ln.get("origin") or "") not in AUTHORITY_BODY_ORIGINS
+        }
+    )
+    if still_foreign:
+        out["nugget_layup_authority"] = False
+        meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+        meta["hollow_preserve_authority_cleared"] = True
+        meta["foreign_before_origins"] = still_foreign[:8]
+        out["_meta"] = meta
+    elif dropped:
+        meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+        meta["hollow_preserve_scrubbed_foreign_before"] = dropped
+        out["_meta"] = meta
+    return out
+
+
+def _framing_floor_topup(
+    ctx: RunContext,
+    *,
+    candidate_lines: list[dict[str, Any]],
+    prior_lines: list[dict[str, Any]],
+    seen_targets: set[str],
+    need: int,
+    plan: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Restore prior layup-authority before-VO to hold the G-Framing Yes floor.
+
+    Only lines that (a) came from the layup authority, (b) still target a live
+    ordered segment, (c) carry real spoken copy, and (d) are not superseded by a
+    fresh row on the same target are eligible. The matching plan row is re-aired
+    so plan and gap_report keep telling the same story.
+    """
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    out = list(candidate_lines)
+    restored: list[str] = []
+    if _count_active_synthetic_lines(out) >= need:
+        return out, restored
+    try:
+        live = {str(s) for s in (_ordered_ids(ctx) or [])}
+    except Exception:
+        live = set()
+    rows_by_target: dict[str, dict[str, Any]] = {}
+    if isinstance(plan, dict):
+        for row in plan.get("layups") or []:
+            if isinstance(row, dict):
+                tid = str(row.get("target_segment_id") or "").strip()
+                if tid:
+                    rows_by_target.setdefault(tid, row)
+    plan_touched = False
+    for ln in prior_lines:
+        if _count_active_synthetic_lines(out) >= need:
+            break
+        if not isinstance(ln, dict) or is_episode_orientation(ln):
+            continue
+        if ln.get("skipped_optional") or ln.get("omit") or ln.get("omitted"):
+            continue
+        if str(ln.get("origin") or "").strip() not in AUTHORITY_BODY_ORIGINS:
+            continue
+        tid = str(ln.get("targets_segment_id") or "").strip()
+        if not tid or tid in seen_targets:
+            continue
+        if live and tid not in live:
+            continue
+        text = str(ln.get("text") or "").strip()
+        if not text:
+            continue
+        raw = ln.get("delivery")
+        delivery = "synthesize" if raw is None else str(raw).strip().lower()
+        if delivery not in {"synthesize", "chatterbox", "record", "mlx_audio"}:
+            continue
+        keep = dict(ln)
+        meta = dict(keep.get("_meta") or {}) if isinstance(keep.get("_meta"), dict) else {}
+        meta["framing_floor_preserved"] = True
+        keep["_meta"] = meta
+        out.append(keep)
+        seen_targets.add(tid)
+        restored.append(str(keep.get("line_id") or tid))
+        # Do NOT re-air the plan row: it is a typed skip with no analysis fields,
+        # and layup QC refuses `insufficient_analysis[<tid>]` on an aired row that
+        # lacks them (exec_11871 seg_055 → `layup_unsanitary` loop). The floor
+        # lives on the gap_report; record the restore on the plan for the audit.
+        row = rows_by_target.get(tid)
+        if isinstance(row, dict):
+            row["framing_floor_restored_line"] = True
+            plan_touched = True
+    if plan_touched and isinstance(plan, dict):
+        try:
+            ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+        except Exception:
+            pass
+    return out, restored
+
+
 def publish_layup_plan_to_gap_report(
     ctx: RunContext,
     plan: dict[str, Any] | None = None,
@@ -3059,17 +3189,52 @@ def publish_layup_plan_to_gap_report(
                     "compose_restart" in w for w in warnings
                 )
                 if hollow_plan and prior_active >= need:
+                    preserved = _scrub_foreign_before_vo_for_hollow_preserve(existing)
                     ctx.log(
                         "nugget_layup: refuse hollow gap publish under G-Framing Yes "
                         f"(active={active_new} < {need}; preserving prior {prior_active})",
                         level="warning",
                         stage="nugget_layup_compose",
                     )
-                    return existing
-                raise RuntimeError(
-                    "nugget_layup_compose: refuse hollow gap_report publish under "
-                    f"G-Framing Yes (active_synthetic={active_new} < min={need})"
+                    if preserved is not existing:
+                        # Skip validated sanitize path — hollow preserve must not
+                        # re-run layup coverage scrub that can empty body lines.
+                        try:
+                            ctx.write_json(GAP_REL, preserved, skip_handoff=True)
+                        except Exception:
+                            from interview_mux.write_staging import write_mirrored_json
+
+                            write_mirrored_json(ctx, GAP_REL, preserved)
+                    return preserved
+                # Non-hollow plan that still lands under the floor: a typed skip
+                # (or a spoken-copy repair) took a contentful row out of a compose
+                # that already had barely enough. Re-composing cannot fix that
+                # deterministically — it just burns another LLM round and lands
+                # under the floor again (exec_11871 nugget_layup_compose spin).
+                # Restore the prior authority lines for targets this compose did
+                # not re-seat instead; they were composed by the same authority
+                # and are still on live air.
+                candidate_lines, restored = _framing_floor_topup(
+                    ctx,
+                    candidate_lines=candidate_lines,
+                    prior_lines=prior_lines,
+                    seen_targets=seen_targets,
+                    need=need,
+                    plan=plan,
                 )
+                if restored:
+                    ctx.log(
+                        "nugget_layup: held G-Framing Yes floor by restoring prior "
+                        f"layup line(s) {restored[:6]} (active={active_new} → "
+                        f"{_count_active_synthetic_lines(candidate_lines)}, min={need})",
+                        level="warning",
+                        stage="nugget_layup_compose",
+                    )
+                if _count_active_synthetic_lines(candidate_lines) < need:
+                    raise RuntimeError(
+                        "nugget_layup_compose: refuse hollow gap_report publish under "
+                        f"G-Framing Yes (active_synthetic={active_new} < min={need})"
+                    )
     except RuntimeError:
         raise
     except Exception:

@@ -8,16 +8,32 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/shape/information_packages_audit.json
+  schema: null
+  staging: false
+- path: mastering/shape/information_package_candidates.json
+  staging: true
+- path: mastering/mastering_plan.json
+  staging: true
 inputs:
   hard:
   - path: understanding/nugget_corpus.json
     producer: nugget_corpus_mine
-  soft: []
+  soft:
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- nugget_layup_compose
+- air_script_seams
+- edl
 remediation:
   strategies:
   - volley_retry

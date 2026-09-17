@@ -239,11 +239,22 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
     ):
         return "selection_cta_omit"
     reason = str(getattr(exc, "reason", "") or "").lower()
-    if stage in {"edl", "mix", "junction_snip_qa", "master_finalize"} and (
+    # Include narrative QC stages: exec_11630 #19 prose was
+    # "speech clips do not match final selection ordered_segment_ids" on
+    # edl_narrative_audit — prior matcher required "speech clip order" only.
+    if stage in {
+        "edl",
+        "edl_narrative",
+        "edl_narrative_audit",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+    } and (
         "selection_edl_order_drift" in msg
         or "ordered_segment_ids drifted" in msg
         or "speech clip order diverges" in msg
         or "speech clip order" in msg
+        or "speech clips do not match" in msg
     ):
         return "selection_edl_order_drift"
     if (
@@ -801,9 +812,19 @@ def _unmark_stages(ctx: RunContext, *stage_ids: str, force: bool = False) -> Non
 def playbook_selection_edl_order_drift(ctx: RunContext) -> list[str]:
     from interview_mux.air_order import commit, rollback
     from interview_mux.order_hash import order_drift_heal_action
+    from interview_mux.thrash_hardening import edl_content_authority_token
     from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
     from interview_mux.timeline_optimizer.daemon import stop_optimizer_daemon
 
+    # A fuse / overlap union may have absorbed an id whose selection write was
+    # refused under freeze — reconcile first, otherwise the rebuild below re-reads
+    # a selection that can never match the EDL (exec_11871 seg_073).
+    try:
+        from interview_mux.edl_overlap_repair import retire_consumed_ids_from_selection
+
+        retire_consumed_ids_from_selection(ctx)
+    except Exception:
+        pass
     sel = (
         ctx.read_json("master/selection.json")
         if ctx.artifact_exists("master/selection.json")
@@ -821,22 +842,54 @@ def playbook_selection_edl_order_drift(ctx: RunContext) -> list[str]:
         sel if isinstance(sel, dict) else None,
         edl if isinstance(edl, dict) else None,
     )
+    # Already aligned — do not burn the single structural EDL attempt on a
+    # no-op commit / consumer re-exec (R6: fingerprint flip or escalate).
+    if action == "ok":
+        return []
+
+    before_token = edl_content_authority_token(edl if isinstance(edl, dict) else None)
+    before_sel_hash = (
+        str(sel.get("order_content_hash") or "") if isinstance(sel, dict) else ""
+    )
+
     if action == "exclude_unseated":
         commit(ctx, source="recovery_exclude_unseated")
-        return ["master/selection.json", "master/edl.json"]
-    if action == "stamp":
+    elif action == "stamp":
         commit(ctx, source="recovery_stamp")
-        return ["master/selection.json", "master/edl.json"]
-    if action == "rebuild":
+    elif action == "rebuild":
         stop_optimizer_daemon(ctx)
         from interview_mux.stages.assembly import run_edl
 
         run_edl(ctx)
-        return ["master/edl.json"]
+    else:
+        return []
+
+    after_edl = (
+        ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
+    )
+    after_sel = (
+        ctx.read_json("master/selection.json")
+        if ctx.artifact_exists("master/selection.json")
+        else None
+    )
+    after_token = edl_content_authority_token(
+        after_edl if isinstance(after_edl, dict) else None
+    )
+    after_sel_hash = (
+        str(after_sel.get("order_content_hash") or "")
+        if isinstance(after_sel, dict)
+        else ""
+    )
+    if after_token == before_token and after_sel_hash == before_sel_hash:
+        # No authority fingerprint flip — refuse recovered so caller escalates
+        # with the named producer pin instead of silent consumer re-exec.
+        return []
+    written: list[str] = []
+    if ctx.artifact_exists("master/selection.json"):
+        written.append("master/selection.json")
     if ctx.artifact_exists("master/edl.json"):
-        commit(ctx, source="recovery_order_ok")
-        return ["master/edl.json"]
-    return []
+        written.append("master/edl.json")
+    return written
 
 
 def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
@@ -1233,7 +1286,10 @@ def handle_stage_failure(
     """Run at most one playbook for this signature, then recovered or escalate."""
     try:
         from interview_mux.homunculus.issues import ingest_catch
-        from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
+        from interview_mux.homunculus.runtime import (
+            conductor_owns_control_flow,
+            recovery_allowed,
+        )
 
         ingest_catch(
             ctx,
@@ -1244,7 +1300,8 @@ def handle_stage_failure(
             evidence={"error_class": type(exc).__name__, "message": str(exc)[:400]},
         )
         early_class = classify_error_class(stage_id, exc)
-        if is_homunculus_run(ctx) and not recovery_allowed(
+        # Control flow: escalate to analysis only while a conductor exists to run it.
+        if conductor_owns_control_flow(ctx) and not recovery_allowed(
             ctx, stage_id, exc=exc, error_class=early_class
         ):
             return _result(
@@ -1344,6 +1401,30 @@ def handle_stage_failure(
         elif error_class == "incomplete_cut_unresolved":
             resume_on_budget = "junction_snip_qa"
             _unmark_stages(ctx, "junction_snip_qa", "mix", force=True)
+        elif error_class in {
+            "opening_orientation_inaudible",
+            "vo_audibility_drift",
+            "never_touch_zeroed_keep",
+        }:
+            # R6: budget exhaust must still pin the named producer (not silent
+            # consumer re-exec of edl/mix after a no-op first heal).
+            try:
+                from interview_mux.stage_completion import edl_heal_resume_stage
+
+                resume_on_budget = edl_heal_resume_stage(ctx)
+            except Exception:
+                resume_on_budget = stage_id
+        elif error_class == "selection_edl_order_drift":
+            resume_on_budget = "edl"
+            try:
+                from interview_mux.heal_routing import mix_assembly_seated
+
+                if stage_id in {"mix", "junction_snip_qa", "master_finalize"}:
+                    resume_on_budget = (
+                        "junction_snip_qa" if mix_assembly_seated(ctx) else "edl"
+                    )
+            except Exception:
+                pass
         else:
             resume_on_budget = stage_id
         result = _result(
@@ -1553,27 +1634,42 @@ def handle_stage_failure(
             from interview_mux.stage_completion import high_gap_heal_resume_stage
 
             resume_stage = high_gap_heal_resume_stage(ctx)
-        elif error_class == "never_touch_zeroed_keep":
-            playbook_id = "never_touch_zeroed_keep"
-            from interview_mux.stage_completion import edl_heal_resume_stage
-
-            resume_stage = edl_heal_resume_stage(ctx)
-            artifacts = playbook_never_touch_zeroed_keep(ctx)
-            recovered = bool(artifacts) and resume_stage == "edl"
-        elif error_class == "vo_audibility_drift":
-            playbook_id = "vo_audibility_drift"
-            from interview_mux.stage_completion import edl_heal_resume_stage
-
-            resume_stage = edl_heal_resume_stage(ctx)
-            artifacts = playbook_vo_audibility_drift(ctx)
-            recovered = bool(artifacts) and resume_stage == "edl"
         elif error_class == "opening_orientation_inaudible":
             playbook_id = "opening_orientation_inaudible"
             from interview_mux.stage_completion import edl_heal_resume_stage
 
             resume_stage = edl_heal_resume_stage(ctx)
-            artifacts = playbook_opening_orientation_inaudible(ctx)
-            recovered = bool(artifacts) and resume_stage == "edl"
+            # R6: when the named producer is upstream of edl, do not run the
+            # rebuild/omit playbook — it can waive orientation and burn the
+            # single structural attempt on a consumer no-op.
+            if resume_stage != "edl":
+                artifacts = []
+                recovered = False
+            else:
+                artifacts = playbook_opening_orientation_inaudible(ctx)
+                recovered = bool(artifacts)
+        elif error_class == "vo_audibility_drift":
+            playbook_id = "vo_audibility_drift"
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            resume_stage = edl_heal_resume_stage(ctx)
+            if resume_stage != "edl":
+                artifacts = []
+                recovered = False
+            else:
+                artifacts = playbook_vo_audibility_drift(ctx)
+                recovered = bool(artifacts)
+        elif error_class == "never_touch_zeroed_keep":
+            playbook_id = "never_touch_zeroed_keep"
+            from interview_mux.stage_completion import edl_heal_resume_stage
+
+            resume_stage = edl_heal_resume_stage(ctx)
+            if resume_stage != "edl":
+                artifacts = []
+                recovered = False
+            else:
+                artifacts = playbook_never_touch_zeroed_keep(ctx)
+                recovered = bool(artifacts)
         elif error_class == "pending_write_barrier":
             playbook_id = "pending_write_barrier"
             artifacts = playbook_pending_write_barrier(ctx)

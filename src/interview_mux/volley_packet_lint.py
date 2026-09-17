@@ -14,6 +14,19 @@ _FORBIDDEN_KEY_SUBSTR = (
     "e2e_heal",
     "fingerprint_hash",
     "run_meta",
+    "authority_denied",
+    "ownership",
+)
+
+# Exact keys from admit denylist that must never LLM-pack (parity with admit.py).
+_FORBIDDEN_EXACT_KEYS = frozenset(
+    {
+        "exists",
+        "stage_done",
+        "run_meta",
+        "path_ok",
+        "file_exists",
+    }
 )
 
 _TAPE_KEYS = (
@@ -42,7 +55,7 @@ _TAPE_KEYS = (
 
 def _forbidden_key(key: str) -> bool:
     k = str(key or "").strip().lower()
-    if k in {"exists", "path_ok", "stage_done", "artifact_exists"}:
+    if k in _FORBIDDEN_EXACT_KEYS:
         return True
     return any(s in k for s in _FORBIDDEN_KEY_SUBSTR)
 

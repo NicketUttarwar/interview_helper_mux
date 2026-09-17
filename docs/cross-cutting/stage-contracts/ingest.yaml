@@ -8,14 +8,30 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: ingest/normalized.wav
+  schema: null
+  staging: false
+- path: ingest/checksums.json
+  staging: true
+- path: ingest/loudness.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: preclean/isolated.wav
+    producer: audio_preclean
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- transcribe
+- audio_probe_build
+- transcript_review_build
+- source_acoustic_profile
+- source_topology_build
+- mix
+- master_finalize
 remediation:
   strategies:
   - volley_retry

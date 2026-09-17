@@ -139,6 +139,10 @@ Verify: `./tools/verify_full_auto_env.sh` · tests: `tests/test_full_auto_produc
 
 **e2e_soft split:** Allowed = gate auto-progress. Forbidden = soft junction commit, PMQ `e2e_softened`, stub theme beds, fake listenability passes.
 
+**Soft-pass hardness:** `soft_pass_pre_edl_delivery` writes a refuse brief then **`return []`** when last-resort soft is off. Callers must hard-stop (no corpus/transitions/narrative stubs, no pre-EDL heal-marks). Stubs only when `INTERVIEW_MUX_E2E_LAST_RESORT_SOFT=1` **and** `e2e_soft_enabled()`.
+
+**Omit SSOT:** Live omit ledger reads from `understanding/omit_ledger.json` (not `master/`). Publishability / PMQ omit clarity must not invent a ghost master path.
+
 ---
 
 ## Guardrails (WHEN → THEN → NEVER)

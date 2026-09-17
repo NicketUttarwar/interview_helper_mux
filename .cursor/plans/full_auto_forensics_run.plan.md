@@ -1,9 +1,9 @@
 ---
 name: Full-auto forensics run
-overview: "Always kick off FRESH (new exec_*). Never attach to or copy prior campaign executions — learning lives in code. Within THIS campaign: on bug → patch + pytest → continue the same fresh run_id from producer until ship (§2) or hard blocker (§4). Parent must arm §3.0a AGENT_LOOP_TICK_forensics every 4m (notify_on_output) so the chat wakes without operator click."
+overview: "Always kick off FRESH (new exec_*). Never attach to or copy prior campaign executions — learning lives in code. Within THIS campaign: on bug → diagnose → cascade fixture (MUX_FORENSICS=0 pytest) → patch producer → continue the same fresh run_id until ship (§2) or hard blocker (§4). Log each intervene plainly in state for a later review report. Parent must arm §3.0a AGENT_LOOP_TICK_forensics every 4m (notify_on_output). Optional post-ship tape acceptance: one plain full-auto with MUX_FORENSICS unset."
 todos:
   - id: plan-document
-    content: Plan document — fresh campaign + continue-on-bug + §3.0a nudge, opener, loop
+    content: Plan document — fresh campaign + independent intervene + continue-on-bug + §3.0a nudge
     status: completed
   - id: prep
     content: "RUNTIME: Read plan §0–§3; confirm INPUT_FILE under ASSETS/input/; stop prior stack"
@@ -12,10 +12,10 @@ todos:
     content: "RUNTIME: §1 ALWAYS MUX_FRESH=1 new exec_*; lock run_id; arm §3.0a nudge; start §3 monitor"
     status: pending
   - id: loop
-    content: "RUNTIME: On bug — patch code → pytest → continue THIS run_id (MUX_FRESH=0); keep nudge alive"
+    content: "RUNTIME: On bug — diagnose + cascade pytest (MUX_FORENSICS=0) → patch → continue THIS run_id (MUX_FRESH=0)"
     status: pending
   - id: ship
-    content: "RUNTIME: verify_master + delight + PMQ + stop daemon + kill nudge; write §14 end report"
+    content: "RUNTIME: verify_master + delight + PMQ + stop daemon + kill nudge; write §14; optional §2.1 tape acceptance"
     status: pending
 isProject: false
 ---
@@ -26,6 +26,8 @@ Canonical workflow for a chat that runs Full-auto **and** patches the product wh
 
 **INPUT_FILE** = `<placeholder>` (under `ASSETS/input/`)
 
+**Independent campaigns:** each forensics run is self-contained. Diagnose the bug, patch the producer, add a cascade pytest, continue this `run_id`, and log the intervene in state. Do **not** map failures into predicate-family ledgers or End-* docs during the run — those are optional post-hoc review artifacts, not campaign inputs.
+
 ---
 
 ## Operator card (YOU — read this)
@@ -35,9 +37,10 @@ Canonical workflow for a chat that runs Full-auto **and** patches the product wh
 | You want… | Do this |
 |-----------|---------|
 | Start a campaign | Paste **Session opener** below into a **new** Agent chat. Agent **always** creates a **new** `exec_*` (`MUX_FRESH=1`), arms **§3.0a nudge**, then monitors. No prior execution folders/files. |
-| Bug mid-run | Agent patches **code**, pytest, then **continues the same fresh `run_id`** from the producer stage (`MUX_FRESH=0`). Not a second tape. |
+| Bug mid-run | Agent diagnoses → cascade pytest (`MUX_FORENSICS=0`) → patches **code** → **continues the same fresh `run_id`** (`MUX_FRESH=0`). Logs intervene for later report. Not a second tape. |
 | Status only | Separate status chat. Do not paste the forensics opener there. |
 | Cursor died mid-campaign | Paste **Continue opener** (§0) — continue **this** campaign’s locked `run_id` only; **re-arm §3.0a**. |
+| Post-ship honesty | Optional **§2.1 tape acceptance**: one plain full-auto with **`MUX_FORENSICS` unset** (same INPUT). Keep primary campaigns on `MUX_FORENSICS=1` for telemetry/×3 escalate. |
 | New campaign later | Paste Session opener again → **new** fresh `exec_*`. Old folders are history only. |
 | Abort | Say **STOP** or **PAUSE**. |
 
@@ -55,8 +58,8 @@ Canonical workflow for a chat that runs Full-auto **and** patches the product wh
 ONE chat = ONE campaign = ONE fresh exec_*
 ─────────────────────────────────────────
 Kickoff:     ALWAYS MUX_FRESH=1  → brand-new exec_* (never prior folders)
-On bug:      patch product + pytest → continue THAT exec_* from producer (MUX_FRESH=0)
-Ship / §4 → campaign ends
+On bug:      diagnose → cascade pytest (MUX_FORENSICS=0) → patch product → log intervene → continue THAT exec_* from producer (MUX_FRESH=0)
+Ship / §4 → campaign ends (optional §2.1 tape acceptance: MUX_FORENSICS unset)
 Next campaign chat → new MUX_FRESH=1 again
 ```
 
@@ -64,6 +67,7 @@ Next campaign chat → new MUX_FRESH=1 again
 |------|--------|
 | **Always fresh at kickoff** | Session opener → stop prior stack → `MUX_FRESH=1` → new `exec_*`. **Never** bind `MUX_RUN_ID` to an old campaign directory. **Never** copy `master/`, `understanding/`, or `.stage_done` from prior executions into the new run. |
 | **No previous-execution workflow** | Old `exec_*` are forensic history / optional fixture source for **tests** only — not runtime inputs. Knowledge from past failures must already be in code. |
+| **Independent of family ledgers** | Do not open or update predicate-family / End-* docs as part of the campaign loop. Fix the bug; leave clustering for a later review report. |
 | **Continue this run after bugs** | Diagnose → narrow product patch → regression test → resume **this** `run_id` from producer. Prove the fix on the run that hit the bug. |
 | **Do not spawn a second exec to verify** | Forbidden: `MUX_FRESH=1` mid-campaign “to make sure the patch works.” That re-burns early stages and undoes the continue model. |
 | **New campaign only when** | (a) operator pastes Session opener again, (b) unrecoverable corruption of **this** exec (document + new fresh), or (c) operator STOP then later starts over. |
@@ -78,7 +82,7 @@ Homunculus / driver heals are **not** diagnosis. The parent agent patches root c
 4. **Never stop after subagents** — parent **synthesizes, patches, pytest, continues this run**, then monitors.
 5. **Driver exit = trigger** — patch if needed, **restart driver on this campaign’s `run_id`** (`MUX_FRESH=0`, §3.4.1).
 6. **Track predicate flip** — if unchanged after a patch, iterate the fix; do **not** start a second execution to “check.”
-7. **Persist state** in `.cursor/plans/full_auto_forensics_state.md` every intervene.
+7. **Persist state** in `.cursor/plans/full_auto_forensics_state.md` every intervene (predicate, producer, files touched, test added — enough for a later report).
 8. **On heal/predicate spin** (same predicate ×3, or idle ≥8 min with identical errors): stop blind heals → fault tree §6 → **product patch + pytest** → continue this run.
 
 ### 0.3 The parent MUST NOT
@@ -91,6 +95,7 @@ Homunculus / driver heals are **not** diagnosis. The parent agent patches root c
 - Waive quality, stub MusicGen, fake `stage_done`, or skip optional without a product-defined path.
 - Assume CPU/ffmpeg/chatterbox activity equals stage progress.
 - Run two forensics campaign chats at once (dual-driver races).
+- Pause the campaign to map or update predicate-family / End-* ledgers.
 
 ### Session opener (paste exactly — always starts FRESH)
 
@@ -100,8 +105,10 @@ Do **not** add env vars to the user message. Agent reads §1 and launches with `
 Follow .cursor/plans/full_auto_forensics_run.plan.md.
 INPUT_FILE = <basename under ASSETS/input/>
 Always start FRESH (MUX_FRESH=1): new exec_* only — do not use any previous execution folders or files.
-On every bug in THIS run: diagnose → patch root cause into code → pytest → continue the SAME run_id (MUX_FRESH=0) from producer.
+On every bug in THIS run: diagnose → patch producer root cause into code → add/extend a cascade pytest with MUX_FORENSICS=0 (not pin-only) → continue the SAME run_id (MUX_FRESH=0) from producer.
+Do not soft-complete sealed consumers (edl/mix/master_finalize) or rely on e2e quality waivers.
 Never create a second execution to verify a late-stage fix. If heal/predicate unchanged ×3 or idle spin: escalate, patch product, then continue this run.
+Do not map bugs to predicate-family / End-* ledgers during the campaign — keep the run independent; log each intervene plainly so a later report can review.
 Immediately after launch: arm §3.0a automated nudge (AGENT_LOOP_TICK_forensics every 4m with notify_on_output). Keep that loop alive until ship or §4.
 Run until ship or §4 hard blocker. Update .cursor/plans/full_auto_forensics_state.md every intervene.
 Enter the continuous loop (§3) immediately after launch. Do not end the chat until ship or §4 hard blocker.
@@ -113,8 +120,10 @@ Enter the continuous loop (§3) immediately after launch. Do not end the chat un
 Follow .cursor/plans/full_auto_forensics_run.plan.md.
 INPUT_FILE = mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
 Always start FRESH (MUX_FRESH=1): new exec_* only — do not use any previous execution folders or files.
-On every bug in THIS run: diagnose → patch root cause into code → pytest → continue the SAME run_id (MUX_FRESH=0) from producer.
+On every bug in THIS run: diagnose → patch producer root cause into code → add/extend a cascade pytest with MUX_FORENSICS=0 (not pin-only) → continue the SAME run_id (MUX_FRESH=0) from producer.
+Do not soft-complete sealed consumers (edl/mix/master_finalize) or rely on e2e quality waivers.
 Never create a second execution to verify a late-stage fix. If heal/predicate unchanged ×3 or idle spin: escalate, patch product, then continue this run.
+Do not map bugs to predicate-family / End-* ledgers during the campaign — keep the run independent; log each intervene plainly so a later report can review.
 Immediately after launch: arm §3.0a automated nudge (AGENT_LOOP_TICK_forensics every 4m with notify_on_output). Keep that loop alive until ship or §4.
 Run until ship or §4 hard blocker. Update .cursor/plans/full_auto_forensics_state.md every intervene.
 Enter the continuous loop (§3) immediately after launch. Do not end the chat until ship or §4 hard blocker.
@@ -129,6 +138,8 @@ Follow .cursor/plans/full_auto_forensics_run.plan.md.
 Continue the locked campaign in .cursor/plans/full_auto_forensics_state.md (this chat’s run_id only).
 MUX_FRESH=0 — do not create a new execution; do not switch to any older exec_*.
 Re-arm §3.0a AGENT_LOOP_TICK_forensics if the nudge shell is dead.
+On every bug: diagnose → cascade pytest (MUX_FORENSICS=0) → patch producer → continue this run_id.
+Do not map to predicate-family / End-* ledgers — log intervenes plainly for later review.
 Re-enter §3 monitor → intervene → patch → continue until ship or §4 hard blocker.
 Update the state file every intervene.
 ```
@@ -204,7 +215,17 @@ All must hold unless a **documented hard blocker** (§4):
 | **Cover + publish** | `episode_cover_generate` + `podcast_publish` stage_done, or evidenced §4 blocker for S3 |
 | **North star** | [NORTH_STAR.md](../../NORTH_STAR.md) human-listen rubric |
 
-**Forbidden shortcuts:** `INTERVIEW_MUX_E2E_QUALITY_WAIVERS`, stub MusicGen, soft listenability, fake `stage_done`, predicate waivers not in product config.
+**Forbidden shortcuts:** `INTERVIEW_MUX_E2E_QUALITY_WAIVERS`, stub MusicGen, soft listenability, fake `stage_done`, predicate waivers not in product config. Soft-completing sealed consumers (`edl` / `mix` / `master_finalize`) on incomplete producers is forbidden.
+
+### 2.1 Optional tape acceptance (after §2 ship)
+
+Primary campaigns stay on **`MUX_FORENSICS=1`** (telemetry + ×3 escalate). After a clean §2 ship, optionally prove production honesty:
+
+1. New Agent chat → Session opener with same `INPUT_FILE`, but agent launches **without** `MUX_FORENSICS` (omit the env; do not set `=0` as a waiver path).
+2. Same ship bar (§2). Prefer no repeat of the same heal/predicate classes already fixed in this campaign.
+3. Prefer **2×** clean ships when major producer constitutions changed.
+
+Do **not** use tape acceptance mid-campaign to “verify a late patch” — that is a second fresh exec and is forbidden while THIS run is still open.
 
 ---
 
@@ -224,7 +245,7 @@ Cursor Agent turns end. Without a nudge, the chat **sleeps until you click**. Th
 ```bash
 while true; do
   sleep 240
-  echo 'AGENT_LOOP_TICK_forensics {"prompt":"§3.1 monitor forensics run (locked run_id in full_auto_forensics_state.md): check job/progress/driver/nudge PID; intervene per plan if triggered; patch+continue same run_id; update state; continue until ship or hard blocker. Re-arm §3.0a if this loop died."}'
+  echo 'AGENT_LOOP_TICK_forensics {"prompt":"§3.1 monitor forensics run (locked run_id in full_auto_forensics_state.md): check job/progress/driver/nudge PID; intervene per plan if triggered; diagnose + cascade pytest (MUX_FORENSICS=0) then patch+continue same run_id; update state; continue until ship or hard blocker. Re-arm §3.0a if this loop died."}'
 done
 ```
 
@@ -264,7 +285,7 @@ After a product patch, prove the fix in this order — **stop at the first green
 
 | # | Level | When |
 |---|-------|------|
-| 1 | **Unit / fixture pytest** | Optional: extract **minimal** failing artifacts into `tests/fixtures/` (test-only; runtime still uses THIS fresh run) |
+| 1 | **Cascade fixture pytest** (`MUX_FORENSICS=0`) | Prefer cascade over pin-only. Fixture artifacts may be extracted from **this** run for tests only. |
 | 2 | **Continue THIS run from producer** | `MUX_FRESH=0` + `--from-stage <producer>` or driver restart §3.4.1 |
 | 3 | **Predicate re-check** §3.3 | Required after every continue |
 | 4 | **New fresh campaign** | Only new Session opener / corruption of **this** exec — **not** to verify a late-stage patch |
@@ -423,7 +444,18 @@ Path: `.cursor/plans/full_auto_forensics_state.md`
 - **patches_this_session:** []
 - **hard_blocker:** null | { reason, evidence }
 - **monitor_loop:** every 4m (PID <n>) | DEAD — re-arm §3.0a
-- **notes:** No prior exec folders used. Learning is in code. Nudge §3.0a required.
+- **notes:** No prior exec folders used. Learning is in code. Nudge §3.0a required. Independent of family ledgers.
+```
+
+On each intervene, append a short log entry (enough for a later review report):
+
+```markdown
+### iN — <timestamp>
+- **predicate:** file:function — value
+- **producer:** <stage_id>
+- **fix:** <one-line root cause + files>
+- **test:** tests/<file>.py::<name> (MUX_FORENSICS=0)
+- **continued_from:** <stage_id>
 ```
 
 ---
@@ -469,7 +501,7 @@ Stop the loop **only** when evidenced — document in state file + §14 report:
 
 ## 6. Forensics protocol
 
-**No continue before predicate understood. No second fresh exec instead of a patch. No prior-campaign folders.**
+**No continue before predicate understood. No second fresh exec instead of a patch. No prior-campaign folders. No mid-run family-ledger mapping.**
 
 ### Fault tree
 
@@ -488,15 +520,17 @@ Launch **Agent 1 (Evidence)** and **Agent 2 (Product intent)** in parallel.
 
 1. Write one-paragraph synthesis (predicate + producer + fix shape)
 2. Patch product **code** (narrow diff) — learning stays in git, not in old exec folders
-3. Add/adjust regression test asserting predicate flip (fixture from **this** run ok for tests)
+3. Add/adjust **cascade** regression test with `MUX_FORENSICS=0` asserting predicate flip (fixture from **this** run ok for tests)
 4. Run `pytest tests/<relevant>.py -q`
 5. Continue per §3.4 (**this** `run_id`, `MUX_FRESH=0`)
 6. §3.3 verify predicate
-7. Update state file → return to §3.1 monitor
+7. Update state file (iN log entry) → return to §3.1 monitor
 
 **Do not** report subagent output to the user and stop.  
 **Do not** `MUX_FRESH=1` because “we need a clean slate to test the fix.”  
 **Do not** copy files from a previous `exec_*` into this run.
+**Do not** soft-complete sealed consumers or use e2e quality waivers.
+**Do not** divert into predicate-family / End-* ledger edits mid-campaign.
 
 #### Agent 1 — Evidence (prompt skeleton)
 
@@ -526,12 +560,12 @@ Read driver/homunculus/gates/stage_completion. Do not patch.
 
 | Step | Action |
 |------|--------|
-| 1 | Match repair to failure **shape** |
+| 1 | Match repair to failure **shape** (producer, contract, class) |
 | 2 | Narrow product **code** fix (checker, writer, commit, agenda seed-order) |
-| 3 | Regression test: predicate **flips** (fixture from this run ok for tests only) |
+| 3 | Cascade regression test (`MUX_FORENSICS=0`): predicate **flips** (fixture from this run ok for tests only) |
 | 4 | `pytest` affected tests before continue |
 | 5 | Continue **this** `run_id` from producer (`MUX_FRESH=0`) |
-| 6 | Forbidden: false `stage_done`, stubs, waivers, downstream heal of producer bug, second fresh exec to verify, copying prior `exec_*` files |
+| 6 | Forbidden: false `stage_done`, stubs, waivers, soft-complete sealed consumers, downstream heal of producer bug, second fresh exec to verify, copying prior `exec_*` files, mid-run family-ledger mapping |
 
 ### Known failure shapes (from production runs)
 
@@ -591,6 +625,7 @@ Read driver/homunculus/gates/stage_completion. Do not patch.
 - `heal_routing.PLAYBOOK_REGISTRY` for `error_class` → action
 - After `seg_*` id change: `audit_segment_lineage.py`
 - Publishability: selection leads EDL; PMQ before ship
+- Campaigns stay independent of family ledgers; intervenes are logged for later review
 
 ### Forbidden
 
@@ -601,6 +636,7 @@ Read driver/homunculus/gates/stage_completion. Do not patch.
 - Healing mix/finalize for EDL/VO producer bugs
 - Clearing `stage_done` without invalidate when artifacts changed
 - Assuming auto-heal fixed predicate without re-read
+- Mapping or editing predicate-family / End-* ledgers as a campaign step
 
 ---
 
@@ -617,6 +653,7 @@ Read driver/homunculus/gates/stage_completion. Do not patch.
 | Monitor without intervene | 15+ min idle | §3.2 trigger #3 |
 | Continue without predicate check | Hollow `vo_synthesize` persisted | §3.3 |
 | Continue without patch while predicate unchanged | Heal-only overnight spin | §3.2 #5/#8 + §6 |
+| Divert into family-ledger taxonomy mid-run | Campaign stalls on docs instead of patching | §0.1 independent campaigns; log for later report |
 | MusicGen before Phase A seal | ~25 min orphaned GPU | G5 + delivery-phases |
 | `g1_complete` milestone lie | Sticky-OR stored true | G6 |
 | premature_complete ×3 advance | Skip assembly after ×3 | G7 hard pin |
@@ -636,7 +673,7 @@ When ship bar met or §4 hard blocker:
 (INPUT_FILE → outcome, run_id, fresh_launches=1, driver_restarts, interventions)
 
 ## Root causes fixed
-(predicate → producer → class → files changed, per intervention — each continued **this** fresh run)
+(predicate → producer → class → files changed + cascade test, per intervention — each continued **this** fresh run)
 
 ## Guardrails added
 (tests, checkers, playbook fixes — learning in code)
@@ -645,7 +682,10 @@ When ship bar met or §4 hard blocker:
 (ruled out — including second-fresh-to-verify and attaching to old exec folders)
 
 ## Quality & cleanup
-(verify_master, delight, PMQ, lineage audit, daemon stopped)
+(verify_master, delight, PMQ, lineage audit, daemon stopped; optional §2.1 tape acceptance notes)
+
+## Later review (optional)
+(state intervene log is enough for a separate post-hoc clustering report — do not block ship on family-ledger updates)
 ```
 
 ---
@@ -666,7 +706,8 @@ Archive `.cursor/plans/full_auto_forensics_state.md` into the end report (or mar
 **Kickoff always FRESH (new exec_*) → lock this run_id → monitor until ship or §4.**  
 On every bug: fault tree → subagents → **patch CODE + pytest + continue THIS run** → verify predicate → monitor again.
 
-Never attach to or copy prior campaign executions. Prior learning is already in code.
+Never attach to or copy prior campaign executions. Prior learning is already in code.  
+Never pause the campaign to map predicate families — fix, log, move on; review later.
 
 VO/G1: missing pickup → adjudicate then synthesize; WAV exists but check fails → matcher/commit; G1 ok with empty synthesis is **not** success.
 

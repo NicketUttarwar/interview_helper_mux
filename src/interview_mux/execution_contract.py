@@ -191,6 +191,45 @@ def classify_vo_violation(message: str) -> VoViolation:
     return VoViolation("unknown", detail=message)
 
 
+def _plan_write_permitted(ctx: RunContext) -> bool:
+    """True when the active stage may persist mastering/mastering_plan.json.
+
+    Reconcile runs from every delivery stage (``delivery_batch``). Once the plan
+    owner sealed it, the seat sync must stay a read-side observation instead of
+    an authority_denied write (exec_11871 junction remaster).
+    """
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        if not stage_now:
+            # No active stage (CLI / ladder helpers) — ownership cannot resolve a
+            # writer, so keep legacy behaviour instead of silently dropping seats.
+            return True
+        allowed, reason = write_permitted(
+            ctx,
+            "mastering/mastering_plan.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        try:
+            ctx.log(
+                "execution contract: mastering_plan sealed — seat sync stays read-only "
+                f"(stage={stage_now or 'unknown'}, {reason})",
+                level="info",
+                stage=stage_now or None,
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+
 def reconcile_execution_contract(ctx: RunContext, *, reason: str = "") -> dict[str, Any]:
     """Sync vo_seats on mastering_plan from gap_report; persist execution_contract.json.
 
@@ -236,7 +275,7 @@ def reconcile_execution_contract(ctx: RunContext, *, reason: str = "") -> dict[s
                             new_seats = old_seats
                     except Exception:
                         pass
-            if new_seats != old_seats:
+            if new_seats != old_seats and _plan_write_permitted(ctx):
                 script = dict(script)
                 script["vo_seats"] = new_seats
                 plan = dict(plan)

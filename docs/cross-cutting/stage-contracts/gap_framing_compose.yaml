@@ -12,11 +12,48 @@ outputs:
 - path: understanding/gap_report.json
   schema: gap_report.schema.json
   staging: true
+- path: understanding/gap_framing_plan.json
+- path: understanding/gap_vo_context_audit.json
+- path: understanding/speaker_delivery_plan.json
 inputs:
   hard:
   - path: understanding/gap_evaluations.json
     producer: missing_framing
-  soft: []
+  soft:
+  - path: understanding/gap_report.json
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
+  - path: understanding/nugget_corpus.json
+    producer: nugget_corpus_mine
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/talking_points.json
+    producer: talking_points_compose
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/value_features.json
+  - path: understanding/reorder_bridges.json
+    producer: full_master_ranking
+  - path: understanding/speaker_delivery_plan.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/boundaries.json
+    producer: boundary_detection
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
 sufficiency:
 - path: gaps
   rule: min_rows
@@ -24,7 +61,30 @@ sufficiency:
 propagation:
   invalidates_stages: []
 consumers:
-- optimal_questions
+- mastering_plan_confirm
+- delivery_brief_build
+- chapter_close_hitch
+- full_master_ranking
+- nugget_corpus_mine
+- nugget_layup_compose
+- gap_report_sanitize
+- gap_framing_recompose
+- selection_framing_apply
+- air_script_seams
+- air_contract_sanitize
+- transitions
+- sound_design_plan
+- vo_line_adjudicate
+- vo_synthesize
+- sound_design_vo_finalize
+- edl
+- assembly_preview
+- listen_delight_audit
+- mix
+- junction_snip_qa
+- master_finalize
+- master_transcript_build
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

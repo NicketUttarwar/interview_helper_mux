@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -179,6 +180,20 @@ def post_commit_validate(ctx: Any, stage_key: str) -> list[str]:
         wav = ctx.final_path("master", "assembly_preview.wav")
         if not wav.is_file():
             errors.append("assembly_preview.wav missing on disk")
+    if stage_key == "transitions" and any(
+        "redundant with framing VO" in str(e) for e in errors
+    ):
+        try:
+            from interview_mux.gap_framing import heal_redundant_framing_transitions
+
+            healed = heal_redundant_framing_transitions(ctx)
+            if healed.get("dropped"):
+                result = stage_acceptance_ok(
+                    ctx, stage_key, staged=False, include_downstream=False
+                )
+                errors = list(result.all_errors or [])
+        except Exception:
+            pass
     if stage_key == "gap_framing_compose" and any(
         "has no interviewer line" in str(e) for e in errors
     ):
@@ -327,7 +342,30 @@ def invalidate_downstream_memory(ctx: Any, from_stage: str) -> list[str]:
 
         invalidate_stage_summaries(ctx, downstream)
         invalidate_entries_for_stages(ctx, downstream)
+    _record_invalidation_epoch(ctx, from_stage, downstream)
     return stamped
+
+
+def _record_invalidation_epoch(ctx: Any, from_stage: str, downstream: tuple[str, ...]) -> None:
+    """Stamp the invalidation epoch (plan §5.4 rail 2). Observer only — never raises.
+
+    `RunContext.clear_from` funnels both of its branches through
+    `invalidate_downstream_memory`, so this is the one place every real
+    invalidation passes. `master_qc.verify_master` reads what it writes and
+    refuses a master that predates the epoch.
+    """
+    try:
+        from interview_mux.artifact_dependency_graph import precision_eligible
+        from interview_mux.master_epoch import record_invalidation
+
+        record_invalidation(
+            ctx,
+            from_stage,
+            downstream,
+            mode="precise" if precision_eligible(from_stage) else "blanket",
+        )
+    except Exception:
+        return
 
 
 def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
@@ -442,7 +480,7 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
 def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[str]) -> None:
     if not lifecycle_cfg().get("fingerprint_enabled", True):
         return
-    _binary_suffixes = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+    from interview_mux.stage_acceptance import BINARY_ARTIFACT_SUFFIXES as _binary_suffixes
     for rel in flushed_paths:
         if rel not in STAGE_ARTIFACT_DISK_PATHS.values():
             continue
@@ -471,24 +509,239 @@ def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[st
             continue
 
 
+MISSING_HARD_INPUT_BLOCKER = "missing_hard_input"
+_ENV_HARD_INPUT_STRICT = "MUX_CONTRACT_HARD_INPUT_STRICT"
+_PRESTAGE_REFUSAL_ATTR = "_prestage_refusals"
+
+
+def hard_input_strict() -> bool:
+    """Is an absent declared hard input fatal at `PRESTAGE`? Default **NO**.
+
+    Contract population is in flight, and a hard input on a conditionally produced
+    artifact is the likely mistake: `audio_preclean` may be marked done with only
+    `preclean/skip.json` on disk while its primary is `preclean/isolated.wav`, so a
+    contract naming that primary would crash every skipped-preclean run. Under the
+    live default brain a crash is strictly worse than a recorded refusal, so the
+    default is lenient and `MUX_CONTRACT_HARD_INPUT_STRICT=1` restores the old
+    fatal behaviour for CI and forensics runs that *want* to fail loudly.
+    """
+    return str(os.environ.get(_ENV_HARD_INPUT_STRICT) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _missing_hard_input(
+    ctx: Any,
+    stage_key: str,
+    rel: str,
+    *,
+    producer: str | None = None,
+    phase: LifecyclePhase = LifecyclePhase.PRESTAGE,
+) -> str | None:
+    """Handle an absent declared hard input. Returns a fatal message, or None.
+
+    The refusal path is the established "cannot proceed, record it, do not crash"
+    machinery: a `defect_ledger` row (so the walk can advance while `master.wav`
+    stays reachable, and so PMQ sees a ship-bar risk on the critical path) plus a
+    `stage_resilience` event and an operator-visible warning. Nothing is silent;
+    what changes is refusal instead of exception.
+    """
+    message = f"missing input {rel} for {stage_key}"
+    if hard_input_strict():
+        return message
+    detail = {
+        "artifact": rel,
+        "producer": str(producer or ""),
+        "phase": phase.value,
+        "cause": "absent",
+    }
+    try:
+        from interview_mux.defect_ledger import record_defect
+
+        record_defect(
+            ctx,
+            stage=stage_key,
+            blocker=MISSING_HARD_INPUT_BLOCKER,
+            artifact=rel,
+            detail=detail,
+        )
+    except Exception:
+        pass
+    try:
+        from interview_mux.stage_resilience import record_resilience_event
+
+        record_resilience_event(
+            ctx,
+            stage_key,
+            event="prestage_missing_hard_input",
+            action="refuse",
+            reasons=[message],
+            detail=detail,
+        )
+    except Exception:
+        pass
+    try:
+        ctx.log(
+            f"{stage_key}: declared hard input {rel} is absent — recorded as "
+            f"{MISSING_HARD_INPUT_BLOCKER} (not raising; "
+            f"{_ENV_HARD_INPUT_STRICT}=1 to make it fatal)",
+            level="warning",
+            stage=stage_key,
+        )
+    except Exception:
+        pass
+    if phase == LifecyclePhase.PRESTAGE:
+        _note_prestage_refusal(ctx, stage_key, {**detail, "blocker": MISSING_HARD_INPUT_BLOCKER})
+    return None
+
+
+def _refusal_memo(ctx: Any) -> dict[str, list[dict[str, Any]]] | None:
+    memo = getattr(ctx, _PRESTAGE_REFUSAL_ATTR, None)
+    if isinstance(memo, dict):
+        return memo
+    memo = {}
+    try:
+        setattr(ctx, _PRESTAGE_REFUSAL_ATTR, memo)
+    except Exception:
+        return None
+    return memo
+
+
+def _note_prestage_refusal(ctx: Any, stage_key: str, detail: dict[str, Any]) -> None:
+    memo = _refusal_memo(ctx)
+    if memo is None:
+        return
+    memo.setdefault(stage_key, []).append(dict(detail))
+
+
+def prestage_refusals(ctx: Any, stage_key: str) -> tuple[dict[str, Any], ...]:
+    """What the most recent `PRESTAGE` evaluation of `stage_key` refused on.
+
+    Per-process and re-derived by every evaluation, deliberately not read back
+    from the defect ledger: a ledger row stays open until the stage produces, so
+    a stage refused once would keep looking refused after its input arrived.
+    """
+    memo = getattr(ctx, _PRESTAGE_REFUSAL_ATTR, None)
+    if not isinstance(memo, dict):
+        return ()
+    rows = memo.get(stage_key)
+    return tuple(rows) if isinstance(rows, list) else ()
+
+
+def prestage_refused(ctx: Any, stage_key: str) -> bool:
+    """Did this stage's last `PRESTAGE` evaluation refuse it? Consumes the refusal.
+
+    The second channel `run_single_stage` needs. `run_phase_checks` can only
+    *return errors*, and an error there becomes a `ValueError`, so a lenient
+    refusal had no way to stop the stage — it recorded the defect and ran on.
+    True here means "recorded, cannot proceed, do not raise": the caller returns.
+
+    Routed through `dispatch_door.refuse_dispatch` for the same reason a cap or
+    no-delta refusal is: one defect row keyed on the output that will not appear,
+    one attempt-memo row so the walk stops re-offering a stage whose state has
+    not changed (self-invalidating — the memo lapses the moment the missing input
+    lands), one homunculus ledger row, one reachability line. `refuse_dispatch`
+    never raises and `MISSING_HARD_INPUT_BLOCKER` is deliberately absent from
+    `ship_reachability.TERMINAL_BLOCKERS`, so a spurious declaration cannot sever
+    reachability.
+
+    This is not the only thing stopping a stage that cannot run: the downstream
+    rails (`stage_input_checks.require_stage_inputs`, seed order,
+    `llm_flow_hardening`, each stage body's labelled reads) still cover every case
+    a contract does not declare. This channel only makes a *declared* refusal
+    clean instead of a crash.
+    """
+    rows = prestage_refusals(ctx, stage_key)
+    if not rows:
+        return False
+    memo = getattr(ctx, _PRESTAGE_REFUSAL_ATTR, None)
+    if isinstance(memo, dict):
+        memo.pop(stage_key, None)
+    artifacts = [str(row.get("artifact") or "") for row in rows if row.get("artifact")]
+    try:
+        from interview_mux.dispatch_door import DispatchVerdict, refuse_dispatch
+
+        refuse_dispatch(
+            ctx,
+            stage_key,
+            DispatchVerdict(
+                False,
+                MISSING_HARD_INPUT_BLOCKER,
+                {"stage": stage_key, "inputs": artifacts, "refusals": list(rows)},
+            ),
+            source="prestage",
+        )
+    except Exception:
+        pass
+    try:
+        ctx.log(
+            f"{stage_key}: refused before start — declared hard input(s) "
+            f"{', '.join(artifacts[:4]) or 'absent'} missing",
+            level="warning",
+            stage=stage_key,
+        )
+    except Exception:
+        pass
+    return True
+
+
 def run_phase_checks(ctx: Any, stage_key: str, phase: LifecyclePhase) -> list[str]:
-    """Pre-stage / pre-call lifecycle gates."""
+    """Pre-stage / pre-call lifecycle gates.
+
+    An error returned from the `PRESTAGE` phase becomes a `ValueError` in
+    `pipeline.run_single_stage`, so what goes in this list decides whether a
+    declared dependency can crash a live run. Two causes, deliberately handled
+    differently — see `_missing_hard_input`:
+
+    * **absent** — upstream has not produced it (yet, or at all on this tape).
+      Recorded as a defect and a resilience event; never fatal by default.
+    * **stale stamp** — produced and then invalidated. A genuine ordering
+      problem, still fatal, and independently enforced by
+      `delivery_guardrails.upstream_stale_blockers` on the same code path.
+
+    A lenient refusal is also published on `ctx` for `prestage_refused`, which is
+    how `run_single_stage` stops the stage without raising. Each `PRESTAGE`
+    evaluation clears this stage's refusals first, so the answer always describes
+    the tree as it is now.
+    """
     errors: list[str] = []
-    from interview_mux.stage_contract import evaluate_when, load_contract
+    if phase == LifecyclePhase.PRESTAGE:
+        memo = _refusal_memo(ctx)
+        if memo is not None:
+            memo.pop(stage_key, None)
+    from interview_mux.stage_contract import evaluate_when, is_path_spec, load_contract
 
     contract = load_contract(stage_key)
     if contract:
         for inp in contract.inputs:
-            if not inp.hard:
+            if not inp.hard or not inp.path:
                 continue
-            if not evaluate_when(inp.when, ctx):
+            # A declared family (`vo_pickup/`, `glob:...`) can never satisfy
+            # `artifact_exists`, so treating one as a required file would refuse the
+            # stage forever. Families are checked by sufficiency, not here.
+            if is_path_spec(inp.path):
                 continue
-            if inp.path and not ctx.artifact_exists(inp.path):
-                errors.append(f"missing input {inp.path} for {stage_key}")
-            elif inp.path:
-                stale = read_stale_guard(ctx, inp.path, consumer_stage=stage_key)
-                if stale:
-                    errors.append(stale)
+            try:
+                required = evaluate_when(inp.when, ctx)
+            except Exception:
+                # An unevaluable condition is not evidence that the input is
+                # required — `ship_reachability` makes the same call.
+                required = False
+            if not required:
+                continue
+            if not ctx.artifact_exists(inp.path):
+                message = _missing_hard_input(
+                    ctx, stage_key, inp.path, producer=inp.producer, phase=phase
+                )
+                if message:
+                    errors.append(message)
+                continue
+            stale = read_stale_guard(ctx, inp.path, consumer_stage=stage_key)
+            if stale:
+                errors.append(stale)
     if phase == LifecyclePhase.PRESTAGE and errors:
         return errors
     # pre_call adds schema preflight for LLM stages

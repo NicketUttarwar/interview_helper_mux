@@ -325,6 +325,27 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             actions.append({"action": "reconcile_ordered_vs_excluded"})
         out["excluded_segment_ids"] = pruned
 
+    # 7b. exclude_rationales may only describe excluded ids — never air-order ids.
+    # Seat-freeze preserve can restore prior order while leaving CTA/leftover
+    # rationales on those air ids (exec_11630: media_ip_cta on seg_023/041).
+    try:
+        from interview_mux.artifact_repairs import prune_stale_exclude_rationales
+
+        before_rat = (
+            dict(out.get("exclude_rationales"))
+            if isinstance(out.get("exclude_rationales"), dict)
+            else {}
+        )
+        out, prune_notes = prune_stale_exclude_rationales(out)
+        if prune_notes or before_rat != (
+            dict(out.get("exclude_rationales"))
+            if isinstance(out.get("exclude_rationales"), dict)
+            else {}
+        ):
+            actions.append({"action": "prune_stale_exclude_rationales"})
+    except Exception:
+        pass
+
     # 8. stamp lock
     try:
         from interview_mux.order_hash import bump_order_lock

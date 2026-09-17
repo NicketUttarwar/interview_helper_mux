@@ -166,32 +166,6 @@ def evaluate_stage_resilience(
     )
 
 
-def before_mark_done(ctx: RunContext, stage_id: str) -> StageResilienceDecision:
-    """Refuse mark_done when staged outputs are incomplete / unacceptable."""
-    from interview_mux.stage_completion import staged_artifacts_acceptable
-    from interview_mux.write_staging import has_pending_writes
-
-    if has_pending_writes(ctx, stage_id):
-        ok, reason = staged_artifacts_acceptable(ctx, stage_id)
-        if not ok:
-            return StageResilienceDecision(
-                action="halt",
-                reasons=[reason or "staged_artifacts_unacceptable"],
-                remediation=["repair_outputs", "operator_escalate"],
-                acceptance_ok=False,
-            )
-        # Pending writes must flush before durable done — reconcile path.
-        return StageResilienceDecision(
-            action="reconcile",
-            reasons=["pending_writes_unflushed"],
-            remediation=["flush_then_mark_done"],
-            acceptance_ok=True,
-        )
-    decision = evaluate_stage_resilience(ctx, stage_id, staged=False)
-    if decision.action in ("retry", "escalate", "halt") and decision.acceptance_ok is False:
-        decision.action = "halt"
-    return decision
-
 
 def after_flush_resilience(
     ctx: RunContext,
@@ -268,11 +242,6 @@ def validate_staged_before_flush(ctx: RunContext, stage_id: str) -> StageResilie
     )
     return decision
 
-
-def reconcile_stage_if_stale(ctx: RunContext, stage_id: str) -> bool:
-    from interview_mux.stage_completion import reconcile_stage_done_marker
-
-    return bool(reconcile_stage_done_marker(ctx, stage_id))
 
 
 def _read_report(ctx: RunContext) -> dict[str, Any]:

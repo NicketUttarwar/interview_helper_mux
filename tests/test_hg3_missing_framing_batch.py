@@ -124,6 +124,21 @@ def test_hg3_llm_scored_rows_heal_mark(ctx: RunContext) -> None:
     assert seed_stage_complete(ctx, _STAGE) is True
 
 
+def test_hg3_repair_default_value_with_scores_is_keep_eligible(ctx: RunContext) -> None:
+    """exec_11630: schema-patched LLM rows must not poison coverage leftovers."""
+    from interview_mux.stages.gaps import _split_keep_and_leftover
+
+    row = _llm_row("seg_001")
+    row["_meta"] = {"filled_by": "repair_gap_evaluations", "reason": "default_value"}
+    keep, leftover = _split_keep_and_leftover(["seg_001"], [row])
+    assert leftover == []
+    assert [r["segment_id"] for r in keep] == ["seg_001"]
+    ctx.write_json(_REL, {"evaluations": [row]}, skip_handoff=True)
+    assert stage_artifact_incompleteness(ctx, _STAGE) is None
+    out = heal_or_refuse_mark(ctx, _STAGE, force=True)
+    assert out.get("marked") is True
+
+
 def test_hg3_skip_stub_while_yes_still_refuses(ctx: RunContext) -> None:
     ctx.write_json(
         "run_meta.json",
@@ -255,7 +270,7 @@ def test_hg3_leftover_split_keeps_llm_rows() -> None:
     assert leftover == ["seg_002", "seg_003"]
 
 
-def test_hg3_coverage_cap_halts_without_llm(
+def test_hg3_coverage_cap_seals_without_llm(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from interview_mux.stages.gaps import run_missing_framing
@@ -299,5 +314,98 @@ def test_hg3_coverage_cap_halts_without_llm(
         },
         skip_handoff=True,
     )
-    with pytest.raises(RuntimeError, match="coverage exhausted"):
-        run_missing_framing(ctx)
+    run_missing_framing(ctx)
+    assert ctx.is_done(_STAGE)
+    doc = ctx.read_json(_REL)
+    row = (doc.get("evaluations") or [])[0]
+    assert (row.get("_meta") or {}).get("filled_by") == "coverage_exhausted_accept"
+    assert stage_artifact_incompleteness(ctx, _STAGE) is None
+
+
+def test_hg3_same_invoke_cap_seals_leftovers(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same invoke: leftover volleys hit CAP → seal (not batch_fill thrash)."""
+    from interview_mux.stages.gaps import (
+        MISSING_FRAMING_COVERAGE_CAP,
+        run_missing_framing,
+    )
+
+    monkeypatch.setattr(
+        "interview_mux.boundary_enrich.restamp_run_span_speakers",
+        lambda _c: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stages.gaps.maybe_run_pre_stage_specialists",
+        lambda *_a, **_k: None,
+    )
+
+    def _empty_llm(*_a, **_k):
+        return {"artifacts": {"evaluations": []}}
+
+    monkeypatch.setattr("interview_mux.llm_simple.run_llm_stage_simple", _empty_llm)
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {
+            "thesis": "Same-invoke coverage cap seal fixture.",
+            "topics": [
+                {
+                    "name": "Origin",
+                    "summary": "Opening beat",
+                    "segment_ids": ["seg_001"],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 5000,
+                    "speaker_id": "spk_001",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "text": "Kept.",
+                    "topic_tags": ["origin_story"],
+                },
+                {
+                    "segment_id": "seg_002",
+                    "start_ms": 5000,
+                    "end_ms": 10000,
+                    "speaker_id": "spk_002",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "text": "Leftover.",
+                    "topic_tags": ["origin_story"],
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    # One LLM keep + one batch_fill leftover at passes=CAP-1 → same-invoke seal.
+    assert MISSING_FRAMING_COVERAGE_CAP >= 2
+    ctx.write_json(
+        _REL,
+        {
+            "evaluations": [_llm_row("seg_001"), _filled_row("seg_002")],
+            "_meta": {"coverage_passes": MISSING_FRAMING_COVERAGE_CAP - 1},
+        },
+        skip_handoff=True,
+    )
+    run_missing_framing(ctx)
+    assert ctx.is_done(_STAGE)
+    doc = ctx.read_json(_REL)
+    by_id = {
+        str(r.get("segment_id")): r
+        for r in (doc.get("evaluations") or [])
+        if isinstance(r, dict)
+    }
+    leftover = by_id["seg_002"]
+    assert (leftover.get("_meta") or {}).get("filled_by") == "coverage_exhausted_accept"
+    assert (leftover.get("_meta") or {}).get("reason") == "coverage_cap_seal"
+    assert stage_artifact_incompleteness(ctx, _STAGE) is None
+    assert "batch_fill" not in str(stage_artifact_incompleteness(ctx, _STAGE) or "")

@@ -12,6 +12,7 @@ outputs:
 - path: mastering/mastering_plan.json
   schema: mastering_plan.schema.json
   staging: true
+- path: understanding/gap_framing_plan.json
 inputs:
   hard:
   - path: mastering/mastering_plan.json
@@ -21,6 +22,24 @@ inputs:
     producer: nugget_layup_compose
   - path: understanding/gap_report.json
     producer: nugget_layup_compose
+  - path: analysis/high_value_speech_islands.json
+    producer: low_conf_island_scan
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/nle_edits.json
+  - path: transcript/full.json
+    producer: transcribe
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
+  - path: understanding/gap_fill_skip.json
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/source_topology.json
+    producer: source_topology_build
 sufficiency:
 - path: air_script.beats
   rule: min_rows

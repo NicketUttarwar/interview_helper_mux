@@ -405,6 +405,51 @@ def test_bridge_completeness_hard_gate():
     assert doc["stub_count"] == 0
 
 
+def test_deferred_spoken_pair_covers_reorder_bridge():
+    """End-C: deferred text alone is not durable glue before EDL.
+
+    Mix last-chance / beyond-pair-freeze deferred rows still count when stamped
+    durable; bare heal text must not soft-complete bridge_completeness.
+    """
+    bridges = {
+        "pairs": [
+            {"after_id": "seg_049", "before_id": "seg_056", "kind": "chapter_jump"},
+        ]
+    }
+    bare = {"transitions": [], "deferred_transition_pairs": []}
+    assert len(missing_reorder_bridges(bridges, transitions=bare)) == 1
+    deferred_text_only = {
+        "transitions": [],
+        "deferred_transition_pairs": [
+            {
+                "after_segment_id": "seg_049",
+                "before_segment_id": "seg_056",
+                "text": "Moving from don't wait to assay ready, what changed?",
+                "default_bridge_fallback": True,
+                "auto_minted": True,
+            }
+        ],
+    }
+    assert len(missing_reorder_bridges(bridges, transitions=deferred_text_only)) == 1
+    with pytest.raises(SystemExit, match="bridge_completeness"):
+        assert_bridges_complete(bridges, transitions=deferred_text_only, soft=False)
+    deferred_durable = {
+        "transitions": [],
+        "deferred_transition_pairs": [
+            {
+                "after_segment_id": "seg_049",
+                "before_segment_id": "seg_056",
+                "text": "Moving from don't wait to assay ready, what changed?",
+                "beyond_pair_freeze": True,
+                "deferred_reason": "beyond_pair_freeze",
+            }
+        ],
+    }
+    assert missing_reorder_bridges(bridges, transitions=deferred_durable) == []
+    doc = assert_bridges_complete(bridges, transitions=deferred_durable, soft=False)
+    assert doc["complete"] is True
+
+
 def test_bridge_completeness_blocks_stock_stub():
     bridges = {
         "pairs": [

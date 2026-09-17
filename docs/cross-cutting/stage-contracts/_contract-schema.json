@@ -31,6 +31,23 @@
       }
     },
     "consumers": { "type": "array", "items": { "type": "string" } },
+    "edges": {
+      "type": "object",
+      "description": "Affirmative completeness of this contract's dependency edges. Precision invalidation (plan §5.4) is subtractive, so an absent or empty edge list means UNKNOWN and keeps the stage in the blanket invalidation set. These markers are the only way to say otherwise; `terminal` is the only spelling of an affirmatively empty consumer set.",
+      "properties": {
+        "inputs": {
+          "type": "string",
+          "enum": ["complete"],
+          "description": "`inputs` enumerates every artifact this stage reads."
+        },
+        "consumers": {
+          "type": "string",
+          "enum": ["complete", "terminal"],
+          "description": "`complete`: `consumers` lists every stage that reads this stage's outputs. `terminal`: nothing downstream reads them at all."
+        }
+      },
+      "additionalProperties": false
+    },
     "remediation": {
       "type": "object",
       "properties": {

@@ -8,16 +8,30 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: vernacular/resplit_report.json
+  schema: null
+  staging: false
+- path: segments/manifest.json
+  staging: true
+- path: analysis/vernacular_must_keep.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: transcript/protected_zones.json
+    producer: audio_probe_build
+  - path: segments/manifest.json
+    producer: segment_classification
 sufficiency: []
 propagation:
   invalidates_stages:
   - low_conf_island_scan
   - connector_fuse_pass
-consumers: []
+consumers:
+- low_conf_island_scan
+- connector_fuse_pass
+- full_master_ranking
 remediation:
   strategies:
   - volley_retry

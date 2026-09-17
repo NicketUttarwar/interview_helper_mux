@@ -16,6 +16,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def refresh_live_post_master_autopsy(ctx: RunContext) -> dict[str, Any] | None:
+    """End-F: rebuild seam autopsy so clarity / pack conflicts are live.
+
+    Best-effort — on failure callers keep the on-disk autopsy.
+    """
+    try:
+        from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
+
+        snip = (
+            ctx.read_json("master/junction_snip_qa.json")
+            if ctx.artifact_exists("master/junction_snip_qa.json")
+            else {}
+        )
+        autopsy = build_autopsy(ctx, phase="post_master", snip_report=snip)
+        write_autopsy(ctx, autopsy)
+        enrich_ledger(ctx, autopsy)
+        return autopsy if isinstance(autopsy, dict) else None
+    except Exception:
+        return None
+
+
 def post_master_quality_cfg() -> dict[str, Any]:
     raw = (merged_config().get("mastering") or {}).get("post_master_quality") or {}
     return raw if isinstance(raw, dict) else {}
@@ -233,6 +254,78 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
             add("air_order_integrity", True, {"skipped": True})
 
     add("spoken_native_intro_duplicate", _pmq_no_late_opening_native(ctx))
+
+    # A stage can dispatch successfully and still commit a semantically wrong
+    # artifact; `record_defect` only ever fired when a stage could not be
+    # dispatched, so that class was invisible here. Sweep every done stage's
+    # declared output through the completeness rules and record what is not
+    # complete. Report-only by default — see `defect_ledger` for the ratchet.
+    # Runs before the ledger count so findings are included in it.
+    try:
+        from interview_mux.defect_ledger import record_semantic_output_defects
+
+        semantics = record_semantic_output_defects(ctx)
+        semantics_ok = int(semantics.get("blocking_findings") or 0) == 0
+    except Exception as exc:
+        # A broken detector is "unknown", not "clean". It refuses only once
+        # enforcement is on; in report-only mode it stays visible but advisory.
+        try:
+            from interview_mux.defect_ledger import semantic_sweep_enforced
+
+            enforced = semantic_sweep_enforced()
+        except Exception:
+            enforced = False
+        semantics = {
+            "unresolved": True,
+            "error": f"{type(exc).__name__}: {exc}"[:200],
+            "enforced": enforced,
+            "operator_reason": (
+                "The stage-output semantics sweep could not run, so it is unknown "
+                "whether a stage succeeded on bad data. Fix the sweep and re-run "
+                "post-master quality."
+            ),
+        }
+        semantics_ok = not enforced
+    add("stage_output_semantics", semantics_ok, semantics)
+
+    # D1 keeps the run moving past a blocked stage; this is what stops it shipping
+    # a hollow master (docs/cross-cutting/publishability-contract.md).
+    #
+    # Fails CLOSED. An error while counting used to yield `{"open_ship_bar": 0}`,
+    # so the last backstop passed precisely when it was broken. Unknown is not
+    # zero: the check refuses and carries the reason that made it refuse, because a
+    # net that blocks inexplicably gets switched off.
+    try:
+        from interview_mux.defect_ledger import defect_summary
+
+        defects = defect_summary(ctx)
+        if not isinstance(defects, dict):
+            raise TypeError(
+                f"defect_summary returned {type(defects).__name__}, expected a dict"
+            )
+        open_ship_bar = int(defects.get("open_ship_bar") or 0)
+        defects_counted = True
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"[:200]
+        defects_counted = False
+        open_ship_bar = -1
+        defects = {
+            "open_ship_bar": None,
+            "blockers": [],
+            "unresolved": True,
+            "error": reason,
+            "operator_reason": (
+                "Open ship-bar defects could not be counted, so publishability is "
+                "unknown; refusing rather than assuming zero. Inspect "
+                "operator/defect_ledger.json (it is present but unreadable, or the "
+                "ledger module raised) and re-run post-master quality."
+            ),
+        }
+    add(
+        "no_open_ship_bar_defects",
+        defects_counted and open_ship_bar == 0,
+        defects,
+    )
 
     plan_required = ctx.is_done("mastering_plan_synthesize") or ctx.is_done(
         "mastering_plan_confirm"
@@ -860,6 +953,39 @@ def build_listener_scorecard(ctx: RunContext, quality: dict[str, Any]) -> dict[s
     scores = autopsy.get("scores") if isinstance(autopsy, dict) else {}
     flow = float((scores or {}).get("continuity") or 0.0)
     clarity = float((scores or {}).get("information_clarity") or 0.0)
+    # End-F: overlay live unresolved pack conflicts so scorecard clarity cannot
+    # greenwash from a stale autopsy while selection leftovers remain open.
+    try:
+        from interview_mux.seam_autopsy import _pack_conflicts
+
+        sel = (
+            ctx.read_json("master/selection.json")
+            if ctx.artifact_exists("master/selection.json")
+            else {}
+        )
+        if isinstance(sel, dict):
+            pack_n = len(_pack_conflicts(sel))
+            if pack_n > 0:
+                synthetic_share = 0.35
+                guides = (
+                    autopsy.get("guides") if isinstance(autopsy, dict) else None
+                )
+                if isinstance(guides, dict) and guides.get("synthetic_input_share") is not None:
+                    synthetic_share = float(guides.get("synthetic_input_share") or 0.35)
+                clarity = round(
+                    max(
+                        0.0,
+                        min(
+                            1.0,
+                            flow
+                            - 0.04 * pack_n
+                            - max(0.0, abs(synthetic_share - 0.35) - 0.15),
+                        ),
+                    ),
+                    4,
+                )
+    except Exception:
+        pass
     music = float((scores or {}).get("music_completeness") or 0.0)
     synthetic = _synthetic_fit_score(ctx, autopsy if isinstance(autopsy, dict) else {})
     native_respect = 1.0
@@ -976,8 +1102,10 @@ def require_publishable(ctx: RunContext, *, stage: str = "podcast_publish") -> N
         )
     quality = ctx.read_json(QUALITY_REL)
     if not isinstance(quality, dict) or not quality.get("publish_allowed"):
-        # Re-evaluate with current soft flags (e2e may have softened after write).
+        # End-F: re-evaluate only after live autopsy refresh so clarity / pack
+        # conflicts cannot greenwash from a stale seam_autopsy.json.
         try:
+            refresh_live_post_master_autopsy(ctx)
             quality = evaluate_post_master_quality(ctx)
             if quality.get("publish_allowed"):
                 persist_post_master_quality(ctx, quality)

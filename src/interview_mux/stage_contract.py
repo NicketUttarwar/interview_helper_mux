@@ -13,6 +13,15 @@ from interview_mux.config import merged_config, repo_root
 
 Tier = Literal["llm_full", "deterministic", "gate", "process", "meta"]
 
+# Tier partition (plan §8.4). A contract file is either a dispatchable pipeline
+# stage (PIPELINE_TIERS) or a non-stage: `gate` = operator must act,
+# `meta` = sub-stage volley / adjudicator / brief / init helper / arbiter /
+# retired. tests/test_contract_tier_partition.py asserts PIPELINE_TIERS
+# membership equals ANALYSIS_ORDER + DELIVERY_ORDER exactly.
+PIPELINE_TIERS: frozenset[str] = frozenset({"process", "deterministic", "llm_full"})
+NON_STAGE_TIERS: frozenset[str] = frozenset({"gate", "meta"})
+ALL_TIERS: frozenset[str] = PIPELINE_TIERS | NON_STAGE_TIERS
+
 @dataclass
 class InputDep:
     path: str
@@ -20,6 +29,23 @@ class InputDep:
     producer: str | None = None
     min_chars: int | None = None
     when: dict[str, Any] = field(default_factory=dict)
+    correctness: bool = False
+    """Marks a **soft** dep the master is still *correct* only with.
+
+    A soft dep is one the stage body does not refuse without — `mix` reads the
+    EDL with `read_json` and carries on. But `air_order.assert_consumer` returns
+    early when selection or the EDL is absent, so absence is exactly the
+    condition under which the T0-3 ordering invariant goes unenforced, and
+    `run_edl` substitutes `{"transitions": []}` the same way. The output is a
+    master, but not the master the run was supposed to make.
+
+    This is a marker on the existing `soft` row rather than a third `inputs`
+    list on purpose: a third list would move the row out of `soft`, changing the
+    `declared` set `dispatch_delta.hard_input_paths` builds and therefore its
+    read-modify-write stripping — real dispatch behaviour. Nothing that filters
+    on `dep.hard` sees this flag; only `correctness_required` does, and
+    `ship_reachability` is its only caller.
+    """
 
 @dataclass
 class OutputDep:
@@ -50,6 +76,20 @@ class StageContract:
     remediation: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
+def is_path_spec(rel: str) -> bool:
+    """True for an output *family* rather than a concrete artifact path.
+
+    `outputs` may declare a directory (`master/transitions/`) or a glob
+    (`glob:transcript/review_clips/*.wav`) because that is how the runtime
+    promotion allowlist in `web/stages.py::StageInfo.artifacts` names a family of
+    per-item writes. Predicates that take a concrete path — notably
+    `artifact_ownership.write_permitted`, which can only answer `unknown_path`
+    for a spec — must skip these.
+    """
+    rel = str(rel or "")
+    return rel.startswith("glob:") or rel.endswith("/")
+
+
 def contracts_dir() -> Path:
     cfg = (merged_config().get("analysis") or {}).get("artifact_contract") or {}
     rel = cfg.get("contracts_dir") or "docs/cross-cutting/stage-contracts"
@@ -62,7 +102,20 @@ def _parse_input(item: dict[str, Any], *, hard: bool) -> InputDep:
         producer=item.get("producer"),
         min_chars=item.get("min_chars"),
         when=dict(item.get("when") or {}),
+        correctness=bool(item.get("correctness") or False),
     )
+
+
+def correctness_required(dep: InputDep) -> bool:
+    """Is this dep required for the master to be *right*, not just to be built?
+
+    Hard deps qualify by construction — the stage refuses without them. Soft deps
+    qualify when they carry the `correctness` marker (see `InputDep.correctness`).
+    Deliberately not used by any dispatch consumer: `artifact_lifecycle`,
+    `dispatch_delta` and `solver` filter on `dep.hard` alone so that marking a row
+    cannot start refusing a stage.
+    """
+    return bool(dep.hard or dep.correctness)
 
 def _parse_contract(stage_id: str, raw: dict[str, Any]) -> StageContract:
     suff_raw = raw.get("sufficiency") or []
@@ -195,6 +248,9 @@ def _interview_duration_ms(ctx: Any) -> int:
     return 0
 
 __all__ = [
+    "ALL_TIERS",
+    "NON_STAGE_TIERS",
+    "PIPELINE_TIERS",
     "InputDep",
     "OutputDep",
     "StageContract",
@@ -202,6 +258,8 @@ __all__ = [
     "all_contract_stage_ids",
     "contract_for_artifact_path",
     "contracts_dir",
+    "correctness_required",
     "evaluate_when",
+    "is_path_spec",
     "load_contract",
 ]

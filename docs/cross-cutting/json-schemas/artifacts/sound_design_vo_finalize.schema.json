@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SoundDesignVoFinalize",
+  "type": "object",
+  "required": ["skipped", "refused"],
+  "properties": {
+    "skipped": { "type": "boolean" },
+    "refused": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "adjusted": { "type": "integer", "minimum": 0 },
+    "skipped_cues": { "type": "integer", "minimum": 0 },
+    "missing": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

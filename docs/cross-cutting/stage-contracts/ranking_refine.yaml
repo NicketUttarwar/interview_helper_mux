@@ -1,5 +1,5 @@
 stage_id: ranking_refine
-tier: deterministic
+tier: meta  # non-stage: refinement-pass sub-volley
 lifecycle:
   phases:
   - prestage

@@ -6,9 +6,7 @@
       "segments/manifest.json",
       "understanding/content_brief.json"
     ],
-    "writes": [
-      "master/selection.json"
-    ]
+    "writes": []
   },
   "analysis_stage": {
     "reads": [],
@@ -22,14 +20,12 @@
       "master/selection.json",
       "master/transitions.json",
       "mastering/mastering_plan.json",
-      "run_meta.json",
       "understanding/gap_report.json",
       "understanding/speaker_delivery_plan.json"
     ],
     "writes": [
       "master/selection.json",
-      "master/transitions.json",
-      "understanding/gap_report.json"
+      "master/transitions.json"
     ]
   },
   "audio_preclean": {

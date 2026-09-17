@@ -87,6 +87,29 @@ def _gap_eval_filled_by(row: dict[str, Any]) -> str:
     return str((row.get("_meta") or {}).get("filled_by") or "")
 
 
+def _gap_eval_is_unscored_fill(row: dict[str, Any]) -> bool:
+    """True when a fill tag still means \"LLM must re-score\" (HG-3).
+
+    Schema-only ``repair_gap_evaluations`` / ``default_value`` patches on rows that
+    already carry severity+gap_type are keep-eligible (exec_11630: 13 leftovers
+    poisoned by repair tags → coverage-cap halt loop). Fabricated / batch_coverage
+    fills stay unscored.
+    """
+    from interview_mux.stage_completion import BATCH_FILL_BY, MISSING_FRAMING_FILL_TAGS
+
+    filled_by = _gap_eval_filled_by(row)
+    if filled_by not in MISSING_FRAMING_FILL_TAGS:
+        return False
+    if filled_by == BATCH_FILL_BY:
+        return True
+    reason = str((row.get("_meta") or {}).get("reason") or "")
+    if reason == "fabricate_evaluation":
+        return True
+    if row.get("severity") and row.get("gap_type"):
+        return False
+    return True
+
+
 def _missing_framing_fill_row(sid: str) -> dict[str, Any]:
     from interview_mux.stage_completion import BATCH_FILL_BY
 
@@ -101,6 +124,57 @@ def _missing_framing_fill_row(sid: str) -> dict[str, Any]:
             "reason": "llm_sparse_shard_output",
         },
     }
+
+
+def _coverage_exhausted_accept_row(sid: str) -> dict[str, Any]:
+    """Honest post-cap seal — keep-eligible (not MISSING_FRAMING_FILL_TAGS)."""
+    return {
+        "segment_id": sid,
+        "self_explanatory": True,
+        "gap_type": "ok_with_light_bridge",
+        "severity": "low",
+        "listener_confusion": "",
+        "recommended_framing": "none",
+        "_meta": {
+            "filled_by": "coverage_exhausted_accept",
+            "producer": "coverage_exhausted_accept",
+            "reason": "coverage_cap_seal",
+        },
+    }
+
+
+def _seal_coverage_exhausted_leftovers(
+    merged: dict[str, Any], leftover_ids: list[str]
+) -> dict[str, Any]:
+    """Promote leftover/absent ids to keep-eligible rows after the coverage cap."""
+    from interview_mux.stage_completion import MISSING_FRAMING_FILL_TAGS
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in merged.get("evaluations") or []:
+        if isinstance(row, dict) and row.get("segment_id"):
+            by_id[str(row["segment_id"])] = row
+    for sid in leftover_ids:
+        if not sid:
+            continue
+        row = by_id.get(sid)
+        if row is None:
+            by_id[sid] = _coverage_exhausted_accept_row(sid)
+            continue
+        if _gap_eval_is_unscored_fill(row) or _gap_eval_filled_by(row) in MISSING_FRAMING_FILL_TAGS:
+            sealed = dict(row)
+            meta = dict(sealed.get("_meta") or {})
+            meta["filled_by"] = "coverage_exhausted_accept"
+            meta["producer"] = "coverage_exhausted_accept"
+            meta["reason"] = "coverage_cap_seal"
+            sealed["_meta"] = meta
+            if not sealed.get("severity"):
+                sealed["severity"] = "low"
+            if not sealed.get("gap_type"):
+                sealed["gap_type"] = "ok_with_light_bridge"
+            by_id[sid] = sealed
+    out = dict(merged)
+    out["evaluations"] = list(by_id.values())
+    return out
 
 
 def _existing_gap_evaluations(ctx: RunContext) -> dict[str, Any]:
@@ -118,8 +192,6 @@ def _split_keep_and_leftover(
     required_ids: list[str],
     existing_rows: list[Any],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    from interview_mux.stage_completion import MISSING_FRAMING_FILL_TAGS
-
     by_id: dict[str, dict[str, Any]] = {}
     for row in existing_rows:
         if isinstance(row, dict) and row.get("segment_id"):
@@ -135,7 +207,7 @@ def _split_keep_and_leftover(
         if producer == "gap_fill_skip":
             keep.append(row)
             continue
-        if _gap_eval_filled_by(row) in MISSING_FRAMING_FILL_TAGS:
+        if _gap_eval_is_unscored_fill(row):
             leftover.append(sid)
             continue
         keep.append(row)
@@ -424,14 +496,30 @@ def run_missing_framing(ctx: RunContext) -> None:
             required_ids,
         )
         merged = _fill_missing_evaluations(merged, leftover_ids)
+        merged = _seal_coverage_exhausted_leftovers(merged, leftover_ids)
         merged = _stamp_coverage_passes(merged, prev_passes)
-        persist(ctx, merged)
-        sync_gaps_to_state(ctx, merged)
-        raise RuntimeError(
-            "needs_operator: missing_framing coverage exhausted after "
-            f"{MISSING_FRAMING_COVERAGE_CAP} extra passes — resume missing_framing: "
-            f"{len(leftover_ids)} leftover segment(s)"
+        # merge_from_disk would revive pre-seal batch_fill _meta (exec_11630).
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            ctx,
+            "understanding/gap_evaluations.json",
+            merged,
+            merge_from_disk=False,
+            stage_key="missing_framing",
         )
+        sync_gaps_to_state(ctx, merged)
+        ctx.log(
+            f"missing_framing: sealed {len(leftover_ids)} leftover(s) after "
+            f"{MISSING_FRAMING_COVERAGE_CAP} coverage passes",
+            level="warning",
+            stage="missing_framing",
+            action_id="missing_framing.coverage_exhausted_seal",
+            detail={"leftover_count": len(leftover_ids), "examples": leftover_ids[:8]},
+        )
+        heal_or_raise(ctx, "missing_framing", force=True)
+        _assert_gap_evaluations_complete(ctx)
+        return
 
     if keep_rows and not leftover_ids:
         merged = _stamp_coverage_passes(
@@ -449,8 +537,6 @@ def run_missing_framing(ctx: RunContext) -> None:
         with logged_step("missing_framing/pre_specialists", ctx=ctx, stage="missing_framing"):
             maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
-    from interview_mux.stage_completion import MISSING_FRAMING_FILL_TAGS
-
     def _still_unscored(merged: dict[str, Any]) -> list[str]:
         by_id: dict[str, dict[str, Any]] = {}
         for row in merged.get("evaluations") or []:
@@ -465,7 +551,7 @@ def run_missing_framing(ctx: RunContext) -> None:
             producer = str((row.get("_meta") or {}).get("producer") or "")
             if producer == "gap_fill_skip":
                 continue
-            if _gap_eval_filled_by(row) in MISSING_FRAMING_FILL_TAGS:
+            if _gap_eval_is_unscored_fill(row):
                 still.append(sid)
         return still
 
@@ -567,7 +653,19 @@ def run_missing_framing(ctx: RunContext) -> None:
             _run_id_shards(still, coverage_pass=True)
             merged = _merge_gap_evaluations(parts, required_ids)
             still = _still_unscored(merged)
-        if still:
+        if still and extra_used >= MISSING_FRAMING_COVERAGE_CAP:
+            # Same-invoke seal after honest leftover volleys hit CAP (exec_11630 #3).
+            # coverage_exhausted_accept is the terminal honest state — not batch_fill thrash.
+            merged = _seal_coverage_exhausted_leftovers(merged, still)
+            ctx.log(
+                f"missing_framing: sealed {len(still)} leftover(s) after "
+                f"{MISSING_FRAMING_COVERAGE_CAP} in-invoke coverage passes",
+                level="warning",
+                stage="missing_framing",
+                action_id="missing_framing.coverage_exhausted_seal",
+                detail={"leftover_count": len(still), "examples": still[:8]},
+            )
+        elif still:
             # Deterministic fill — LLM sparsely samples even with sharded ids.
             # Fills stay on disk and refuse done (HG-3); leftover re-volley scores them.
             merged = _fill_missing_evaluations(merged, still)
@@ -579,9 +677,20 @@ def run_missing_framing(ctx: RunContext) -> None:
                 detail={"filled_count": len(still), "examples": still[:8]},
             )
         merged = _stamp_coverage_passes(merged, extra_used)
-        persist(ctx, merged)
+        if still and extra_used >= MISSING_FRAMING_COVERAGE_CAP:
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            write_validated_artifact(
+                ctx,
+                "understanding/gap_evaluations.json",
+                merged,
+                merge_from_disk=False,
+                stage_key="missing_framing",
+            )
+        else:
+            persist(ctx, merged)
         sync_gaps_to_state(ctx, merged)
-        # HG-3 1A/2B / Wave 1d: heal-mark; batch_fill and omitted ids refuse done.
+        # HG-3 1A/2B / Wave 1d: heal-mark; batch_fill refuses done; seal marks.
         heal_or_raise(ctx, "missing_framing", force=True)
         ctx.log(
             f"missing_framing batched complete ({len(merged.get('evaluations') or [])} evaluations)",

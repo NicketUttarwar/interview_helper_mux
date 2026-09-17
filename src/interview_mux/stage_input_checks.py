@@ -141,11 +141,11 @@ def _try_preflight_recovery(
 ) -> bool:
     """H0c: homunculus 0.1.0 recovery before surfacing delivery StageInputError."""
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
         from interview_mux.recovery_controller import classify_error_class
         from interview_mux.remediation_framework import run_classified_ladder
 
-        if not is_homunculus_run(ctx):
+        if not has_homunculus_features(ctx):
             return False
         recoverable = any(
             issue.kind in {"vo_contract", "upstream_stale"}
@@ -448,6 +448,22 @@ def _check_assembly_preview(ctx: RunContext) -> list[StageInputIssue]:
         unsourced = assembly_preview_unsourced_glue_ids(
             edl if isinstance(edl, dict) else None
         )
+        # A vo_pickup clip whose rendered WAV is already on disk is a *bind* gap,
+        # and run_preview heals it on entry. Refusing here made the heal
+        # unreachable and mix silenced the host lines (exec_11871).
+        if unsourced and isinstance(edl, dict):
+            from interview_mux.stages.assembly import vo_clip_wav_resolvable
+
+            bindable = {
+                str(clip.get("line_id") or "")
+                for clip in (edl.get("clips") or [])
+                if isinstance(clip, dict)
+                and not str(clip.get("source_path") or "").strip()
+                and clip.get("line_id")
+                and vo_clip_wav_resolvable(ctx, clip)
+            }
+            if bindable:
+                unsourced = [i for i in unsourced if str(i) not in bindable]
     except Exception:
         unsourced = []
     if unsourced:
@@ -586,10 +602,23 @@ def _vo_script_wav_agreement_issues(
 
 def _check_junction_snip_qa(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
-    for rel, remediation in (
+    required: list[tuple[str, str]] = [
         ("master/edl.json", "Run edl then mix before junction_snip_qa."),
         ("master/assembly.wav", "Run mix before junction_snip_qa."),
-    ):
+    ]
+    # exec_11871: mix refuses while live incomplete-cut criticals exist and pins
+    # junction_snip_qa, so the recut pass has to be able to run before the first
+    # assembly exists. The EDL recut ladder needs only master/edl.json — the
+    # remaster it drives is what mints assembly.wav.
+    if not ctx.artifact_exists("master/assembly.wav"):
+        try:
+            from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+
+            if junction_recut_precedes_mix(ctx):
+                required = [r for r in required if r[0] != "master/assembly.wav"]
+        except Exception:
+            pass
+    for rel, remediation in required:
         issue = _require_artifact(ctx, rel, remediation=remediation)
         if issue:
             issues.append(issue)

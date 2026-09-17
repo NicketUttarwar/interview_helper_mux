@@ -189,7 +189,11 @@ def test_spoken_internal_segment_references_are_blocked():
 
 
 def test_topic_forward_register_lint():
-    from interview_mux.spoken_meta_lint import spoken_structure_hits
+    from interview_mux.spoken_meta_lint import (
+        lint_gap_report_lines,
+        rewrite_speaker_role_labels,
+        spoken_structure_hits,
+    )
 
     assert "spoken_speaker_role_label" in spoken_structure_hits(
         "The host now explains the limitations of ctDNA-only analysis?"
@@ -205,6 +209,27 @@ def test_topic_forward_register_lint():
     )
     assert spoken_structure_hits(
         "The next piece is cell biopsy — CTCs, not fragments alone."
+    ) == []
+
+    # exec_11630 preface: role label rewrite clears scaffolding without dropping cue.
+    pref = (
+        "The guest frames molecular profiling in trials as useful not only for "
+        "selecting participants but also for deselecting people who are unlikely "
+        "to be a fit. Let's hear how that opening beat lands."
+    )
+    healed = rewrite_speaker_role_labels(pref)
+    assert "spoken_speaker_role_label" not in spoken_structure_hits(healed)
+    assert "guest" not in healed.lower()
+    assert lint_gap_report_lines(
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "skipped_bad",
+                    "skipped_optional": True,
+                    "text": "The guest frames a bad line.",
+                }
+            ]
+        }
     ) == []
 
 

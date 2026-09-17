@@ -97,34 +97,95 @@ def sanitize_transitions(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             seen.add(sig)
         pk = _pair_key(after, before)
         if frozen and pk not in frozen and after and before:
-            deferred.append(row)
+            deferred_row = dict(row)
+            deferred_row["beyond_pair_freeze"] = True
+            deferred_row["deferred_reason"] = "beyond_pair_freeze"
+            deferred.append(deferred_row)
             actions.append({"action": "defer_beyond_freeze", "pair": pk})
             continue
         kept.append(row)
 
-    # Reverse-jump prune if helper exists
+    # Reverse-jump / late-opening prune (owner: artifact_repairs).
+    # Wrong gap_framing import + silent except was a dead path (exec_11630 #7).
     try:
-        from interview_mux.gap_framing import prune_reverse_jump_transitions
+        from interview_mux.artifact_repairs import prune_reverse_jump_transitions
 
-        pruned = prune_reverse_jump_transitions(ctx, {key: kept})
-        if isinstance(pruned, dict) and isinstance(pruned.get(key), list):
-            if len(pruned[key]) != len(kept):
-                actions.append({"action": "prune_reverse_jump"})
-            kept = list(pruned[key])
-    except Exception:
-        pass
+        pruned_doc, prune_notes = prune_reverse_jump_transitions(
+            ctx, {key: kept}, list(order)
+        )
+        if isinstance(pruned_doc, dict) and isinstance(pruned_doc.get(key), list):
+            if len(pruned_doc[key]) != len(kept):
+                actions.append(
+                    {
+                        "action": "prune_reverse_jump",
+                        "notes": list(prune_notes or [])[:8],
+                    }
+                )
+            kept = list(pruned_doc[key])
+    except Exception as exc:
+        errors.append(f"prune_reverse_jump_failed:{type(exc).__name__}:{exc}")
+        actions.append({"action": "prune_reverse_jump_failed", "error": str(exc)[:200]})
 
-    # Framing dedupe
+    # Framing dedupe — drop spoken bridges already covered by layup VO.
+    # Must import from gap_framing (not transition_vo); wrong import was
+    # silently swallowing ImportError so freeze resurrected redundant pairs
+    # (exec_11630: seg_018→seg_020 thrash).
     try:
-        from interview_mux.transition_vo import dedupe_transitions_for_framing
+        from interview_mux.gap_framing import dedupe_transitions_for_framing
 
-        deduped = dedupe_transitions_for_framing(ctx, {key: kept})
+        gap: dict[str, Any] | None = None
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            loaded = ctx.read_json("understanding/gap_report.json")
+            if isinstance(loaded, dict):
+                gap = loaded
+        before_n = len(kept)
+        deduped = dedupe_transitions_for_framing(gap, {key: kept}, ctx=ctx)
         if isinstance(deduped, dict) and isinstance(deduped.get(key), list):
-            if len(deduped[key]) != len(kept):
-                actions.append({"action": "framing_dedupe"})
             kept = list(deduped[key])
-    except Exception:
-        pass
+            if len(kept) != before_n:
+                actions.append(
+                    {
+                        "action": "framing_dedupe",
+                        "dropped": before_n - len(kept),
+                    }
+                )
+                # Keep freeze aligned so later sanitize cannot re-admit.
+                if frozen:
+                    kept_keys = {
+                        _pair_key(
+                            str(r.get("after_segment_id") or r.get("after") or ""),
+                            str(r.get("before_segment_id") or r.get("before") or ""),
+                        )
+                        for r in kept
+                        if isinstance(r, dict)
+                    }
+                    new_freeze = sorted(k for k in frozen if k in kept_keys)
+                    if len(new_freeze) != len(frozen):
+                        try:
+                            ctx.write_json(
+                                FREEZE_REL,
+                                {
+                                    "version": 1,
+                                    "pairs": new_freeze,
+                                    "count": len(new_freeze),
+                                    "source": "artifact_sanitize.transitions.framing_dedupe",
+                                },
+                                skip_handoff=True,
+                            )
+                            frozen = set(new_freeze)
+                            actions.append(
+                                {
+                                    "action": "trim_pair_freeze",
+                                    "count": len(new_freeze),
+                                }
+                            )
+                        except Exception:
+                            pass
+    except Exception as exc:
+        # Loud like prune_reverse_jump — silent pass resurrected redundant
+        # framing pairs under freeze (exec_11630 #9 residual).
+        errors.append(f"framing_dedupe_failed:{type(exc).__name__}:{exc}")
+        actions.append({"action": "framing_dedupe_failed", "error": str(exc)[:200]})
 
     out[key] = kept
     if deferred:

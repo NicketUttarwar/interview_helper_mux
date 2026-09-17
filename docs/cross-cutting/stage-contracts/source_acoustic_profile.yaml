@@ -8,14 +8,30 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/source_acoustic_profile.json
+  schema: null
+  staging: false
+- path: understanding/source_readiness.json
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: ingest/normalized.wav
+    producer: ingest
+  - path: transcript/full.json
+    producer: transcribe
+  soft:
+  - path: preclean/isolated.wav
+    producer: audio_preclean
+  - path: understanding/interview_spine.json
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- interview_spine_build
+- boundary_detection
+- sonic_context_build
+- sound_design_palettes
+- mastering_plan_synthesize
 remediation:
   strategies:
   - volley_retry

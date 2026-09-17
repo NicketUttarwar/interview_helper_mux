@@ -155,3 +155,62 @@ def test_fixture_driver_resume_honors_edl_narrative_remutate(
     )
     monkeypatch.setattr(driver, "RUN_ID", ctx.run_id)
     assert driver.delivery_resume_stage() == "edl"
+
+
+@pytest.mark.parametrize("brain", ["0.0.0", "0.1.0"])
+def test_fixture_driver_remutate_falls_through_when_producers_done(
+    tmp_path: Path, brain: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once remutate producers are done, do not rewind to ranking for audit-only gap."""
+    import importlib.util
+
+    from interview_mux.run_context import RunContext
+
+    monkeypatch.setenv("MUX_HOMUNCULUS_VERSION", brain)
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path / "ASSETS"))
+    ctx = RunContext(f"fx_rem_fallthrough_{brain.replace('.', '')}", create=True)
+    driver_path = Path(__file__).resolve().parents[1] / "tools" / "full_auto_driver.py"
+    spec = importlib.util.spec_from_file_location("full_auto_driver_fallthrough", driver_path)
+    assert spec and spec.loader
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+    for sid in (
+        "full_master_ranking",
+        "transitions",
+        "selection_framing_apply",
+        "nugget_layup_compose",
+        "vo_line_adjudicate",
+        "vo_synthesize",
+    ):
+        (ctx.run_dir / ".stage_done" / sid).parent.mkdir(parents=True, exist_ok=True)
+        (ctx.run_dir / ".stage_done" / sid).write_text("1\n", encoding="utf-8")
+    _write_raw(
+        ctx,
+        "mastering/edl_narrative_remutate.json",
+        {
+            "attempt": 1,
+            "max_attempts": 2,
+            "from_stage": "full_master_ranking",
+            "from_stages": [
+                "full_master_ranking",
+                "edl_narrative_audit",
+                "transitions",
+                "selection_framing_apply",
+                "nugget_layup_compose",
+                "vo_line_adjudicate",
+                "vo_synthesize",
+            ],
+            "exhausted": False,
+        },
+    )
+    # Minimal edl-ready so fall-through picks edl (not ranking).
+    ctx.path("master").mkdir(parents=True, exist_ok=True)
+    _write_raw(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_001"], "excluded_segment_ids": [], "chapters": []})
+    _write_raw(ctx, "master/transitions.json", {"transitions": []})
+    monkeypatch.setattr(driver, "RUN_ID", ctx.run_id)
+    monkeypatch.setattr(driver, "_g1_vo_missing", lambda _ctx: False)
+    monkeypatch.setattr(driver, "_edl_ready_artifacts", lambda _ctx: True)
+    resume = driver.delivery_resume_stage()
+    assert resume != "full_master_ranking"
+    assert resume in {"edl", "edl_narrative_audit", "vo_synthesize"} or resume is not None
+

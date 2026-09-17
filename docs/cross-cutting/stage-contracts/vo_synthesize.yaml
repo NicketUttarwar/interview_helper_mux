@@ -12,6 +12,10 @@ outputs:
 - path: mastering/vo_synthesize.json
   schema: null
   staging: false
+- path: master/transitions/
+  staging: true
+- path: vo_pickup/synthesized/
+  staging: true
 inputs:
   hard: []
   soft: []

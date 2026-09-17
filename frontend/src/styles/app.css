@@ -7936,3 +7936,108 @@ button.pipeline-step-row:focus-visible,
   padding-left: 1.2rem;
 }
 
+
+/* "Why is nothing runnable" halt panel — plan §10.2 solver telemetry. */
+.solver-halt-panel {
+  margin-top: 0.75rem;
+}
+
+.solver-halt-verdict {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.solver-halt-verdict.blocked {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.solver-halt-blocker-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.solver-halt-blocker {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.solver-halt-blocker.kind-input {
+  border-left-color: var(--warning);
+}
+
+.solver-halt-blocker.kind-gate,
+.solver-halt-blocker.kind-lease {
+  border-left-color: var(--accent);
+}
+
+.solver-halt-blocker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.solver-halt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0.25rem;
+}
+
+.solver-halt-chip {
+  padding: 0.05rem 0.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+}
+
+.solver-halt-chip.more {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.solver-halt-reason {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.solver-halt-deferred {
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.solver-halt-deferred > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.solver-halt-deferred-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.solver-halt-severed {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--warning);
+  border-radius: 6px;
+}
+
+.solver-halt-unmet-list {
+  margin: 0.35rem 0 0.25rem;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+}

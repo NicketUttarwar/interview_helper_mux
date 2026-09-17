@@ -65,9 +65,9 @@ def _utc_now() -> str:
 def publishability_enforce(ctx: RunContext) -> bool:
     """Block on violation when homunculus or resilience.publishability_enforce."""
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        if is_homunculus_run(ctx):
+        if has_homunculus_features(ctx):
             return True
     except Exception:
         pass
@@ -271,8 +271,8 @@ def _check_unseated_required_vo(
         from interview_mux.air_script import gap_line_air_eligible
         from interview_mux.omit_ledger import active_entries, line_is_omitted
 
-        ledger = ctx.read_json("master/omit_ledger.json") if ctx.artifact_exists(
-            "master/omit_ledger.json"
+        ledger = ctx.read_json("understanding/omit_ledger.json") if ctx.artifact_exists(
+            "understanding/omit_ledger.json"
         ) else {}
     except Exception:
         gap_line_air_eligible = None  # type: ignore[assignment,misc]
@@ -437,6 +437,12 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
         if active_stage_id() == "junction_snip_qa" and not live_incomplete_cut_critical_findings(
             ctx
         ):
+            return []
+        # The ladder's own remaster rounds render *while* it repairs — refusing
+        # here aborts the recut owner before it can rescan (exec_11871 spin).
+        # junction_snip_qa still blocks at its terminal residual gate, and the
+        # real mix stage keeps this refusal.
+        if getattr(ctx, "_junction_snip_qa_inner", False):
             return []
     except Exception:
         pass

@@ -297,3 +297,44 @@ def test_run_air_contract_sanitize_commits_drop_seated_missing_from_gap(
     assert "vo_a" in seated
     assert air_contract_sanitary_errors(ctx) == []
     assert ctx.is_done("air_contract_sanitize")
+
+
+def test_sanitary_errors_auto_commits_protect_orientation(monkeypatch) -> None:
+    """protect_orientation_from_omit must not block vo_synthesize forever (exec_11630)."""
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a", "vo_orient"],
+                "omitted_line_ids": [],
+                "orientation_id": "vo_orient",
+            }
+        }
+    }
+    omit = {
+        "version": 1,
+        "entries": [
+            {
+                "subject_id": "vo_orient",
+                "kind": "gap_line",
+                "status": "active",
+            }
+        ],
+        "summary": {"active_count": 1},
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    _dump_raw(ctx, "understanding/omit_ledger.json", omit)
+    assert air_contract_sanitary_errors(ctx) == []
+    omit_live = ctx.read_json("understanding/omit_ledger.json")
+    subjects = {
+        str(e.get("subject_id"))
+        for e in (omit_live.get("entries") or [])
+        if isinstance(e, dict)
+    }
+    assert "vo_orient" not in subjects

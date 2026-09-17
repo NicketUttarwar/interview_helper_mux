@@ -12,13 +12,39 @@ outputs:
 - path: master/assembly.wav
   schema: null
   staging: false
+- path: master/music_cue_coverage.json
+  staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: ingest/normalized.wav
+    producer: ingest
+  soft:
+  - path: master/edl.json
+    producer: edl
+    correctness: true
+  - path: master/selection.json
+    producer: full_master_ranking
+    correctness: true
+  - path: master/transitions.json
+    producer: transitions
+  - path: master/junction_snip_qa.json
+    producer: junction_snip_qa
+  - path: master/seam_autopsy.json
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: sound_design/mmaudio_qa.json
+    producer: mmaudio_sfx
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- junction_snip_qa
+- master_finalize
+- listen_delight_audit
 remediation:
   strategies:
   - volley_retry

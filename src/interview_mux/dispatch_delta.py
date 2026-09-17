@@ -1,0 +1,428 @@
+"""Dispatch state-delta guard and per-re-entry attempt memo (plan §5.2 / §5.3).
+
+Two mechanisms, one artifact (``operator/dispatch_memo.json``):
+
+* **no-delta** (§5.2) — every dispatch records the hash set of the stage's declared
+  hard inputs. A re-dispatch whose hash set is identical to the last *successful*
+  attempt, whose outputs are still on disk, is refused: unchanged inputs cannot
+  produce a different outcome. This is the ~7 h ``mix`` ⇄ ``junction_snip_qa``
+  ping-pong (55 excess dispatches in exec_11871).
+* **attempt memo** (§5.3) — a stage attempted in this walk whose state is unchanged,
+  in a run that has not progressed since, is not re-offered on the next driver
+  re-entry. This is the 148 ``delivery_walk_to_master`` + 63
+  ``analysis_fill_delivery_prereqs`` re-entries re-walking the same remaining set.
+
+**The trap this module avoids:** 45 of 90 contracts declare no hard inputs. Hashing
+an empty set would make every dispatch of those stages look identical and refuse
+them all. So an empty input set means the guard is **inactive** for that stage, and
+stages known to thrash get an explicit fallback input set below.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from interview_mux.run_context import RunContext
+
+MEMO_REL = "operator/dispatch_memo.json"
+_LARGE_FILE_BYTES = 8 * 1024 * 1024
+_CHUNK = 1024 * 1024
+
+# Hard inputs for stages whose contract declares none yet (§1.1: 45/90 hollow).
+# Deliberately over-inclusive: an extra input can only *weaken* the guard (more
+# deltas), while a missing one could refuse a legitimate re-run. A stage's own
+# outputs are stripped, and the counterpart's report is never an input — that is
+# what makes the mix ⇄ junction fixpoint hold.
+FALLBACK_HARD_INPUTS: dict[str, tuple[str, ...]] = {
+    "mix": (
+        "master/edl.json",
+        "master/selection.json",
+        "master/transitions.json",
+        "understanding/sound_design_plan.json",
+        "understanding/omit_ledger.json",
+        "sound_design/assets/*.wav",
+        "vo_pickup/*.wav",
+    ),
+    "junction_snip_qa": (
+        "master/assembly.wav",
+        "master/edl.json",
+    ),
+    "master_finalize": (
+        "master/assembly.wav",
+        "master/edl.json",
+        "master/junction_snip_qa.json",
+    ),
+    "assembly_preview": (
+        "master/edl.json",
+        "vo_pickup/*.wav",
+    ),
+    "edl": (
+        "master/selection.json",
+        "master/transitions.json",
+        "understanding/gap_report.json",
+        "understanding/omit_ledger.json",
+        "understanding/nugget_layup_plan.json",
+        "segments/manifest.json",
+        "vo_pickup/*.wav",
+    ),
+    "transitions": (
+        "master/selection.json",
+        "master/narrative_plan.json",
+        "segments/manifest.json",
+    ),
+    "vernacular_segment_sanitize": (
+        "segments/manifest.json",
+        "transcript/full.json",
+    ),
+    "speaker_roles": (
+        "transcript/full.json",
+        "understanding/source_topology.json",
+    ),
+}
+
+# Declared convergence metrics (§2.2): stages that legitimately iterate pass a
+# changed input each cycle by construction. Their counter artifact joins the hash
+# set, so a cycle that advances the counter is a real delta and a cycle that does
+# not is correctly refused. This is the sanctioned alternative to weakening the rule.
+CONVERGENCE_INPUTS: dict[str, tuple[str, ...]] = {
+    # junction ladder: recut/fuse/omit passes bump the residual generation.
+    "junction_snip_qa": ("operator/delivery_residuals.json",),
+    # narrative remutate cycles are counted before each re-offer.
+    "edl_narrative_audit": ("operator/narrative_audit_cycle.json",),
+    # fuse rounds are the pre-ranking convergence metric.
+    "connector_fuse_pass": ("analysis/connector_fuse_rounds.json",),
+    "connector_fuse_pass_pre_ranking": ("analysis/connector_fuse_rounds.json",),
+}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _env_on(name: str, *, default: bool = True) -> bool:
+    raw = str(os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def no_delta_enabled() -> bool:
+    return _env_on("MUX_DISPATCH_NO_DELTA")
+
+
+def memo_enabled() -> bool:
+    return _env_on("MUX_DISPATCH_MEMO")
+
+
+# ---------------------------------------------------------------------------
+# input hashing
+# ---------------------------------------------------------------------------
+
+def _stage_outputs(stage: str) -> set[str]:
+    outs: set[str] = set()
+    try:
+        from interview_mux.stage_contract import load_contract
+
+        contract = load_contract(stage)
+        if contract is not None:
+            outs |= {o.path for o in contract.outputs if o.path}
+    except Exception:
+        pass
+    try:
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        primary = STAGE_ARTIFACT_DISK_PATHS.get(stage)
+        if primary:
+            outs.add(primary)
+    except Exception:
+        pass
+    return outs
+
+
+def hard_input_paths(ctx: RunContext, stage: str) -> tuple[str, ...]:
+    """Declared hard inputs for ``stage`` unioned with the fallback set, else empty.
+
+    Contract *and* fallback, never contract instead of fallback: the fallback table
+    is over-inclusive on purpose, so letting a freshly populated contract replace it
+    could shrink the hash set — the one direction that refuses a legitimate re-run.
+    An empty tuple means "guard inactive for this stage", never "nothing changed".
+    """
+    paths: list[str] = []
+    declared: set[str] = set()
+    try:
+        from interview_mux.stage_contract import evaluate_when, load_contract
+
+        contract = load_contract(stage)
+        if contract is not None:
+            for dep in contract.inputs:
+                if not dep.path:
+                    continue
+                declared.add(dep.path)
+                if not dep.hard:
+                    continue
+                try:
+                    if not evaluate_when(dep.when, ctx):
+                        continue
+                except Exception:
+                    pass
+                paths.append(dep.path)
+    except Exception:
+        paths = []
+        declared = set()
+    paths.extend(FALLBACK_HARD_INPUTS.get(stage) or ())
+    if not paths:
+        return ()
+    paths.extend(CONVERGENCE_INPUTS.get(stage) or ())
+    # A read-modify-write artifact (`vernacular_segment_sanitize` resplitting
+    # `segments/manifest.json`) is both an output and a real input: its pre-state
+    # decides the outcome, so only outputs the contract does *not* claim to read
+    # are stripped.
+    own = _stage_outputs(stage) - declared
+    return tuple(sorted({p for p in paths if p and p not in own}))
+
+
+def _file_digest(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return "absent"
+    h = hashlib.sha256()
+    h.update(f"{size}:".encode())
+    try:
+        with path.open("rb") as fh:
+            if size <= _LARGE_FILE_BYTES:
+                for block in iter(lambda: fh.read(_CHUNK), b""):
+                    h.update(block)
+            else:
+                # Long audio: size + head/tail keeps the digest content-derived
+                # without re-reading hundreds of MB on every dispatch.
+                h.update(fh.read(_CHUNK))
+                fh.seek(max(0, size - _CHUNK))
+                h.update(fh.read(_CHUNK))
+    except OSError:
+        return "unreadable"
+    return h.hexdigest()[:16]
+
+
+def _entry_digest(ctx: RunContext, rel: str) -> str:
+    """Committed state only (§8.6) — never a peer stage's un-promoted staging."""
+    root = ctx.final_path()
+    if "*" in rel:
+        try:
+            matches = sorted(p for p in root.glob(rel) if p.is_file())
+        except Exception:
+            matches = []
+        if not matches:
+            return "absent"
+        h = hashlib.sha256()
+        for match in matches:
+            h.update(f"{match.relative_to(root)}:{_file_digest(match)}\n".encode())
+        return h.hexdigest()[:16]
+    path = root.joinpath(*rel.split("/"))
+    if path.is_dir():
+        h = hashlib.sha256()
+        for child in sorted(p for p in path.rglob("*") if p.is_file()):
+            h.update(f"{child.relative_to(root)}:{_file_digest(child)}\n".encode())
+        return h.hexdigest()[:16]
+    if not path.exists():
+        return "absent"
+    return _file_digest(path)
+
+
+def input_hash_set(ctx: RunContext, stage: str) -> dict[str, str] | None:
+    """``{input_path: digest}`` for the stage's hard inputs, or None when inactive."""
+    paths = hard_input_paths(ctx, stage)
+    if not paths:
+        return None
+    return {rel: _entry_digest(ctx, rel) for rel in paths}
+
+
+def input_digest(ctx: RunContext, stage: str) -> str | None:
+    hashes = input_hash_set(ctx, stage)
+    if hashes is None:
+        return None
+    blob = "\n".join(f"{k}={v}" for k, v in sorted(hashes.items()))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def state_token(ctx: RunContext, stage: str) -> str:
+    """Witness of "has anything this stage depends on changed?".
+
+    The input digest when the inputs are known; otherwise the stage's own primary
+    artifact, so a heal that rewrote it still counts as a delta. Always defined, so
+    the attempt memo covers the 40 pipeline stages whose inputs are still unknown —
+    unlike the no-delta guard, which refuses even successful stages and therefore
+    demands real declared inputs.
+    """
+    digest = input_digest(ctx, stage)
+    if digest is not None:
+        return digest
+    own = ""
+    try:
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        own = str(STAGE_ARTIFACT_DISK_PATHS.get(stage) or "")
+    except Exception:
+        own = ""
+    if not own:
+        return "no_inputs_known"
+    return f"own:{_entry_digest(ctx, own)}"
+
+
+# ---------------------------------------------------------------------------
+# memo artifact
+# ---------------------------------------------------------------------------
+
+def progress_token(ctx: RunContext) -> str:
+    """Cheap monotone witness of run progress: which stages are marked done.
+
+    A memo entry only suppresses a re-offer while this token is unchanged. Any real
+    progress elsewhere in the run invalidates every "nothing happened" conclusion,
+    so the memo can never permanently hide a stage.
+    """
+    marker_dir = ctx.final_path(".stage_done")
+    try:
+        names = sorted(p.name for p in marker_dir.iterdir() if p.is_file())
+    except OSError:
+        names = []
+    master = "1" if ctx.final_path("master", "master.wav").is_file() else "0"
+    blob = f"{master}|" + ",".join(names)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def read_memo(ctx: RunContext) -> dict[str, Any]:
+    path = Path(ctx.run_dir) / MEMO_REL
+    if not path.is_file():
+        return {"version": 1, "updated_at": _now(), "stages": {}}
+    try:
+        doc = ctx.read_json(MEMO_REL)
+    except Exception:
+        doc = None
+    if not isinstance(doc, dict):
+        return {"version": 1, "updated_at": _now(), "stages": {}}
+    doc.setdefault("version", 1)
+    doc.setdefault("stages", {})
+    return doc
+
+
+def _write_memo(ctx: RunContext, doc: dict[str, Any]) -> None:
+    from interview_mux.file_store import write_json as fs_write_json
+
+    dest = Path(ctx.run_dir) / MEMO_REL
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(dest, doc)
+
+
+def memo_row(ctx: RunContext, stage: str) -> dict[str, Any]:
+    row = (read_memo(ctx).get("stages") or {}).get(str(stage or ""))
+    return dict(row) if isinstance(row, dict) else {}
+
+
+def record_attempt(
+    ctx: RunContext,
+    stage: str,
+    *,
+    outcome: str,
+    digest: str | None = None,
+    source: str = "",
+) -> dict[str, Any]:
+    """Record this dispatch attempt. ``outcome`` ∈ started|done|failed|refused."""
+    sid = str(stage or "")
+    if not sid:
+        return {}
+    doc = read_memo(ctx)
+    stages = dict(doc.get("stages") or {})
+    prev = dict(stages.get(sid) or {})
+    if digest is None:
+        digest = input_digest(ctx, sid)
+    row: dict[str, Any] = {
+        "stage": sid,
+        "input_digest": digest,
+        "state_token": state_token(ctx, sid),
+        "outcome": str(outcome or ""),
+        "source": str(source or ""),
+        "progress_token": progress_token(ctx),
+        "attempts": int(prev.get("attempts") or 0) + (1 if outcome == "started" else 0),
+        "updated_at": _now(),
+        "first_seen_at": str(prev.get("first_seen_at") or _now()),
+    }
+    if outcome == "done":
+        row["last_done_digest"] = digest
+    else:
+        row["last_done_digest"] = prev.get("last_done_digest")
+    stages[sid] = row
+    doc["stages"] = stages
+    doc["updated_at"] = _now()
+    _write_memo(ctx, doc)
+    return row
+
+
+# ---------------------------------------------------------------------------
+# guards
+# ---------------------------------------------------------------------------
+
+def _outputs_present(ctx: RunContext, stage: str) -> bool:
+    try:
+        from interview_mux.homunculus.agenda import stage_outputs_present
+
+        return bool(stage_outputs_present(ctx, stage))
+    except Exception:
+        return False
+
+
+def no_delta_refusal(
+    ctx: RunContext,
+    stage: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Refuse a re-dispatch whose hard inputs are byte-identical to the last success.
+
+    Guarded three ways so it can never strand a run:
+    1. inactive when the stage has no known hard inputs (hollow contract, no fallback);
+    2. only refuses when the previous identical-digest attempt reached ``done``;
+    3. only refuses while that attempt's outputs are still on disk — a stage whose
+       outputs went missing is productive to re-run even with unchanged inputs.
+    """
+    if not no_delta_enabled():
+        return None
+    digest = input_digest(ctx, stage)
+    if digest is None:
+        return None
+    row = memo_row(ctx, stage)
+    if not row:
+        return None
+    if str(row.get("last_done_digest") or "") != digest:
+        return None
+    if not _outputs_present(ctx, stage):
+        return None
+    return "no_delta", {
+        "stage": stage,
+        "input_digest": digest,
+        "inputs": hard_input_paths(ctx, stage),
+        "last_attempt_at": row.get("updated_at"),
+    }
+
+
+def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
+    """Refuse to re-offer a stage already attempted at this state with no progress."""
+    if not memo_enabled():
+        return None
+    row = memo_row(ctx, stage)
+    if not row:
+        return None
+    if str(row.get("outcome") or "") not in {"failed", "refused"}:
+        return None
+    token = state_token(ctx, stage)
+    if str(row.get("state_token") or "") != token:
+        return None
+    if str(row.get("progress_token") or "") != progress_token(ctx):
+        return None
+    return "attempt_memo", {
+        "stage": stage,
+        "state_token": token,
+        "prior_outcome": row.get("outcome"),
+        "progress_token": row.get("progress_token"),
+    }

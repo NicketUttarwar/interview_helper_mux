@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 _NON_JSON_DISK_PATHS = frozenset(
     path
     for path in STAGE_ARTIFACT_DISK_PATHS.values()
-    if path.endswith((".wav", ".mp3"))
+    if path.endswith((".wav", ".mp3", ".jpg", ".png", ".jpeg"))
 )
 
 
@@ -59,6 +59,9 @@ def test_stage_disk_paths_have_write_validators():
             "mastering/shape/information_packages_audit.json",
             "publish/episode_meta.json",
             "publish/cover_prompt.json",
+            "transcript/full.json",
+            "understanding/source_topology.json",
+            "publish/package_ready.json",
         }
     )
     unexpected = [p for p in missing if p not in allowed_missing]
@@ -106,6 +109,9 @@ def test_stage_disk_paths_have_zod_schemas():
             "mastering/shape/information_packages_audit.json",
             "publish/episode_meta.json",
             "publish/cover_prompt.json",
+            "transcript/full.json",
+            "understanding/source_topology.json",
+            "publish/package_ready.json",
         }
     )
     unexpected = [p for p in missing if p not in allowed_missing]

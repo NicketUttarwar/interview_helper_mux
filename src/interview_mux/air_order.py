@@ -73,7 +73,16 @@ def _write_json(ctx: RunContext, rel: str, data: dict[str, Any]) -> None:
     if not nested:
         _set_committing(ctx, True)
     try:
-        ctx.write_json(rel, data, skip_handoff=True)
+        sk = ""
+        try:
+            from interview_mux.write_staging import active_stage_id
+
+            sk = str(active_stage_id() or "").strip()
+        except Exception:
+            sk = ""
+        if sk not in {"edl", "mix", "junction_snip_qa"}:
+            sk = "edl"
+        ctx.write_json(rel, data, skip_handoff=True, stage_key=sk)
     finally:
         if not nested:
             _set_committing(ctx, False)
@@ -413,18 +422,22 @@ def commit(
         if isinstance(sel_out, dict):
             from interview_mux.air_order_boundary import commit_selection_mutation
 
+            # Ownership: selection persist ALLOW is ranking/sanitize/"selection"
+            # (legacy air_order bus). Never stage_key=source ("edl"/"mix"/…) —
+            # those are DENY / not_allow under fail-closed and break write_live_edl.
             sel_out = commit_selection_mutation(
                 ctx,
                 sel_out,
                 producer="air_order",
-                stage_key=source,
+                stage_key="selection",
                 checkpoint_mode="detect",
                 skip_handoff=True,
                 skip_checkpoint=False,
             )
         if isinstance(edl_out, dict):
-            ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
-        ctx.write_json(AIR_ORDER_REL, bundle, skip_handoff=True)
+            ctx.write_json(EDL_REL, edl_out, skip_handoff=True, stage_key="edl")
+        air_sk = source if source in {"edl", "mix", "junction_snip_qa"} else "edl"
+        ctx.write_json(AIR_ORDER_REL, bundle, skip_handoff=True, stage_key=air_sk)
     finally:
         _set_committing(ctx, False)
     return bundle
@@ -565,6 +578,43 @@ def mix_wav_fresh_versus_edl(ctx: RunContext) -> bool:
     return asm_m + 1.0 >= edl_m
 
 
+def ensure_assembly_mtime_seats_edl(ctx: RunContext) -> None:
+    """After promote, bump assembly mtime so HX-2 seating is not falsely unseated.
+
+    Only touches mtime when the wav already exists and is older than EDL —
+    used immediately after a remaster that rendered from that EDL.
+    """
+    import os
+
+    asm = ctx.final_path("master", "assembly.wav")
+    edl = ctx.final_path("master", "edl.json")
+    if not asm.is_file() or not edl.is_file():
+        return
+    try:
+        edl_m = edl.stat().st_mtime
+        if asm.stat().st_mtime + 1.0 >= edl_m:
+            return
+        os.utime(asm, (edl_m, edl_m))
+    except OSError:
+        return
+
+
+def live_render_generation_matches(ctx: RunContext) -> bool:
+    """True when render_ledger air_order_generation matches live AirOrder gen."""
+    live = read_live(ctx)
+    gen = int(live.get("generation") or 0)
+    if not gen:
+        return True
+    ledger = _read_dict(ctx, RENDER_LEDGER_REL) or {}
+    try:
+        led_gen = int(ledger.get("air_order_generation") or 0)
+    except (TypeError, ValueError):
+        return True
+    if led_gen and led_gen != gen:
+        return False
+    return True
+
+
 def mix_outputs_seated(ctx: RunContext) -> bool:
     """Mix-done: flushed wav + live EDL, not autopsy commitment.
 
@@ -573,6 +623,8 @@ def mix_outputs_seated(ctx: RunContext) -> bool:
     if not mix_wav_fresh_versus_edl(ctx):
         return False
     if not live_generation_matches(ctx):
+        return False
+    if not live_render_generation_matches(ctx):
         return False
     sel = _read_dict(ctx, SELECTION_REL)
     edl = _read_dict(ctx, EDL_REL)
@@ -648,8 +700,20 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             "selection_edl_order_drift: speech clip order diverges from "
             f"ordered_segment_ids (heal={action}) — sealed commit required before {stage}"
         )
-    if stage in {"mix", "junction_snip_qa", "master_finalize"} and not live_generation_matches(
-        ctx
+    # exec_11871: the pre-mix recut pass has no assembly to be stale against —
+    # junction owns recut/fuse/omit on the EDL and drives the first remaster.
+    pre_mix_recut = False
+    if stage == "junction_snip_qa":
+        try:
+            from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+
+            pre_mix_recut = junction_recut_precedes_mix(ctx)
+        except Exception:
+            pre_mix_recut = False
+    if (
+        stage in {"mix", "junction_snip_qa", "master_finalize"}
+        and not pre_mix_recut
+        and not live_generation_matches(ctx)
     ):
         live = generation(ctx)
         edl_gen = (edl or {}).get("air_order_generation")
@@ -657,7 +721,7 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             "assembly_not_rendered_from_current_edl: air_order generation mismatch "
             f"(live={live} edl={edl_gen}) — remaster mix from the sealed EDL"
         )
-    if stage in {"junction_snip_qa", "master_finalize"}:
+    if stage in {"junction_snip_qa", "master_finalize"} and not pre_mix_recut:
         try:
             from interview_mux.seam_autopsy import verify_commitment
 

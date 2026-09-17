@@ -8,10 +8,23 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/source_topology.json
+  schema: null
+  staging: false
+- path: understanding/flow_adaptation.json
+  staging: true
+- path: glob:understanding/speaker_samples/*.wav
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: transcript/full.json
+    producer: transcribe
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages:
@@ -23,7 +36,15 @@ propagation:
   - narrative_arc_plan
   - full_master_ranking
   - sound_design_plan
-consumers: []
+consumers:
+- content_context
+- boundary_detection
+- segment_classification
+- boundary_topic_resplit
+- missing_framing
+- narrative_arc_plan
+- full_master_ranking
+- sound_design_plan
 remediation:
   strategies:
   - volley_retry

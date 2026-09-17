@@ -133,6 +133,11 @@ def rebuild_reorder_bridges(
         narrative_mode=_narrative_mode(ctx),
         episode_vo_shape=vo_shape,
     )
+    # Bridge rebuild also runs from sealed consumers (edl). When the owner has
+    # frozen reorder_bridges, hand the rebuilt body back in memory rather than
+    # rewriting the sealed artifact.
+    if not _bridges_write_permitted(ctx):
+        return bridges
     ctx.write_json("understanding/reorder_bridges.json", bridges)
     try:
         from interview_mux.write_staging import write_committed_json
@@ -146,6 +151,33 @@ def rebuild_reorder_bridges(
     except Exception:
         pass
     return bridges
+
+
+def _bridges_write_permitted(ctx: RunContext) -> bool:
+    """True when the active stage may persist understanding/reorder_bridges.json."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        allowed, reason = write_permitted(
+            ctx,
+            "understanding/reorder_bridges.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        ctx.log(
+            "seam glue: reorder_bridges frozen — keeping rebuild in memory "
+            f"(stage={stage_now or 'unknown'}, {reason})",
+            level="info",
+            stage=stage_now or None,
+        )
+        return False
+    return True
 
 
 def _clip_excerpt(raw: Any, *, max_chars: int = 72) -> str:

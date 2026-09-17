@@ -125,6 +125,18 @@ def verify_master(path: Path, *, flow: FlowName | None = None) -> VerificationRe
             f"True peak {metrics.true_peak_dbtp:.2f} dBTP exceeds ceiling {tp_ceiling:.2f} dBTP."
         )
 
+    # Plan §5.4 rail 2: signal QC cannot hear staleness. A master that predates the
+    # invalidation of the stages that build it measures perfectly and is still wrong.
+    try:
+        from interview_mux.master_epoch import current_epoch, epoch_failures, run_dir_for_master
+
+        run_dir = run_dir_for_master(path)
+        if run_dir is not None:
+            checks.append(f"invalidation_epoch={current_epoch(run_dir)}")
+        failures.extend(epoch_failures(path))
+    except Exception:
+        pass
+
     return VerificationResult(
         flow=resolved_flow,
         source=path,

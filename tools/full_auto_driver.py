@@ -861,6 +861,7 @@ class _PersistentFailCounts(dict):
 
 
 _ORIENTATION_EDL_RESUMES = 0
+_ORIENTATION_PRODUCER_RESUMES = 0
 _NARRATIVE_REMUTATE_DRIVES = 0
 _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
@@ -949,13 +950,52 @@ def _release_driver_claim_safe() -> None:
 
 
 def _heal_resume(*, error: str = "", stage: str = "", intent: str = "") -> str:
-    """Single resume authority — always heal_navigate (no hardcoded edl/narrative pins)."""
+    """Single resume authority — always heal_navigate; empty pin must not execute."""
+    from interview_mux.artifact_ownership import heal_pin_for
     from interview_mux.run_context import RunContext
     from interview_mux.thrash_hardening import heal_navigate
 
     ctx = RunContext(RUN_ID, create=False)
     nav = heal_navigate(ctx, error=error, stage=stage, intent=intent)
-    pin = str(nav.get("from_stage") or stage or "music_palette_compose")
+    pin = str(nav.get("from_stage") or "").strip()
+    if not pin:
+        # Ownership constitution: never coalesce empty → music_palette_compose /
+        # never rewind delivery from stage 0.
+        owned = heal_pin_for(error or intent or stage, ctx=ctx)
+        pin = str(owned or "").strip()
+    if not pin:
+        log(
+            "heal refused empty pin — pause_needs_operator "
+            f"stage={stage or '-'} err={(error or '')[:120]}"
+        )
+        raise RuntimeError(
+            "authority_denied:execute:empty_heal_pin:pause_needs_operator "
+            f"stage={stage or '-'} intent={intent or '-'}"
+        )
+    # Refuse sealed consumer coalesce when Phase A / floor is still open.
+    if pin == "music_palette_compose":
+        try:
+            from interview_mux.v2.config import DELIVERY_ORDER
+
+            phase_a = {
+                "transitions",
+                "vo_synthesize",
+                "edl",
+                "nugget_layup_compose",
+                "air_contract_sanitize",
+            }
+            for sid in DELIVERY_ORDER:
+                if sid == "music_palette_compose":
+                    break
+                if sid in phase_a and not ctx.is_done(sid):
+                    raise RuntimeError(
+                        "authority_denied:execute:refuse_music_palette_coalesce:"
+                        f"incomplete={sid}"
+                    )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
     log(
         f"heal_navigate resume={pin} intent={nav.get('intent')} "
         f"stage={stage or '-'} err={(error or '')[:120]}"
@@ -1954,6 +1994,25 @@ def complete_g0() -> None:
     if is_partial_auto():
         log("partial-auto: complete_g0 skipped (operator must review transcript)")
         return
+    # Promote staged G0 build before the complete API — otherwise ready=false
+    # while .pending_writes holds review_queue (exec_11871 thrash).
+    if RUN_ID:
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.write_staging import (
+                _commit_stage_writes,
+                has_pending_writes,
+                write_approval_enabled,
+            )
+
+            ctx_g0 = RunContext(RUN_ID, create=False)
+            if not write_approval_enabled() and has_pending_writes(
+                ctx_g0, "transcript_review_build"
+            ):
+                flushed = _commit_stage_writes(ctx_g0, "transcript_review_build")
+                log(f"G0 pre-flush: committed {len(flushed)} pending path(s)")
+        except Exception as flush_exc:
+            log(f"G0 pre-flush: {flush_exc}")
     try:
         api("POST", f"/api/runs/{RUN_ID}/transcript-review/complete", {"accept_unreviewed": True})
         log_decision(
@@ -2640,6 +2699,21 @@ def synthesize_g1() -> bool:
             import shutil
 
             ctx = RunContext(RUN_ID, create=False)
+            try:
+                from interview_mux.write_staging import (
+                    discard_non_owner_pending_vo_pickup,
+                    promote_owner_vo_pickup,
+                )
+
+                promoted = promote_owner_vo_pickup(ctx)
+                discarded = discard_non_owner_pending_vo_pickup(ctx)
+                if promoted or discarded:
+                    log(
+                        f"G1 synth promote_owner={promoted[:6]} "
+                        f"discard_foreign={discarded[:4]}"
+                    )
+            except Exception as exc:
+                log(f"G1 synth promote_owner: {exc}")
             synth = ctx.final_path("vo_pickup") / "synthesized"
             dest = ctx.final_path("vo_pickup")
             if synth.is_dir():
@@ -2987,6 +3061,8 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
             return "transitions"
         if "content_brief" in low:
             return "topic_coverage_audit"
+        if "connector_fuse_pass_pre_ranking" in low:
+            return "connector_fuse_pass_pre_ranking"
         if _re.search(r"unknown (?:from_)?stage:\s*selection\b", low):
             return "full_master_ranking"
         try:
@@ -3203,11 +3279,11 @@ def heal_stage_done_markers() -> None:
             pass
     try:
         from interview_mux.homunculus.issues import ingest_catch
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_dispatch_ledger
         from interview_mux.run_context import RunContext as _RC
 
         _hctx = _RC(RUN_ID, create=False)
-        if is_homunculus_run(_hctx):
+        if has_dispatch_ledger(_hctx):
             ingest_catch(
                 _hctx,
                 kind="full_auto_heal_noted",
@@ -3256,7 +3332,14 @@ def heal_stage_done_markers() -> None:
     # never clear those markers for missing optional producers.
     try:
         if _edl_ready_artifacts(ctx):
-            soft_pass_pre_edl_delivery(ctx)
+            soft_notes = soft_pass_pre_edl_delivery(ctx)
+            # Refuse path returns [] — hard-stop heal continuation (no stub marks).
+            if not soft_notes:
+                log(
+                    "heal: soft_pass_pre_edl_delivery refused — "
+                    "skipping forward heal-marks until product QC is real"
+                )
+                return
     except Exception as exc:
         log(f"heal edl-ready soft-pass: {exc}")
     # If a later analysis stage is done, fill gaps in prior markers so e2e does not
@@ -3551,10 +3634,9 @@ def heal_stage_done_markers() -> None:
         log(f"heal gap-block: {exc}")
     for sid in (*ANALYSIS_ORDER, *DELIVERY_ORDER):
         if sid in remutate_protect:
-            marker = ctx.run_dir / ".stage_done" / sid
-            if marker.is_file():
-                marker.unlink(missing_ok=True)
-                cleared.append(f"{sid}(remutate-protect)")
+            # Leave markers alone — remutate apply cleared them once. Re-clearing
+            # every heal restart forces honor-remutate → ranking forever
+            # (exec_11630: cleared vo/ranking/transitions on each driver start).
             continue
         paths = stage_required_artifact_paths(sid) or []
         if ctx.is_done(sid):
@@ -4746,12 +4828,36 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
     # G1 VO missing must run before the generic blocked+missing matcher
     # (that matcher would otherwise treat "G1 VO pickup missing" as stale-artifact).
-    if stage == "g1_vo_pickup" or ("g1" in low and "vo" in low and "pickup" in low):
+    if (
+        stage == "g1_vo_pickup"
+        or ("g1" in low and "vo" in low and "pickup" in low)
+        or "vo_unsanitary" in low
+        or "seated_bind_stale" in low
+    ):
         # If transitions are also missing, do not attempt G1 yet.
         if "transitions.json" in low and "missing" in low:
             log("gate: G1 blocked behind missing transitions — defer to transitions heal")
             execute({"mode": "delivery", "from_stage": "transitions"})
             return "continue"
+        # Already bound (heal race / stale gate text) — do not re-TTS and risk
+        # pending promote clobber (exec_11630 vo_layup_seg_020).
+        try:
+            from interview_mux.gates import check_g1_vo
+            from interview_mux.run_context import RunContext as _RCGreen
+            from interview_mux.write_staging import (
+                discard_non_owner_pending_vo_pickup,
+                promote_owner_vo_pickup,
+            )
+
+            _ctx_g = _RCGreen(RUN_ID, create=False)
+            promote_owner_vo_pickup(_ctx_g)
+            discard_non_owner_pending_vo_pickup(_ctx_g)
+            if not check_g1_vo(_ctx_g):
+                log("gate: G1 already green after promote — resume edl (skip re-synth)")
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
+        except Exception as exc:
+            log(f"gate: G1 green pre-check: {exc}")
         # Heal production-meta / spoken-copy before the first TTS pass so Chatterbox
         # does not permanently skip lines that later get rewritten (stale script_hash).
         try:
@@ -5448,6 +5554,76 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 log("edl_narrative_qc: clone-adjacent generic VO — resume edl")
                 execute({"mode": "delivery", "from_stage": "edl"})
                 return "continue"
+            # Chapter continuity: absorb unassigned interlopers into nearest chapter
+            # (exec_11630 Clinical-Trial split by seg_041). Stamp episode VO voice.
+            if any("is split by unrelated" in str(e) for e in hard) or any(
+                "missing voice_speaker_id" in str(e) for e in hard
+            ):
+                try:
+                    from interview_mux.selection_order_repair import (
+                        fill_chapter_list_membership_gaps,
+                    )
+                    from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+                    sel = (
+                        ctx.read_json("master/selection.json")
+                        if ctx.artifact_exists("master/selection.json")
+                        else {}
+                    )
+                    order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+                    chapters = [
+                        dict(ch)
+                        for ch in (sel.get("chapters") or [])
+                        if isinstance(ch, dict)
+                    ]
+                    filled, filled_ids = fill_chapter_list_membership_gaps(chapters, order)
+                    if filled_ids:
+                        sel = dict(sel)
+                        sel["chapters"] = filled
+                        ctx.write_json(
+                            "master/selection.json",
+                            sel,
+                            stage_key="full_master_ranking",
+                            skip_handoff=True,
+                        )
+                        log(
+                            f"chapter continuity: absorbed interloper(s) {filled_ids[:8]}"
+                        )
+                    voice = str(
+                        (episode_vo_identity(ctx) or {}).get("speaker_id") or ""
+                    ).strip()
+                    if voice and ctx.artifact_exists("understanding/gap_report.json"):
+                        gap = ctx.read_json("understanding/gap_report.json")
+                        stamped = 0
+                        for ln in list((gap or {}).get("interviewer_lines") or []):
+                            if not isinstance(ln, dict):
+                                continue
+                            if str(ln.get("delivery") or "").lower() != "synthesize":
+                                continue
+                            if str(ln.get("voice_speaker_id") or "").strip():
+                                continue
+                            ln["voice_speaker_id"] = voice
+                            stamped += 1
+                        if stamped:
+                            from interview_mux.write_staging import write_committed_json
+
+                            # End-E: voice stamp owns synthesize identity — never
+                            # claim sealed consumer ``edl`` as writer authority.
+                            write_committed_json(
+                                ctx,
+                                "understanding/gap_report.json",
+                                gap,
+                                stage_key="vo_synthesize",
+                            )
+                            log(
+                                f"stamped voice_speaker_id={voice} on {stamped} synthesize line(s)"
+                            )
+                    # Consumer rebuild after producer stamps (selection / VO voice).
+                    log("edl_narrative_qc: chapter/voice heal — resume edl")
+                    execute({"mode": "delivery", "from_stage": "edl"})
+                    return "continue"
+                except Exception as exc:
+                    log(f"chapter/voice continuity heal: {exc}")
             # Other hard EDL narrative errors — resume edl; do not fall through.
             log(f"edl_narrative_qc hard issues remain ({len(hard)}) — resume edl")
             execute({"mode": "delivery", "from_stage": "edl"})
@@ -6033,18 +6209,21 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     soft=False,
                 )
             except SystemExit as assert_exc:
+                from interview_mux.bridge_completeness import bridge_heal_may_soft_complete
                 from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
-                if not e2e_quality_waivers_enabled():
+                if not bridge_heal_may_soft_complete(
+                    waivers_enabled=e2e_quality_waivers_enabled()
+                ):
                     write_e2e_failure_brief(
                         ctx,
-                        stage_id="edl",
+                        stage_id="transitions",
                         error=str(assert_exc)[:400],
                         suggested_fix_class="bridge_incomplete",
                         raise_exc=False,
                     )
                     return pause_needs_operator(
-                        "edl",
+                        "transitions",
                         f"HARD: bridge incomplete: {assert_exc}",
                     )
                 n = int(globals().get("_BRIDGE_SOFT_N") or 0) + 1
@@ -6067,6 +6246,23 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             write_committed_json(ctx, "master/bridge_completeness.json", doc)
             log(f"bridge completeness: {doc.get('complete')} missing={doc.get('missing_count')}")
             if not doc.get("complete"):
+                from interview_mux.bridge_completeness import bridge_heal_may_soft_complete
+                from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                if not bridge_heal_may_soft_complete(
+                    waivers_enabled=e2e_quality_waivers_enabled()
+                ):
+                    write_e2e_failure_brief(
+                        ctx,
+                        stage_id="transitions",
+                        error=f"bridge_completeness incomplete missing={doc.get('missing_count')}",
+                        suggested_fix_class="bridge_incomplete",
+                        raise_exc=False,
+                    )
+                    return pause_needs_operator(
+                        "transitions",
+                        "HARD: bridge incomplete after mint — refuse soft-complete under production",
+                    )
                 n = int(globals().get("_BRIDGE_SOFT_N") or 0) + 1
                 globals()["_BRIDGE_SOFT_N"] = n
                 log(f"bridge heal soft-complete (n={n})")
@@ -6118,13 +6314,27 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         except (Exception, SystemExit) as exc:
             log(f"bridge_completeness heal: {exc}")
             try:
+                from interview_mux.bridge_completeness import bridge_heal_may_soft_complete
+                from interview_mux.e2e_soft import e2e_quality_waivers_enabled
                 from interview_mux.run_context import RunContext
 
                 ctx = RunContext(RUN_ID, create=False)
+                if not bridge_heal_may_soft_complete(
+                    waivers_enabled=e2e_quality_waivers_enabled()
+                ):
+                    write_e2e_failure_brief(
+                        ctx,
+                        stage_id="transitions",
+                        error=str(exc)[:400],
+                        suggested_fix_class="bridge_incomplete",
+                        raise_exc=False,
+                    )
+                    return pause_needs_operator(
+                        "transitions",
+                        f"HARD: bridge heal failed: {exc}",
+                    )
 
                 def _soft_meta_outer(m: dict) -> None:
-                    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
-
                     if e2e_quality_waivers_enabled():
                         m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
@@ -7226,9 +7436,13 @@ def soft_pass_pre_edl_delivery(ctx: Any) -> list[str]:
     """Documented last-resort soft path; never the normal VO/EDL recovery."""
     from interview_mux.e2e_soft import e2e_soft_enabled
 
-    if not e2e_soft_enabled() or str(
+    last_resort = str(
         os.environ.get("INTERVIEW_MUX_E2E_LAST_RESORT_SOFT") or ""
-    ).lower() not in {"1", "true", "yes"}:
+    ).lower() in {"1", "true", "yes"}
+    if not e2e_soft_enabled() or not last_resort:
+        # Production parity: refuse soft stubs and return immediately.
+        # Never fall through to corpus/transitions/narrative heal-marks.
+        # Brief only — do not raise; callers treat [] as hard stop.
         write_e2e_failure_brief(
             ctx,
             stage_id="nugget_layup_compose",
@@ -7241,7 +7455,9 @@ def soft_pass_pre_edl_delivery(ctx: Any) -> list[str]:
                 "repair layups/orientation, run transitions and synthesize G1, "
                 "then resume EDL; last-resort soft mode must be explicit"
             ),
+            raise_exc=False,
         )
+        return []
     from pathlib import Path as _P
 
     from interview_mux.file_store import write_json as fs_write_json
@@ -7354,9 +7570,29 @@ def delivery_resume_stage() -> str | None:
                 ):
                     pin = str(rem.get("from_stage") or "").strip()
                     stages = [str(s) for s in (rem.get("from_stages") or []) if str(s)]
-                    if pin and any(not ctx.is_done(s) for s in (stages or [pin])):
+                    # Consumers (audit/edl) stay uncleared until producers finish —
+                    # do not rewind to pin forever while only those remain
+                    # (exec_11630: remutate kept honoring full_master_ranking after
+                    # VO because edl_narrative_audit was still in from_stages).
+                    remutate_consumers = {
+                        "edl_narrative_audit",
+                        "edl",
+                        "listen_delight_audit",
+                    }
+                    producer_incomplete = [
+                        s
+                        for s in (stages or ([pin] if pin else []))
+                        if s and s not in remutate_consumers and not ctx.is_done(s)
+                    ]
+                    if pin and producer_incomplete:
                         log(f"delivery_resume_stage: honor remutate {rem_rel} → {pin}")
                         return pin
+                    if pin and stages and not producer_incomplete:
+                        # Producers green — let normal resume pick audit/edl/mix.
+                        log(
+                            f"delivery_resume_stage: remutate producers done "
+                            f"({rem_rel}); fall through"
+                        )
         except Exception:
             pass
         asm = (root / "master" / "assembly.wav").is_file()
@@ -7560,8 +7796,29 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
     return steps
 
 
+def orientation_contract_heal_resume(ctx: Any) -> tuple[str, bool]:
+    """Pick vo_synthesize vs edl for opening-orientation contract failures.
+
+    Unsanitary bind pins the producer (``vo_synthesize``) and burns
+    ``_ORIENTATION_PRODUCER_RESUMES``. Sanitary consumer rebuild burns
+    ``_ORIENTATION_EDL_RESUMES`` only — so a consumer-only EDL rebuild does
+    not exhaust the producer HARD budget.
+
+    Returns ``(from_stage, hard_budget_exceeded)``.
+    """
+    global _ORIENTATION_EDL_RESUMES, _ORIENTATION_PRODUCER_RESUMES
+    from interview_mux.stage_completion import edl_heal_resume_stage
+
+    pin = edl_heal_resume_stage(ctx) or "vo_synthesize"
+    if pin == "vo_synthesize":
+        _ORIENTATION_PRODUCER_RESUMES += 1
+        return pin, _ORIENTATION_PRODUCER_RESUMES > 1
+    _ORIENTATION_EDL_RESUMES += 1
+    return "edl", _ORIENTATION_EDL_RESUMES > 1
+
+
 def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
-    global _ORIENTATION_EDL_RESUMES
+    global _ORIENTATION_EDL_RESUMES, _ORIENTATION_PRODUCER_RESUMES
     # If a worker is already mid-stage, join it instead of fighting for the lock.
     # Exception: soft-junction finalize must not join an earlier edl/junction remaster.
     try:
@@ -7971,40 +8228,59 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 resume = "vo_synthesize"
                             elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
-                                # Don't bounce into MusicGen while VO/layup floor
-                                # is still incomplete (omit-stamp thrash → empty G1).
-                                try:
-                                    from interview_mux.stage_completion import (
-                                        stage_artifact_incompleteness as _sai,
+                                # Missing EDL is not mix-seat thrash — build EDL first
+                                # (exec_11630: no edl.json but heal_resume → music_palette forever).
+                                if not ctx_p.artifact_exists("master/edl.json"):
+                                    (ctx_p.run_dir / ".stage_done" / "edl").unlink(
+                                        missing_ok=True
                                     )
-
-                                    layup_inc = _sai(ctx_p, "nugget_layup_compose")
-                                    vo_inc = _sai(ctx_p, "vo_synthesize")
-                                except Exception:
-                                    layup_inc = None
-                                    vo_inc = None
-                                if layup_inc:
-                                    resume = "nugget_layup_compose"
+                                    if ctx_p.is_done("edl_narrative_audit"):
+                                        # Hollow audit without EDL — force rebuild path.
+                                        (
+                                            ctx_p.run_dir
+                                            / ".stage_done"
+                                            / "edl_narrative_audit"
+                                        ).unlink(missing_ok=True)
+                                    resume = "edl"
                                     log(
-                                        "premature EDL complete mix unseated but "
-                                        f"layup incomplete — resume {resume}"
-                                    )
-                                elif vo_inc or not ctx_p.is_done("vo_synthesize"):
-                                    resume = "vo_synthesize"
-                                    log(
-                                        "premature EDL complete mix unseated but "
-                                        f"VO incomplete — resume {resume}"
+                                        "premature complete drift=rebuild but "
+                                        f"edl.json missing — resume {resume}"
                                     )
                                 else:
-                                    resume = _heal_resume(
-                                        error="premature EDL complete mix unseated",
-                                        stage="edl",
-                                        intent="mix_seat",
-                                    )
-                                    log(
-                                        f"premature EDL complete with mix unseated "
-                                        f"(drift={drift}) — resume {resume}"
-                                    )
+                                    # Don't bounce into MusicGen while VO/layup floor
+                                    # is still incomplete (omit-stamp thrash → empty G1).
+                                    try:
+                                        from interview_mux.stage_completion import (
+                                            stage_artifact_incompleteness as _sai,
+                                        )
+
+                                        layup_inc = _sai(ctx_p, "nugget_layup_compose")
+                                        vo_inc = _sai(ctx_p, "vo_synthesize")
+                                    except Exception:
+                                        layup_inc = None
+                                        vo_inc = None
+                                    if layup_inc:
+                                        resume = "nugget_layup_compose"
+                                        log(
+                                            "premature EDL complete mix unseated but "
+                                            f"layup incomplete — resume {resume}"
+                                        )
+                                    elif vo_inc or not ctx_p.is_done("vo_synthesize"):
+                                        resume = "vo_synthesize"
+                                        log(
+                                            "premature EDL complete mix unseated but "
+                                            f"VO incomplete — resume {resume}"
+                                        )
+                                    else:
+                                        resume = _heal_resume(
+                                            error="premature EDL complete mix unseated",
+                                            stage="edl",
+                                            intent="mix_seat",
+                                        )
+                                        log(
+                                            f"premature EDL complete with mix unseated "
+                                            f"(drift={drift}) — resume {resume}"
+                                        )
                             elif not ctx_p.is_done("mix"):
                                 from interview_mux.heal_routing import mix_assembly_seated
 
@@ -8209,7 +8485,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         except Exception:
                             pass
                     try:
-                        if label == "analysis":
+                        if resume in DELIVERY_ORDER:
+                            predecline_pending_reuse(DELIVERY_ORDER)
+                            execute({"mode": "delivery", "from_stage": resume})
+                        elif label == "analysis" or resume in ANALYSIS_ORDER:
                             predecline_pending_reuse(
                                 [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
                             )
@@ -8274,6 +8553,22 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     elif edl:
                         resume_body = {"mode": "delivery", "from_stage": "assembly_preview"}
                         log("interrupted smart-resume → assembly_preview")
+                    else:
+                        # Mid-EDL interrupt often leaves no edl.json yet. Prefer EDL
+                        # when G1 is already green instead of replaying vo_synthesize
+                        # (exec_11630: Server restarted mid-ffprobe → VO thrash).
+                        try:
+                            from interview_mux.gates import check_g1_vo
+
+                            g1_open = check_g1_vo(ctx)
+                        except Exception:
+                            g1_open = ["unknown"]
+                        if not g1_open:
+                            resume_body = {"mode": "delivery", "from_stage": "edl"}
+                            log(
+                                "interrupted smart-resume → edl "
+                                "(G1 green; edl.json not yet committed)"
+                            )
                 except Exception as exc:
                     log(f"interrupted smart-resume probe: {exc}")
             try:
@@ -9578,31 +9873,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             if "opening_orientation_text_too_thin" in low_err or (
                 "opening orientation contract failed" in low_err
             ):
-                _ORIENTATION_EDL_RESUMES += 1
+                _ctx_orient = None
                 try:
                     from interview_mux.opening_adjacency_repair import (
                         suppress_opening_layup_when_orientation_owns_slot,
                     )
                     from interview_mux.run_context import RunContext as _RCopen
 
+                    _ctx_orient = _RCopen(RUN_ID, create=False)
                     suppressed = suppress_opening_layup_when_orientation_owns_slot(
-                        _RCopen(RUN_ID, create=False)
+                        _ctx_orient
                     )
                     if suppressed:
                         log(f"opening_adjacency repair suppressed {suppressed}")
                 except Exception as open_exc:
                     log(f"opening_adjacency repair: {open_exc}")
-                if _ORIENTATION_EDL_RESUMES > 1:
+                    if _ctx_orient is None:
+                        try:
+                            from interview_mux.run_context import RunContext as _RCopen
+
+                            _ctx_orient = _RCopen(RUN_ID, create=False)
+                        except Exception:
+                            _ctx_orient = None
+                resume_stage, hard = orientation_contract_heal_resume(_ctx_orient)
+                if hard:
                     log(
-                        "STOP: duplicate opening orientation contract after one EDL resume"
+                        "STOP: duplicate opening orientation contract after one "
+                        f"{resume_stage} resume"
                     )
                     pause_needs_operator(
-                        "edl",
-                        "HARD: opening orientation contract still failing after one EDL resume",
+                        resume_stage,
+                        "HARD: opening orientation contract still failing after one "
+                        f"{resume_stage} resume",
                     )
                     continue
-                log("opening orientation: resume edl once for in-stage re-synth")
-                execute({"mode": "delivery", "from_stage": "edl"})
+                log(
+                    f"opening orientation: resume {resume_stage} once "
+                    "(edl_heal_resume_stage pin)"
+                )
+                execute({"mode": "delivery", "from_stage": resume_stage})
                 continue
             # Analysis mode cannot resume delivery stages — remap.
             if "unknown from_stage" in low_err and any(
@@ -11794,15 +12103,32 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log("missing gap VO WAV with framing active — clone-voice prereq then G1")
                     _heal_clone_voice_prereqs()
                     if synthesize_g1():
+                        # Missing WAV was reported by EDL — pickups are now promoted.
+                        # premature_cap_hard_pin often rewinds to vo_synthesize and
+                        # the next EDL never re-enters (exec_11630: G1 ok → VO →
+                        # audit → EDL missing WAV again). Stay on edl when G1 green.
                         pin = "edl"
+                        still_missing: list[str] = []
                         try:
-                            from interview_mux.delivery_guardrails import premature_cap_hard_pin
+                            from interview_mux.gates import check_g1_vo
                             from interview_mux.run_context import RunContext as _RCPin
 
-                            pin = premature_cap_hard_pin(_RCPin(RUN_ID, create=False), "edl")
+                            _ctx_pin = _RCPin(RUN_ID, create=False)
+                            still_missing = list(check_g1_vo(_ctx_pin) or [])
+                            if still_missing:
+                                from interview_mux.delivery_guardrails import (
+                                    premature_cap_hard_pin,
+                                )
+
+                                pin = premature_cap_hard_pin(
+                                    _ctx_pin, "vo_synthesize", message=err
+                                )
                         except Exception:
-                            pin = "transitions"
-                        log(f"G1 synth ok — resume producer {pin} (not edl unless seated)")
+                            pin = "edl"
+                        log(
+                            f"G1 synth ok — resume {pin} "
+                            f"(EDL missing-WAV heal; g1_missing={still_missing[:4]})"
+                        )
                         execute({"mode": "delivery", "from_stage": pin})
                         continue
                     log(
@@ -12115,31 +12441,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     or "no setup" in low_err
                 )
             ):
-                _ORIENTATION_EDL_RESUMES += 1
+                _ctx_orient = None
                 try:
                     from interview_mux.opening_adjacency_repair import (
                         suppress_opening_layup_when_orientation_owns_slot,
                     )
                     from interview_mux.run_context import RunContext as _RCopen
 
+                    _ctx_orient = _RCopen(RUN_ID, create=False)
                     suppressed = suppress_opening_layup_when_orientation_owns_slot(
-                        _RCopen(RUN_ID, create=False)
+                        _ctx_orient
                     )
                     if suppressed:
                         log(f"opening_adjacency repair suppressed {suppressed}")
                 except Exception as open_exc:
                     log(f"opening_adjacency repair: {open_exc}")
-                if _ORIENTATION_EDL_RESUMES > 1:
+                    if _ctx_orient is None:
+                        try:
+                            from interview_mux.run_context import RunContext as _RCopen
+
+                            _ctx_orient = _RCopen(RUN_ID, create=False)
+                        except Exception:
+                            _ctx_orient = None
+                resume_stage, hard = orientation_contract_heal_resume(_ctx_orient)
+                if hard:
                     log(
-                        "STOP: duplicate opening orientation contract after one EDL resume"
+                        "STOP: duplicate opening orientation contract after one "
+                        f"{resume_stage} resume"
                     )
                     pause_needs_operator(
-                        "edl",
-                        "HARD: opening orientation contract still failing after one EDL resume",
+                        resume_stage,
+                        "HARD: opening orientation contract still failing after one "
+                        f"{resume_stage} resume",
                     )
                     continue
-                log("opening orientation: resume edl once for in-stage re-synth")
-                execute({"mode": "delivery", "from_stage": "edl"})
+                log(
+                    f"opening orientation: resume {resume_stage} once "
+                    "(edl_heal_resume_stage pin)"
+                )
+                execute({"mode": "delivery", "from_stage": resume_stage})
                 continue
             if (
                 "post-commit validation failed" in low_err

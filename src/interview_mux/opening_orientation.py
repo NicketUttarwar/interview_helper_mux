@@ -640,6 +640,36 @@ def ensure_episode_orientation(
                     "words": len(text.split()),
                 }
             )
+    # Required orientation must not keep hard spoken scaffolding after rewrite.
+    try:
+        from interview_mux.spoken_meta_lint import (
+            is_hard_structure_violation,
+            rewrite_speaker_role_labels,
+            spoken_structure_hits,
+        )
+
+        orient_text = str(chosen.get("text") or "")
+        healed = rewrite_speaker_role_labels(orient_text)
+        if healed != orient_text:
+            chosen["text"] = healed
+            actions.append(
+                {
+                    "action": "rewrite_episode_orientation_speaker_role_labels",
+                    "line_id": chosen["line_id"],
+                }
+            )
+            orient_text = healed
+        hits = spoken_structure_hits(orient_text)
+        hard_hits = [h for h in hits if is_hard_structure_violation(h)]
+        if hard_hits:
+            raise RuntimeError(
+                "opening orientation contract failed: spoken scaffolding remains "
+                f"on required orientation ({', '.join(hard_hits)})"
+            )
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
     chosen["recompose_action"] = "retargeted" if old_target != target else "kept"
     if old_target != target:
         actions.append(
@@ -672,33 +702,62 @@ def ensure_episode_orientation(
         )
 
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        if is_homunculus_run(ctx):
+        if has_homunculus_features(ctx):
             chosen["vo_shape"] = str(chosen.get("vo_shape") or "third_person")
     except Exception:
         pass
 
     if nugget_recovery_ids:
-        chosen, embed_notes = embed_orientation_nugget_recovery(
-            ctx, chosen, nugget_recovery_ids
-        )
-        for note in embed_notes:
+        # Do not rewrite orientation copy when a seated WAV already exists for
+        # this line_id — embed invalidates script_hash and EDL then ships
+        # audible_count=0 (exec_11630: dry-run seated, live ensure+embed wiped bind).
+        wav_bound = False
+        try:
+            lid = str(chosen.get("line_id") or ORIENTATION_LINE_ID).strip()
+            pickup = ctx.final_path("vo_pickup")
+            for base in (
+                pickup / "matched",
+                pickup / "synthesized",
+                pickup / "clean",
+                pickup / "normalized",
+                pickup,
+            ):
+                cand = base / f"{lid}.wav"
+                if cand.is_file() and cand.stat().st_size > 1000:
+                    wav_bound = True
+                    break
+        except Exception:
+            wav_bound = False
+        if wav_bound:
             actions.append(
                 {
-                    "action": "embed_orientation_nugget_recovery",
+                    "action": "skip_nugget_embed_wav_bound",
                     "line_id": chosen.get("line_id"),
-                    "detail": note,
+                    "nugget_ids": nugget_recovery_ids[:4],
                 }
             )
-        if force_synthetic_for_nuggets and not orientations:
-            actions.append(
-                {
-                    "action": "force_synthetic_orientation_for_nuggets",
-                    "line_id": chosen.get("line_id"),
-                    "nugget_ids": nugget_recovery_ids[:2],
-                }
+        else:
+            chosen, embed_notes = embed_orientation_nugget_recovery(
+                ctx, chosen, nugget_recovery_ids
             )
+            for note in embed_notes:
+                actions.append(
+                    {
+                        "action": "embed_orientation_nugget_recovery",
+                        "line_id": chosen.get("line_id"),
+                        "detail": note,
+                    }
+                )
+            if force_synthetic_for_nuggets and not orientations:
+                actions.append(
+                    {
+                        "action": "force_synthetic_orientation_for_nuggets",
+                        "line_id": chosen.get("line_id"),
+                        "nugget_ids": nugget_recovery_ids[:2],
+                    }
+                )
 
     orientation_ids = {
         str(x.get("line_id") or "") for x in orientations if x.get("line_id")
@@ -759,6 +818,31 @@ def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
             line_id = str(line.get("line_id") or ORIENTATION_LINE_ID)
             target = str(line.get("targets_segment_id") or target)
             break
+    # Orientation retarget runs from consumers too (edl). Once gap_report is
+    # frozen by its owner, keep the retarget in memory instead of rewriting the
+    # sealed body — the caller still reads the updated doc from disk owner state.
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        allowed, deny_reason = write_permitted(
+            ctx,
+            "understanding/gap_report.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        allowed, deny_reason, stage_now = True, "", ""
+    if not allowed:
+        ctx.log(
+            "orientation retarget: gap_report frozen — skipping rewrite "
+            f"(stage={stage_now or 'unknown'}, {deny_reason})",
+            level="info",
+            stage=stage_now or None,
+        )
+        return written
     ctx.write_json("understanding/gap_report.json", updated)
     written.append("understanding/gap_report.json")
 
@@ -807,11 +891,32 @@ def validate_opening_orientation(
 ) -> list[str]:
     """Validate opening grammar: one early orientation, or none when native already intros."""
     errors: list[str] = []
+    meta = (
+        (gap_report or {}).get("opening_orientation")
+        if isinstance(gap_report, dict)
+        else None
+    )
+    meta_line_id = (
+        str(meta.get("line_id") or "").strip() if isinstance(meta, dict) else ""
+    )
     report_lines = [
         x
         for x in ((gap_report or {}).get("interviewer_lines") or [])
         if isinstance(x, dict) and is_episode_orientation(x) and not x.get("skipped_optional")
     ]
+    # When meta names the required orientation, ignore sibling episode_preface
+    # act/chapter prefaces (exec_11630: vo_preface_act1 + episode_orientation → count=2).
+    if meta_line_id:
+        report_lines = [
+            x
+            for x in report_lines
+            if str(x.get("line_id") or "") == meta_line_id
+            or bool(x.get("episode_orientation"))
+        ]
+        # Prefer the meta id exclusively when present among candidates.
+        named = [x for x in report_lines if str(x.get("line_id") or "") == meta_line_id]
+        if named:
+            report_lines = named
     omitted = orientation_omitted(gap_report if isinstance(gap_report, dict) else None)
     if omitted:
         if report_lines:

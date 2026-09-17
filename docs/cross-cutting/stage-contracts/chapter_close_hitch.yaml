@@ -17,6 +17,11 @@ outputs:
   staging: true
 - path: mastering/chapter_close_hitch/remap.json
   staging: true
+- path: mastering/chapter_close_hitch/hitch_keepers.json
+- path: mastering/chapter_close_hitch/pre_keepers.json
+- path: mastering/chapter_close_hitch/omit_ledger.json
+- path: mastering/chapter_close_hitch/vo_snapshot.json
+- path: master/narrative_plan.qc.json
 inputs:
   hard:
   - path: master/narrative_plan.json
@@ -26,6 +31,37 @@ inputs:
     producer: segment_classification
   - path: transcript/full.json
     producer: transcribe
+  - path: mastering/chapter_close_hitch.json
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/ideal_cuts_materialized.json
+    producer: ideal_cuts_materialize
+  - path: understanding/nugget_corpus.json
+    producer: nugget_corpus_mine
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/speaker_delivery_plan.json
+    producer: full_master_ranking
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/talking_points.json
+    producer: talking_points_compose
+  - path: segments/boundaries.json
+    producer: boundary_detection
 sufficiency:
 - path: status
   rule: non_empty_string

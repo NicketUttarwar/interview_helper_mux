@@ -251,19 +251,6 @@ def failure_signature_by_class(
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
-def structural_failure_signature(
-    ctx: RunContext,
-    *,
-    failed_stage: str,
-    error_class: str,
-) -> str:
-    """Unified structural signature helper (predicate_token + class + stage)."""
-    return failure_signature_by_class(
-        failed_stage=failed_stage,
-        error_class=error_class,
-        predicate_token=_predicate_token_for(ctx, failed_stage),
-    )
-
 
 def _predicate_token_for(ctx: RunContext, stage: str) -> str:
     try:
@@ -702,62 +689,6 @@ def upsert_fail_key(
     )
 
 
-def record_failure_unified(
-    ctx: RunContext,
-    *,
-    fail_key: str = "",
-    failed_stage: str = "",
-    error_class: str = "",
-    producer: str = "",
-    reason: str = "",
-    resume_attempted: str = "",
-    predicate_token: str = "",
-    count: int | None = None,
-) -> dict[str, Any]:
-    """Unified ledger write — prefer fail_key upsert; else class / reason record.
-
-    Driver and recovery paths should call this (or ``upsert_fail_key``) so the
-    on-disk ledger stays the SSOT; in-memory driver maps are caches only.
-    """
-    key = str(fail_key or "").strip()
-    if key:
-        n = int(count) if count is not None else None
-        if n is None:
-            # Increment relative to prior fail_key row.
-            sig = fail_key_signature(key)
-            prev = dict((read_identical_failures(ctx).get("signatures") or {}).get(sig) or {})
-            n = int(prev.get("count") or 0) + 1
-        return upsert_fail_key(
-            ctx,
-            key,
-            n,
-            failed_stage=failed_stage,
-            producer=producer or error_class,
-            reason=reason or key,
-            resume_attempted=resume_attempted,
-            predicate_token=predicate_token,
-        )
-    cls = str(error_class or "").strip()
-    if cls:
-        return record_failure(
-            ctx,
-            kind="class",
-            failed_stage=failed_stage,
-            error_class=cls,
-            producer=producer or cls,
-            resume_attempted=resume_attempted,
-            predicate_token=predicate_token,
-        )
-    return record_failure(
-        ctx,
-        kind="reason",
-        failed_stage=failed_stage,
-        producer=producer,
-        reason=reason,
-        resume_attempted=resume_attempted,
-        predicate_token=predicate_token,
-    )
-
 
 def is_halted(ctx: RunContext, signature: str) -> bool:
     """Halt authority is operator/identical_failures.json only (never legacy mirror).
@@ -812,15 +743,6 @@ def is_fail_key_halted(ctx: RunContext, fail_key: str) -> bool:
     """``is_halted`` for a driver fail_key (one authority)."""
     return is_halted(ctx, fail_key_signature(fail_key))
 
-
-def halted_rows(ctx: RunContext) -> list[dict[str, Any]]:
-    doc = read_identical_failures(ctx)
-    out: list[dict[str, Any]] = []
-    for sig in doc.get("order") or []:
-        row = (doc.get("signatures") or {}).get(sig)
-        if isinstance(row, dict) and row.get("halt"):
-            out.append(row)
-    return out
 
 
 def _zero_row(row: dict[str, Any]) -> dict[str, Any]:

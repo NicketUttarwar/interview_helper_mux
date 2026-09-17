@@ -2435,9 +2435,22 @@ def test_publish_refuses_hollow_gap_under_g_framing(monkeypatch):
         }
         for sid in ("012", "020", "030")
     ]
+    # Foreign compose before-VO must be scrubbed on hollow preserve.
+    prior_lines.append(
+        {
+            "line_id": "vo_compose_foreign",
+            "gap_type": "missing_setup",
+            "placement": "before",
+            "targets_segment_id": "seg_012",
+            "delivery": "synthesize",
+            "origin": "gap_framing_compose",
+            "text": "Foreign compose line that must not survive under layup authority.",
+        }
+    )
     ctx.write_json(
         GAP_REL,
         {"interviewer_lines": prior_lines, "nugget_layup_authority": True},
+        skip_handoff=True,
     )
     monkeypatch.setattr(
         "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
@@ -2459,7 +2472,17 @@ def test_publish_refuses_hollow_gap_under_g_framing(monkeypatch):
         if isinstance(ln, dict) and not ln.get("skipped_optional")
     ]
     assert len(kept) >= 3
+    origins = {str(ln.get("origin") or "") for ln in kept}
+    assert "gap_framing_compose" not in origins
+    assert "nugget_layup" in origins
+    assert report.get("nugget_layup_authority") is True
     disk = ctx.read_json(GAP_REL)
+    disk_origins = {
+        str(ln.get("origin") or "")
+        for ln in (disk.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    }
+    assert "gap_framing_compose" not in disk_origins
     assert len(disk.get("interviewer_lines") or []) >= 3
 
 

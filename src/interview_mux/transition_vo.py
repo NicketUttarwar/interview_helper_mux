@@ -130,10 +130,45 @@ def persist_vo_pair_gap(
     doc["last_source"] = source
     if extra:
         doc.update(extra)
+    # Consumers (junction remaster / mix) call this as bookkeeping. Once the VO
+    # owner sealed the report, do not rewrite it — the pair gap is already visible
+    # in this stage's own logs/report (exec_11871 authority_denied noise).
+    if not _vo_report_write_permitted(ctx, stage_key):
+        return
     try:
         ctx.write_json(rel, doc, skip_handoff=skip_handoff, stage_key=stage_key)
     except Exception:
         pass
+
+
+def _vo_report_write_permitted(ctx: RunContext, stage_key: str | None) -> bool:
+    """True when the active stage may persist mastering/vo_synthesize.json."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(stage_key or active_stage_id() or "")
+        allowed, reason = write_permitted(
+            ctx,
+            "mastering/vo_synthesize.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        try:
+            ctx.log(
+                "vo pair gap: vo_synthesize report sealed — keeping note in stage log "
+                f"(stage={stage_now or 'unknown'}, {reason})",
+                level="info",
+                stage=stage_now or None,
+            )
+        except Exception:
+            pass
+        return False
+    return True
 
 
 def resolve_transition_wav(
@@ -639,8 +674,53 @@ def synthesize_spoken_transitions(
         except Exception:
             pass
     if writeback:
-        persist_transitions_doc(ctx, doc, stage_key="edl")
+        _persist_transitions_copy_normalization(ctx, doc)
     return results
+
+
+def _persist_transitions_copy_normalization(
+    ctx: RunContext, doc: dict[str, Any]
+) -> None:
+    """Persist guard-normalized transition copy only when the caller owns the doc.
+
+    ``synthesize_spoken_transitions`` runs from several stages (``transitions``,
+    ``vo_synthesize``, EDL repairs). The writeback used to hardcode
+    ``stage_key="edl"``, which hits the ``edl_must_not_mint_transitions`` DENY row
+    and raised out of the whole synth pass — exec_11871 lost every transition WAV
+    result to ``vo_synthesize: transition synth failed open``. The normalization is
+    deterministic from the guard, so a sealed doc may simply keep it in memory.
+    """
+    from interview_mux.write_staging import active_stage_id
+
+    stage_now = str(active_stage_id() or "") or "transitions"
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        allowed, reason = write_permitted(
+            ctx,
+            "master/transitions.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        allowed, reason = True, ""
+    if not allowed:
+        ctx.log(
+            "transition copy normalization kept in memory "
+            f"(stage={stage_now}, {reason})",
+            level="info",
+            stage=stage_now,
+        )
+        return
+    try:
+        persist_transitions_doc(ctx, doc, stage_key=stage_now)
+    except Exception as exc:
+        ctx.log(
+            f"transition copy normalization not persisted ({exc})",
+            level="warning",
+            stage=stage_now,
+        )
 
 
 def assert_required_bridge_synth_ok(
@@ -945,38 +1025,60 @@ def clear_transitions_pair_freeze(ctx: RunContext) -> bool:
     return removed
 
 
+def _deferred_pairs_write_permitted(ctx: RunContext) -> bool:
+    """True when the active stage may persist the deferred-pairs bookkeeping doc."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        allowed, _reason = write_permitted(
+            ctx,
+            DEFERRED_PAIRS_REL,
+            str(active_stage_id() or ""),
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    return bool(allowed)
+
+
 def _sync_deferred_transition_pairs(ctx: RunContext) -> list[str]:
     frozen = frozen_transition_pair_keys(ctx)
     if not frozen:
         return []
     current = {_pair_key(a, b) for a, b in spoken_transition_pairs(ctx)}
     deferred = sorted(current - frozen)
-    ctx.write_json(
-        DEFERRED_PAIRS_REL,
-        {
-            "version": 1,
-            "deferred_pairs": deferred,
-            "frozen_count": len(frozen),
-            "current_count": len(current),
-        },
-        skip_handoff=True,
-    )
+    # Read-side bookkeeping: consumers (edl_narrative_audit / mix / qc) call this
+    # while computing deferred coverage. Once transitions sealed the doc, keep the
+    # recomputed bucket in memory instead of rewriting the owner's artifact.
+    if _deferred_pairs_write_permitted(ctx):
+        ctx.write_json(
+            DEFERRED_PAIRS_REL,
+            {
+                "version": 1,
+                "deferred_pairs": deferred,
+                "frozen_count": len(frozen),
+                "current_count": len(current),
+            },
+            skip_handoff=True,
+        )
     return deferred
 
 
 def deferred_transition_pairs(ctx: RunContext) -> list[tuple[str, str]]:
     """Spoken pairs added after the freeze — mix last-chance only."""
-    _sync_deferred_transition_pairs(ctx)
-    if not ctx.artifact_exists(DEFERRED_PAIRS_REL):
-        return []
-    try:
-        doc = ctx.read_json(DEFERRED_PAIRS_REL)
-    except Exception:
-        return []
-    if not isinstance(doc, dict):
-        return []
+    synced = _sync_deferred_transition_pairs(ctx)
+    keys: list[str] = list(synced)
+    if not keys and ctx.artifact_exists(DEFERRED_PAIRS_REL):
+        try:
+            doc = ctx.read_json(DEFERRED_PAIRS_REL)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            keys = [str(x) for x in (doc.get("deferred_pairs") or []) if x]
     out: list[tuple[str, str]] = []
-    for key in doc.get("deferred_pairs") or []:
+    for key in keys:
         parsed = _parse_pair_key(str(key))
         if parsed:
             out.append(parsed)

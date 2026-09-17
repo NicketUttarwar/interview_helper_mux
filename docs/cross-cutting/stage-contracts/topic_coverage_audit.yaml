@@ -13,8 +13,39 @@ outputs:
   schema: coverage_audit_artifact.schema.json
   staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
+  soft:
+  - path: master/coverage_audit.json
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/value_features.json
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/interview_spine.json
+    producer: interview_spine_build
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/boundaries.json
+    producer: boundary_detection
+  - path: transcript/full.json
+    producer: transcribe
+  - path: transcript/review_queue.json
+    producer: transcript_review_build
+  - path: analysis_complete.json
+  - path: understanding/gap_fill_skip.json
+  - path: understanding/speaker_delivery_plan.json
 sufficiency:
 - path: topics
   rule: min_rows
@@ -28,7 +59,14 @@ propagation:
   - nugget_layup_compose
   - transitions
 consumers:
-- topic_coverage_audit
+- narrative_arc_plan
+- full_master_ranking
+- refinement_agenda
+- gap_framing_recompose
+- selection_framing_apply
+- transitions
+- edl_narrative_audit
+- junction_snip_qa
 remediation:
   strategies:
   - volley_retry

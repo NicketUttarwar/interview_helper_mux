@@ -256,8 +256,45 @@ def apply_cheap_remediation(ctx: RunContext) -> list[str]:
     flow_plans = dict(flow_plans)
     flow_plans[key] = flow
     sdp["flow_plans"] = flow_plans
+    if not _sdp_write_permitted(ctx):
+        # Sealed SDP: the bed trim stays advisory (placement_adjustments already
+        # carries mix-time levels). Raising here aborted the junction commitment
+        # remaster mid-render — exec_11871 `authority_denied … edl_sealed`.
+        return [f"{a}:advisory_sdp_sealed" for a in actions]
     ctx.write_json("understanding/sound_design_plan.json", sdp)
     return actions
+
+
+def _sdp_write_permitted(ctx: RunContext) -> bool:
+    """True when the active stage may persist the sound design plan."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        if not stage_now:
+            return True
+        allowed, reason = write_permitted(
+            ctx,
+            "understanding/sound_design_plan.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        try:
+            ctx.log(
+                "soundscape_verify: sound_design_plan sealed — bed remediation stays "
+                f"advisory ({reason})",
+                level="info",
+                stage=stage_now or None,
+            )
+        except Exception:
+            pass
+        return False
+    return True
 
 
 def _clear_pending_sdp_shadows(ctx: RunContext) -> None:

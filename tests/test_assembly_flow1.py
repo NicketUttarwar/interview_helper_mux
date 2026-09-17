@@ -749,6 +749,61 @@ def test_resync_accepts_audit_match_when_resolve_returns_none(
     assert notes == ["vo_layup_seg_019"]
 
 
+def test_resync_under_edl_staging_promotes_owner_vo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EDL-nested resync must stage/promote under vo_synthesize (exec_11630)."""
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = isolated_run_ctx(tmp_path, "run_resync_nested_edl")
+    line = {
+        "line_id": "vo_layup_seg_020",
+        "text": "Why does counting cells leave clinicians uncertain?",
+        "targets_segment_id": "seg_020",
+        "placement": "before",
+        "delivery": "synthesize",
+        "required": True,
+    }
+    stages: list[str | None] = []
+
+    def _fake_synth(_ctx, row, *, mode="synthesize"):
+        from interview_mux.write_staging import active_stage_id
+
+        stages.append(active_stage_id())
+        out = _ctx.path("vo_pickup", "synthesized", "vo_layup_seg_020.wav")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rate = 48_000
+        with wave.open(str(out), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(b"\x00\x00" * int(rate * 0.25))
+        from interview_mux.vo_synthesis_audit import record_synthesis
+
+        record_synthesis(
+            _ctx, row, backend="chatterbox", out_wav=out, wav_just_rendered=True
+        )
+        return out
+
+    monkeypatch.setattr("interview_mux.s2s_runner.synthesize_line", _fake_synth)
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.resolve_gap_vo_delivery",
+        lambda _ctx: "chatterbox",
+    )
+    enter_stage_staging("edl")
+    try:
+        notes = resync_required_synthesize_wavs(ctx, {"interviewer_lines": [line]})
+    finally:
+        exit_stage_staging()
+    assert notes == ["vo_layup_seg_020"]
+    assert stages == ["vo_synthesize"]
+    assert (ctx.run_dir / "vo_pickup" / "synthesized" / "vo_layup_seg_020.wav").is_file()
+
+
 def test_build_flow1_edl_active_layup_drops_transition(tmp_path: Path) -> None:
     wav = tmp_path / "vo.wav"
     wav.write_bytes(b"\x00")

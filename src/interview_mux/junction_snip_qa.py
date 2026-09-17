@@ -566,6 +566,29 @@ def live_incomplete_cut_critical_findings(
     ]
 
 
+def junction_recut_precedes_mix(ctx: RunContext) -> bool:
+    """True when the junction recut ladder must run ahead of the first mix.
+
+    exec_11871: run_mix refuses while live incomplete-cut criticals exist and
+    pins junction_snip_qa, but seed order / preflight / hardening all placed mix
+    first, so nobody could recut (predicate x3 halt). The ladder needs only
+    master/edl.json — the remaster it drives is what mints assembly.wav.
+    """
+    try:
+        if not live_incomplete_cut_critical_findings(ctx):
+            return False
+        # A *stale* assembly.wav from an earlier mix does not clear the residual:
+        # mix is still not done and still refuses, while the seed-order gate held
+        # junction behind mix — exec_11871 ping-ponged mix ⇄ junction_snip_qa every
+        # 5 minutes on seg_014 chapter_bleed_incomplete. Only a mix that actually
+        # landed (done + assembly) hands the ladder back its post-mix position.
+        if ctx.is_done("mix") and ctx.artifact_exists("master/assembly.wav"):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def clear_stale_incomplete_cut_residuals(ctx: RunContext) -> bool:
     """Drop stamped incomplete-cut criticals when live detect is clean.
 
@@ -738,8 +761,15 @@ def _merge_candidate_for_clip(
     segs: dict[str, Any],
     gap_max_ms: int = 450,
     allow_cross_speaker: bool = False,
+    allow_cross_chapter_gap_ms: int = 0,
 ) -> dict[str, Any] | None:
-    """Adjacent speech within gap — prefer absorbing the incomplete close."""
+    """Adjacent speech within gap — prefer absorbing the incomplete close.
+
+    ``allow_cross_chapter_gap_ms`` > 0 lets a *source-adjacent* neighbour in the
+    next chapter absorb the clip. A chapter_bleed_incomplete lives exactly on a
+    chapter boundary, so the same-chapter rule left it with no candidate at all
+    (exec_11871 seg_014 — permanent mix refusal).
+    """
     if not speaker and not allow_cross_speaker:
         return None
     candidates: list[tuple[int, dict[str, Any]]] = []
@@ -757,8 +787,7 @@ def _merge_candidate_for_clip(
         if other_speaker != speaker and not allow_cross_speaker:
             continue
         och = _chapter_id_for(oid, selection)
-        if chapter and och and chapter != och:
-            continue
+        cross_chapter = bool(chapter and och and chapter != och)
         oss = int(other.get("source_start_ms") or 0)
         ose = int(other.get("source_end_ms") or oss)
         gap = min(abs(oss - src_end), abs(src_start - ose), abs(oss - src_start), abs(ose - src_end))
@@ -768,6 +797,8 @@ def _merge_candidate_for_clip(
         elif j == index - 1:
             gap = max(0, src_start - ose)
         if gap > gap_max_ms:
+            continue
+        if cross_chapter and gap > int(allow_cross_chapter_gap_ms):
             continue
         candidates.append((gap, other))
     if not candidates:
@@ -1372,6 +1403,17 @@ def refuse_mix_if_live_incomplete_cuts(ctx: RunContext) -> None:
     live = live_incomplete_cut_critical_findings(ctx)
     if not live:
         return
+    # Junction's own ladder remasters between repair rounds. Refusing there would
+    # abort the recut owner before it can rescan (exec_11871 spin) — junction still
+    # blocks at its terminal check (`critical_incomplete_cut_residuals`).
+    if getattr(ctx, "_junction_snip_qa_inner", False):
+        ctx.log(
+            "junction inner remaster: rendering with "
+            f"{len(live)} live incomplete-cut residual(s) — terminal check still gates ship",
+            level="info",
+            stage=STAGE_ID,
+        )
+        return
     from interview_mux.loud_fail import raise_loud_failure
 
     kinds = sorted({str(f.get("kind") or "") for f in live if f.get("kind")})
@@ -1466,6 +1508,127 @@ def _omit_speech_clip(
         for c in clips
         if not (str(c.get("type") or "") == "speech" and str(c.get("segment_id") or "") == key)
     ]
+
+
+
+def _merge_plan_preserves_source(
+    plan: dict[str, Any],
+    clips: list[dict[str, Any]],
+    sid: str,
+) -> bool:
+    """True when the fused survivor range still covers the retired clip's audio."""
+    drop_id = str(plan.get("drop_segment_id") or "")
+    if not drop_id:
+        return False
+    idx = _speech_clip_index(clips, drop_id)
+    if idx < 0:
+        return False
+    dropped = clips[idx]
+    try:
+        d_start = int(dropped.get("source_start_ms") or 0)
+        d_end = int(dropped.get("source_end_ms") or d_start)
+        new_start = int(plan.get("new_start_ms") or 0)
+        new_end = int(plan.get("new_end_ms") or 0)
+    except (TypeError, ValueError):
+        return False
+    return new_start <= d_start and new_end >= d_end and new_end > new_start
+
+
+def _fuse_or_omit_hanging_clip(
+    ctx: RunContext,
+    *,
+    clips: list[dict[str, Any]],
+    finding: dict[str, Any],
+    overrides: dict[str, Any],
+    excluded: set[str],
+    exclude_reasons: dict[str, str],
+    segs: dict[str, Any],
+    selection: dict[str, Any],
+    hard_keeps: set[str],
+    applied: list[dict[str, Any]],
+    reason_suffix: str = "noop_recut",
+) -> tuple[list[dict[str, Any]], bool]:
+    """Fuse a hanging clip into an EDL neighbour, else omit it (F5 2C ladder)."""
+    f = finding
+    sid = str(f.get("segment_id") or "")
+    idx = _speech_clip_index(clips, sid)
+    changed = False
+    fused = False
+    if sid and idx >= 0:
+        hanging = clips[idx]
+        src_start = int(hanging.get("source_start_ms") or 0)
+        src_end = int(hanging.get("source_end_ms") or src_start)
+        seg = segs.get(sid) or {}
+        plan = _merge_candidate_for_clip(
+            clips=clips,
+            index=idx,
+            sid=sid,
+            src_start=src_start,
+            src_end=src_end,
+            speaker=_speaker_of(seg if isinstance(seg, dict) else None),
+            chapter=_chapter_id_for(sid, selection),
+            selection=selection,
+            segs=segs,
+            gap_max_ms=24_000,
+            allow_cross_speaker=True,
+            # A chapter_bleed_incomplete sits on the chapter boundary itself: the
+            # only neighbour that can complete the thought is in the next chapter.
+            # Allow it when the two clips are source-adjacent (the boundary was
+            # simply placed mid-thought) — exec_11871 seg_014 → seg_015 (50 ms).
+            allow_cross_chapter_gap_ms=2_000,
+        )
+        if plan and sid in hard_keeps and str(plan.get("drop_segment_id") or "") == sid:
+            neighbor = str(plan.get("survivor_segment_id") or "")
+            if neighbor and neighbor not in hard_keeps:
+                plan = {
+                    **plan,
+                    "drop_segment_id": neighbor,
+                    "survivor_segment_id": sid,
+                }
+        # A fuse is a *union*: the survivor's source range grows to cover both
+        # clips, so the retired id loses no audio. exec_11871 had 60/61 clips on
+        # the hard-keep list, so refusing the union stranded seg_014's
+        # unrecoverable chapter_bleed_incomplete forever (mix ⇄ junction spin).
+        # Only the omit branch below still honours hard keeps.
+        if plan and str(plan.get("drop_segment_id") or "") in hard_keeps:
+            if not _merge_plan_preserves_source(plan, clips, sid):
+                plan = None
+        if plan:
+            reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:fuse_{reason_suffix}"
+            clips = _apply_merge_plan(
+                clips,
+                overrides,
+                excluded,
+                exclude_reasons,
+                plan,
+                reason=reason,
+            )
+            applied.append(
+                {
+                    **f,
+                    "status": "fused_neighbor",
+                    "survivor_segment_id": plan.get("survivor_segment_id"),
+                    "drop_segment_id": plan.get("drop_segment_id"),
+                }
+            )
+            changed = True
+            fused = True
+    if not fused:
+        if sid and sid not in hard_keeps and idx >= 0:
+            reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:omit_{reason_suffix}"
+            clips = _omit_speech_clip(
+                clips,
+                overrides,
+                excluded,
+                exclude_reasons,
+                sid,
+                reason=reason,
+            )
+            applied.append({**f, "status": "omitted_no_neighbor"})
+            changed = True
+        else:
+            applied.append({**f, "status": "skipped_no_recommendation"})
+    return clips, changed
 
 
 def apply_junction_repairs(
@@ -1607,72 +1770,19 @@ def apply_junction_repairs(
             changed = True
         else:
             # F5 2C: recut noop → fuse into an EDL neighbor; else omit the hang.
-            sid = str(f.get("segment_id") or "")
-            idx = _speech_clip_index(clips, sid)
-            fused = False
-            if sid and idx >= 0:
-                hanging = clips[idx]
-                src_start = int(hanging.get("source_start_ms") or 0)
-                src_end = int(hanging.get("source_end_ms") or src_start)
-                seg = segs.get(sid) or {}
-                plan = _merge_candidate_for_clip(
-                    clips=clips,
-                    index=idx,
-                    sid=sid,
-                    src_start=src_start,
-                    src_end=src_end,
-                    speaker=_speaker_of(seg if isinstance(seg, dict) else None),
-                    chapter=_chapter_id_for(sid, selection),
-                    selection=selection,
-                    segs=segs,
-                    gap_max_ms=24_000,
-                    allow_cross_speaker=True,
-                )
-                if plan and sid in hard_keeps and str(plan.get("drop_segment_id") or "") == sid:
-                    neighbor = str(plan.get("survivor_segment_id") or "")
-                    if neighbor and neighbor not in hard_keeps:
-                        plan = {
-                            **plan,
-                            "drop_segment_id": neighbor,
-                            "survivor_segment_id": sid,
-                        }
-                    else:
-                        plan = None
-                if plan and str(plan.get("drop_segment_id") or "") not in hard_keeps:
-                    reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:fuse_noop_recut"
-                    clips = _apply_merge_plan(
-                        clips,
-                        overrides,
-                        excluded,
-                        exclude_reasons,
-                        plan,
-                        reason=reason,
-                    )
-                    applied.append(
-                        {
-                            **f,
-                            "status": "fused_neighbor",
-                            "survivor_segment_id": plan.get("survivor_segment_id"),
-                            "drop_segment_id": plan.get("drop_segment_id"),
-                        }
-                    )
-                    changed = True
-                    fused = True
-            if not fused:
-                if sid and sid not in hard_keeps and idx >= 0:
-                    reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:omit_noop_recut"
-                    clips = _omit_speech_clip(
-                        clips,
-                        overrides,
-                        excluded,
-                        exclude_reasons,
-                        sid,
-                        reason=reason,
-                    )
-                    applied.append({**f, "status": "omitted_no_neighbor"})
-                    changed = True
-                else:
-                    applied.append({**f, "status": "skipped_no_recommendation"})
+            clips, changed_noop = _fuse_or_omit_hanging_clip(
+                ctx,
+                clips=clips,
+                finding=f,
+                overrides=overrides,
+                excluded=excluded,
+                exclude_reasons=exclude_reasons,
+                segs=segs,
+                selection=selection,
+                hard_keeps=hard_keeps,
+                applied=applied,
+            )
+            changed = changed or changed_noop
 
     # Bound nudges first, then incomplete extend/cut so mid-word snaps cannot
     # overwrite a cut that landed on the last complete phrase (exec_11130).
@@ -1878,6 +1988,45 @@ def apply_junction_repairs(
         else:
             if target_idx_i is not None and not matched_clip:
                 applied.append({**f, "status": "skipped_clip_index_mismatch"})
+
+    # exec_11871: a critical incomplete cut flagged `unrecoverable_within_clip`
+    # whose in-clip repair could not land (clamped to the neighbour / no room)
+    # must escalate to the same fuse-then-omit ladder the noop recut uses —
+    # otherwise mix refuses forever on a residual nobody can clear.
+    _resolved_ok = {"applied", "fused_neighbor", "omitted_no_neighbor"}
+    for f in findings:
+        if str(f.get("severity") or "") != "critical":
+            continue
+        if str(f.get("kind") or "") not in _INCOMPLETE_CUT_KINDS:
+            continue
+        detail_f = f.get("detail") if isinstance(f.get("detail"), dict) else {}
+        if not detail_f.get("unrecoverable_within_clip"):
+            continue
+        sid = str(f.get("segment_id") or "")
+        if not sid:
+            continue
+        statuses = {
+            str(a.get("status") or "")
+            for a in applied
+            if isinstance(a, dict)
+            and str(a.get("segment_id") or "") == sid
+            and str(a.get("kind") or "") == str(f.get("kind") or "")
+        }
+        if statuses & _resolved_ok:
+            continue
+        clips, changed_esc = _fuse_or_omit_hanging_clip(
+            ctx,
+            clips=clips,
+            finding=f,
+            overrides=overrides,
+            excluded=excluded,
+            exclude_reasons=exclude_reasons,
+            segs=segs,
+            selection=selection,
+            hard_keeps=hard_keeps,
+            applied=applied,
+        )
+        changed = changed or changed_esc
 
     # Impact holds — insert after speech clip before next VO
     for f in findings:
@@ -2257,15 +2406,40 @@ def _patch_sdp_cue_crossfade(ctx: RunContext, asset_id: str, crossfade_ms: int) 
     if isinstance(plan.get("cues"), list):
         plan = dict(plan)
         plan["cues"] = _patch_list(list(plan["cues"]))
-    if changed:
-        from interview_mux.write_staging import write_committed_json
+    if not changed:
+        return
+    # The durable record of this fade is sound_design/placement_adjustments.json,
+    # which mix/QA apply at read time (placement_qa.apply_placement_adjustments).
+    # Once the SDP owner sealed the plan, do not rewrite it from junction
+    # (exec_11871 authority_denied under edl_sealed).
+    try:
+        from interview_mux.artifact_ownership import write_permitted
 
-        write_committed_json(
+        allowed, reason = write_permitted(
             ctx,
             "understanding/sound_design_plan.json",
-            plan,
-            stage_key=STAGE_ID,
+            STAGE_ID,
+            role="producer",
+            verb="persist",
         )
+    except Exception:
+        allowed, reason = True, ""
+    if not allowed:
+        ctx.log(
+            "junction: sound_design_plan sealed — fade lives in placement_adjustments "
+            f"({reason})",
+            level="info",
+            stage=STAGE_ID,
+        )
+        return
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(
+        ctx,
+        "understanding/sound_design_plan.json",
+        plan,
+        stage_key=STAGE_ID,
+    )
 
 
 def _sync_edl_speech_bounds_from_nle(
@@ -2414,6 +2588,10 @@ def remaster_mix_only(ctx: RunContext) -> None:
         ),
         stage_id=STAGE_ID,
     )
+    # Promote may rewrite edl.json after assembly.wav; keep HX-2 mtime seat.
+    from interview_mux.air_order import ensure_assembly_mtime_seats_edl
+
+    ensure_assembly_mtime_seats_edl(ctx)
 
 
 def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bool, int]:
@@ -2421,11 +2599,28 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
 
     Returns ``(remastered, used_count)``. On refuse, hard-pins needs_operator when
     budget/osc exhausted (no soft residuals for naked/critical paths).
+
+    End-D: ``path=commitment`` always reseats assembly — bypasses low_gain and
+    remaster budget/oscillation. Cosmetic/feel paths stay gated.
     """
     from interview_mux.thrash_hardening import (
         junction_budget_exhaust_hard_pin,
         junction_remaster_budget_ok,
         note_junction_remaster,
+    )
+
+    path_l = str(path or "").lower()
+    # "commitment" reseats assembly to the live EDL — never refuse low_gain
+    # or budget/osc (forensics: hollow junction_done + mix unseated after write_live_edl).
+    is_commitment = "commitment" in path_l
+    critical = is_commitment or any(
+        x in path_l
+        for x in (
+            "incomplete_clause",
+            "on_a_roll",
+            "critical",
+            "naked",
+        )
     )
 
     # Pillar C gain gate for non-critical remasters
@@ -2435,10 +2630,6 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
             decide_timeline_reopen,
         )
 
-        path_l = str(path or "").lower()
-        critical = any(
-            x in path_l for x in ("incomplete_clause", "on_a_roll", "critical", "naked")
-        )
         if not critical:
             gate = decide_timeline_reopen(
                 ctx,
@@ -2453,10 +2644,12 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
                 )
                 return False, 0
     except Exception:
-        return False, 0
+        # End-D: commitment must not fail-closed on gate import/errors.
+        if not critical:
+            return False, 0
 
     ok_budget, used = junction_remaster_budget_ok(ctx)
-    if not ok_budget:
+    if not ok_budget and not is_commitment:
         pin = junction_budget_exhaust_hard_pin(ctx)
         ctx.log(
             f"junction_snip_qa: remaster refused ({path}) used={used} pin={pin}",
@@ -2464,6 +2657,12 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
             stage=STAGE_ID,
         )
         return False, used
+    if not ok_budget and is_commitment:
+        ctx.log(
+            f"junction_snip_qa: commitment remaster bypasses budget/osc used={used}",
+            level="warning",
+            stage=STAGE_ID,
+        )
     remaster_mix_only(ctx)
     note_junction_remaster(ctx)
     return True, used + 1
@@ -2613,6 +2812,10 @@ def run_junction_feel_audit(
         ctx.write_json(FEEL_REL, audit)
         return audit
 
+    # Re-entrant: the feel audit usually runs nested inside run_junction_snip_qa,
+    # which already owns the inner-ladder flag. Remember the prior state so the
+    # nested exit does not strip the outer ladder's flag (exec_11871).
+    _inner_flag_prior = bool(getattr(ctx, "_junction_snip_qa_inner", False))
     setattr(ctx, "_junction_snip_qa_inner", True)
     packet = build_feel_audit_context(ctx, snip_report)
     directives: list[dict[str, Any]] = []
@@ -2731,7 +2934,10 @@ def run_junction_feel_audit(
         "edl_hash": edl_hash,
         "generated_at": _now(),
     }
-    if hasattr(ctx, "_junction_snip_qa_inner"):
+    # Only clear when this call armed the flag — otherwise the outer junction
+    # ladder loses its inner marker and its own commitment remaster refuses
+    # itself on the very residuals it is repairing (exec_11871 spin).
+    if not _inner_flag_prior and hasattr(ctx, "_junction_snip_qa_inner"):
         delattr(ctx, "_junction_snip_qa_inner")
     ctx.write_json(FEEL_REL, audit)
     return audit
@@ -3280,9 +3486,21 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 else:
                     report["commitment_remaster_refused"] = True
                     ctx.write_json(QA_REL, report)
-        except Exception as exc:
-            from interview_mux.loud_fail import raise_loud_failure
+                    from interview_mux.loud_fail import raise_loud_failure
 
+                    _persist_terminal_autopsy(ctx, edl=current_edl)
+                    raise_loud_failure(
+                        ctx,
+                        "Junction commitment remaster refused while assembly is "
+                        "older than live EDL — refuse hollow junction_done",
+                        stage=STAGE_ID,
+                        reason="junction_commitment_remaster_refused",
+                    )
+        except Exception as exc:
+            from interview_mux.loud_fail import LoudStageFailure, raise_loud_failure
+
+            if isinstance(exc, LoudStageFailure):
+                raise
             _persist_terminal_autopsy(ctx, edl=current_edl)
             raise_loud_failure(
                 ctx,

@@ -340,6 +340,46 @@ def classify_heal_error(
             detail="adjudicate then synthesize — script/WAV drift before audit",
         )
 
+    # End-C: incomplete / stub bridge → mint transitions, never soft-pass EDL.
+    if (
+        "bridge_completeness" in low
+        or "bridge_incomplete" in low
+        or "bridge incomplete" in low
+        or "reorder join" in low
+        or ("reorder seam" in low and "missing" in low)
+        or "stub bridge" in low
+        or "canned/repeated stub" in low
+    ):
+        return HealRoute(
+            family="bridge_incomplete",
+            from_stage="transitions",
+            action="mint_pair_glue",
+            detail="End-C: incomplete reorder glue pins transitions, never soft-complete EDL",
+        )
+
+    # End-C: framing / forward-cue quality → layup or compose writer, never EDL.
+    if (
+        "missing_forward_cue" in low
+        or "forward-cue" in low
+        or "forward cue" in low
+        or "framing_before_impact" in low
+        or "lacks preceding framing vo" in low
+        or ("framing vo" in low and "preceding" in low)
+        or ("impact segment" in low and "framing" in low)
+    ):
+        from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+        pin = high_gap_heal_resume_stage(ctx)
+        return HealRoute(
+            family="framing_quality",
+            from_stage=pin,
+            action="rewrite_framing",
+            detail=(
+                "End-C: framing/forward-cue pins nugget_layup_compose when layup owns, "
+                "else gap_framing_compose — never EDL"
+            ),
+        )
+
     # F4 / HV-2 / HE-3: spoken glue / seated VO WAV missing → synthesize first, never EDL/mix.
     if (
         "gap vo lines missing wav" in low
@@ -544,6 +584,7 @@ def classify_heal_error(
         "selection_edl_order_drift" in low
         or "speech clip order diverges" in low
         or "ordered_segment_ids drifted" in low
+        or "speech clips do not match" in low
     ):
         return HealRoute(
             family=FAMILY_SELECTION_ORDER_DRIFT,
@@ -569,14 +610,6 @@ def classify_heal_error(
         )
     return None
 
-
-def apply_heal_route(ctx: RunContext, route: HealRoute) -> dict[str, Any]:
-    """Run the cheap product action for a route (adopt, etc.). Never remine."""
-    if route.action == "adopt_layup":
-        from interview_mux.nugget_layup import adopt_layup_plan_to_selection
-
-        return adopt_layup_plan_to_selection(ctx, persist=True, stage="heal_routing")
-    return {"ok": True, "action": route.action}
 
 
 def record_heal_fingerprint(
@@ -617,3 +650,11 @@ def heal_is_halted(
         reason=reason,
     )
     return is_halted(ctx, sig)
+
+
+# --- subtraction shim (p3-subtract batch 1) ---------------------------------
+# Route application deleted; contract `requires` edges decide the resume point.
+def apply_heal_route(*_args, **_kwargs):
+    raise NotImplementedError(
+        "apply_heal_route removed by p3-subtract; see subtraction-holes.md"
+    )

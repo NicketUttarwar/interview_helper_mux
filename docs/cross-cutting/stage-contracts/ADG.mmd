@@ -5,14 +5,15 @@ flowchart LR
   boundary_detection -->|C| boundary_detection
   segment_classification -->|C| segment_classification
   content_brief_reanchor -->|C| content_context
+  sonic_context_build -->|C| sonic_context_build
   sound_design_palettes -->|C| sound_design_palettes
   missing_framing -->|C| missing_framing
   optimal_questions -->|C| gap_framing_compose
+  delivery_brief_build -->|C| delivery_brief_build
   topic_coverage_audit -->|C| topic_coverage_audit
   narrative_arc_plan -->|C| narrative_arc_plan
   full_master_ranking -->|C| full_master_ranking
   transitions -->|C| transitions
-  podcast_sfx_brief -->|C| podcast_sfx_brief
   sound_design_plan -->|C| sound_design_palettes
   edl_narrative_audit -->|C| edl_narrative_audit
   sfx_prompt_craft -->|C| sfx_prompt_craft
@@ -169,6 +170,7 @@ flowchart LR
   nugget_corpus_mine -->|R| segment_classification
   nugget_corpus_mine -->|R| talking_points_compose
   nugget_corpus_mine -->|R| ideal_cuts_propose
+  nugget_layup_compose -->|R| information_package_plan
   nugget_layup_compose -->|R| full_master_ranking
   nugget_layup_compose -->|R| nugget_corpus_mine
   nugget_layup_compose -->|R| segment_classification
@@ -178,5 +180,6 @@ flowchart LR
   sfx_prompt_craft -->|R| sound_design_plan
   sound_design_palettes -->|R| boundary_topic_resplit
   sound_design_plan -->|R| transitions
+  topic_coverage_audit -->|R| delivery_brief_build
   transitions -->|R| nugget_layup_compose
 ```

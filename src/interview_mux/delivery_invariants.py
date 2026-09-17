@@ -43,6 +43,126 @@ def committed_master_wav(ctx: RunContext) -> bool:
     return committed_path_exists(ctx, "master", "master.wav")
 
 
+# Floor for a non-truncated master export (PCM WAV header + payload).
+MIN_COMMITTED_MASTER_BYTES = 8_192
+_MIN_COMMITTED_MASTER_BYTES = MIN_COMMITTED_MASTER_BYTES  # compat alias
+
+
+def committed_master_integrity_ok(ctx: RunContext) -> bool:
+    """End-E: committed master.wav must exist and pass size floor.
+
+    Truncated loudnorm / empty RIFF stubs must not count as live finalize authority.
+    Pending-only shadows never satisfy this check (``final_path`` must exist).
+    """
+    try:
+        path = ctx.final_path("master", "master.wav")
+        if not path.is_file():
+            return False
+        return path.stat().st_size >= MIN_COMMITTED_MASTER_BYTES
+    except Exception:
+        return False
+
+
+def parse_seed_order_producer(message: str) -> str | None:
+    """Extract the named incomplete producer from seed-order prose.
+
+    ``seed order: complete <producer> before running <consumer>`` → producer.
+    Never invent ``edl`` / ``mix`` / ``master_finalize`` as a default pin.
+    """
+    import re
+
+    text = str(message or "")
+    m = re.search(r"complete\s+(\S+)\s+before", text, flags=re.IGNORECASE)
+    if not m:
+        return None
+    raw = str(m.group(1) or "").strip().strip(".:;")
+    if not raw or raw.lower() in {"seed_order", "seed_order_prereq"}:
+        return None
+    return raw
+
+
+def live_producer_authority(ctx: RunContext, stage: str) -> bool:
+    """True when re-running ``stage`` would orphan live expensive artifacts."""
+    stage = str(stage or "").strip()
+    if not stage:
+        return False
+    try:
+        if stage == "sound_design_plan":
+            from interview_mux.homunculus.agenda import delivery_sdp_present
+
+            return bool(delivery_sdp_present(ctx))
+        if stage in {
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+        }:
+            from interview_mux.delivery_guardrails import music_epoch_complete
+
+            return bool(music_epoch_complete(ctx))
+        if stage in {"mix", "assembly_preview"}:
+            return committed_path_exists(ctx, "master", "assembly.wav") or (
+                stage == "assembly_preview"
+                and committed_path_exists(ctx, "master", "assembly_preview.wav")
+            )
+        if stage == "vo_line_adjudicate":
+            from interview_mux.delivery_guardrails import (
+                seed_stage_complete,
+                seal_adjudicate_stale_when_g1_green,
+            )
+            from interview_mux.gates import check_g1_vo
+
+            seal_adjudicate_stale_when_g1_green(ctx)
+            return bool(seed_stage_complete(ctx, "vo_line_adjudicate") or not check_g1_vo(ctx))
+        if stage == "master_finalize":
+            # End-E: file presence alone is not live authority — integrity required.
+            return committed_master_integrity_ok(ctx)
+    except Exception:
+        return False
+    return False
+
+
+def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> str:
+    """Resume consumer after restamping a live producer pin."""
+    pin = str(pin or "").strip()
+    low = (message or "").lower()
+    # Prefer consumer named in the seed-order error ("complete X before Y").
+    if "before running " in low:
+        try:
+            tail = low.split("before running ", 1)[1]
+            consumer = tail.split()[0].strip(".:;")
+            if consumer and consumer != pin:
+                return consumer
+        except Exception:
+            pass
+    defaults = {
+        "sound_design_plan": "mix",
+        "music_palette_compose": "sfx_prompt_craft",
+        "sfx_prompt_craft": "mmaudio_sfx",
+        "mmaudio_sfx": "mix",
+        "assembly_preview": "mix",
+        "mix": "junction_snip_qa",
+        "vo_line_adjudicate": "vo_synthesize",
+        "master_finalize": "master_transcript_build",
+    }
+    return defaults.get(pin, pin)
+
+
+def seed_order_heal_action(
+    ctx: RunContext, pin: str, *, message: str = ""
+) -> tuple[SeedHealAction, str]:
+    """Return (restamp|unmark, resume_stage) for a seed-order pin.
+
+    End-E: ``master_finalize`` without integrity never restamps — unmark and
+    re-run finalize so truncated/pending masters cannot soft-complete ship.
+    """
+    pin = str(pin or "").strip()
+    if pin == "master_finalize" and not committed_master_integrity_ok(ctx):
+        return "unmark", pin
+    if live_producer_authority(ctx, pin):
+        return "restamp", seed_order_consumer_for(ctx, pin, message=message)
+    return "unmark", pin
+
+
 def _remutate_plan_active(doc: dict[str, Any]) -> bool:
     if doc.get("exhausted"):
         return False
@@ -91,86 +211,6 @@ def active_remutate_stages(ctx: RunContext) -> frozenset[str]:
         except Exception:
             continue
     return frozenset(out)
-
-
-def _active_listen_delight_remutate_stages(ctx: RunContext) -> frozenset[str]:
-    """Compat wrapper — prefer ``active_remutate_stages``."""
-    return active_remutate_stages(ctx)
-
-
-def live_producer_authority(ctx: RunContext, stage: str) -> bool:
-    """True when re-running ``stage`` would orphan live expensive artifacts."""
-    stage = str(stage or "").strip()
-    if not stage:
-        return False
-    try:
-        if stage == "sound_design_plan":
-            from interview_mux.homunculus.agenda import delivery_sdp_present
-
-            return bool(delivery_sdp_present(ctx))
-        if stage in {
-            "music_palette_compose",
-            "sfx_prompt_craft",
-            "mmaudio_sfx",
-        }:
-            from interview_mux.delivery_guardrails import music_epoch_complete
-
-            return bool(music_epoch_complete(ctx))
-        if stage in {"mix", "assembly_preview"}:
-            return committed_path_exists(ctx, "master", "assembly.wav") or (
-                stage == "assembly_preview"
-                and committed_path_exists(ctx, "master", "assembly_preview.wav")
-            )
-        if stage == "vo_line_adjudicate":
-            from interview_mux.delivery_guardrails import (
-                seed_stage_complete,
-                seal_adjudicate_stale_when_g1_green,
-            )
-            from interview_mux.gates import check_g1_vo
-
-            seal_adjudicate_stale_when_g1_green(ctx)
-            return bool(seed_stage_complete(ctx, "vo_line_adjudicate") or not check_g1_vo(ctx))
-        if stage == "master_finalize":
-            return committed_master_wav(ctx)
-    except Exception:
-        return False
-    return False
-
-
-def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> str:
-    """Resume consumer after restamping a live producer pin."""
-    pin = str(pin or "").strip()
-    low = (message or "").lower()
-    # Prefer consumer named in the seed-order error ("complete X before Y").
-    if "before running " in low:
-        try:
-            tail = low.split("before running ", 1)[1]
-            consumer = tail.split()[0].strip(".:;")
-            if consumer and consumer != pin:
-                return consumer
-        except Exception:
-            pass
-    defaults = {
-        "sound_design_plan": "mix",
-        "music_palette_compose": "sfx_prompt_craft",
-        "sfx_prompt_craft": "mmaudio_sfx",
-        "mmaudio_sfx": "mix",
-        "assembly_preview": "mix",
-        "mix": "junction_snip_qa",
-        "vo_line_adjudicate": "vo_synthesize",
-        "master_finalize": "master_transcript_build",
-    }
-    return defaults.get(pin, pin)
-
-
-def seed_order_heal_action(
-    ctx: RunContext, pin: str, *, message: str = ""
-) -> tuple[SeedHealAction, str]:
-    """Return (restamp|unmark, resume_stage) for a seed-order pin."""
-    pin = str(pin or "").strip()
-    if live_producer_authority(ctx, pin):
-        return "restamp", seed_order_consumer_for(ctx, pin, message=message)
-    return "unmark", pin
 
 
 def _utc_now() -> str:

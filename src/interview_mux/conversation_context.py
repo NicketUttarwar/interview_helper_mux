@@ -507,10 +507,11 @@ def attach_conversation_context(
 ) -> dict[str, Any]:
     """Inject conversation slices appropriate for the target stage."""
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_dispatch_ledger
 
-        if is_homunculus_run(ctx):
-            # 0.1.0: pack_volley owns the user/assistant packet. Do not auto-dump.
+        if has_dispatch_ledger(ctx):
+            # Packing rail: pack_volley owns the user/assistant packet on every
+            # brain that has one (0.1.0 and 0.2.0). Do not auto-dump.
             return payload
     except Exception:
         pass

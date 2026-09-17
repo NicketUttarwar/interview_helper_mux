@@ -245,6 +245,33 @@ def lint_spoken_text(
     return [f"{label}: forbidden spoken scaffolding ({h})" for h in hits]
 
 
+def rewrite_speaker_role_labels(text: str) -> str:
+    """Replace on-air host/guest/speaker labels with topic-forward wording.
+
+    exec_11630: ``The guest frames…`` failed post-commit as
+    ``spoken_speaker_role_label`` while the rest of the preface was fine.
+    """
+    t = str(text or "").strip()
+    if not t:
+        return t
+    # Order matters: longer phrases first.
+    replacements = (
+        (r"\bour\s+speaker\b", "this conversation"),
+        (r"\bon\s+the\s+show\s+today\b", "in this conversation"),
+        (r"\bthe\s+interviewer\b", "this conversation"),
+        (r"\bthe\s+speaker\b", "this conversation"),
+        (r"\bthe\s+guest\b", "this conversation"),
+        (r"\bthe\s+host\b", "this conversation"),
+    )
+    out = t
+    for pattern, repl in replacements:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    # Capitalize sentence start after rewrite when we lowercased mid-sentence leads.
+    if out and out[0].islower() and (not t or t[0].isupper()):
+        out = out[0].upper() + out[1:]
+    return " ".join(out.split()).strip()
+
+
 def lint_gap_report_lines(
     gap_report: dict[str, Any] | None,
     *,
@@ -255,6 +282,8 @@ def lint_gap_report_lines(
         return errors
     for ln in gap_report.get("interviewer_lines") or []:
         if not isinstance(ln, dict):
+            continue
+        if ln.get("skipped_optional") or ln.get("omit"):
             continue
         lid = str(ln.get("line_id") or "line")
         errors.extend(

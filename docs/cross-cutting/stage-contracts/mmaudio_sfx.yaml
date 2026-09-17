@@ -12,6 +12,10 @@ outputs:
 - path: sound_design/mmaudio_qa.json
   schema: mmaudio_qa.schema.json
   staging: false
+- path: sound_design/assets/
+  staging: true
+- path: master/sfx/
+  staging: true
 inputs:
   hard:
   - path: understanding/sound_design_plan.json

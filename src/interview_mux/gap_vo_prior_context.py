@@ -1634,11 +1634,16 @@ def repair_last_sentence_layup(
             continue
         return candidate
 
-    # Last resort: keep any factual body and a forward cue that is not a lone question.
+    # Last resort: always attach a speakable forward cue. A single factual
+    # sentence with no body split used to return unchanged (exec_11630
+    # vo_bridge_seg_044 → post-commit "needs a forward cue" loop).
     fallback = "Let's hear how that beat lands."
     if body:
         return f"{body} {fallback}".strip()
     if stripped and not stripped.endswith("?"):
+        base = stripped.rstrip(".!?…").rstrip()
+        return f"{base}. {fallback}".strip()
+    if stripped.endswith("?"):
         return stripped
     return fallback or seeded or stripped
 

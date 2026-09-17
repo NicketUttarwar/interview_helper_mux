@@ -16,7 +16,14 @@ inputs:
   hard:
   - path: segments/boundaries.json
     producer: boundary_detection
-  soft: []
+  soft:
+  - path: transcript/full.json
+    producer: transcribe
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/talking_points.json
+    producer: talking_points_compose
+  - path: master/edl.json
 sufficiency:
 - path: segments
   rule: min_rows
@@ -30,7 +37,13 @@ propagation:
   - missing_framing
   - optimal_questions
 consumers:
-- segment_classification
+- content_brief_reanchor
+- vernacular_segment_sanitize
+- low_conf_island_scan
+- connector_fuse_pass
+- sonic_context_build
+- sound_design_palettes
+- missing_framing
 remediation:
   strategies:
   - volley_retry

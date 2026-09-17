@@ -588,6 +588,13 @@ def test_required_orientation_revives_stale_air_script_omit(tmp_path):
     )
     assert orient.get("skipped_optional") is False
     assert not orient.get("air_script_omit")
+    # build_vo_seats must also seat from the *stale* gap row — omit_sync alone
+    # is not a durable waive when opening_orientation.required stays true.
+    from interview_mux.air_script import build_vo_seats, seated_vo_line_ids
+
+    seats = build_vo_seats(plan, gap)
+    assert "vo_preface_precision_oncology" in set(seats.get("seated_line_ids") or [])
+    assert "vo_preface_precision_oncology" not in set(seats.get("omitted_line_ids") or [])
 
 
 def test_opening_layup_suppressed_when_orientation_owns_slot(tmp_path):

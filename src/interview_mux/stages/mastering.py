@@ -126,6 +126,46 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
             label=f"ffmpeg loudnorm master → {master_rel}",
             capture_output=True,
         )
+    # End-E: refuse hollow/truncated master before marking finalize done.
+    from interview_mux.delivery_invariants import (
+        MIN_COMMITTED_MASTER_BYTES,
+        committed_master_integrity_ok,
+    )
+
+    if not master.is_file() or master.stat().st_size < MIN_COMMITTED_MASTER_BYTES:
+        raise RuntimeError(
+            f"{stage}: master export truncated/corrupt ({master_rel} "
+            f"size={master.stat().st_size if master.is_file() else 0}). "
+            "Refuse mark_done — re-run finalize after a valid loudnorm render."
+        )
+    # The loudnorm render lands in this stage's staging root; the committed-master
+    # invariant reads ``final_path``. Staging flush only happens *after* mark_done,
+    # so the gate below could never pass and finalize looped forever on
+    # "pending/truncated master cannot soft-complete" (exec_11871). Promote the
+    # rendered bytes first — the gate then judges the real committed master.
+    if not committed_master_integrity_ok(ctx):
+        try:
+            from interview_mux.write_staging import promote_staged_side_effects
+
+            promoted = promote_staged_side_effects(
+                ctx, (master_rel,), stage_id=stage
+            )
+            if promoted:
+                ctx.log(
+                    f"{stage}: promoted rendered master → {master_rel}",
+                    stage=stage,
+                )
+        except Exception as exc:
+            ctx.log(
+                f"{stage}: could not promote rendered master ({exc})",
+                level="warning",
+                stage=stage,
+            )
+    if not committed_master_integrity_ok(ctx):
+        raise RuntimeError(
+            f"{stage}: committed master integrity failed after loudnorm — "
+            "refuse mark_done (pending/truncated master cannot soft-complete ship)."
+        )
     ctx.mark_done(stage)
     ctx.log(
         f"Master complete — {master_rel} at {target:.1f} LUFS target.",
@@ -180,7 +220,17 @@ def _master_filter_chain(
         f"alimiter=limit={linear_limit:.6f}:"
         f"attack={attack_ms:g}:release={release_ms:g}"
     )
-    return f"{limiter},{loudnorm}"
+    # The pre-loudnorm limiter cannot hold the ship ceiling: loudnorm applies its
+    # own (linear) make-up gain *after* it, so a quiet-average / peaky podcast lands
+    # above TP. exec_11871 shipped at -0.40 dBTP against a -1.00 ceiling and
+    # tools/verify_master.py FAILed. Re-limit after normalization; `level=disabled`
+    # keeps alimiter from auto-normalizing the loudness we just set.
+    ceiling_linear = math.pow(10.0, float(true_peak_dbtp) / 20.0)
+    post_limiter = (
+        f"alimiter=limit={ceiling_linear:.6f}:"
+        f"attack={attack_ms:g}:release={release_ms:g}:level=disabled"
+    )
+    return f"{limiter},{loudnorm},{post_limiter}"
 
 
 def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -> dict[str, str]:

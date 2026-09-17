@@ -63,6 +63,26 @@ def claim_driver_run(ctx: RunContext, *, force: bool = False) -> dict[str, Any]:
         "claimed_at": _utc_now(),
         "host_pid_file": str(_assets_driver_pid_path()),
     }
+    try:
+        from interview_mux.artifact_ownership import (
+            MATRIX_VERSION_META_KEY,
+            check_matrix_version,
+            matrix_version,
+            stamp_matrix_version,
+        )
+
+        ok, msg = check_matrix_version(ctx)
+        if not ok:
+            raise RuntimeError(
+                f"artifact ownership matrix mismatch — refuse driver claim ({msg}); "
+                "restart with matching code or new exec"
+            )
+        claim[MATRIX_VERSION_META_KEY] = matrix_version()
+        stamp_matrix_version(ctx)
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
     ctx.write_json(DRIVER_CLAIM_REL, claim, skip_handoff=True)
 
     def _mark(meta: dict[str, Any]) -> None:

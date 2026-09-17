@@ -586,6 +586,16 @@ def constrain_conductor_to_seed_front(
                     front = "edl_narrative_audit"
             except Exception:
                 pass
+        # Never pin mix while live incomplete-cut criticals stand — mix refuses on
+        # them and the recut owner is junction_snip_qa (exec_11871 deadlock).
+        if phase == "delivery" and front == "mix":
+            try:
+                from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+
+                if junction_recut_precedes_mix(ctx):
+                    front = "junction_snip_qa"
+            except Exception:
+                pass
         if phase == "delivery" and remaining[0] != front:
             try:
                 from interview_mux.delivery_guardrails import record_wasted_work
@@ -873,15 +883,11 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
     if stage == "junction_snip_qa":
         # exec_5404: committed autopsy that still matches live assembly size must
         # not look hollow solely because mix_stale_versus_live / mtime skew.
+        # End-D: autopsy/QA files alone are never seed-complete without commitment.
         if _junction_commitment_matches_assembly(ctx):
             needed = stage_required_outputs(stage)
             return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
-        if assembly_stale_versus_edl(ctx):
-            return False
-        if _producer_older_than_assembly(ctx, "master", "seam_autopsy.json"):
-            return False
-        needed = stage_required_outputs(stage)
-        return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
+        return False
     if stage == "master_finalize" and (
         assembly_stale_versus_edl(ctx)
         or _producer_older_than_assembly(ctx, "master", "master.wav")
@@ -954,13 +960,45 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
             return stage_artifact_incompleteness(ctx, stage) is None
         except Exception:
             return ctx.artifact_exists("transcript/review_queue.json")
+    if stage == "transcript_review":
+        # Gate stage: sign-off stamps .stage_done after materialize. Empty
+        # STAGE_ARTIFACT_DISK_PATHS used to make stage_outputs_present always
+        # False → authority_denied:mark_done:hollow (exec_11871 G0 lie).
+        return (
+            ctx.artifact_exists("transcript/review_queue.json")
+            and ctx.artifact_exists("transcript/corrections.json")
+            and ctx.artifact_exists("transcript/full.json")
+        )
     if stage == "episode_cover_generate":
         return ctx.artifact_exists("publish/cover.jpg")
     if stage == "podcast_publish":
         return _package_ready_true(ctx)
+    # 0G: present≠sanitary for shared-path producers (file alone can be hollow).
+    if stage in {
+        "air_script_compose",
+        "selection_order_sanitize",
+        "gap_report_sanitize",
+    }:
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            return stage_artifact_incompleteness(ctx, stage) is None
+        except Exception:
+            # Sanitize-refused / schema blow-ups ⇒ not seed-complete.
+            return False
     needed = stage_required_outputs(stage)
     if not needed:
-        return ctx.is_done(stage)
+        # Ownership constitution: empty required outputs must NOT fall back to
+        # is_done (circular after hollow stamp). Pipeline stages without a
+        # registered primary are treated as absent until cataloged.
+        try:
+            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+            if stage in ANALYSIS_ORDER or stage in DELIVERY_ORDER:
+                return False
+        except Exception:
+            return False
+        return False
     return all(ctx.artifact_exists(rel) for rel in needed)
 
 
@@ -1920,6 +1958,31 @@ def request_walk_seed_remainder(ctx: RunContext, *, reason: str = "conductor") -
     return {"ok": True, "reason": reason}
 
 
+def _walk_sequence(ctx: RunContext, walk_stages: list[str], *, reason: str):
+    """Stages to attempt, in order. Seed order unless the solver is authoritative.
+
+    ``p3-promote`` (plan §7) is this one branch. With ``MUX_SOLVER_AUTHORITATIVE``
+    unset — the default — this is ``iter(walk_stages)`` and the walk is byte-for-byte
+    what it was. With it set, order comes from the admissible set and every stage the
+    solver marks *deferred* falls back to seed order, so the promotion is safe while
+    contract population is still in flight.
+
+    Either way the candidate set is the walk's own: the G0 truncation, the
+    voice-reference drop and ``filter_delivery_candidates`` have already run, and each
+    yielded stage still passes through the dispatch door, the defect ledger and the
+    reachability halt below. The solver composes with those rails, it does not
+    replace them.
+    """
+    try:
+        from interview_mux.solver import authoritative_sequence, solver_authoritative
+
+        if not solver_authoritative():
+            return iter(walk_stages)
+        return authoritative_sequence(ctx, walk_stages, source=reason)
+    except Exception:
+        return iter(walk_stages)
+
+
 def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None:
     """Explicit logged fallback — not a silent linear fall-through."""
     append_ledger(
@@ -1959,7 +2022,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
             walk_stages = filter_delivery_candidates(ctx, walk_stages)
         except Exception:
             pass
-        for stage in walk_stages:
+        for stage in _walk_sequence(ctx, walk_stages, reason=reason):
             if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
                 continue
             if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
@@ -2020,6 +2083,56 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                         break
                 except Exception:
                     pass
+            # Attempt memo / caps / no-delta (§5.2-§5.3). Runs after the gate breaks
+            # above so G0 and voice-reference pauses keep their semantics; a refusal
+            # advances past the stage with a defect (D1) instead of re-walking it.
+            verdict = None
+            try:
+                from interview_mux.dispatch_door import evaluate_dispatch
+
+                verdict = evaluate_dispatch(ctx, stage, source=reason, layer="walk")
+            except Exception:
+                verdict = None
+            if verdict is not None and verdict.refused:
+                try:
+                    from interview_mux.dispatch_door import refuse_dispatch
+
+                    refuse_dispatch(ctx, stage, verdict, source=reason)
+                except Exception:
+                    pass
+                # D1: advance past the refusal unless the ship path is *provably*
+                # severed. The halt lives outside the try above on purpose — a
+                # halt payload must reach the operator, not get swallowed.
+                halt = None
+                try:
+                    from interview_mux.ship_reachability import unreachable_halt
+
+                    halt = unreachable_halt(ctx)
+                except Exception:
+                    halt = None
+                if halt:
+                    from interview_mux.ship_reachability import ShipUnreachable
+
+                    ctx.log(
+                        "ship path provably severed — halting walk: "
+                        f"{halt.get('blockers')} (resume {halt.get('resume') or 'unknown'})",
+                        level="error",
+                        stage=stage,
+                        detail=halt,
+                    )
+                    raise ShipUnreachable(halt)
+                continue
+            # §6.2 shadow: the walk has now committed to `stage`, so this is the
+            # stage-selection decision to record. Off unless MUX_SOLVER_SHADOW is set,
+            # and swallowed by the hook itself — a solver bug cannot break a run.
+            try:
+                from interview_mux.solver import observe_walk_choice
+
+                observe_walk_choice(
+                    ctx, stage, candidates=tuple(walk_stages), source=reason
+                )
+            except Exception:
+                pass
             try:
                 run_single_stage(ctx, stage)
             except Exception as exc:
@@ -2153,7 +2266,22 @@ def run_homunculus_phase(
         except Exception:
             pass
     conductor_out: dict[str, Any] = {"ok": False, "skipped": True}
-    if remaining:
+    from interview_mux.homunculus.runtime import conductor_owns_control_flow
+
+    deterministic_control = not conductor_owns_control_flow(ctx)
+    if remaining and deterministic_control:
+        # 0.2.0: stage order is the seed walk. Burn no conductor turns.
+        conductor_out = {"ok": True, "skipped": "deterministic_control_plane"}
+        append_ledger(
+            ctx,
+            {
+                "kind": "control_plane",
+                "identity": "deterministic_control_plane",
+                "phase": phase,
+                "remaining": list(remaining[:40]),
+            },
+        )
+    elif remaining:
         try:
             from interview_mux.homunculus.loop import run_conductor
             from interview_mux.web.job_progress import notify_batch_plan
@@ -2230,6 +2358,8 @@ def run_homunculus_phase(
         and phase == "delivery"
         and not _committed_master(ctx)
     ):
+        # Delivery keeps its protected walk below (candidate filter + audit cap)
+        # on every brain, deterministic or not.
         try:
             from interview_mux.delivery_guardrails import filter_delivery_candidates
 
@@ -2390,4 +2520,13 @@ def run_homunculus_phase(
                 stage=still[0],
             )
             walk_seed_agenda(ctx, still, reason="analysis_fill_delivery_prereqs")
+        elif still and deterministic_control:
+            # 0.2.0: no conductor chose a stage, so the walk owns analysis
+            # progress. Gate breaks (G0 / voice reference) live in walk_seed_agenda.
+            ctx.log(
+                f"deterministic control plane walking analysis ({len(still)} stage(s))",
+                level="info",
+                stage=still[0],
+            )
+            walk_seed_agenda(ctx, still, reason="deterministic_control_plane")
     return {"conductor": conductor_out, "remaining_after": [s for s in remaining_stages(ctx, phase) if s in allow]}

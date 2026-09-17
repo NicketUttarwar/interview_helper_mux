@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -44,7 +45,29 @@ def active_stage() -> str | None:
 
 
 def enter_stage_staging(stage_id: str) -> None:
-    _active_stage.set(stage_id)
+    sid = str(stage_id or "").strip()
+    _active_stage.set(sid or stage_id)
+
+
+def preflight_stage_enter(ctx: RunContext, stage_id: str) -> None:
+    """Call before enter_stage_staging when a RunContext is available."""
+    sid = str(stage_id or "").strip()
+    if not sid:
+        return
+    try:
+        from interview_mux.artifact_ownership import AuthorityDenied, stage_enter_preflight
+
+        ok, reason, pin = stage_enter_preflight(ctx, sid)
+        if not ok:
+            raise AuthorityDenied(
+                f"authority_denied:stage_enter:{sid}:{reason}:pin={pin}",
+                path="",
+                stage_key=sid,
+                suggested_owner=pin,
+                verb="execute",
+            )
+    except ImportError:
+        pass
 
 
 def exit_stage_staging() -> None:
@@ -117,6 +140,91 @@ def is_vo_pickup_rel(rel: str) -> bool:
     return norm == "vo_pickup" or norm.startswith("vo_pickup/")
 
 
+def _vo_pickup_line_id_from_rel(rel: str) -> str | None:
+    """``vo_pickup/.../{line_id}.wav`` → line_id; else None."""
+    norm = str(rel or "").replace("\\", "/").lstrip("./")
+    if not is_vo_pickup_rel(norm) or not norm.endswith(".wav"):
+        return None
+    return Path(norm).stem or None
+
+
+def _should_skip_stale_vo_pickup_promote(
+    ctx: RunContext, *, src: Path, dest: Path, rel: str
+) -> bool:
+    """Refuse pending VO WAV that would clobber a sha-bound audited take.
+
+    Stale ``.pending_writes/vo_synthesize/vo_pickup/*.wav`` (exec_11630) can
+    overwrite a fresh G1 take whose synthesis_report sha still matches gap
+    script — leaving ``wav_content_mismatch`` and EDL missing-WAV thrash.
+    """
+    if not is_vo_pickup_rel(rel) or not str(rel).endswith(".wav"):
+        return False
+    if not dest.is_file() or not src.is_file():
+        return False
+    lid = _vo_pickup_line_id_from_rel(rel)
+    if not lid:
+        return False
+    try:
+        from interview_mux.vo_synthesis_audit import (
+            synthesis_entry_for_line,
+            wav_content_sha256,
+        )
+
+        entry = synthesis_entry_for_line(ctx, lid)
+        if not isinstance(entry, dict):
+            return False
+        want = str(entry.get("wav_sha256") or "").strip()
+        if not want:
+            return False
+        dest_sha = wav_content_sha256(dest)
+        src_sha = wav_content_sha256(src)
+        if dest_sha == want and src_sha != want:
+            ctx.log(
+                f"skip stale pending VO promote {rel} "
+                f"(dest matches audit sha; pending differs)",
+                level="warning",
+                stage=str(active_stage_id() or "vo_synthesize"),
+                detail={"line_id": lid, "dest_sha": dest_sha[:16], "src_sha": src_sha[:16]},
+            )
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _discard_skipped_stale_vo_pending(src: Path) -> None:
+    """End-B: remove skipped pending so flush/orphan cannot re-promote it."""
+    try:
+        if src.is_file():
+            src.unlink()
+    except OSError:
+        pass
+
+
+def _record_contract_touch(
+    ctx: RunContext, rel: str, stage_id: str | None, *, write: bool
+) -> None:
+    """Contract conformance recorder seam (plan §4.1) — off unless MUX_CONTRACT_RECORD=1.
+
+    Both path resolvers are hot, so the whole body is behind one cached flag read
+    and it never raises: an observer must not be able to fail a dispatch.
+    """
+    if not stage_id:
+        return
+    try:
+        from interview_mux.contract_conformance import (
+            note_read,
+            note_write,
+            recording_enabled,
+        )
+
+        if not recording_enabled():
+            return
+        (note_write if write else note_read)(ctx, rel, stage_id)
+    except Exception:
+        return
+
+
 def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     """Return staging path when a stage is active; else the committed run path.
 
@@ -124,6 +232,7 @@ def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     own pending tree — those copies flush as stale sha-mismatched takes (F2 / exec_11165).
     """
     sid = _active_stage.get()
+    _record_contract_touch(ctx, rel, sid, write=True)
     if not sid or is_operational_path(rel):
         return ctx.run_dir.joinpath(*rel.split("/"))
     if is_vo_pickup_rel(rel) and sid not in VO_PICKUP_OWNER_STAGES:
@@ -139,6 +248,20 @@ def write_committed_json(
     stage_key: str | None = None,
 ) -> Path:
     """Persist to the committed run tree without opening a new staging root."""
+    try:
+        from interview_mux.artifact_ownership import assert_write
+        from interview_mux.write_staging import active_stage_id
+
+        sk = stage_key or active_stage_id()
+        assert_write(
+            ctx,
+            rel,
+            sk,
+            role="producer" if sk else "ops",
+            verb="persist",
+        )
+    except ImportError:
+        pass
     if isinstance(data, dict):
         from interview_mux.artifact_writes import _prepare_for_disk_validation
         from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
@@ -218,6 +341,124 @@ def write_mirrored_text(ctx: RunContext, rel: str, text: str) -> Path:
     return final
 
 
+# Owner-body JSON that must not flush from foreign pending (0F / End-B cousin).
+_OWNER_PROMOTE_JSON: frozenset[str] = frozenset(
+    {
+        "understanding/gap_report.json",
+        "understanding/reorder_bridges.json",
+        "master/transitions.json",
+        "master/selection.json",
+        "mastering/mastering_plan.json",
+    }
+)
+
+
+def _may_promote_pending(ctx: RunContext, rel: str, stage_id: str) -> bool:
+    """True when stage may flush this pending path (owner or non-gated side-effect)."""
+    if rel not in _OWNER_PROMOTE_JSON:
+        return True
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        ok, _reason = write_permitted(
+            ctx, rel, stage_id, role="producer", verb="promote_pending"
+        )
+        return bool(ok)
+    except Exception:
+        # Fail-open only when ownership module missing; otherwise refuse foreign.
+        return False
+
+
+# Directory promotes (`rel` ending in "/") never consulted ownership at all:
+# `_may_promote_pending` runs on the file branch only, so a DENY row on a
+# directory artifact was documented and never imposed. Enforcing it outright
+# would refuse every promote of `master/transitions/` on day one — that
+# directory has no catalog row, and under `fail_closed()` an unrowed path is
+# `unknown_path`. So the verdict is computed per child always and *acted on*
+# only for prefixes on this ratchet, mirroring
+# `contract_conformance.STRICT_GROUPS`: scaffolding is global and immediate,
+# enforcement is local and incremental. Add a prefix only once every real
+# producer of that directory has an ALLOW row. Only ever grows.
+PROMOTE_DIR_STRICT_PREFIXES: tuple[str, ...] = ()
+
+_ENV_PROMOTE_DIR_STRICT = "MUX_PROMOTE_DIR_STRICT_PREFIXES"
+
+# (stage_id, dir rel, child rel, reason, fatal) for every refused-or-would-be
+# refused child in this process. Tests read it; the campaign reads the log.
+_dir_promote_refusals: list[dict[str, Any]] = []
+
+
+def promote_dir_strict_prefixes() -> tuple[str, ...]:
+    """``MUX_PROMOTE_DIR_STRICT_PREFIXES`` overrides the ratchet (comma list)."""
+    raw = os.environ.get(_ENV_PROMOTE_DIR_STRICT)
+    if raw is None:
+        return PROMOTE_DIR_STRICT_PREFIXES
+    return tuple(p.strip() for p in raw.split(",") if p.strip())
+
+
+def promote_dir_refusal_is_fatal(rel: str) -> bool:
+    """True when a refused child under ``rel`` is discarded instead of reported."""
+    norm = str(rel or "").replace("\\", "/").lstrip("./")
+    return any(norm.startswith(prefix) for prefix in promote_dir_strict_prefixes())
+
+
+def observed_dir_promote_refusals() -> list[dict[str, Any]]:
+    return list(_dir_promote_refusals)
+
+
+def clear_dir_promote_refusals() -> None:
+    _dir_promote_refusals.clear()
+
+
+def _dir_promote_permitted(ctx: RunContext, child: str, stage_id: str) -> tuple[bool, str]:
+    """Ownership verdict for one child of a directory promote.
+
+    Fails *open* when the ownership module itself raises: a directory promote
+    carries rendered media (transition WAVs, VO takes), and losing bytes to an
+    unrelated ownership bug is worse than promoting a foreign one. An explicit
+    DENY / not_allow / unknown_path still refuses.
+    """
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        ok, reason = write_permitted(
+            ctx, child, stage_id, role="producer", verb="promote_pending"
+        )
+    except Exception as exc:
+        return True, f"ownership_unavailable:{type(exc).__name__}"
+    return bool(ok), str(reason or "")
+
+
+def _note_dir_promote_refusal(
+    ctx: RunContext,
+    *,
+    stage_id: str,
+    rel: str,
+    child: str,
+    reason: str,
+    fatal: bool,
+) -> None:
+    _dir_promote_refusals.append(
+        {
+            "stage_id": stage_id,
+            "rel": rel,
+            "child": child,
+            "reason": reason,
+            "fatal": fatal,
+        }
+    )
+    verdict = "refused" if fatal else "would refuse (report-only)"
+    try:
+        ctx.log(
+            f"promote {rel} child {child}: {verdict} for {stage_id} ({reason})",
+            level="warning",
+            stage=stage_id,
+            detail={"rel": rel, "child": child, "reason": reason, "fatal": fatal},
+        )
+    except Exception:
+        pass
+
+
 def promote_staged_side_effects(
     ctx: RunContext,
     rels: list[str] | tuple[str, ...],
@@ -229,6 +470,12 @@ def promote_staged_side_effects(
     Staging flush only promotes operator-visible StageInfo outputs, then deletes
     the staging tree.  Junction remasters of EDL/assembly must land in the
     committed run tree or the repairs vanish on stage completion.
+
+    Owner JSON bodies (gap_report / transitions / selection / plan) require
+    ``verb=promote_pending`` ownership — foreign pending is discarded, not sealed.
+
+    A directory rel resolves ownership per child. Refusals are report-only
+    unless the rel is on ``PROMOTE_DIR_STRICT_PREFIXES``.
     """
     sid = stage_id or _active_stage.get()
     if not sid:
@@ -254,7 +501,27 @@ def promote_staged_side_effects(
                 child = str(src.relative_to(root)).replace("\\", "/")
                 if is_vo_pickup_rel(child) and sid not in VO_PICKUP_OWNER_STAGES:
                     continue
+                ok, reason = _dir_promote_permitted(ctx, child, sid)
+                if not ok:
+                    fatal = promote_dir_refusal_is_fatal(rel)
+                    _note_dir_promote_refusal(
+                        ctx,
+                        stage_id=sid,
+                        rel=rel,
+                        child=child,
+                        reason=reason,
+                        fatal=fatal,
+                    )
+                    if fatal:
+                        try:
+                            src.unlink()
+                        except OSError:
+                            pass
+                        continue
                 dest = ctx.final_path(*child.split("/"))
+                if _should_skip_stale_vo_pickup_promote(ctx, src=src, dest=dest, rel=child):
+                    _discard_skipped_stale_vo_pending(src)
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 atomic_copy(src, dest)
                 flushed.append(child)
@@ -262,7 +529,16 @@ def promote_staged_side_effects(
         src = root.joinpath(*rel.split("/"))
         if not src.is_file():
             continue
+        if not _may_promote_pending(ctx, rel, sid):
+            try:
+                src.unlink()
+            except OSError:
+                pass
+            continue
         dest = ctx.final_path(*rel.split("/"))
+        if _should_skip_stale_vo_pickup_promote(ctx, src=src, dest=dest, rel=rel):
+            _discard_skipped_stale_vo_pending(src)
+            continue
         prior_spoken: dict | None = None
         if rel in {
             "understanding/gap_report.json",
@@ -402,9 +678,10 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
     Leftover ``.pending_writes`` from a crashed or other stage must not shadow
     reads. The live producer still sees its own staged files via ``_active_stage``.
     """
+    sid = _active_stage.get()
+    _record_contract_touch(ctx, rel, sid, write=False)
     if is_operational_path(rel):
         return ctx.run_dir.joinpath(*rel.split("/"))
-    sid = _active_stage.get()
     if sid:
         staged = staged_path(ctx, rel, stage_id=sid)
         if staged.is_file():
@@ -419,11 +696,37 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
 
 
 def uncommitted_pending_reason(ctx: RunContext, rel: str) -> str | None:
-    """HC-3 / 2B: pending-only or newer pending than commit is not complete."""
+    """HC-3 / 2B: pending-only or newer pending than commit is not complete.
+
+    Leftover ``.pending_writes`` from a *different* stage must not block
+    completeness of the artifact's canonical producer (exec_11630:
+    ``gap_framing_compose`` pending ``gap_evaluations.json`` falsely
+    incomplete'd ``missing_framing`` and thrash-looped delivery).
+    """
     if is_operational_path(rel):
         return None
     pending = pending_stage_for_path(ctx, rel)
     if not pending:
+        return None
+    active = _active_stage.get()
+    canonical = None
+    try:
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        for sid, path in STAGE_ARTIFACT_DISK_PATHS.items():
+            if path == rel:
+                canonical = str(sid)
+                break
+    except Exception:
+        canonical = None
+    if canonical is None and rel == "understanding/gap_evaluations.json":
+        canonical = "missing_framing"
+    if (
+        pending
+        and pending != active
+        and canonical
+        and pending != canonical
+    ):
         return None
     staged = staged_path(ctx, rel, stage_id=pending)
     if not staged.is_file():
@@ -607,6 +910,31 @@ def _staging_lock(ctx: RunContext, stage_id: str) -> FileLock:
 _LARGE_FLUSH_BYTES = 8 << 20  # 8 MiB
 
 
+def _warn_dropped_owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> None:
+    """Log when the flush filter drops a path this stage is permitted to write."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+
+        allowed, _reason = write_permitted(
+            ctx, rel, stage_id, role="producer", verb="persist"
+        )
+    except Exception:
+        return
+    if not allowed:
+        return
+    try:
+        ctx.log(
+            f"staged write {rel} dropped — {stage_id} owns it but does not declare it "
+            "as a stage output (add it to web/stages.py StageInfo)",
+            level="warning",
+            stage=stage_id,
+            action_id="write_staging.flush",
+            detail={"event": "undeclared_owned_staging_path", "path": rel},
+        )
+    except Exception:
+        pass
+
+
 def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
     with _staging_lock(ctx, stage_id):
         root = staging_root(ctx, stage_id)
@@ -624,6 +952,10 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             if is_vo_pickup_rel(rel) and stage_id not in VO_PICKUP_OWNER_STAGES:
                 continue
             if not operator_visible_staging_path(stage_id, rel):
+                # A staged write the stage is *allowed* to own but never declared is
+                # silently discarded here — exec_11871 lost publish/episode.json and
+                # the ship-time listen_delight_audit this way. Say so out loud.
+                _warn_dropped_owned_staging_path(ctx, stage_id, rel)
                 continue
             if _should_preserve_committed_transcript(ctx, rel, src):
                 ctx.log(
@@ -635,6 +967,10 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
                 )
                 continue
             dest = ctx.run_dir.joinpath(*rel.split("/"))
+            # End-B: owner flush must share bind skip with promote_owner / side-effects.
+            if _should_skip_stale_vo_pickup_promote(ctx, src=src, dest=dest, rel=rel):
+                _discard_skipped_stale_vo_pending(src)
+                continue
             size = src.stat().st_size
             if size >= _LARGE_FLUSH_BYTES:
                 mb = size / (1 << 20)
@@ -968,6 +1304,16 @@ def after_stage_write_check(ctx: RunContext, stage_id: str) -> None:
     _commit_stage_writes(ctx, stage_id)
 
 
+def _report_contract_conformance(ctx: RunContext, stage_id: str) -> None:
+    """Report-only conformance warning + observed-map flush (plan §4.1)."""
+    try:
+        from interview_mux.contract_conformance import warn_on_mismatch
+
+        warn_on_mismatch(ctx, stage_id)
+    except Exception:
+        return
+
+
 def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     """Execute a stage function with write staging and v2 auto-commit."""
     from interview_mux.operator_trace import active_run_context, log_step
@@ -1031,6 +1377,7 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
                     level="warning",
                     stage=stage_id,
                 )
+        preflight_stage_enter(ctx, stage_id)
         enter_stage_staging(stage_id)
         try:
             fn()
@@ -1050,6 +1397,7 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
             raise
         finally:
             exit_stage_staging()
+            _report_contract_conformance(ctx, stage_id)
         after_stage_write_check(ctx, stage_id)
     finally:
         active_run_context.reset(ctx_token)

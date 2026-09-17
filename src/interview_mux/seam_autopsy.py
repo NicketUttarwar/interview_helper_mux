@@ -72,6 +72,11 @@ def _pair_hash(after_id: str, before_id: str, order_hash: str) -> str:
 
 
 def _pack_conflicts(selection: dict[str, Any]) -> list[dict[str, Any]]:
+    """Live pack conflicts only — applied leftover inserts must not tank clarity.
+
+    Selection ``_meta.repairs`` keeps historical insert_leftovers rows even after
+    those ids land on air. Clarity must penalize unresolved leftovers only.
+    """
     meta = selection.get("_meta") if isinstance(selection.get("_meta"), dict) else {}
     repairs = [r for r in (meta.get("repairs") or []) if isinstance(r, dict)]
     conflict_actions = {
@@ -80,16 +85,25 @@ def _pack_conflicts(selection: dict[str, Any]) -> list[dict[str, Any]]:
         "insert_chapter_leftovers_before_finale",
         "insert_leftovers_before_finale_span",
     }
-    return [
-        {
-            "action": str(row.get("action") or ""),
-            "count": int(row.get("count") or 0),
-            "ids": [str(x) for x in (row.get("ids") or []) if x],
-            "risk_code": "plan_pack_conflict",
-        }
-        for row in repairs
-        if str(row.get("action") or "") in conflict_actions
-    ]
+    ordered = {str(s) for s in (selection.get("ordered_segment_ids") or []) if s}
+    out: list[dict[str, Any]] = []
+    for row in repairs:
+        action = str(row.get("action") or "")
+        if action not in conflict_actions:
+            continue
+        ids = [str(x) for x in (row.get("ids") or []) if x]
+        unresolved = [i for i in ids if i not in ordered]
+        if not unresolved:
+            continue
+        out.append(
+            {
+                "action": action,
+                "count": len(unresolved),
+                "ids": unresolved,
+                "risk_code": "plan_pack_conflict",
+            }
+        )
+    return out
 
 
 def score_seam(
@@ -501,8 +515,48 @@ def refresh_autopsy_commitment(ctx: RunContext) -> dict[str, Any] | None:
     return out
 
 
+def _ledger_annotation_permitted(ctx: RunContext) -> bool:
+    """True when the active stage may annotate the assembly ledger.
+
+    The autopsy annotation is pure telemetry on a delivery ledger owned by
+    edl/mix/junction_snip_qa. The ship pass (master_finalize) re-scans the autopsy
+    and used to raise here, killing the whole post-master quality pass
+    (exec_11871). A sealed ledger simply keeps its prior annotation.
+    """
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        if not stage_now:
+            return True
+        allowed, reason = write_permitted(
+            ctx,
+            "master/assembly_ledger.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        try:
+            ctx.log(
+                "seam autopsy: assembly_ledger sealed — autopsy annotation skipped "
+                f"({reason})",
+                level="info",
+                stage=stage_now or None,
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+
 def enrich_ledger(ctx: RunContext, autopsy: dict[str, Any]) -> dict[str, Any] | None:
     if not ctx.artifact_exists("master/assembly_ledger.json"):
+        return None
+    if not _ledger_annotation_permitted(ctx):
         return None
     ledger = ctx.read_json("master/assembly_ledger.json")
     if not isinstance(ledger, dict):

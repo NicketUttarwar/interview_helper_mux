@@ -5,6 +5,7 @@ import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { StageStepWorkbench } from "./StageStepWorkbench";
 import { NlePanel } from "./NlePanel";
 import { HomunculusPanel } from "./HomunculusPanel";
+import { SolverHaltPanel } from "./SolverHaltPanel";
 
 function phaseStatus(
   phase: (typeof V2_PHASES)[number],
@@ -155,6 +156,7 @@ export function PhaseWorkbench() {
         ) : (
           <>
             <HomunculusPanel />
+            <SolverHaltPanel />
             <StageStepWorkbench />
           </>
         )}

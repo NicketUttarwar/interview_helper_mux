@@ -8,14 +8,26 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: preclean/isolated.wav
+  schema: null
+  staging: false
+- path: preclean/provider.json
+  staging: true
+- path: preclean/lineage.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- ingest
+- vo_ingest
+- vo_synthesize
 remediation:
   strategies:
   - volley_retry

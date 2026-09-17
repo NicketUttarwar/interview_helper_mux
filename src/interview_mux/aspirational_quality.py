@@ -30,6 +30,8 @@ STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
         "opening_music_quality",
         "opening_orientation_contract",
         "air_order_integrity",
+        # D1 advance-past: an open ship-bar defect is never a rubric advisory.
+        "no_open_ship_bar_defects",
     }
 )
 

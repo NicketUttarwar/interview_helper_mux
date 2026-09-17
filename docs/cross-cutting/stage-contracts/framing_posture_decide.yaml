@@ -14,7 +14,13 @@ outputs:
   staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
 sufficiency:
 - path: recommended_framing
   rule: non_empty_string
@@ -24,7 +30,11 @@ sufficiency:
   blocking: progression
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- missing_framing
+- gap_framing_compose
+- transitions
+- vo_synthesize
 remediation:
   strategies:
   - volley_retry

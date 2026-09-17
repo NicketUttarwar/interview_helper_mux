@@ -126,6 +126,121 @@ def _previous_selection(ctx: RunContext) -> dict[str, Any] | None:
     return dict(doc) if isinstance(doc, dict) else None
 
 
+def _drop_blank_segments_under_freeze(
+    ctx: RunContext, selection: dict[str, Any]
+) -> dict[str, Any]:
+    """After seat-freeze order restore, still drop blank/unusable air ids.
+
+    Freeze protects creative order thrash — not silent blank clips that split
+    chapters and block EDL narrative QC (exec_11630 seg_041).
+    """
+    from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
+    from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+
+    out = dict(selection)
+    order = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    blank = [s for s in order if _segment_is_blank_or_unusable(ctx, s)]
+    if not blank:
+        return out
+    kept = [s for s in order if s not in set(blank)]
+    if not kept:
+        return out
+    out["ordered_segment_ids"] = kept
+    excl = list(out.get("excluded_segment_ids") or [])
+    have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
+    rat = dict(out.get("exclude_rationales") or {})
+    for sid in blank:
+        if sid not in have:
+            excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
+            have.add(sid)
+        rat[sid] = str(rat.get(sid) or "blank_or_unusable_answer_audio")
+    out["excluded_segment_ids"] = excl
+    out["exclude_rationales"] = rat
+    keep = set(kept)
+    for ch in out.get("chapters") or []:
+        if isinstance(ch, dict):
+            ch["segment_ids"] = [
+                str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep
+            ]
+    out = reconcile_ordered_vs_excluded(out)
+    try:
+        from interview_mux.order_hash import bump_order_lock
+
+        out = bump_order_lock(out, source="air_order_boundary.drop_blank_under_freeze")
+    except Exception:
+        pass
+    return out
+
+
+_SHIP_BLOCKING_OMIT_KINDS = (
+    "on_a_roll",
+    "incomplete_clause",
+    "chapter_bleed_incomplete",
+)
+
+
+_INTEGRITY_OMIT_PRODUCERS = frozenset({"edl_overlap_repair", "segment_id_remap"})
+
+
+def _ship_blocking_omit_ids(
+    ctx: RunContext,
+    *,
+    prev_ids: list[str],
+    cur_ids: list[str],
+    selection: dict[str, Any],
+    producer: str = "",
+) -> list[str]:
+    """Ids seat freeze must let leave air: junction incomplete-cut omit/fuse.
+
+    Freeze protects creative order thrash. An omit-only delta (survivors keep
+    their relative order) whose ids carry a junction incomplete-cut reason is a
+    ship-blocking repair: if freeze restores them, the EDL drops the clip while
+    selection keeps it, the divergence rebuild puts it back, and mix refuses
+    forever on a residual nobody can clear (exec_11871 seg_014 / seg_071).
+    """
+    prev = [str(s) for s in (prev_ids or []) if s]
+    cur = [str(s) for s in (cur_ids or []) if s]
+    cur_set = set(cur)
+    removed = [s for s in prev if s not in cur_set]
+    if not removed:
+        return []
+    # Any true reordering (or additions) stays the freeze owner's call.
+    if [s for s in prev if s in cur_set] != cur:
+        return []
+    # A fuse / overlap-union pass retires a consumed id into a survivor whose span
+    # already covers the tape — nothing leaves air, so freeze has nothing to
+    # protect. Restoring it strands selection at n+1 vs the EDL and mix refuses on
+    # `speech/selection order` forever (exec_11871 seg_073→seg_071).
+    if str(producer or "") in _INTEGRITY_OMIT_PRODUCERS:
+        return removed
+    reasons: dict[str, str] = {}
+    for row in selection.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            reasons[str(row.get("segment_id") or "")] = str(row.get("reason") or "")
+    rationales = selection.get("exclude_rationales")
+    if isinstance(rationales, dict):
+        for sid, why in rationales.items():
+            reasons.setdefault(str(sid), str(why or ""))
+    exempt = [
+        sid
+        for sid in removed
+        if reasons.get(sid, "").startswith("junction_snip_qa:")
+        and any(kind in reasons.get(sid, "") for kind in _SHIP_BLOCKING_OMIT_KINDS)
+    ]
+    if not exempt:
+        return []
+    try:
+        from interview_mux.junction_snip_qa import (
+            live_incomplete_cut_critical_findings,
+        )
+
+        if not live_incomplete_cut_critical_findings(ctx):
+            return []
+    except Exception:
+        return []
+    return exempt
+
+
 def _preserve_frozen_selection_order(
     out: dict[str, Any],
     *,
@@ -166,6 +281,25 @@ def _preserve_frozen_selection_order(
             level="warning",
             stage=stage_key or producer,
         )
+    except Exception:
+        pass
+    # Restoring prior order can leave exclude_rationales pointing at air ids.
+    try:
+        from interview_mux.artifact_repairs import prune_stale_exclude_rationales
+
+        restored, _ = prune_stale_exclude_rationales(restored)
+        # Drop dual membership rows so lint/excluded stay coherent under freeze.
+        order_set = {str(s) for s in (restored.get("ordered_segment_ids") or []) if s}
+        if isinstance(restored.get("excluded_segment_ids"), list) and order_set:
+            restored["excluded_segment_ids"] = [
+                row
+                for row in restored["excluded_segment_ids"]
+                if str(
+                    row.get("segment_id") if isinstance(row, dict) else row or ""
+                )
+                not in order_set
+            ]
+            restored, _ = prune_stale_exclude_rationales(restored)
     except Exception:
         pass
     return restored
@@ -240,7 +374,21 @@ def commit_selection_mutation(
                     if s
                 ]
                 cur_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-                if prev_ids and prev_ids != cur_ids:
+                exempt_omits = _ship_blocking_omit_ids(
+                    ctx,
+                    prev_ids=prev_ids,
+                    cur_ids=cur_ids,
+                    selection=out,
+                    producer=producer,
+                )
+                if prev_ids and prev_ids != cur_ids and exempt_omits:
+                    ctx.log(
+                        "seat_freeze: honoring ship-blocking omit under freeze "
+                        f"({', '.join(exempt_omits[:6])}; producer={producer})",
+                        level="warning",
+                        stage=stage_key or producer,
+                    )
+                elif prev_ids and prev_ids != cur_ids:
                     dec = request_seat_rewrite(
                         ctx,
                         proposed_delta={
@@ -264,6 +412,10 @@ def commit_selection_mutation(
                             ),
                             ctx=ctx,
                         )
+                        # Blank/unusable must still leave air under freeze — otherwise
+                        # chapter continuity QC sees leftover blanks as interlopers
+                        # (exec_11630 seg_041) and seat freeze undoes every heal write.
+                        out = _drop_blank_segments_under_freeze(ctx, out)
         except Exception:
             try:
                 from interview_mux.seat_authority import (
@@ -280,7 +432,17 @@ def commit_selection_mutation(
                     cur_ids = [
                         str(s) for s in (out.get("ordered_segment_ids") or []) if s
                     ]
-                    if prev_ids and prev_ids != cur_ids:
+                    if (
+                        prev_ids
+                        and prev_ids != cur_ids
+                        and not _ship_blocking_omit_ids(
+                            ctx,
+                            prev_ids=prev_ids,
+                            cur_ids=cur_ids,
+                            selection=out,
+                            producer=producer,
+                        )
+                    ):
                         out = _preserve_frozen_selection_order(
                             out,
                             previous=previous if isinstance(previous, dict) else None,
@@ -290,6 +452,7 @@ def commit_selection_mutation(
                             refuse_reason="fail_closed",
                             ctx=ctx,
                         )
+                        out = _drop_blank_segments_under_freeze(ctx, out)
             except Exception:
                 pass
 

@@ -12,11 +12,39 @@ outputs:
 - path: understanding/sound_design_plan.json
   schema: sound_design_plan_artifact.schema.json
   staging: true
+- path: understanding/music_brief.json
 inputs:
   hard:
   - path: master/transitions.json
     producer: transitions
-  soft: []
+  soft:
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/content_brief_reanchor.json
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/sonic_context.json
+    producer: sonic_context_build
+  - path: understanding/soundscape_policy.json
+    producer: soundscape_policy_build
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/analysis_state.json
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/edl.json
 sufficiency:
 - path: assets
   rule: min_rows
@@ -29,7 +57,8 @@ propagation:
   - edl
 consumers:
 - sound_design_palettes
-- sound_design_plan
+- mmaudio_sfx
+- music_palette_compose
 remediation:
   strategies:
   - volley_retry

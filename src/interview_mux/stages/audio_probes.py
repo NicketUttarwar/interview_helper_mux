@@ -383,14 +383,9 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
             return
 
         mode = enforcement_mode_for_ctx(ctx)
-        facts = _safe_read_json(ctx, "analysis/run_golden_facts.json", stage=stage)
-        if facts is not None:
-            run = dict(facts.get("run") or {})
-            run["vernacular_must_keep_segment_ids"] = list(result["must_keep_segment_ids"])
-            run["enforcement_mode"] = mode
-            facts["run"] = run
-            ctx.write_json("analysis/run_golden_facts.json", facts)
-
+        # Side-car is the vernacular-owned record. Do not mutate
+        # analysis/run_golden_facts.json (audio_probe_build owner) — that DENY
+        # aborted sanitize after a successful manifest resplit (exec_11871).
         ctx.write_json(
             "analysis/vernacular_must_keep.json",
             {
@@ -398,6 +393,7 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
                 "must_keep_segment_ids": result["must_keep_segment_ids"],
                 "enforcement_mode": mode,
             },
+            stage_key=stage,
         )
 
         updated_zones = []
@@ -421,7 +417,7 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
             updated_zones.append(zz)
         zones_out = dict(zones)
         zones_out["zones"] = updated_zones
-        ctx.write_json("transcript/protected_zones.json", zones_out)
+        ctx.write_json("transcript/protected_zones.json", zones_out, stage_key=stage)
 
         ctx.log(
             f"Vernacular sanitize: splits={len(result['resplit_report'].get('rows') or [])} "

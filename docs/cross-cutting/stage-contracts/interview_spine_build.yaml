@@ -8,14 +8,32 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/interview_spine.json
+  schema: null
+  staging: false
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: transcript/full.json
+    producer: transcribe
+    when:
+      spine_enabled: true
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+    when:
+      spine_enabled: true
+  soft:
+  - path: ingest/normalized.wav
+    producer: ingest
+  - path: preclean/isolated.wav
+    producer: audio_preclean
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- speaker_roles
+- content_context
+- boundary_detection
 remediation:
   strategies:
   - volley_retry

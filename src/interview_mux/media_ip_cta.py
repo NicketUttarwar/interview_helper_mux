@@ -83,9 +83,9 @@ _LETS_HEAR_RE = (
 
 def enabled(ctx: RunContext) -> bool:
     try:
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        return bool(is_homunculus_run(ctx))
+        return bool(has_homunculus_features(ctx))
     except Exception:
         return False
 
@@ -1650,7 +1650,10 @@ def _fragmentary_tail_reason(reason: str) -> bool:
 
 
 def is_editorial_exclude_reason(reason: str) -> bool:
-    """True for CTA / sponsor / monetization / editorial-omit reasons."""
+    """True for CTA / sponsor / monetization / editorial-omit / blank-audio reasons."""
+    r = str(reason or "").strip().lower()
+    if r in {"blank_or_unusable_answer_audio", "blank_or_unusable"}:
+        return True
     return (
         _cta_like_reason(reason)
         or _outro_like_reason(reason)
@@ -2468,6 +2471,59 @@ def _stamp_excludes(excl: list[Any], ids: list[str]) -> list[Any]:
     return out
 
 
+def _stamp_story_keep_ok_on_admitted(
+    ctx: RunContext,
+    child_ids: list[str],
+    story_ids: list[str],
+) -> None:
+    """Stamp listen-complete admitted story prefixes; never incomplete microfragments.
+
+    ``artifact_repairs._segment_is_blank_or_unusable`` keeps short admitted kids on
+    air only when ``_meta.story_keep_ok`` is True. Incomplete hangers must stay
+    unstamped so blank-repair drops them.
+    """
+    if not story_ids or not ctx.artifact_exists("segments/manifest.json"):
+        return
+    keep_set = {str(s) for s in story_ids if s} & {str(c) for c in child_ids if c}
+    if not keep_set:
+        return
+    try:
+        from interview_mux.gap_vo_prior_context import ends_complete_thought
+    except Exception:
+        return
+    try:
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return
+    if not isinstance(man, dict):
+        return
+    segs = [s for s in (man.get("segments") or []) if isinstance(s, dict)]
+    changed = False
+    for row in segs:
+        sid = str(row.get("segment_id") or "")
+        if sid not in keep_set:
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text or not ends_complete_thought(text):
+            # Incomplete microfragment — leave unstamped (blank-on-air SSOT).
+            continue
+        meta = dict(row.get("_meta") or {}) if isinstance(row.get("_meta"), dict) else {}
+        if meta.get("story_keep_ok") is True:
+            continue
+        meta["story_keep_ok"] = True
+        row["_meta"] = meta
+        changed = True
+    if not changed:
+        return
+    man["segments"] = segs
+    try:
+        ctx.write_json("segments/manifest.json", man, skip_handoff=True)
+    except Exception:
+        from interview_mux.write_staging import write_mirrored_json
+
+        write_mirrored_json(ctx, "segments/manifest.json", man)
+
+
 def _persist_recut_children(
     ctx: RunContext,
     parent_id: str,
@@ -2479,6 +2535,10 @@ def _persist_recut_children(
         from interview_mux.nle_state import materialize_split_children_into_manifest
 
         materialize_split_children_into_manifest(ctx, parent_id, child_ids)
+    except Exception:
+        pass
+    try:
+        _stamp_story_keep_ok_on_admitted(ctx, child_ids, story_ids)
     except Exception:
         pass
     try:

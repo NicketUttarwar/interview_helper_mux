@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     )
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULTS_DIR = ROOT / ".cursor/plans/rstm/results"
+RESULTS_DIR = ROOT / "rstm-results"
 CELLS_DIR = RESULTS_DIR / "cells"
 
 GATE_LIKE = {

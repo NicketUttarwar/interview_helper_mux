@@ -147,45 +147,6 @@ def write_remediation_plan(ctx: RunContext, plan: RemediationPlan) -> None:
     ctx.write_json(REMEDIATION_PLAN_REL, plan.to_dict(), skip_handoff=True)
 
 
-def honest_playbook_outcome(
-    ctx: RunContext,
-    *,
-    error_class: str,
-    consumer_stage: str,
-    playbook_id: str,
-    artifacts_written: list[str],
-    pre_check: callable | None = None,
-    post_check: callable | None = None,
-) -> RemediationOutcome:
-    """Honest recovered only when post_check passes (default: no automatic True)."""
-    if pre_check and not pre_check(ctx):
-        return RemediationOutcome(
-            recovered=False,
-            error_class=error_class,
-            playbook_id=playbook_id,
-            resume_stage=consumer_stage,
-            detail="pre_check_failed",
-        )
-    if post_check is not None:
-        ok = post_check(ctx)
-    elif error_class == "vo_contract_repair":
-        from interview_mux.vo_contract import validate_vo_contract
-
-        ok = not validate_vo_contract(ctx)
-    elif error_class in {"vo_seated_coverage", "edl_vo_coverage_repair"}:
-        from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
-
-        ok = not compact_vo_coverage_stale_or_missing(ctx)
-    else:
-        ok = bool(artifacts_written)
-    return RemediationOutcome(
-        recovered=ok,
-        error_class=error_class,
-        playbook_id=playbook_id,
-        resume_stage=consumer_stage,
-        detail="validated" if ok else "post_check_failed",
-    )
-
 
 def _playbook_resume_stage(error_class: str, consumer_stage: str) -> str:
     try:

@@ -258,3 +258,29 @@ def test_stale_sanitize_stamp_is_rejected() -> None:
         "same_family_over_budget" in e or "stamp_stale" in e or "needs_sanitize" in e
         for e in errs
     )
+
+
+def test_sanitize_prunes_exclude_rationales_on_air_ids() -> None:
+    """Air-order ids must not keep exclude_rationales (exec_11630 freeze preserve)."""
+    ctx = RunContext(create=True)
+    sel = {
+        "ordered_segment_ids": ["seg_023", "seg_041"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_023", "reason": "media_ip_cta"},
+            {"segment_id": "seg_041", "reason": "media_ip_cta"},
+            {"segment_id": "seg_099", "reason": "excluded_from_master"},
+        ],
+        "exclude_rationales": {
+            "seg_023": "media_ip_cta",
+            "seg_041": "media_ip_cta",
+            "seg_099": "excluded_from_master",
+        },
+        "chapters": [],
+    }
+    result = sanitize_master_selection(ctx, sel)
+    assert result.ok
+    assert result.doc["ordered_segment_ids"] == ["seg_023", "seg_041"]
+    assert "seg_023" not in (result.doc.get("exclude_rationales") or {})
+    assert "seg_041" not in (result.doc.get("exclude_rationales") or {})
+    assert "seg_099" in (result.doc.get("exclude_rationales") or {})
+    assert any(a.get("action") == "prune_stale_exclude_rationales" for a in result.actions)

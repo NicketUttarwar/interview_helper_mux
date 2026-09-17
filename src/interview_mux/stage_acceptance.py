@@ -10,7 +10,12 @@ from interview_mux.config import merged_config
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
 from interview_mux.run_context import RunContext
 
-_BINARY_SUFFIXES = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+# SSOT for bytes-only producer artifacts (audio + images). post_commit_validate used
+# to read_json publish/cover.jpg → UnicodeDecodeError killed the delivery walk right
+# before publish and re-billed three cover generations per round (exec_11871).
+from interview_mux.artifact_completeness import BINARY_ARTIFACT_SUFFIXES
+
+_BINARY_SUFFIXES = BINARY_ARTIFACT_SUFFIXES
 
 
 def _is_binary_artifact_rel(rel: str | None) -> bool:

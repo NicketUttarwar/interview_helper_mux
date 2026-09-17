@@ -12,13 +12,48 @@ outputs:
 - path: master/edl.json
   schema: null
   staging: false
+- path: master/transitions/
+  staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
+  - path: master/selection.json
+    producer: full_master_ranking
+  soft:
+  - path: master/transitions.json
+    producer: transitions
+    correctness: true
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: master/edl_narrative_audit.json
+    producer: edl_narrative_audit
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: mastering/media_ip_cta.json
+    producer: full_master_ranking
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- assembly_preview
+- mix
+- junction_snip_qa
+- master_finalize
+- master_transcript_build
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

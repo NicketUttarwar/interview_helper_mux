@@ -1,5 +1,5 @@
 stage_id: vo_ingest
-tier: process
+tier: gate
 lifecycle:
   phases:
   - prestage
@@ -8,7 +8,9 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: vo_pickup/
+  staging: true
 inputs:
   hard: []
   soft: []

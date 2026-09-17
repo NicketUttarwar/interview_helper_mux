@@ -9,16 +9,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import yaml  # noqa: E402
 
+from contract_dependency_data import deps_for  # noqa: E402
+from interview_mux.artifact_ownership import write_permitted  # noqa: E402
 from interview_mux.v2.config import ALL_LLM_STAGES  # noqa: E402
+from interview_mux.web.stages import STAGE_BY_ID  # noqa: E402
 from interview_mux.artifact_dependency_graph import _PROPAGATION_SEEDS  # noqa: E402
 from interview_mux.context_resolver import ARTIFACTS_REGISTRY  # noqa: E402
 from interview_mux.llm_flow_hardening import LLM_UPSTREAM_STAGE  # noqa: E402
 from interview_mux.null_field_policy import CRITICAL_FIELDS, NULLABLE_FIELDS  # noqa: E402
 from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER  # noqa: E402
 from interview_mux.prompt_validation import STAGE_ARTIFACT_SCHEMAS, STAGE_ARTIFACT_DISK_PATHS  # noqa: E402
+from interview_mux.stage_contract import is_path_spec  # noqa: E402
+from interview_mux.stage_contract import PIPELINE_TIERS as _PIPELINE_TIERS  # noqa: E402
 
 OUT = ROOT / "docs" / "cross-cutting" / "stage-contracts"
 
@@ -79,6 +85,22 @@ _PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
         },
     ],
     "mmaudio_sfx": [{"path": "assets", "rule": "min_rows", "min_count": 0}],
+    # Both of these are in `STAGE_ARTIFACT_SCHEMAS` with an empty sufficiency
+    # block, which is what `verify_stage_contracts` goes red on. The rule below
+    # is the one thing about each artifact that can be defended without
+    # inventing a threshold: its own JSON schema's `required` list.
+    #
+    # Neither stage can carry a row-count rule. `junction_snip_qa` on a clean
+    # master has zero `findings` and zero `applied` — that is the *good* outcome
+    # — and `sound_design_vo_finalize` answers `{"skipped": true}` whenever
+    # sound design or VO is off, with `missing` and `errors` both empty. A
+    # `min_rows >= 1` there would fail exactly the runs that went well.
+    "junction_snip_qa": [
+        {"path": "version", "rule": "required_fields", "fields": ["version", "generated_at"]},
+    ],
+    "sound_design_vo_finalize": [
+        {"path": "skipped", "rule": "required_fields", "fields": ["skipped", "refused"]},
+    ],
     "chapter_close_hitch": [
         {"path": "status", "rule": "non_empty_string", "min_length": 1},
     ],
@@ -119,6 +141,35 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
 _GATES = {
     "transcript_review": {"tier": "gate", "gate_id": "G0"},
     "g1_vo_pickup": {"tier": "gate", "gate_id": "G1"},
+}
+
+# Contract files that are NOT dispatchable pipeline stages (plan §8.4).
+# `process` / `llm_full` / `deterministic` is reserved for the 72 stages in
+# ANALYSIS_ORDER + DELIVERY_ORDER; everything else is `gate` (operator must act)
+# or `meta` (sub-stage volley, adjudicator, brief, init helper, retired).
+# tests/test_contract_tier_partition.py pins the partition.
+_NON_STAGE_TIERS: dict[str, str] = {
+    # operator-action entries
+    "transcript_review": "gate",
+    "g1_vo_pickup": "gate",
+    "vo_ingest": "gate",
+    # meta — not dispatchable by the driver walk
+    "_arbiter": "meta",
+    "ranking_refine": "meta",
+    "transitions_refine": "meta",
+    "narrative_arc_refine": "meta",
+    "sdp_intent_refine": "meta",
+    "sfx_prompt_refine": "meta",
+    "edl_narrative_refine": "meta",
+    "connector_seam_adjudicate": "meta",
+    "island_cluster_structure_adjudicate": "meta",
+    "junction_thought_complete": "meta",
+    "junction_feel_audit": "meta",
+    "sfx_brief": "meta",
+    "podcast_sfx_brief": "meta",
+    "sound_design_plan_init": "meta",
+    "synthetic_framing_plan": "meta",
+    "optimal_questions": "meta",
 }
 
 _OUTPUT_PATH_OVERRIDES = {
@@ -269,6 +320,54 @@ _DETERMINISTIC = [
     "edl_narrative_refine",
 ]
 
+def _registry_outputs(stage_id: str, primary_rel: str | None) -> list[dict]:
+    """Secondary outputs from the runtime promotion allowlist (`STAGE_BY_ID`).
+
+    `flush_stage_writes` promotes exactly `StageInfo.artifacts` +
+    `audio_outputs`, so that tuple is the existing runtime truth about what a
+    stage writes — not a fourth SSOT invented here.
+
+    Paths the ownership constitution **denies** to this stage are excluded: a
+    contract output is a write the stage is permitted to make (plan §2.1 puts
+    `write_permitted` in the admissibility rule), and `StageInfo` lists some
+    co-producer paths that ownership refuses — e.g. `edl_narrative_audit` ->
+    `master/transitions.json` is `narrative_must_not_mint_transitions`.
+    """
+    info = STAGE_BY_ID.get(stage_id)
+    if info is None:
+        return []
+    rows: list[dict] = []
+    seen = {primary_rel} if primary_rel else set()
+    for rel in list(info.artifacts) + list(info.audio_outputs):
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        if not is_path_spec(rel):
+            ok, _reason = write_permitted(None, rel, stage_id)
+            if not ok:
+                continue
+        rows.append({"path": rel, "staging": True})
+    return rows
+
+
+def _merge_declared_deps(stage_id: str, doc: dict) -> None:
+    """Fold `tools/contract_dependency_data.py` into the generated contract."""
+    declared = deps_for(stage_id)
+    if not declared:
+        return
+    for kind in ("hard", "soft"):
+        items = (declared.get("inputs") or {}).get(kind) or []
+        known = {i["path"] for i in doc["inputs"][kind]}
+        doc["inputs"][kind].extend(i for i in items if i["path"] not in known)
+    if declared.get("consumers"):
+        doc["consumers"] = list(declared["consumers"])
+    if declared.get("propagation"):
+        doc["propagation"] = {"invalidates_stages": list(declared["propagation"])}
+    for item in declared.get("outputs") or []:
+        if item["path"] not in {o["path"] for o in doc["outputs"]}:
+            doc["outputs"].append(item)
+
+
 def _all_stage_ids() -> list[str]:
     seen: list[str] = []
     for batch in (
@@ -298,6 +397,10 @@ def _contract_for(stage_id: str) -> dict:
         tier = "llm_full"
     else:
         tier = "process"
+
+    # Staging still follows LLM-ness even when the tier is reclassified below.
+    stages_output = tier == "llm_full"
+    tier = _NON_STAGE_TIERS.get(stage_id, tier)
 
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id) or _OUTPUT_PATH_OVERRIDES.get(stage_id)
     schema_file = STAGE_ARTIFACT_SCHEMAS.get(stage_id) or _OUTPUT_SCHEMA_OVERRIDES.get(stage_id)
@@ -334,10 +437,14 @@ def _contract_for(stage_id: str) -> dict:
             {
                 "path": rel,
                 "schema": schema_file,
-                "staging": tier == "llm_full",
+                "staging": stages_output,
             }
         ]
     doc["outputs"].extend(_EXTRA_OUTPUTS.get(stage_id, []))
+    known_outputs = {o["path"] for o in doc["outputs"]}
+    doc["outputs"].extend(
+        row for row in _registry_outputs(stage_id, rel) if row["path"] not in known_outputs
+    )
 
     upstream = LLM_UPSTREAM_STAGE.get(stage_id)
     if upstream:
@@ -360,6 +467,8 @@ def _contract_for(stage_id: str) -> dict:
     null = sorted(NULLABLE_FIELDS.get(stage_id, frozenset()))
     if null:
         doc["nullable_fields"] = null
+
+    _merge_declared_deps(stage_id, doc)
 
     return doc
 
@@ -384,7 +493,79 @@ def main() -> int:
             }
         )
     index = OUT / "00-INDEX.md"
-    lines = ["# Stage contracts index\n", "| Stage | Tier | Outputs |", "|-------|------|---------|"]
+    pipeline_tiers = sorted(_PIPELINE_TIERS)
+    lines = [
+        "# Stage contracts index\n",
+        "<!-- generated by tools/bootstrap_stage_contracts.py — do not hand-edit -->\n",
+        "## Tier convention\n",
+        "`tier` partitions contract files into dispatchable pipeline stages and",
+        "everything else. There are more contract files than pipeline stages, so the",
+        "partition is load-bearing: a solver that walks contracts must never offer a",
+        "non-stage. `tests/test_contract_tier_partition.py` pins it.\n",
+        "| Tier | Meaning | Membership |",
+        "|------|---------|------------|",
+        "| `process` | Deterministic stage body, no LLM volley | pipeline stage |",
+        "| `deterministic` | Stage body derived wholly from upstream artifacts | pipeline stage |",
+        "| `llm_full` | Stage body whose artifact content comes from an LLM volley | pipeline stage |",
+        "| `gate` | Operator must act; never auto-dispatched | non-stage |",
+        "| `meta` | Sub-stage LLM volley, adjudicator, brief, init helper, arbiter, retired | non-stage |",
+        "",
+        f"**Invariant:** the set of contracts whose tier is in {{{', '.join(f'`{t}`' for t in pipeline_tiers)}}}",
+        "equals exactly the 72 stages of `ANALYSIS_ORDER` + `DELIVERY_ORDER`",
+        "(`src/interview_mux/v2/config.py`). `gate` / `meta` contracts exist so those",
+        "non-stages can still declare inputs, outputs and ownership — they are not",
+        "pipeline steps and carry no seed-order position.\n",
+        "**Path SSOT:** `STAGE_ARTIFACT_DISK_PATHS` (`src/interview_mux/prompt_validation.py`)",
+        "is the declared direction of truth for a stage's primary artifact path; the",
+        "`artifact_ownership.py` catalog and contract `outputs` follow it, and",
+        "`tests/test_path_ssot_drift.py` fails on drift. See",
+        "[contract-migration-test-policy.md](../contract-migration-test-policy.md).\n",
+        "## Where the dependency data lives\n",
+        "These files are **generated** — `tools/bootstrap_stage_contracts.py`",
+        "rewrites every one of them, and it is step 1 of",
+        "`scripts/verify_artifact_contract.sh`. A hand edit is reverted on the next",
+        "verify run. Populate `tools/contract_dependency_data.py` instead; it is",
+        "organised by operator phase because plan §3.3 populates upstream-first.\n",
+        "Secondary `outputs` are derived from `web/stages.py::StageInfo.artifacts` +",
+        "`audio_outputs` — the tuple `flush_stage_writes` actually promotes — minus",
+        "any path the ownership constitution denies that stage. A contract output is",
+        "a write the stage is *permitted* to make.\n",
+        "## Flags\n",
+        "| Flag | Default | Effect |",
+        "|------|---------|--------|",
+        "| `MUX_CONTRACT_RECORD` | `0` | Record real reads/writes to"
+        " `operator/contract_observed.json` at the `write_staging` path resolvers"
+        " (`interview_mux.contract_conformance`). Report-only at runtime: a"
+        " mismatch warns and never gates a stage. |",
+        "| `MUX_CONTRACT_STRICT_GROUPS` | unset | Override"
+        " `contract_conformance.STRICT_GROUPS`, the groups whose conformance"
+        " findings *fail* `tests/test_contract_conformance.py` instead of warning"
+        " (plan §8.10). |",
+        "| `MUX_CONTRACT_REQUIRES` | `0` | Consume contract-derived `requires` edges"
+        " in `artifact_dependency_graph`. Off means the graph emits the frozen"
+        " `_BASELINE_REQUIRES_EDGES`, so populating `inputs[].producer` cannot"
+        " change heal routing for brain 0.1.0 / 0.2.0. |",
+        "| `MUX_CONTRACT_HARD_INPUT_STRICT` | `0` | Make an **absent** declared hard"
+        " input fatal again at `PRESTAGE` (`artifact_lifecycle.hard_input_strict`)."
+        " Off — the default — records the absence as a `missing_hard_input` defect"
+        " plus a resilience event and refuses the stage without raising, so a"
+        " declaration on a conditionally produced artifact cannot crash a live run."
+        " Set `=1` in CI and forensics runs that want to fail loudly. |\n",
+        "**`inputs` are not inert.** `artifact_lifecycle.run_phase_checks` gates",
+        "`PRESTAGE` on every **hard** input, so a wrongly-hard dep still stops a live",
+        "stage — as a recorded refusal by default (above), or fatally under",
+        "`MUX_CONTRACT_HARD_INPUT_STRICT=1`. A **stale** hard input is fatal either",
+        "way: produced-then-invalidated is an ordering bug. During population a dep is",
+        "hard only where the stage body already refuses without it; every other real",
+        "dep is `soft`, which nothing live consumes.\n",
+        "**`sufficiency` is inert.** `sufficiency_engine.sufficiency_enabled()` is a",
+        "hardcoded `False` that no flag or config key reaches, so these rules are",
+        "documentation — see `tests/test_sufficiency_engine_disabled.py`, which also",
+        "records what has to be defused before switching them on.\n",
+        "## Contracts\n",
+        "| Stage | Tier | Outputs |",
+        "|-------|------|---------|",
+    ]
     for r in rows:
         outs = ", ".join(r["outputs"] or []) or "—"
         lines.append(f"| `{r['stage']}` | {r['tier']} | {outs} |")

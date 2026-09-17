@@ -8,10 +8,47 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: publish/package_ready.json
+  schema: null
+  staging: false
+- path: publish/publish_result.json
+  staging: true
+- path: publish/chapters.json
+  staging: true
+- path: publish/transcript.vtt
+  staging: true
+- path: publish/episode.json
+  staging: true
+- path: publish/description.txt
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: master/master.wav
+    producer: master_finalize
+  - path: master/edl.json
+    producer: edl
+  - path: master/transcript.json
+    producer: master_transcript_build
+  - path: master/transcript.vtt
+    producer: master_transcript_build
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: publish/episode_meta.json
+    producer: episode_meta_build
+  - path: publish/cover_meta.json
+    producer: episode_cover_generate
+  - path: publish/audio.mp3
+    producer: podcast_encode_mp3
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/speakers.json
+    producer: speaker_roles
 sufficiency: []
 propagation:
   invalidates_stages: []

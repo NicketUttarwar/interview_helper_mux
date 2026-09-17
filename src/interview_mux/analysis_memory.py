@@ -205,10 +205,16 @@ def ensure_analysis_workspace(ctx: RunContext) -> None:
                 "default_sound_design_plan() failed schema validation: " + "; ".join(sdp_errors)
             )
         # Scaffold must not enter authority_undo ledger (empty↔harden false thrash).
+        # Registered ops allowlist: analysis_memory.ensure_analysis_workspace
         prev_raw = getattr(ctx, "_one_writer_raw", False)
         ctx._one_writer_raw = True
         try:
-            ctx.write_json(SOUND_DESIGN_PLAN_PATH, plan, **scaffold)
+            ctx.write_json(
+                SOUND_DESIGN_PLAN_PATH,
+                plan,
+                stage_key="sound_design_palettes",
+                **{k: v for k, v in scaffold.items() if k != "stage_key"},
+            )
         finally:
             ctx._one_writer_raw = prev_raw
     (ctx.path("understanding", "stage_runs")).mkdir(parents=True, exist_ok=True)

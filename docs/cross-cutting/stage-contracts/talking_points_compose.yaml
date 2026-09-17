@@ -13,8 +13,12 @@ outputs:
   schema: talking_points_artifact.schema.json
   staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: transcript/full.json
+    producer: transcribe
+  soft:
+  - path: understanding/speakers.json
+    producer: speaker_roles
 sufficiency:
 - path: strategy_summary
   rule: non_empty_string
@@ -26,7 +30,12 @@ sufficiency:
   blocking: progression
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- ideal_cuts_propose
+- ideal_cuts_materialize
+- mastering_shape_agenda
+- nugget_corpus_mine
+- nugget_layup_compose
 remediation:
   strategies:
   - volley_retry

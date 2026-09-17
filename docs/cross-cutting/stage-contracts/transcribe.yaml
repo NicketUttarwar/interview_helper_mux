@@ -8,14 +8,28 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: transcript/full.json
+  schema: null
+  staging: false
+- path: transcript/speakers.json
+  staging: true
 inputs:
-  hard: []
+  hard:
+  - path: ingest/normalized.wav
+    producer: ingest
   soft: []
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- audio_probe_build
+- transcript_review_build
+- source_acoustic_profile
+- interview_spine_build
+- speaker_roles
+- content_context
+- segment_classification
 remediation:
   strategies:
   - volley_retry

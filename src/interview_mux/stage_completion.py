@@ -83,11 +83,13 @@ def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
         return None
     if not isinstance(doc, dict):
         return None
+    from interview_mux.stages.gaps import _gap_eval_is_unscored_fill
+
     filled = [
         str(row.get("segment_id") or "")
         for row in (doc.get("evaluations") or [])
         if isinstance(row, dict)
-        and str((row.get("_meta") or {}).get("filled_by") or "") in MISSING_FRAMING_FILL_TAGS
+        and _gap_eval_is_unscored_fill(row)
         and str((row.get("_meta") or {}).get("producer") or "") != "gap_fill_skip"
     ]
     filled = [sid for sid in filled if sid]
@@ -297,6 +299,31 @@ def _mix_unseated_incompleteness(ctx: RunContext) -> str | None:
     except Exception:
         pass
     return "mix unseated — resume mix: mix_outputs_seated"
+
+
+def _junction_commitment_incompleteness(ctx: RunContext) -> str | None:
+    """End-D: junction is hollow without commitment matching live assembly."""
+    if not ctx.artifact_exists("master/junction_snip_qa.json"):
+        return None
+    if not ctx.artifact_exists("master/seam_autopsy.json"):
+        return (
+            "junction commitment missing — resume junction_snip_qa: "
+            "seam_autopsy.json"
+        )
+    try:
+        from interview_mux.homunculus.agenda import _junction_commitment_matches_assembly
+
+        if _junction_commitment_matches_assembly(ctx):
+            return None
+    except Exception:
+        return (
+            "junction commitment unreadable — resume junction_snip_qa: "
+            "commitment check failed"
+        )
+    return (
+        "junction commitment mismatch — resume junction_snip_qa: "
+        "refuse hollow seed-complete"
+    )
 
 
 def _episode_cover_incompleteness(ctx: RunContext) -> str | None:
@@ -633,6 +660,24 @@ def stage_artifact_incompleteness(
         unseated = _mix_unseated_incompleteness(ctx)
         if unseated:
             return unseated
+    if stage_id == "junction_snip_qa":
+        junc = _junction_commitment_incompleteness(ctx)
+        if junc:
+            return junc
+        # End-D: when commitment matches live assembly and primaries exist,
+        # that is the seed-complete seal (do not schema-partial autopsy).
+        if ctx.artifact_exists("master/junction_snip_qa.json") and ctx.artifact_exists(
+            "master/seam_autopsy.json"
+        ):
+            return None
+    if stage_id == "master_finalize":
+        from interview_mux.delivery_invariants import committed_master_integrity_ok
+
+        if not committed_master_integrity_ok(ctx):
+            return (
+                "master_finalize hollow — resume master_finalize: "
+                "committed master.wav missing/truncated/pending"
+            )
     if stage_id == "chapter_close_hitch":
         hitch = _hitch_layup_adopt_incompleteness(ctx)
         if hitch:
@@ -988,6 +1033,15 @@ def stage_artifact_incompleteness(
         if hollow_vo:
             return hollow_vo
     if stage_id == "edl_narrative_audit":
+        # Fail verdict first — hollow stage_done must not mask a blocking audit
+        # (exec_11630: stale fail deferred EDL while assembly walked).
+        if ctx.artifact_exists("master/edl_narrative_audit.json"):
+            try:
+                audit = ctx.read_json("master/edl_narrative_audit.json")
+            except Exception:
+                audit = None
+            if isinstance(audit, dict) and str(audit.get("verdict") or "").strip().lower() == "fail":
+                return "edl_narrative_audit verdict=fail — remutate/re-audit before edl"
         heard = _edl_narrative_audit_heard_wav_incompleteness(ctx)
         if heard:
             return heard
@@ -1040,6 +1094,42 @@ def stage_artifact_incompleteness(
             missing = []
         if missing:
             return f"seated VO missing: {', '.join(missing[:4])}"
+        # Required orientation without audible WAV must not seed-complete EDL.
+        try:
+            from interview_mux.gap_vo_gates import gap_framing_enabled
+            from interview_mux.opening_orientation import (
+                orientation_omitted,
+                validate_opening_orientation,
+            )
+
+            if (
+                gap_framing_enabled(ctx)
+                and ctx.artifact_exists("understanding/gap_report.json")
+                and ctx.artifact_exists("master/edl.json")
+            ):
+                gap = ctx.read_json("understanding/gap_report.json")
+                edl_doc = ctx.read_json("master/edl.json")
+                if (
+                    isinstance(gap, dict)
+                    and isinstance(edl_doc, dict)
+                    and not orientation_omitted(gap)
+                ):
+                    opening_errors = validate_opening_orientation(
+                        gap_report=gap, edl=edl_doc
+                    )
+                    inaudible = [
+                        e
+                        for e in opening_errors
+                        if "opening_orientation_audible_count" in e
+                        or "opening_orientation_count" in e
+                    ]
+                    if inaudible:
+                        return (
+                            "opening_orientation_inaudible — resume vo_synthesize: "
+                            + "; ".join(inaudible[:2])
+                        )
+        except Exception:
+            pass
     return None
 
 
@@ -1369,7 +1459,6 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "g1_vo_incomplete": "vo_synthesize",
     "incomplete_cut_unresolved": "junction_snip_qa",
     "voice_reference_pending": "missing_framing",
-    "seed_order": "edl",
     "assembly_seating_stale": "mix",
     "mix_unseated": "mix",
     "mix_outputs_seated": "mix",
@@ -1377,8 +1466,17 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "air_script_seams": "air_script_seams",
     "edl_narrative_fail": "edl_narrative_audit",
     "pmq_structural": "master_finalize",
-    "hollow_done": "edl",
-    "skip_then_consume": "edl",
+    # End-E: bare seed_order token is NOT mapped — parse named producer in
+    # producer_pin_for_token (never default sealed edl/mix/master_finalize).
+    # hollow_done / skip_then_consume: pin empty unless EDL is the incomplete producer.
+    "hollow_done": "",
+    "skip_then_consume": "",
+    "hosted_vo_floor_unmet": "nugget_layup_compose",
+    "hosted_framing_floor_unmet": "nugget_layup_compose",
+    "transitions_missing": "transitions",
+    "missing_transitions": "transitions",
+    "g1_incomplete": "vo_synthesize",
+    "premature_complete": "transitions",
     "chapter_close_hitch": "chapter_close_hitch",
     "nugget_corpus_mine": "nugget_corpus_mine",
     "information_package_plan": "information_package_plan",
@@ -1391,6 +1489,12 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "header_only_vtt": "master_transcript_build",
     "encode_missing": "podcast_encode_mp3",
     "publish_advisories": "podcast_publish",
+    # End-C: glue / framing quality — never pin sealed EDL consumer
+    "bridge_incomplete": "transitions",
+    "bridge_completeness": "transitions",
+    "missing_forward_cue": "gap_framing_compose",
+    "framing_before_impact": "gap_framing_compose",
+    "framing_quality": "gap_framing_compose",
     # Sanitize / incompleteness tokens (Lock 5 / O3)
     "selection_unsanitary": "selection_order_sanitize",
     "gap_unsanitary": "gap_report_sanitize",
@@ -1417,6 +1521,15 @@ def incompleteness_resume_stage(reason: str, *, stage_id: str = "") -> str:
     text = str(reason or "").lower()
     sid = str(stage_id or "").strip()
     try:
+        from interview_mux.delivery_invariants import parse_seed_order_producer
+
+        if "seed order" in text or "seed_order" in text:
+            named = parse_seed_order_producer(reason)
+            if named:
+                return named
+    except Exception:
+        pass
+    try:
         from interview_mux.heal_routing import resume_stage_for_error_class
 
         if "g1" in text or "pickup" in text:
@@ -1434,7 +1547,7 @@ def incompleteness_resume_stage(reason: str, *, stage_id: str = "") -> str:
     for token, pin in PRODUCER_PIN_TABLE.items():
         if token and token in text:
             return str(pin)
-    return sid or "edl"
+    return sid or ""
 
 
 def _resume_stage_allowlist() -> set[str]:
@@ -1852,9 +1965,23 @@ def edl_heal_resume_stage(ctx: RunContext | None = None) -> str:
 
 
 def producer_pin_for_token(
-    token: str, *, default: str = "edl", ctx: RunContext | None = None
+    token: str, *, default: str = "", ctx: RunContext | None = None
 ) -> str:
     key = str(token or "").strip().lower()
+    # End-E: seed-order always parses the named producer — never sealed consumer default.
+    if "seed order" in key or "seed_order" in key:
+        try:
+            from interview_mux.delivery_invariants import parse_seed_order_producer
+
+            named = parse_seed_order_producer(token)
+            if named:
+                return named
+        except Exception:
+            pass
+        # Bare seed_order token with no producer name — refuse sealed default.
+        if default in {"edl", "mix", "master_finalize"}:
+            return ""
+        return default
     if "g0_pending" in key:
         return g0_heal_resume_stage(ctx)
     if "shape-core" in key or "research dossier" in key:
@@ -1922,6 +2049,11 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
     - incompleteness set + done → unmark that stage only
     - incompleteness set + not done → refuse mark
     - intentional allow-stub (G1 optional skip waives *record*, not hollow seats)
+
+    Under v2 auto-commit, in-stage ``heal_or_raise`` must flush this stage's
+    pending writes before HC-3 ``pending_only`` incompleteness (exec_11630:
+    ``audio_probe_build`` wrote ``run_golden_facts.json`` then raised before
+    ``after_stage_write_check`` could commit).
     """
     sid = str(stage or "").strip()
     out: dict[str, Any] = {"stage": sid, "marked": False, "unmarked": False, "refused": False}
@@ -1929,6 +2061,35 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
         out["refused"] = True
         out["reason"] = "empty_stage"
         return out
+    if not getattr(ctx, "_heal_flushing_stage", None):
+        try:
+            from interview_mux.v2.config import v2_auto_commit
+            from interview_mux.write_staging import (
+                _commit_stage_writes,
+                active_stage,
+                has_pending_writes,
+                write_approval_enabled,
+            )
+
+            should_flush = (
+                v2_auto_commit()
+                and not write_approval_enabled()
+                and has_pending_writes(ctx, sid)
+            )
+            # Flush owner pending even when active_stage already cleared
+            # (write-then-raise before after_stage_write_check).
+            if should_flush and active_stage() in {sid, None, ""}:
+                ctx._heal_flushing_stage = sid
+                try:
+                    flushed = _commit_stage_writes(ctx, sid)
+                    out["flushed"] = flushed
+                    if ctx.is_done(sid):
+                        out["marked"] = True
+                        return out
+                finally:
+                    ctx._heal_flushing_stage = None
+        except Exception as exc:  # noqa: BLE001
+            out["flush_error"] = str(exc)[:240]
     reason = stage_artifact_incompleteness(ctx, sid)
     allow_stub = False
     if reason and force and sid in {"vo_synthesize", "vo_line_adjudicate"}:

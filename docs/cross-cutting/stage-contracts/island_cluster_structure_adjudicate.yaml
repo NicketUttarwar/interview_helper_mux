@@ -1,5 +1,5 @@
 stage_id: island_cluster_structure_adjudicate
-tier: llm_advisory
+tier: meta  # non-stage: adjudicator invoked inside low_conf_island_scan
 lifecycle:
   phases:
   - prestage

@@ -8,14 +8,51 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/episode_structure.json
+  schema: null
+  staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/sonic_context.json
+    producer: sonic_context_build
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/boundaries.json
+    producer: boundary_detection
+  - path: transcript/full.json
+    producer: transcribe
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- mastering_plan_synthesize
+- mastering_plan_confirm
+- gap_framing_compose
+- narrative_arc_plan
+- chapter_close_hitch
+- full_master_ranking
+- gap_framing_recompose
+- selection_framing_apply
+- air_script_seams
+- transitions
+- sound_design_plan
+- edl
+- mix
+- junction_snip_qa
 remediation:
   strategies:
   - volley_retry

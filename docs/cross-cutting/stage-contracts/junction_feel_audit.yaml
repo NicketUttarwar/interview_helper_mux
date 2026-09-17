@@ -1,5 +1,5 @@
 stage_id: junction_feel_audit
-tier: llm_full
+tier: meta  # non-stage: sub-volley of junction_snip_qa
 lifecycle:
   phases:
   - prestage

@@ -80,8 +80,8 @@ def test_normalize_version_default_and_unknown() -> None:
 def test_default_is_highest_registered() -> None:
     from interview_mux.homunculus.version import default_version, highest_version
 
-    assert highest_version() == "0.1.0"
-    assert default_version() == "0.1.0"
+    assert highest_version() == "0.2.0"
+    assert default_version() == "0.2.0"
 
 
 def test_000_is_not_homunculus_run() -> None:
@@ -562,11 +562,13 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     vers = client.get("/api/homunculus/versions")
     assert vers.status_code == 200
     body = vers.json()
-    assert body["default"] == "0.1.0"
+    assert body["default"] == "0.2.0"
     ids = {b["id"] for b in body["brains"]}
-    assert {"0.0.0", "0.1.0"} <= ids
+    assert {"0.0.0", "0.1.0", "0.2.0"} <= ids
     by_id = {b["id"]: b for b in body["brains"]}
-    assert by_id["0.1.0"].get("is_default") is True
+    assert by_id["0.2.0"].get("is_default") is True
+    assert by_id["0.2.0"].get("control_plane") == "deterministic"
+    assert by_id["0.1.0"].get("is_default") is False
     assert by_id["0.0.0"].get("is_default") is False
 
     bad = client.post(

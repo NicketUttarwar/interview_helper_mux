@@ -881,7 +881,35 @@ def heal_redundant_framing_transitions(ctx: RunContext) -> dict[str, Any]:
     meta["redundant_framing_healed"] = True
     meta["redundant_framing_dropped"] = dropped[:24]
     doc["_meta"] = meta
-    ctx.write_json(rel, doc, skip_handoff=True)
+    # Drop healed pairs from pair-freeze so sanitize/write cannot resurrect them
+    # (exec_11630: freeze still listed seg_018→seg_020 after heal).
+    try:
+        from interview_mux.transition_vo import PAIR_FREEZE_REL, read_transitions_pair_freeze
+
+        freeze = read_transitions_pair_freeze(ctx)
+        if isinstance(freeze, dict) and freeze.get("pairs"):
+            drop_keys = set(dropped)
+            new_pairs = [
+                p
+                for p in (freeze.get("pairs") or [])
+                if str(p) not in drop_keys
+            ]
+            if len(new_pairs) != len(freeze.get("pairs") or []):
+                freeze = dict(freeze)
+                freeze["pairs"] = new_pairs
+                freeze["count"] = len(new_pairs)
+                ctx.write_json(PAIR_FREEZE_REL, freeze, skip_handoff=True)
+    except Exception:
+        pass
+    # merge_from_disk would resurrect dropped pairs from prior sanitize merges.
+    try:
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            ctx, rel, doc, merge_from_disk=False, stage_key="transitions"
+        )
+    except Exception:
+        ctx.write_json(rel, doc, skip_handoff=True)
     try:
         from interview_mux.delivery_invariants import record_invariant_heal
 

@@ -9,11 +9,11 @@
 ./scripts/run.sh              # launch GUI
 ```
 
-**Pipeline size:** **69 stages** — 35 analysis + 34 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
+**Pipeline size:** **72 stages** — 35 analysis + 37 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) (76 manifest rows incl. aliases/retired).
 
 **Brains:** Start-tab slider. **0.1.0** (default — latest registered) first homunculus. **0.0.0** original linear walk (still available). Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
 
-**Full-auto forensics (debug campaign):** [.cursor/plans/full_auto_forensics_run.plan.md](.cursor/plans/full_auto_forensics_run.plan.md) — **always kick off FRESH** (`MUX_FRESH=1`, new `exec_*`; never prior execution folders). On bugs: **patch code → pytest → continue that same run_id** (`MUX_FRESH=0`). Parent must arm **§3.0a `AGENT_LOOP_TICK_forensics` every 4m** (`notify_on_output`) so the chat nudges itself — re-arm after Cursor restart via Continue opener. State: [.cursor/plans/full_auto_forensics_state.md](.cursor/plans/full_auto_forensics_state.md). Do **not** spawn a second fresh exec mid-campaign to verify a late-stage fix.
+**Full-auto forensics (debug campaign):** [.cursor/plans/full_auto_forensics_run.plan.md](.cursor/plans/full_auto_forensics_run.plan.md) — **always kick off FRESH** (`MUX_FRESH=1`, new `exec_*`; never prior execution folders). On bugs: diagnose → cascade pytest (`MUX_FORENSICS=0`) → patch code → continue that same run_id (`MUX_FRESH=0`); log intervenes for later review — do **not** map to predicate-family / End-* ledgers mid-run. Parent must arm **§3.0a `AGENT_LOOP_TICK_forensics` every 4m** (`notify_on_output`). State: [.cursor/plans/full_auto_forensics_state.md](.cursor/plans/full_auto_forensics_state.md). Do **not** spawn a second fresh exec mid-campaign to verify a late-stage fix. Optional post-ship tape acceptance: plain full-auto with `MUX_FORENSICS` unset (§2.1).
 
 ## Read order
 
@@ -34,3 +34,4 @@
 12. [docs/workflows/api-reference.md](docs/workflows/api-reference.md)
 13. [docs/cross-cutting/timeline-optimizer.md](docs/cross-cutting/timeline-optimizer.md) · [stage-volley-matrix.md](docs/cross-cutting/stage-volley-matrix.md) · [episode-architecture-spine.md](docs/cross-cutting/episode-architecture-spine.md)
 14. [docs/cross-cutting/air-order-boundary.md](docs/cross-cutting/air-order-boundary.md) — federated air-order constitution, checkpoints, lifecycle bus
+15. [docs/cross-cutting/artifact-ownership.md](docs/cross-cutting/artifact-ownership.md) — **ALLOW/DENY ownership SSOT** (`artifact_ownership.py`); new `write_json` / stage / `from_stage` / GUI route needs an ALLOW row in the same change

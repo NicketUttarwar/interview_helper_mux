@@ -9,7 +9,7 @@ from interview_mux.homunculus.admit import admit
 from interview_mux.homunculus.budget import LimitExhausted, check_audio_serialize, check_dispatch
 from interview_mux.homunculus.ledger import append_ledger, packet_hash_for
 from interview_mux.homunculus.registry import ToolSpec, openai_tools_payload, spec_by_name
-from interview_mux.homunculus.runtime import dispatch_stage, is_homunculus_run
+from interview_mux.homunculus.runtime import dispatch_stage, has_dispatch_ledger
 from interview_mux.run_context import RunContext
 
 CONDUCTOR_PROMPT_REL = "docs/prompts/homunculus/conductor/system.txt"
@@ -20,7 +20,9 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
 
     Schema retries inside one stage invoke do not consume a second identity count.
     """
-    if not is_homunculus_run(ctx):
+    # Rails: every brain LLM call is budgeted and ledgered, including the per-stage
+    # calls 0.2.0 still makes while the deterministic walk picks stages.
+    if not has_dispatch_ledger(ctx):
         return client.chat.completions.create(**kwargs)
     from interview_mux.chapter_close_hitch import hitch_budget_identity, junction_snip_budget_identity
     from interview_mux.homunculus.ledger import read_ledger

@@ -157,7 +157,9 @@ def _orientation_line_id() -> str:
 def _orientation_line_waived(line: dict[str, Any], gap_report: dict[str, Any] | None) -> bool:
     """True when orientation must not be force-seated (omit meta or durable waive).
 
-    Bare ``skipped_optional`` alone is not durable — ORIENTATION_ALWAYS may revive it.
+    Bare ``skipped_optional`` / ``air_script_omit_sync`` alone are not durable —
+    ``ORIENTATION_ALWAYS`` / ``filter_gap_lines_for_air_script`` revive those when
+    ``opening_orientation.required`` is still true (exec_11630 audible_count=0).
     """
     try:
         from interview_mux.opening_orientation import orientation_omitted
@@ -167,14 +169,11 @@ def _orientation_line_waived(line: dict[str, Any], gap_report: dict[str, Any] | 
     except Exception:
         pass
     reason = str(line.get("skip_reason_code") or "").strip().lower()
-    if reason in {"execution_contract_waive", "not_on_air", "air_script_omit_sync"}:
-        return True
-    if line.get("air_script_omit"):
-        return True
-    if line.get("omit"):
+    # Stale Pass-B sync stamps must not waive a still-required orientation.
+    if reason in {"execution_contract_waive"}:
         return True
     compensating = str(line.get("compensating_path") or "").strip().lower()
-    if compensating in {"tier_d_logged_waive", "air_script_omit_sync"}:
+    if compensating in {"tier_d_logged_waive"}:
         return True
     return False
 

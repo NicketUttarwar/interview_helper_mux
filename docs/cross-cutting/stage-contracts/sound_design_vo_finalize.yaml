@@ -8,11 +8,23 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/sound_design_vo_finalize.json
+  schema: sound_design_vo_finalize.schema.json
+  staging: false
+- path: understanding/sound_design_plan.json
+  staging: true
+- path: vo_pickup/
+  staging: true
 inputs:
   hard: []
   soft: []
-sufficiency: []
+sufficiency:
+- path: skipped
+  rule: required_fields
+  fields:
+  - skipped
+  - refused
 propagation:
   invalidates_stages:
   - vo_line_adjudicate

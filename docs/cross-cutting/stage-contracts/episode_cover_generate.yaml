@@ -8,14 +8,32 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: publish/cover.jpg
+  schema: null
+  staging: false
+- path: publish/cover_pick.json
+  staging: true
+- path: publish/cover_meta.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: publish/cover_prompt.json
+    producer: episode_cover_prompt_craft
+  - path: publish/episode_meta.json
+    producer: episode_meta_build
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: master/selection.json
+    producer: full_master_ranking
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

@@ -1,6 +1,92 @@
 {
   "version": 1,
   "artifacts": {
+    "preclean/isolated.wav": {
+      "schemas_by_producer": {
+        "audio_preclean": null
+      },
+      "producers": [
+        "audio_preclean"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "ingest/normalized.wav": {
+      "schemas_by_producer": {
+        "ingest": null
+      },
+      "producers": [
+        "ingest"
+      ],
+      "consumers": [
+        "audio_preclean"
+      ],
+      "has_write_validator": false
+    },
+    "transcript/full.json": {
+      "schemas_by_producer": {
+        "transcribe": null
+      },
+      "producers": [
+        "transcribe"
+      ],
+      "consumers": [
+        "ingest"
+      ],
+      "has_write_validator": false
+    },
+    "transcript/review_queue.json": {
+      "schemas_by_producer": {
+        "transcript_review_build": null
+      },
+      "producers": [
+        "transcript_review_build"
+      ],
+      "consumers": [
+        "ingest",
+        "transcribe"
+      ],
+      "has_write_validator": true
+    },
+    "analysis/run_golden_facts.json": {
+      "schemas_by_producer": {
+        "audio_probe_build": null
+      },
+      "producers": [
+        "audio_probe_build"
+      ],
+      "consumers": [
+        "ingest",
+        "transcribe"
+      ],
+      "has_write_validator": false
+    },
+    "understanding/source_acoustic_profile.json": {
+      "schemas_by_producer": {
+        "source_acoustic_profile": null
+      },
+      "producers": [
+        "source_acoustic_profile"
+      ],
+      "consumers": [
+        "ingest",
+        "transcribe"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/interview_spine.json": {
+      "schemas_by_producer": {
+        "interview_spine_build": null
+      },
+      "producers": [
+        "interview_spine_build"
+      ],
+      "consumers": [
+        "source_acoustic_profile",
+        "transcribe"
+      ],
+      "has_write_validator": true
+    },
     "understanding/speakers.json": {
       "schemas_by_producer": {
         "speaker_roles": "speakers_artifact.schema.json"
@@ -9,33 +95,23 @@
         "speaker_roles"
       ],
       "consumers": [
+        "interview_spine_build",
+        "transcribe"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/source_topology.json": {
+      "schemas_by_producer": {
+        "source_topology_build": null
+      },
+      "producers": [
+        "source_topology_build"
+      ],
+      "consumers": [
+        "ingest",
         "speaker_roles"
       ],
-      "has_write_validator": true
-    },
-    "understanding/source_acoustic_profile.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "source_acoustic_profile"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "understanding/sonic_context.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "sonic_context_build"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "transcript/review_queue.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "transcript_review_build"
-      ],
-      "consumers": [],
-      "has_write_validator": true
+      "has_write_validator": false
     },
     "understanding/content_brief.json": {
       "schemas_by_producer": {
@@ -47,8 +123,13 @@
         "content_brief_reanchor"
       ],
       "consumers": [
-        "content_brief_reanchor",
-        "content_context"
+        "boundary_detection",
+        "content_context",
+        "interview_spine_build",
+        "segment_classification",
+        "source_topology_build",
+        "speaker_roles",
+        "transcribe"
       ],
       "has_write_validator": true
     },
@@ -59,7 +140,9 @@
       "producers": [
         "talking_points_compose"
       ],
-      "consumers": [],
+      "consumers": [
+        "content_context"
+      ],
       "has_write_validator": true
     },
     "understanding/ideal_cuts.json": {
@@ -69,7 +152,10 @@
       "producers": [
         "ideal_cuts_propose"
       ],
-      "consumers": [],
+      "consumers": [
+        "content_context",
+        "talking_points_compose"
+      ],
       "has_write_validator": true
     },
     "understanding/ideal_cuts_materialized.json": {
@@ -79,42 +165,11 @@
       "producers": [
         "ideal_cuts_materialize"
       ],
-      "consumers": [],
+      "consumers": [
+        "ideal_cuts_propose",
+        "talking_points_compose"
+      ],
       "has_write_validator": false
-    },
-    "understanding/framing_posture_decision.json": {
-      "schemas_by_producer": {
-        "framing_posture_decide": "framing_posture_decision.schema.json"
-      },
-      "producers": [
-        "framing_posture_decide"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "understanding/delivery_brief.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "delivery_brief_build"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "understanding/soundscape_policy.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "soundscape_policy_build"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "understanding/episode_structure.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "episode_structure_compose"
-      ],
-      "consumers": [],
-      "has_write_validator": true
     },
     "segments/boundaries.json": {
       "schemas_by_producer": {
@@ -126,140 +181,69 @@
         "boundary_topic_resplit"
       ],
       "consumers": [
-        "boundary_detection",
-        "boundary_topic_resplit"
+        "audio_probe_build",
+        "content_brief_reanchor",
+        "content_context",
+        "ideal_cuts_materialize",
+        "ideal_cuts_propose",
+        "interview_spine_build",
+        "source_acoustic_profile",
+        "source_topology_build",
+        "speaker_roles"
       ],
       "has_write_validator": true
     },
     "segments/manifest.json": {
       "schemas_by_producer": {
-        "segment_classification": "manifest_artifact.schema.json"
+        "segment_classification": "manifest_artifact.schema.json",
+        "connector_fuse_pass": null,
+        "connector_fuse_pass_pre_ranking": null,
+        "vernacular_segment_sanitize": null
       },
       "producers": [
         "segment_classification"
       ],
       "consumers": [
-        "segment_classification"
+        "audio_probe_build",
+        "boundary_detection",
+        "boundary_topic_resplit",
+        "chapter_close_hitch",
+        "connector_fuse_pass",
+        "connector_seam_adjudicate",
+        "content_context",
+        "ideal_cuts_materialize",
+        "island_cluster_structure_adjudicate",
+        "low_conf_island_scan",
+        "segment_classification",
+        "source_topology_build",
+        "speaker_roles",
+        "transcribe",
+        "vernacular_segment_sanitize"
       ],
       "has_write_validator": true
     },
+    "understanding/framing_posture_decision.json": {
+      "schemas_by_producer": {
+        "framing_posture_decide": "framing_posture_decision.schema.json"
+      },
+      "producers": [
+        "framing_posture_decide"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
     "vernacular/resplit_report.json": {
-      "schemas_by_producer": {},
+      "schemas_by_producer": {
+        "vernacular_segment_sanitize": null
+      },
       "producers": [
         "vernacular_segment_sanitize"
       ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "understanding/sound_design_plan.json": {
-      "schemas_by_producer": {
-        "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
-        "sound_design_plan": "sound_design_plan_artifact.schema.json"
-      },
-      "producers": [
-        "sound_design_palettes",
-        "sound_design_plan"
-      ],
       "consumers": [
-        "sound_design_palettes",
-        "sound_design_plan"
+        "audio_probe_build",
+        "boundary_topic_resplit",
+        "segment_classification"
       ],
-      "has_write_validator": true
-    },
-    "understanding/gap_evaluations.json": {
-      "schemas_by_producer": {
-        "missing_framing": "gap_evaluations_artifact.schema.json"
-      },
-      "producers": [
-        "missing_framing"
-      ],
-      "consumers": [
-        "missing_framing"
-      ],
-      "has_write_validator": true
-    },
-    "understanding/gap_report.json": {
-      "schemas_by_producer": {
-        "gap_framing_compose": "gap_report.schema.json",
-        "optimal_questions": "gap_report.schema.json",
-        "nugget_layup_compose": "gap_report.schema.json"
-      },
-      "producers": [
-        "gap_framing_compose",
-        "optimal_questions"
-      ],
-      "consumers": [
-        "gap_framing_compose",
-        "nugget_corpus_mine",
-        "optimal_questions"
-      ],
-      "has_write_validator": true
-    },
-    "master/coverage_audit.json": {
-      "schemas_by_producer": {
-        "topic_coverage_audit": "coverage_audit_artifact.schema.json"
-      },
-      "producers": [
-        "topic_coverage_audit"
-      ],
-      "consumers": [
-        "topic_coverage_audit"
-      ],
-      "has_write_validator": true
-    },
-    "master/narrative_plan.json": {
-      "schemas_by_producer": {
-        "narrative_arc_plan": "narrative_plan_artifact.schema.json"
-      },
-      "producers": [
-        "narrative_arc_plan"
-      ],
-      "consumers": [
-        "narrative_arc_plan"
-      ],
-      "has_write_validator": true
-    },
-    "mastering/chapter_close_hitch.json": {
-      "schemas_by_producer": {
-        "chapter_close_hitch": "chapter_close_hitch.schema.json"
-      },
-      "producers": [
-        "chapter_close_hitch"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "master/selection.json": {
-      "schemas_by_producer": {
-        "full_master_ranking": "master_selection_artifact.schema.json"
-      },
-      "producers": [
-        "full_master_ranking"
-      ],
-      "consumers": [
-        "chapter_close_hitch",
-        "full_master_ranking"
-      ],
-      "has_write_validator": true
-    },
-    "analysis/connector_seam_verdicts.json": {
-      "schemas_by_producer": {
-        "connector_seam_adjudicate": "connector_seam_adjudicate.schema.json"
-      },
-      "producers": [
-        "connector_seam_adjudicate"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "analysis/island_cluster_structure_verdicts.json": {
-      "schemas_by_producer": {
-        "island_cluster_structure_adjudicate": "island_cluster_structure_adjudicate.schema.json"
-      },
-      "producers": [
-        "island_cluster_structure_adjudicate"
-      ],
-      "consumers": [],
       "has_write_validator": false
     },
     "analysis/low_conf_islands.json": {
@@ -269,7 +253,12 @@
       "producers": [
         "low_conf_island_scan"
       ],
-      "consumers": [],
+      "consumers": [
+        "audio_probe_build",
+        "boundary_topic_resplit",
+        "segment_classification",
+        "vernacular_segment_sanitize"
+      ],
       "has_write_validator": false
     },
     "analysis/connector_fuse_audit.json": {
@@ -280,312 +269,77 @@
         "connector_fuse_pass"
       ],
       "consumers": [
+        "boundary_topic_resplit",
         "connector_seam_adjudicate",
-        "island_cluster_structure_adjudicate"
+        "island_cluster_structure_adjudicate",
+        "low_conf_island_scan",
+        "segment_classification",
+        "vernacular_segment_sanitize"
       ],
       "has_write_validator": false
     },
-    "analysis/connector_fuse_rounds.json": {
+    "understanding/sonic_context.json": {
       "schemas_by_producer": {
-        "connector_fuse_pass_pre_ranking": null
+        "sonic_context_build": null
       },
       "producers": [
-        "connector_fuse_pass_pre_ranking"
+        "sonic_context_build"
       ],
       "consumers": [
-        "chapter_close_hitch",
-        "connector_seam_adjudicate",
-        "island_cluster_structure_adjudicate"
-      ],
-      "has_write_validator": false
-    },
-    "understanding/nugget_corpus.json": {
-      "schemas_by_producer": {
-        "nugget_corpus_mine": "nugget_corpus_artifact.schema.json"
-      },
-      "producers": [
-        "nugget_corpus_mine"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "understanding/nugget_layup_plan.json": {
-      "schemas_by_producer": {
-        "nugget_layup_compose": "nugget_layup_plan_artifact.schema.json"
-      },
-      "producers": [
-        "nugget_layup_compose"
-      ],
-      "consumers": [
-        "nugget_corpus_mine"
+        "boundary_detection",
+        "boundary_topic_resplit",
+        "content_brief_reanchor",
+        "segment_classification",
+        "source_acoustic_profile"
       ],
       "has_write_validator": true
     },
-    "master/edl_narrative_audit.json": {
+    "understanding/sound_design_plan.json": {
       "schemas_by_producer": {
-        "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json"
+        "sound_design_palettes": "sound_design_palettes_artifact.schema.json",
+        "sound_design_plan": "sound_design_plan_artifact.schema.json",
+        "music_palette_compose": null,
+        "sound_design_vo_finalize": null
       },
       "producers": [
-        "edl_narrative_audit"
+        "sound_design_palettes",
+        "sound_design_plan"
       ],
       "consumers": [
-        "edl_narrative_audit"
-      ],
-      "has_write_validator": true
-    },
-    "understanding/vo_line_adjudication.json": {
-      "schemas_by_producer": {
-        "vo_line_adjudicate": "vo_line_adjudication_artifact.schema.json"
-      },
-      "producers": [
-        "vo_line_adjudicate"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "mastering/vo_synthesize.json": {
-      "schemas_by_producer": {
-        "vo_synthesize": null
-      },
-      "producers": [
-        "vo_synthesize"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "master/edl.json": {
-      "schemas_by_producer": {
-        "edl": null
-      },
-      "producers": [
-        "edl"
-      ],
-      "consumers": [
-        "air_script_compose",
         "air_script_seams",
-        "nugget_layup_compose"
-      ],
-      "has_write_validator": true
-    },
-    "master/assembly_preview.wav": {
-      "schemas_by_producer": {
-        "assembly_preview": null
-      },
-      "producers": [
-        "assembly_preview"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "mastering/listen_delight_audit.json": {
-      "schemas_by_producer": {
-        "listen_delight_audit": null
-      },
-      "producers": [
-        "listen_delight_audit"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "master/assembly.wav": {
-      "schemas_by_producer": {
-        "mix": null
-      },
-      "producers": [
-        "mix"
-      ],
-      "consumers": [
-        "mmaudio_sfx"
-      ],
-      "has_write_validator": false
-    },
-    "master/master.wav": {
-      "schemas_by_producer": {
-        "master_finalize": null
-      },
-      "producers": [
-        "master_finalize"
-      ],
-      "consumers": [
-        "junction_feel_audit"
-      ],
-      "has_write_validator": false
-    },
-    "mastering/mastering_plan.json": {
-      "schemas_by_producer": {
-        "air_script_compose": "mastering_plan.schema.json",
-        "air_script_seams": "mastering_plan.schema.json",
-        "mastering_plan_confirm": null,
-        "mastering_plan_synthesize": null
-      },
-      "producers": [
-        "air_script_compose",
-        "air_script_seams",
+        "boundary_detection",
+        "boundary_topic_resplit",
+        "content_brief_reanchor",
+        "delivery_brief_build",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "mastering_plan_confirm",
         "mastering_plan_synthesize",
-        "mastering_plan_confirm"
-      ],
-      "consumers": [
-        "air_script_compose"
-      ],
-      "has_write_validator": false
-    },
-    "master/transitions.json": {
-      "schemas_by_producer": {
-        "transitions": "transitions_artifact.schema.json"
-      },
-      "producers": [
+        "narrative_arc_plan",
+        "segment_classification",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "sound_design_plan",
+        "soundscape_policy_build",
+        "source_acoustic_profile",
+        "source_topology_build",
         "transitions"
       ],
-      "consumers": [
-        "air_script_seams",
-        "transitions"
-      ],
-      "has_write_validator": true
-    },
-    "understanding/synthetic_framing_plan.json": {
-      "schemas_by_producer": {
-        "synthetic_framing_plan": "synthetic_framing_plan.schema.json"
-      },
-      "producers": [
-        "synthetic_framing_plan"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "master/podcast_sfx_brief.json": {
-      "schemas_by_producer": {
-        "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
-        "sfx_brief": "sfx_montage_artifact.schema.json"
-      },
-      "producers": [
-        "podcast_sfx_brief",
-        "sfx_brief"
-      ],
-      "consumers": [
-        "podcast_sfx_brief"
-      ],
-      "has_write_validator": true
-    },
-    "mastering/sound_design_vo_finalize.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "sound_design_vo_finalize"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "understanding/refinement_agenda.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "refinement_agenda"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "understanding/gap_framing_recompose.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "gap_framing_recompose"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "understanding/selection_framing_apply.json": {
-      "schemas_by_producer": {},
-      "producers": [
-        "selection_framing_apply"
-      ],
-      "consumers": [],
-      "has_write_validator": false
-    },
-    "sound_design/music_palette_compose.json": {
-      "schemas_by_producer": {
-        "music_palette_compose": "music_palette_compose_artifact.schema.json"
-      },
-      "producers": [
-        "music_palette_compose"
-      ],
-      "consumers": [
-        "air_script_seams"
-      ],
-      "has_write_validator": false
-    },
-    "sound_design/sfx_prompts.json": {
-      "schemas_by_producer": {
-        "sfx_prompt_craft": "sfx_prompts_artifact.schema.json",
-        "sfx_prompt_refine": "sfx_prompts_artifact.schema.json"
-      },
-      "producers": [
-        "sfx_prompt_craft",
-        "sfx_prompt_refine"
-      ],
-      "consumers": [
-        "sfx_prompt_craft",
-        "sfx_prompt_refine"
-      ],
-      "has_write_validator": true
-    },
-    "sound_design/mmaudio_qa.json": {
-      "schemas_by_producer": {
-        "mmaudio_sfx": "mmaudio_qa.schema.json"
-      },
-      "producers": [
-        "mmaudio_sfx"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "master/junction_snip_qa.json": {
-      "schemas_by_producer": {
-        "junction_snip_qa": null
-      },
-      "producers": [
-        "junction_snip_qa"
-      ],
-      "consumers": [
-        "junction_feel_audit",
-        "junction_thought_complete"
-      ],
-      "has_write_validator": true
-    },
-    "master/junction_feel_audit.json": {
-      "schemas_by_producer": {
-        "junction_feel_audit": "junction_feel_audit.schema.json"
-      },
-      "producers": [
-        "junction_feel_audit"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "master/junction_thought_complete.json": {
-      "schemas_by_producer": {
-        "junction_thought_complete": "junction_thought_complete.schema.json"
-      },
-      "producers": [
-        "junction_thought_complete"
-      ],
-      "consumers": [],
-      "has_write_validator": true
-    },
-    "master/transcript.json": {
-      "schemas_by_producer": {
-        "master_transcript_build": "master_transcript.schema.json"
-      },
-      "producers": [
-        "master_transcript_build"
-      ],
-      "consumers": [],
       "has_write_validator": true
     },
     "mastering/research/routing.json": {
       "schemas_by_producer": {
+        "mastering_research_rollup": null,
         "mastering_research_routing": null
       },
       "producers": [
         "mastering_research_routing"
       ],
-      "consumers": [],
+      "consumers": [
+        "mastering_research_waves"
+      ],
       "has_write_validator": true
     },
     "mastering/research/waves.json": {
@@ -605,7 +359,9 @@
       "producers": [
         "mastering_research_rollup"
       ],
-      "consumers": [],
+      "consumers": [
+        "mastering_research_waves"
+      ],
       "has_write_validator": true
     },
     "mastering/shape/agenda.json": {
@@ -615,7 +371,11 @@
       "producers": [
         "mastering_shape_agenda"
       ],
-      "consumers": [],
+      "consumers": [
+        "ideal_cuts_materialize",
+        "mastering_research_rollup",
+        "talking_points_compose"
+      ],
       "has_write_validator": true
     },
     "mastering/shape/candidates.json": {
@@ -625,8 +385,758 @@
       "producers": [
         "mastering_shape_candidates"
       ],
-      "consumers": [],
+      "consumers": [
+        "mastering_research_rollup",
+        "mastering_shape_agenda"
+      ],
       "has_write_validator": true
+    },
+    "mastering/mastering_plan.json": {
+      "schemas_by_producer": {
+        "air_script_compose": "mastering_plan.schema.json",
+        "air_script_seams": "mastering_plan.schema.json",
+        "air_contract_sanitize": null,
+        "information_package_plan": null,
+        "mastering_plan_confirm": null,
+        "mastering_plan_synthesize": null,
+        "nugget_layup_compose": null
+      },
+      "producers": [
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
+        "air_script_compose",
+        "air_script_seams",
+        "air_contract_sanitize"
+      ],
+      "consumers": [
+        "air_script_compose",
+        "connector_fuse_pass",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "information_package_plan",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "mastering_research_rollup",
+        "mastering_shape_candidates",
+        "missing_framing",
+        "narrative_arc_plan",
+        "nugget_corpus_mine",
+        "selection_order_sanitize",
+        "source_acoustic_profile",
+        "talking_points_compose"
+      ],
+      "has_write_validator": false
+    },
+    "understanding/gap_evaluations.json": {
+      "schemas_by_producer": {
+        "missing_framing": "gap_evaluations_artifact.schema.json"
+      },
+      "producers": [
+        "missing_framing"
+      ],
+      "consumers": [
+        "boundary_detection",
+        "boundary_topic_resplit",
+        "content_brief_reanchor",
+        "framing_posture_decide",
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "segment_classification",
+        "selection_order_sanitize",
+        "source_topology_build"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/gap_report.json": {
+      "schemas_by_producer": {
+        "gap_framing_compose": "gap_report.schema.json",
+        "gap_report_sanitize": null,
+        "nugget_layup_compose": "gap_report.schema.json",
+        "optimal_questions": "gap_report.schema.json",
+        "selection_framing_apply": null,
+        "vo_line_adjudicate": null
+      },
+      "producers": [
+        "gap_framing_compose",
+        "gap_report_sanitize"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "delivery_brief_build",
+        "episode_structure_compose",
+        "framing_posture_decide",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "information_package_plan",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "missing_framing",
+        "narrative_arc_plan",
+        "nugget_corpus_mine",
+        "optimal_questions",
+        "refinement_agenda",
+        "selection_order_sanitize",
+        "talking_points_compose",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/delivery_brief.json": {
+      "schemas_by_producer": {
+        "delivery_brief_build": null
+      },
+      "producers": [
+        "delivery_brief_build"
+      ],
+      "consumers": [
+        "full_master_ranking",
+        "gap_framing_compose",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "selection_order_sanitize",
+        "sound_design_palettes"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/soundscape_policy.json": {
+      "schemas_by_producer": {
+        "soundscape_policy_build": null
+      },
+      "producers": [
+        "soundscape_policy_build"
+      ],
+      "consumers": [
+        "delivery_brief_build",
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/episode_structure.json": {
+      "schemas_by_producer": {
+        "episode_structure_compose": null
+      },
+      "producers": [
+        "episode_structure_compose"
+      ],
+      "consumers": [
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes"
+      ],
+      "has_write_validator": true
+    },
+    "master/coverage_audit.json": {
+      "schemas_by_producer": {
+        "topic_coverage_audit": "coverage_audit_artifact.schema.json"
+      },
+      "producers": [
+        "topic_coverage_audit"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "content_context"
+      ],
+      "has_write_validator": true
+    },
+    "master/narrative_plan.json": {
+      "schemas_by_producer": {
+        "narrative_arc_plan": "narrative_plan_artifact.schema.json"
+      },
+      "producers": [
+        "narrative_arc_plan"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "content_context",
+        "episode_structure_compose",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "source_topology_build",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "mastering/chapter_close_hitch.json": {
+      "schemas_by_producer": {
+        "chapter_close_hitch": "chapter_close_hitch.schema.json"
+      },
+      "producers": [
+        "chapter_close_hitch"
+      ],
+      "consumers": [
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize"
+      ],
+      "has_write_validator": true
+    },
+    "analysis/connector_fuse_rounds.json": {
+      "schemas_by_producer": {
+        "connector_fuse_pass_pre_ranking": null
+      },
+      "producers": [
+        "connector_fuse_pass_pre_ranking"
+      ],
+      "consumers": [
+        "chapter_close_hitch",
+        "connector_fuse_pass",
+        "connector_seam_adjudicate",
+        "island_cluster_structure_adjudicate"
+      ],
+      "has_write_validator": false
+    },
+    "master/selection.json": {
+      "schemas_by_producer": {
+        "full_master_ranking": "master_selection_artifact.schema.json",
+        "selection_order_sanitize": null
+      },
+      "producers": [
+        "full_master_ranking",
+        "selection_order_sanitize"
+      ],
+      "consumers": [
+        "chapter_close_hitch",
+        "connector_fuse_pass",
+        "connector_fuse_pass_pre_ranking",
+        "content_context",
+        "delivery_brief_build",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "ideal_cuts_materialize",
+        "low_conf_island_scan",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "source_topology_build",
+        "topic_coverage_audit",
+        "transitions",
+        "vernacular_segment_sanitize"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/nugget_corpus.json": {
+      "schemas_by_producer": {
+        "nugget_corpus_mine": "nugget_corpus_artifact.schema.json"
+      },
+      "producers": [
+        "nugget_corpus_mine"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "ideal_cuts_propose",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "selection_order_sanitize",
+        "talking_points_compose"
+      ],
+      "has_write_validator": true
+    },
+    "mastering/shape/information_packages_audit.json": {
+      "schemas_by_producer": {
+        "information_package_plan": null
+      },
+      "producers": [
+        "information_package_plan"
+      ],
+      "consumers": [
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "selection_order_sanitize"
+      ],
+      "has_write_validator": false
+    },
+    "understanding/nugget_layup_plan.json": {
+      "schemas_by_producer": {
+        "nugget_layup_compose": "nugget_layup_plan_artifact.schema.json",
+        "gap_framing_recompose": null
+      },
+      "producers": [
+        "nugget_layup_compose"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "information_package_plan",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "missing_framing",
+        "narrative_arc_plan",
+        "nugget_corpus_mine",
+        "nugget_layup_compose",
+        "refinement_agenda",
+        "selection_order_sanitize",
+        "talking_points_compose",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/refinement_agenda.json": {
+      "schemas_by_producer": {
+        "refinement_agenda": null
+      },
+      "producers": [
+        "refinement_agenda"
+      ],
+      "consumers": [
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "missing_framing",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/gap_framing_recompose.json": {
+      "schemas_by_producer": {
+        "gap_framing_recompose": null
+      },
+      "producers": [
+        "gap_framing_recompose"
+      ],
+      "consumers": [
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "missing_framing",
+        "narrative_arc_plan",
+        "nugget_layup_compose",
+        "refinement_agenda",
+        "selection_order_sanitize",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": false
+    },
+    "understanding/selection_framing_apply.json": {
+      "schemas_by_producer": {
+        "selection_framing_apply": null
+      },
+      "producers": [
+        "selection_framing_apply"
+      ],
+      "consumers": [
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "refinement_agenda",
+        "selection_order_sanitize",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": false
+    },
+    "master/transitions.json": {
+      "schemas_by_producer": {
+        "transitions": "transitions_artifact.schema.json"
+      },
+      "producers": [
+        "transitions"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "air_script_seams",
+        "connector_fuse_pass",
+        "delivery_brief_build",
+        "episode_structure_compose",
+        "framing_posture_decide",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "understanding/vo_line_adjudication.json": {
+      "schemas_by_producer": {
+        "vo_line_adjudicate": "vo_line_adjudication_artifact.schema.json"
+      },
+      "producers": [
+        "vo_line_adjudicate"
+      ],
+      "consumers": [
+        "gap_framing_compose",
+        "gap_report_sanitize"
+      ],
+      "has_write_validator": true
+    },
+    "mastering/vo_synthesize.json": {
+      "schemas_by_producer": {
+        "vo_synthesize": null
+      },
+      "producers": [
+        "vo_synthesize"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "audio_preclean",
+        "framing_posture_decide",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "transitions",
+        "vo_line_adjudicate"
+      ],
+      "has_write_validator": false
+    },
+    "mastering/sound_design_vo_finalize.json": {
+      "schemas_by_producer": {
+        "sound_design_vo_finalize": "sound_design_vo_finalize.schema.json"
+      },
+      "producers": [
+        "sound_design_vo_finalize"
+      ],
+      "consumers": [
+        "full_master_ranking",
+        "gap_framing_compose",
+        "selection_order_sanitize"
+      ],
+      "has_write_validator": true
+    },
+    "master/edl_narrative_audit.json": {
+      "schemas_by_producer": {
+        "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json"
+      },
+      "producers": [
+        "edl_narrative_audit"
+      ],
+      "consumers": [
+        "edl_narrative_audit",
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "topic_coverage_audit"
+      ],
+      "has_write_validator": true
+    },
+    "master/edl.json": {
+      "schemas_by_producer": {
+        "edl": null
+      },
+      "producers": [
+        "edl"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "air_script_compose",
+        "air_script_seams",
+        "connector_fuse_pass",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "information_package_plan",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "missing_framing",
+        "narrative_arc_plan",
+        "nugget_layup_compose",
+        "selection_order_sanitize",
+        "transitions"
+      ],
+      "has_write_validator": true
+    },
+    "master/assembly_preview.wav": {
+      "schemas_by_producer": {
+        "assembly_preview": null
+      },
+      "producers": [
+        "assembly_preview"
+      ],
+      "consumers": [
+        "edl",
+        "gap_framing_compose"
+      ],
+      "has_write_validator": false
+    },
+    "mastering/listen_delight_audit.json": {
+      "schemas_by_producer": {
+        "listen_delight_audit": null,
+        "master_finalize": null
+      },
+      "producers": [
+        "listen_delight_audit"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "delivery_brief_build",
+        "edl",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "ingest",
+        "junction_feel_audit",
+        "junction_snip_qa",
+        "listen_delight_audit",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "mix",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "transitions"
+      ],
+      "has_write_validator": false
+    },
+    "sound_design/music_palette_compose.json": {
+      "schemas_by_producer": {
+        "music_palette_compose": "music_palette_compose_artifact.schema.json"
+      },
+      "producers": [
+        "music_palette_compose"
+      ],
+      "consumers": [
+        "air_script_seams",
+        "delivery_brief_build",
+        "full_master_ranking",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "sound_design_plan",
+        "soundscape_policy_build"
+      ],
+      "has_write_validator": false
+    },
+    "sound_design/sfx_prompts.json": {
+      "schemas_by_producer": {
+        "sfx_prompt_craft": "sfx_prompts_artifact.schema.json"
+      },
+      "producers": [
+        "sfx_prompt_craft"
+      ],
+      "consumers": [
+        "full_master_ranking",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sfx_prompt_craft",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "soundscape_policy_build"
+      ],
+      "has_write_validator": true
+    },
+    "sound_design/mmaudio_qa.json": {
+      "schemas_by_producer": {
+        "mmaudio_sfx": "mmaudio_qa.schema.json"
+      },
+      "producers": [
+        "mmaudio_sfx"
+      ],
+      "consumers": [
+        "music_palette_compose",
+        "sound_design_plan"
+      ],
+      "has_write_validator": true
+    },
+    "master/assembly.wav": {
+      "schemas_by_producer": {
+        "mix": null
+      },
+      "producers": [
+        "mix"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "assembly_preview",
+        "delivery_brief_build",
+        "edl",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "ingest",
+        "junction_snip_qa",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "mmaudio_sfx",
+        "music_palette_compose",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "transitions"
+      ],
+      "has_write_validator": false
+    },
+    "master/junction_snip_qa.json": {
+      "schemas_by_producer": {
+        "junction_snip_qa": "junction_snip_qa.schema.json"
+      },
+      "producers": [
+        "junction_snip_qa"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "assembly_preview",
+        "edl",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "junction_feel_audit",
+        "junction_thought_complete",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "mix",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "topic_coverage_audit",
+        "transitions"
+      ],
+      "has_write_validator": true
+    },
+    "master/master.wav": {
+      "schemas_by_producer": {
+        "master_finalize": null
+      },
+      "producers": [
+        "master_finalize"
+      ],
+      "consumers": [
+        "air_contract_sanitize",
+        "edl",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "gap_report_sanitize",
+        "ingest",
+        "junction_feel_audit",
+        "junction_snip_qa",
+        "listen_delight_audit",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "mix",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "transitions"
+      ],
+      "has_write_validator": false
+    },
+    "master/transcript.json": {
+      "schemas_by_producer": {
+        "master_transcript_build": "master_transcript.schema.json"
+      },
+      "producers": [
+        "master_transcript_build"
+      ],
+      "consumers": [
+        "edl",
+        "gap_framing_compose",
+        "master_finalize",
+        "transitions"
+      ],
+      "has_write_validator": true
+    },
+    "publish/episode_meta.json": {
+      "schemas_by_producer": {
+        "episode_meta_build": null
+      },
+      "producers": [
+        "episode_meta_build"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "publish/cover_prompt.json": {
+      "schemas_by_producer": {
+        "episode_cover_prompt_craft": null
+      },
+      "producers": [
+        "episode_cover_prompt_craft"
+      ],
+      "consumers": [
+        "episode_meta_build"
+      ],
+      "has_write_validator": false
+    },
+    "publish/audio.mp3": {
+      "schemas_by_producer": {
+        "podcast_encode_mp3": null
+      },
+      "producers": [
+        "podcast_encode_mp3"
+      ],
+      "consumers": [
+        "master_finalize"
+      ],
+      "has_write_validator": false
+    },
+    "publish/cover.jpg": {
+      "schemas_by_producer": {
+        "episode_cover_generate": null
+      },
+      "producers": [
+        "episode_cover_generate"
+      ],
+      "consumers": [
+        "episode_cover_prompt_craft",
+        "episode_meta_build"
+      ],
+      "has_write_validator": false
+    },
+    "publish/package_ready.json": {
+      "schemas_by_producer": {
+        "podcast_publish": null
+      },
+      "producers": [
+        "podcast_publish"
+      ],
+      "consumers": [
+        "edl",
+        "episode_cover_generate",
+        "episode_meta_build",
+        "full_master_ranking",
+        "gap_framing_compose",
+        "master_finalize",
+        "master_transcript_build",
+        "narrative_arc_plan",
+        "podcast_encode_mp3",
+        "selection_order_sanitize",
+        "transitions"
+      ],
+      "has_write_validator": false
     },
     "sound_design/musicgen_candidates.json": {
       "schemas_by_producer": {

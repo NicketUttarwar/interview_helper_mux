@@ -63,6 +63,16 @@ def run_vo_synthesize(ctx: RunContext) -> None:
     except Exception:
         pass
     try:
+        from interview_mux.stages.assembly import restamp_edl_vo_pickup_source_paths
+
+        restamp_edl_vo_pickup_source_paths(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"vo_synthesize: VO bind restamp incomplete: {exc}",
+            level="warning",
+            stage=STAGE_ID,
+        )
+    try:
         promote_staged_side_effects(
             ctx, ("master/transitions/", "vo_pickup/"), stage_id=STAGE_ID
         )

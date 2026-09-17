@@ -711,6 +711,35 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
 
 def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
     """Align gap report + EDL with the omit ledger before post-master QC."""
+    notes: list[str] = []
+    # Order-lock rebuild is paperwork against the frozen selection — not a seat
+    # mutation. Seat freeze must not leave omit_ledger_order_lock_stale stuck.
+    pre_errors = air_contract_errors(ctx)
+    if "omit_ledger_order_lock_stale" in pre_errors:
+        rebuild_and_write_omit_ledger(ctx)
+        notes.append("rebuilt_stale_order_lock")
+        pre_errors = air_contract_errors(ctx)
+        if not pre_errors:
+            return {
+                "healed": True,
+                "notes": notes,
+                "errors": [],
+                "removed": [],
+            }
+    # End-A: required-orientation revive is allowlisted paperwork — run before
+    # the meta-gated remainder of heal so freeze cannot strand audible_count=0.
+    revive_early = revive_required_opening_orientation(ctx)
+    if revive_early.get("notes"):
+        notes.extend(list(revive_early.get("notes") or []))
+    if revive_early.get("changed"):
+        pre_errors = air_contract_errors(ctx)
+        if not pre_errors:
+            return {
+                "healed": True,
+                "notes": notes,
+                "errors": [],
+                "removed": [],
+            }
     try:
         from interview_mux.seat_authority import gate_seat_mutation, soft_freeze_active
 
@@ -719,15 +748,27 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
             reason="omit_ledger_heal_air_contract",
             symptoms=["omit_ledger"],
         ):
-            return {"changed": False, "notes": ["seat_freeze_blocked_heal"]}
+            return {
+                "changed": False,
+                "notes": notes + ["seat_freeze_blocked_heal"],
+                "errors": pre_errors,
+            }
     except Exception:
         try:
             from interview_mux.seat_authority import soft_freeze_active, hard_freeze_active
 
             if soft_freeze_active(ctx) or hard_freeze_active(ctx):
-                return {"changed": False, "notes": ["seat_freeze_blocked_heal_fail_closed"]}
+                return {
+                    "changed": False,
+                    "notes": notes + ["seat_freeze_blocked_heal_fail_closed"],
+                    "errors": pre_errors,
+                }
         except Exception:
-            return {"changed": False, "notes": ["seat_freeze_blocked_heal_fail_closed"]}
+            return {
+                "changed": False,
+                "notes": notes + ["seat_freeze_blocked_heal_fail_closed"],
+                "errors": pre_errors,
+            }
     revive = revive_required_opening_orientation(ctx)
     errors = air_contract_errors(ctx)
     healable = {
@@ -739,9 +780,9 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
         or e.startswith("omit_ledger_omitted_line_still_in_edl:")
         or e.startswith("omit_ledger_orientation_replacement_missing:")
     }
-    if not healable and not revive.get("changed"):
+    if not healable and not revive.get("changed") and not notes:
         return {"healed": False, "errors": errors, "notes": list(revive.get("notes") or [])}
-    notes: list[str] = list(revive.get("notes") or [])
+    notes.extend(list(revive.get("notes") or []))
     if "omit_ledger_order_lock_stale" in healable:
         rebuild_and_write_omit_ledger(ctx)
         notes.append("rebuilt_stale_order_lock")

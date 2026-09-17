@@ -352,6 +352,38 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
     return issues
 
 
+def _plan_write_permitted(ctx: Any) -> bool:
+    """True when the active stage may persist mastering/mastering_plan.json."""
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage_now = str(active_stage_id() or "")
+        if not stage_now:
+            return True
+        allowed, reason = write_permitted(
+            ctx,
+            "mastering/mastering_plan.json",
+            stage_now,
+            role="producer",
+            verb="persist",
+        )
+    except Exception:
+        return True
+    if not allowed:
+        try:
+            ctx.log(
+                "episode_close rebind: mastering_plan sealed — cue lives on the SDP "
+                f"(stage={stage_now or 'unknown'}, {reason})",
+                level="info",
+                stage=stage_now or None,
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+
 def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]:
     """Bind a theme_outro cue after the last native. Fade at least 180 ms.
 
@@ -382,8 +414,12 @@ def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]
                 if str(close.get("kind") or "") == "none" and str(close.get("rationale") or "").strip():
                     return []
                 mp = ensure_episode_close_on_plan(mp)
-                ctx.write_json("mastering/mastering_plan.json", mp)
-                written.append("mastering/mastering_plan.json")
+                # Mix / junction rebind the outro anchor from a sealed plan. The
+                # SDP cue rebind below is the durable record — do not fight the
+                # plan owner (exec_11871 authority_denied under edl_sealed).
+                if _plan_write_permitted(ctx):
+                    ctx.write_json("mastering/mastering_plan.json", mp)
+                    written.append("mastering/mastering_plan.json")
         except Exception:
             pass
 

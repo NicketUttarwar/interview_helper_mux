@@ -15,6 +15,7 @@ from interview_mux.write_staging import (
     list_pending_paths,
     run_nested_staged_stage,
     run_wrapped_stage,
+    uncommitted_pending_reason,
     write_approval_enabled,
 )
 from run_fixtures import patch_merged_config
@@ -57,14 +58,20 @@ def test_staging_redirect_and_flush(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_approve_marks_stage_done(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flush promotes staged paths into the committed run tree."""
     ctx = _ctx(tmp_path, monkeypatch)
+    wav = ctx.final_path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\0" * 40)
     enter_stage_staging("ingest")
     note = ctx.path("ingest/checksums.json")
     note.parent.mkdir(parents=True, exist_ok=True)
-    note.write_text("staged", encoding="utf-8")
+    note.write_text('{"ok": true}', encoding="utf-8")
     exit_stage_staging()
-    approve_stage_writes(ctx, "ingest")
-    assert ctx.is_done("ingest")
+    flushed = flush_stage_writes(ctx, "ingest")
+    assert "ingest/checksums.json" in flushed
+    assert ctx.final_path("ingest", "checksums.json").is_file()
+    assert not has_pending_writes(ctx, "ingest")
 
 
 def test_flush_large_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -472,3 +479,80 @@ def test_skip_handoff_commits_mmaudio_qa_through_flush(
     assert ctx.final_path("sound_design", "mmaudio_qa.json").is_file()
     flush_stage_writes(ctx, "mmaudio_sfx")
     assert ctx.final_path("sound_design", "mmaudio_qa.json").is_file()
+
+
+def test_foreign_stage_pending_does_not_block_canonical_producer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gap_framing_compose pending must not incomplete missing_framing (exec_11630)."""
+    import time
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    committed = ctx.run_dir / "understanding" / "gap_evaluations.json"
+    committed.parent.mkdir(parents=True, exist_ok=True)
+    committed.write_text('{"evaluations":[]}', encoding="utf-8")
+    time.sleep(0.02)
+    foreign = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "gap_framing_compose"
+        / "understanding"
+        / "gap_evaluations.json"
+    )
+    foreign.parent.mkdir(parents=True, exist_ok=True)
+    foreign.write_text('{"evaluations":[1]}', encoding="utf-8")
+    assert uncommitted_pending_reason(ctx, "understanding/gap_evaluations.json") is None
+
+
+def test_promote_owner_skips_stale_pending_over_audited_wav(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pending VO must not clobber a sha-bound audited take (exec_11630)."""
+    import json
+
+    from interview_mux.write_staging import promote_owner_vo_pickup
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    lid = "vo_layup_seg_020"
+    syn = ctx.run_dir / "vo_pickup" / "synthesized"
+    syn.mkdir(parents=True)
+    good = syn / f"{lid}.wav"
+    good.write_bytes(b"RIFF" + b"\x00" * 100 + b"GOOD_AUDITED_TAKE")
+    want = wav_content_sha256(good)
+    report = {
+        "version": 1,
+        "entries": [
+            {
+                "line_id": lid,
+                "script_hash": "abc",
+                "context_hash": "def",
+                "wav_sha256": want,
+                "backend": "chatterbox",
+                "qc_pass": True,
+                "out_wav": f"vo_pickup/synthesized/{lid}.wav",
+            }
+        ],
+    }
+    # synthesis_entry_for_line reads synthesis_report.json
+    (ctx.run_dir / "vo_pickup").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "vo_synthesize"
+        / "vo_pickup"
+        / "synthesized"
+    )
+    pending.mkdir(parents=True)
+    stale = pending / f"{lid}.wav"
+    stale.write_bytes(b"RIFF" + b"\x00" * 100 + b"STALE_PENDING_BYTES!!")
+    assert wav_content_sha256(stale) != want
+    flushed = promote_owner_vo_pickup(ctx)
+    assert f"vo_pickup/synthesized/{lid}.wav" not in flushed
+    assert wav_content_sha256(good) == want
+    assert good.read_bytes().endswith(b"GOOD_AUDITED_TAKE")

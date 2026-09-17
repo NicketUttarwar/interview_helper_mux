@@ -10,13 +10,13 @@ STAGE_ID = "vo_line_adjudicate"
 
 
 def run_vo_line_adjudicate(ctx: RunContext) -> None:
-    from interview_mux.homunculus.runtime import is_homunculus_run
+    from interview_mux.homunculus.runtime import has_homunculus_features
     from interview_mux.vo_line_adjudicate import (
         adjudicate_before_synth_enabled,
         run_vo_line_adjudicate_stage,
     )
 
-    if not is_homunculus_run(ctx):
+    if not has_homunculus_features(ctx):
         ctx.log(
             "vo_line_adjudicate: skipped — homunculus 0.1.0+ only (4B)",
             level="info",

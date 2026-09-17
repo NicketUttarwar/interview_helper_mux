@@ -8,14 +8,43 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/sonic_context.json
+  schema: null
+  staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/value_features.json
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+  - path: transcript/disfluencies.json
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- sound_design_palettes
+- soundscape_policy_build
+- episode_structure_compose
+- sound_design_plan
+- edl_narrative_audit
+- music_palette_compose
+- sfx_prompt_craft
+- mix
+- junction_snip_qa
+- master_finalize
 remediation:
   strategies:
   - volley_retry

@@ -12,9 +12,21 @@ outputs:
 - path: understanding/vo_line_adjudication.json
   schema: vo_line_adjudication_artifact.schema.json
   staging: true
+- path: understanding/gap_report.json
+  staging: true
+- path: understanding/nugget_allocation_plan.json
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
+  - path: understanding/nugget_corpus.json
+    producer: nugget_corpus_mine
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/native_comprehension_masks.json
+  - path: understanding/content_brief.json
+    producer: content_context
 sufficiency:
 - path: lines
   rule: min_rows
@@ -24,7 +36,8 @@ propagation:
   - vo_synthesize
   - edl_narrative_audit
   - edl
-consumers: []
+consumers:
+- vo_synthesize
 remediation:
   strategies:
   - volley_retry

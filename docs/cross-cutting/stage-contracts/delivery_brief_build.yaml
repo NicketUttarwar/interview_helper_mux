@@ -8,12 +8,36 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/delivery_brief.json
+  schema: null
+  staging: false
 inputs:
   hard:
   - path: understanding/gap_report.json
     producer: gap_framing_compose
-  soft: []
+  soft:
+  - path: understanding/delivery_brief.json
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/flow_adaptation.json
+    producer: source_topology_build
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+  - path: ingest/checksums.json
+    producer: ingest
 sufficiency:
 - path: version
   rule: required_fields
@@ -24,7 +48,15 @@ sufficiency:
   - chapter_budget
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- gap_framing_compose
+- soundscape_policy_build
+- full_master_ranking
+- transitions
+- sound_design_plan
+- listen_delight_audit
+- music_palette_compose
+- mix
 remediation:
   strategies:
   - volley_retry

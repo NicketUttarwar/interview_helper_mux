@@ -8,10 +8,25 @@ brains:
   - id: "0.1.0"
     label: Homunculus
     kind: homunculus
+    control_plane: llm
     prompt_tree: docs/prompts/homunculus/
     summary: >
       Authoritative conductor: skip/reorder/rerun, dynamic packing, KB,
       MusicGen ladder, source-relative ears. Same host callables.
+  - id: "0.2.0"
+    label: Homunculus (deterministic walk)
+    kind: homunculus
+    control_plane: deterministic
+    prompt_tree: docs/prompts/homunculus/
+    summary: >
+      Same rails as 0.1.0 — ledger, admit, dispatch budgets, packing, MusicGen
+      ladder, ears — but stage order is the deterministic seed walk. No conductor
+      turns, so no turn budget to exhaust. The LLM still writes artifact content;
+      it no longer picks the next stage.
 
+# kind stays `homunculus` for 0.2.0 on purpose: is_homunculus_run gates the
+# ledger/admit/dispatch rails at ~22 call sites, and a new kind would silently
+# drop them. Control flow is selected by `control_plane`, not `kind`.
+#
 # New runs default to the highest registered id unless config pins
-# mastering.homunculus.default_version (currently 0.1.0 via "latest").
+# mastering.homunculus.default_version (currently 0.2.0 via "latest").

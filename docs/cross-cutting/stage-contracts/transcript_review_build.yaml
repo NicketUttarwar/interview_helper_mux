@@ -8,14 +8,28 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: transcript/review_queue.json
+  schema: null
+  staging: false
+- path: transcript/corrections.json
+  staging: true
+- path: glob:transcript/review_clips/*.wav
+  staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: transcript/full.json
+    producer: transcribe
+  soft:
+  - path: transcript/speakers.json
+    producer: transcribe
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- transcript_review
 remediation:
   strategies:
   - volley_retry

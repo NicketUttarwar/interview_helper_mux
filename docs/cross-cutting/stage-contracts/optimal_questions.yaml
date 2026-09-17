@@ -1,5 +1,9 @@
 stage_id: optimal_questions
-tier: llm_full
+tier: meta  # non-stage: retired stage, contract kept for history
+# Retired: superseded by gap_framing_compose. The outputs below record what this
+# stage wrote historically (delivery_guardrails still resolves it as a stale
+# gap_report producer); it is not a current owner in artifact_ownership.py.
+retired: true
 lifecycle:
   phases:
   - prestage

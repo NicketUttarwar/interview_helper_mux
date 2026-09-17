@@ -429,6 +429,30 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             raise ValueError(f"Unknown stage: {stage}")
         fns[stage]()
         if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
+            # SystemExit would skip run_wrapped_stage's after_stage_write_check and
+            # leave review_queue+clips in .pending_writes (exec_11871 G0 thrash).
+            try:
+                from interview_mux.write_staging import (
+                    _commit_stage_writes,
+                    has_pending_writes,
+                    write_approval_enabled,
+                )
+
+                if not write_approval_enabled() and has_pending_writes(ctx, stage):
+                    flushed = _commit_stage_writes(ctx, stage)
+                    ctx.log(
+                        f"transcript_review_build: flushed {len(flushed)} pending "
+                        "path(s) before G0 pause",
+                        level="info",
+                        stage=stage,
+                        detail={"flushed": flushed[:24]},
+                    )
+            except Exception as flush_exc:
+                ctx.log(
+                    f"transcript_review_build: pre-G0 flush failed: {flush_exc}",
+                    level="warning",
+                    stage=stage,
+                )
             msg = (
                 "Transcript review required. Open the GUI to correct ranked clips, then complete review."
             )
@@ -470,7 +494,11 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
 
 def run_single_stage(ctx: RunContext, stage: str) -> None:
     """Run exactly one pipeline stage (reads all inputs from disk)."""
-    from interview_mux.artifact_lifecycle import LifecyclePhase, run_phase_checks
+    from interview_mux.artifact_lifecycle import (
+        LifecyclePhase,
+        prestage_refused,
+        run_phase_checks,
+    )
     from interview_mux.web.job_progress import notify_stage_start
     from interview_mux.write_staging import (
         after_stage_write_check,
@@ -533,6 +561,14 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     if pre_errors:
         raise ValueError(f"Pre-stage lifecycle failed for {stage}: {'; '.join(pre_errors[:4])}")
 
+    # The non-fatal half of that call: an absent declared hard input is recorded as
+    # a refusal rather than returned as an error, and a recorded refusal has to be
+    # able to stop the stage without a `ValueError`. Returning leaves no done marker,
+    # so the downstream rails (`stage_input_checks`, seed order, stage-body reads)
+    # still own every refusal this channel does not cover.
+    if prestage_refused(ctx, stage):
+        return
+
     if stage not in ("transcript_review", "sfx_prompt_refine") and _guard_stage_reuse(ctx, stage):
         from interview_mux.artifact_completeness import should_run_stage_for_artifact
 
@@ -563,10 +599,10 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     except Exception:
         pass
     try:
-        from interview_mux.homunculus.runtime import dispatch_stage, is_homunculus_run
+        from interview_mux.homunculus.runtime import dispatch_stage, has_dispatch_ledger
 
         inner = bool(getattr(ctx, "_homunculus_inner_stage", False))
-        if is_homunculus_run(ctx) and not inner:
+        if has_dispatch_ledger(ctx) and not inner:
             def _host(sid: str) -> None:
                 prev = getattr(ctx, "_homunculus_inner_stage", False)
                 ctx._homunculus_inner_stage = True
@@ -585,10 +621,10 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
             "master/master.wav"
         ):
             try:
-                from interview_mux.homunculus.runtime import is_homunculus_run
+                from interview_mux.homunculus.runtime import has_dispatch_ledger
                 from interview_mux.homunculus.judge import after_complete_master
 
-                if is_homunculus_run(ctx):
+                if has_dispatch_ledger(ctx):
                     after_complete_master(ctx)
             except Exception:
                 pass
@@ -596,9 +632,13 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         if not getattr(ctx, "_recovery_retrying", False):
             skip_recovery = False
             try:
-                from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
+                from interview_mux.homunculus.runtime import (
+                    conductor_owns_control_flow,
+                    recovery_allowed,
+                )
 
-                skip_recovery = is_homunculus_run(ctx) and not recovery_allowed(
+                # Control flow: only a conductor can hold recovery for analysis.
+                skip_recovery = conductor_owns_control_flow(ctx) and not recovery_allowed(
                     ctx, stage, exc=exc
                 )
             except Exception:
@@ -720,10 +760,10 @@ def run_analysis(
             break
 
     total = len(planned) or 1
-    from interview_mux.homunculus.runtime import is_homunculus_run
+    from interview_mux.homunculus.runtime import has_dispatch_ledger
 
     if (
-        is_homunculus_run(ctx)
+        has_dispatch_ledger(ctx)
         and not getattr(ctx, "_homunculus_seed_walk", False)
         and planned
     ):
@@ -873,6 +913,10 @@ def _run_steps(
     from interview_mux.write_staging import run_wrapped_stage
 
     start = 0
+    if from_stage is not None:
+        from interview_mux.artifact_ownership import assert_execute_from_stage
+
+        from_stage = assert_execute_from_stage(ctx, str(from_stage or ""))
     if from_stage:
         names = [s[0] for s in steps]
         if from_stage not in names:
@@ -900,10 +944,10 @@ def _run_steps(
 
     visible_planned = filter_visible_job_stages(ctx, planned)
     total = len(visible_planned) or 1
-    from interview_mux.homunculus.runtime import is_homunculus_run
+    from interview_mux.homunculus.runtime import has_dispatch_ledger
 
     if (
-        is_homunculus_run(ctx)
+        has_dispatch_ledger(ctx)
         and not getattr(ctx, "_homunculus_seed_walk", False)
         and planned
     ):

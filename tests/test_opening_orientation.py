@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from interview_mux.opening_orientation import (
     SEQUENCE_COLD_OPEN,
     SEQUENCE_NATIVE_OPEN,
@@ -196,6 +198,45 @@ def test_orientation_omitted_when_native_hosts_already_intro(tmp_path) -> None:
     assert meta.get("required") is False
     assert meta.get("sequence") == SEQUENCE_NATIVE_OPEN
     assert validate_opening_orientation(gap_report=report, edl={"clips": []}) == []
+
+
+def test_validate_prefers_meta_orientation_over_sibling_preface() -> None:
+    """Sibling episode_preface act lines must not inflate orientation count."""
+    from interview_mux.opening_orientation import ORIENTATION_LINE_ID
+
+    gap = {
+        "opening_orientation": {
+            "line_id": ORIENTATION_LINE_ID,
+            "required": True,
+            "target_segment_id": "seg_002",
+        },
+        "interviewer_lines": [
+            {
+                "line_id": ORIENTATION_LINE_ID,
+                "episode_orientation": True,
+                "line_category": "episode_preface",
+                "orientation_missions": [
+                    "guest_identity",
+                    "conversation_topic",
+                    "listener_stakes",
+                ],
+                "text": (
+                    "This conversation examines liquid biopsy for treatment decisions. "
+                    "Let's hear how that opening beat lands."
+                ),
+                "skipped_optional": False,
+            },
+            {
+                "line_id": "vo_preface_act1",
+                "line_category": "episode_preface",
+                "text": "Act-level preface that must not count as the opening orientation.",
+                "skipped_optional": False,
+            },
+        ],
+    }
+    errs = validate_opening_orientation(gap_report=gap, edl={"clips": []})
+    assert not any("opening_orientation_count=" in e for e in errs)
+    assert any("opening_orientation_audible_count=0" in e for e in errs)
 
 
 def test_opening_contract_accepts_both_sequences() -> None:
@@ -564,3 +605,56 @@ def test_orientation_forces_synthetic_vo_for_high_salience_nuggets(tmp_path) -> 
     assert line.get("episode_orientation") is True
     assert "one in a billion" in str(line.get("text") or "").lower()
     assert "nug_004" in (line.get("nugget_ids") or [])
+
+
+def test_ensure_skips_nugget_embed_when_orientation_wav_bound(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.run_context import RunContext
+    import interview_mux.opening_orientation as oo
+
+    ctx = RunContext(create=True)
+    pickup = ctx.final_path("vo_pickup") / "synthesized"
+    pickup.mkdir(parents=True, exist_ok=True)
+    (pickup / "vo_preface_episode_orientation.wav").write_bytes(
+        b"RIFFxxxxWAVEfmt " + b"\x00" * 2000
+    )
+    monkeypatch.setattr(
+        oo,
+        "_load_nugget_claims",
+        lambda _ctx, ids: (list(ids), ["Extra buried fact that must not rewrite."]),
+    )
+    gap = {
+        "opening_orientation": {
+            "line_id": "vo_preface_episode_orientation",
+            "required": True,
+            "nugget_recovery": True,
+            "nugget_ids": ["nug_001"],
+        },
+        "orientation_nugget_recovery": {"nugget_ids": ["nug_001"]},
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "delivery": "synthesize",
+                "targets_segment_id": "seg_001",
+                "placement": "before",
+                "text": "Guest and topic setup. Let's hear how it unfolds.",
+                "orientation_missions": [
+                    "guest_identity",
+                    "conversation_topic",
+                    "listener_stakes",
+                ],
+            }
+        ],
+    }
+    report, actions = ensure_episode_orientation(ctx, gap, ["seg_001"])
+    assert any(a.get("action") == "skip_nugget_embed_wav_bound" for a in actions)
+    line = next(
+        x
+        for x in report["interviewer_lines"]
+        if x.get("line_id") == "vo_preface_episode_orientation"
+    )
+    assert "Extra buried fact" not in str(line.get("text") or "")

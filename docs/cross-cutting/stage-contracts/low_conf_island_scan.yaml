@@ -12,15 +12,27 @@ outputs:
 - path: analysis/low_conf_islands.json
   schema: null
   staging: false
+- path: analysis/low_conf_density_ranking.json
+  staging: true
+- path: analysis/low_conf_must_keep.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+  - path: analysis/vernacular_must_keep.json
+    producer: vernacular_segment_sanitize
 sufficiency: []
 propagation:
   invalidates_stages:
   - connector_fuse_pass
   - full_master_ranking
-consumers: []
+consumers:
+- connector_fuse_pass
+- full_master_ranking
 remediation:
   strategies:
   - volley_retry

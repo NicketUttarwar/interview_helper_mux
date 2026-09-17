@@ -104,9 +104,9 @@ def load_system_prompt_for_stage(
             system = f"{system}\n\n---\n\n{register}"
     try:
         from interview_mux.homunculus.prompts import perspective_block_for_stage
-        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.homunculus.runtime import has_homunculus_features
 
-        if ctx is not None and is_homunculus_run(ctx):
+        if ctx is not None and has_homunculus_features(ctx):
             extra = perspective_block_for_stage(stage_key)
             if extra:
                 system = f"{system}\n\n---\n\n{extra}"

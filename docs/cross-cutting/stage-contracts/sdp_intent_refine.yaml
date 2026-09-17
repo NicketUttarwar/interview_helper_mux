@@ -1,5 +1,5 @@
 stage_id: sdp_intent_refine
-tier: deterministic
+tier: meta  # non-stage: refinement-pass sub-volley
 lifecycle:
   phases:
   - prestage

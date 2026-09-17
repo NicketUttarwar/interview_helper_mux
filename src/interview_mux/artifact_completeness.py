@@ -16,7 +16,23 @@ from interview_mux.run_context import RunContext
 
 GapRule = Callable[[dict[str, Any] | None], list[str]]
 
-_BINARY_ARTIFACT_SUFFIXES = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+# Bytes-only producer artifacts. Images belong here: publish/cover.jpg fell through
+# to the JSON reader, whose UnicodeDecodeError (a ValueError) was swallowed into
+# status="pending" — mark_done(episode_cover_generate) then refused forever and the
+# ship walk re-billed three cover generations per round (exec_11871).
+BINARY_ARTIFACT_SUFFIXES = (
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+)
+_BINARY_ARTIFACT_SUFFIXES = BINARY_ARTIFACT_SUFFIXES
 
 
 def _binary_artifact_status(ctx: RunContext, rel_path: str) -> str:
@@ -793,80 +809,6 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
     return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}
 
 
-def complete_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
-    """Fill missing manifest segment rows from boundary contract (deterministic fallback)."""
-    from interview_mux.conversation_context import role_is_content, role_is_frame
-    from interview_mux.segment_timeline_standard import contract_ordered_segment_ids
-
-    hydrated = hydrate_manifest_from_boundaries(ctx, manifest)
-    if not isinstance(hydrated, dict):
-        return manifest
-
-    boundary_doc: dict[str, Any] | None = None
-    if ctx.artifact_exists("segments/boundaries.json"):
-        raw = ctx.read_json("segments/boundaries.json")
-        if isinstance(raw, dict):
-            boundary_doc = raw
-
-    contract_ids = contract_ordered_segment_ids(boundary_doc)
-    if not contract_ids:
-        return hydrated
-
-    segs = hydrated.get("segments") or []
-    by_id = {
-        str(s.get("segment_id")): dict(s)
-        for s in segs
-        if isinstance(s, dict) and s.get("segment_id")
-    }
-
-    speakers_by_id: dict[str, str] = {}
-    if ctx.artifact_exists("understanding/speakers.json"):
-        sp_doc = ctx.read_json("understanding/speakers.json")
-        if isinstance(sp_doc, dict):
-            for sp in sp_doc.get("speakers") or []:
-                if isinstance(sp, dict) and sp.get("speaker_id"):
-                    speakers_by_id[str(sp["speaker_id"])] = str(sp.get("role") or "unknown")
-
-    boundary_by_id: dict[str, dict[str, Any]] = {}
-    if boundary_doc:
-        for row in boundary_doc.get("boundaries") or []:
-            if isinstance(row, dict) and row.get("segment_id"):
-                boundary_by_id[str(row["segment_id"])] = row
-
-    completed: list[dict[str, Any]] = []
-    added = 0
-    for sid in contract_ids:
-        row = dict(by_id.get(sid) or {"segment_id": sid})
-        row["segment_id"] = sid
-        boundary = boundary_by_id.get(sid)
-        if boundary:
-            if boundary.get("speaker_id") and not row.get("speaker_id"):
-                row["speaker_id"] = str(boundary["speaker_id"])
-        speaker_id = str(row.get("speaker_id") or boundary.get("speaker_id") if boundary else "")
-        role = speakers_by_id.get(speaker_id, row.get("speaker_role") or "unknown")
-        if not row.get("type"):
-            if role_is_frame(role):
-                row["type"] = "interviewer_question"
-            elif role_is_content(role):
-                row["type"] = "interviewee_answer"
-            else:
-                row["type"] = "general_turn"
-        if sid not in by_id:
-            added += 1
-            meta = dict(row.get("_meta") or {})
-            meta["resilience"] = {"fallback": "boundary_complete"}
-            row["_meta"] = meta
-        completed.append(row)
-
-    out = {**hydrated, "segments": completed}
-    if added:
-        meta = dict(out.get("_meta") or {})
-        res = dict(meta.get("resilience") or {})
-        res["boundary_complete_added"] = added
-        meta["resilience"] = res
-        out["_meta"] = meta
-    return out
-
 
 def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | None:
     from interview_mux.null_field_policy import null_acknowledged_paths
@@ -931,11 +873,6 @@ def build_gap_fill_context(ctx: RunContext, stage_key: str) -> dict[str, Any] | 
         ),
     }
 
-def attach_gap_fill_to_input(ctx: RunContext, stage_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    gfc = build_gap_fill_context(ctx, stage_key)
-    if gfc:
-        payload = {**payload, "gap_fill_context": gfc}
-    return payload
 
 def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_key)

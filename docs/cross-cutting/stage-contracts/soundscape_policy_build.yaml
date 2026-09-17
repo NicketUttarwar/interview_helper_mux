@@ -8,10 +8,30 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: understanding/soundscape_policy.json
+  schema: null
+  staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/soundscape_policy.json
+  - path: understanding/sonic_context.json
+    producer: sonic_context_build
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: segments/manifest.json
+    producer: segment_classification
 sufficiency:
 - path: version
   rule: required_fields
@@ -25,7 +45,10 @@ sufficiency:
   - cue_slots
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- sound_design_plan
+- music_palette_compose
+- sfx_prompt_craft
 remediation:
   strategies:
   - volley_retry

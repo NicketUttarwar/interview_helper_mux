@@ -8,14 +8,37 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/mastering_plan.json
+  schema: null
+  staging: false
+- path: understanding/omit_ledger.json
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: mastering/mastering_plan.json
+    producer: air_script_seams
+  - path: understanding/omit_ledger.json
+    producer: air_script_compose
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: understanding/gap_fill_skip.json
+  - path: understanding/source_topology.json
+    producer: source_topology_build
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- transitions
+- vo_synthesize
+- edl
+- mix
+- junction_snip_qa
+- master_finalize
 remediation:
   strategies:
   - volley_retry

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from interview_mux.config import merged_config
 from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility, silent_skip_allowed
-from interview_mux.homunculus.runtime import is_homunculus_run
+from interview_mux.homunculus.runtime import has_homunculus_features
 from interview_mux.run_context import RunContext
 
 FRAMING_POSTURE_DECISION_REL = "understanding/framing_posture_decision.json"
@@ -242,7 +242,7 @@ def apply_host_gate(ctx: RunContext) -> None:
 
 def should_run_framing_posture_llm(ctx: RunContext) -> bool:
     """Skip LLM for true monologue; homunculus-only guard is applied by the stage runner."""
-    if not is_homunculus_run(ctx):
+    if not has_homunculus_features(ctx):
         return False
     if not framing_posture_enabled():
         return False

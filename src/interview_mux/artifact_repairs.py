@@ -1251,6 +1251,35 @@ def _normalize_master_selection_only(
                 deduped = [s for s in deduped if s not in banned]
                 applied.append({"action": "drop_never_touch_cta", "ids": cta_drop[:24]})
         out["ordered_segment_ids"] = deduped
+    # Always reconcile/prune air↔exclude contradictions — normalize-only must still
+    # clear lint (`exclude_rationales[x] contradicts ordered_segment_ids`). Ranking
+    # writes with a fresh sanitize stamp use amplify=False and previously skipped this
+    # (exec_11630: finale_tail_leftover rationales left on readmitted air ids).
+    before_rat = (
+        dict(out.get("exclude_rationales"))
+        if isinstance(out.get("exclude_rationales"), dict)
+        else {}
+    )
+    before_ord = list(out.get("ordered_segment_ids") or [])
+    before_excl = list(out.get("excluded_segment_ids") or [])
+    out = reconcile_ordered_vs_excluded(out)
+    if (
+        list(out.get("ordered_segment_ids") or []) != before_ord
+        or list(out.get("excluded_segment_ids") or []) != before_excl
+        or (
+            dict(out.get("exclude_rationales"))
+            if isinstance(out.get("exclude_rationales"), dict)
+            else {}
+        )
+        != before_rat
+    ):
+        applied.append({"action": "reconcile_ordered_vs_excluded"})
+        if (
+            dict(out.get("exclude_rationales"))
+            if isinstance(out.get("exclude_rationales"), dict)
+            else {}
+        ) != before_rat:
+            applied.append({"action": "prune_stale_exclude_rationales"})
     from interview_mux.order_hash import bump_order_lock
 
     out = bump_order_lock(out, source="artifact_repairs.normalize_selection")
@@ -2243,15 +2272,11 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
     try:
         from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
 
-        if str(seg_id) in admitted_story_segment_ids(ctx) and str(seg_id) not in never_touch_segment_ids(
-            ctx
-        ):
-            # Recut remainders are content candidates — do not discard for being short.
-            story_exempt = True
-        else:
-            story_exempt = False
+        admitted = str(seg_id) in admitted_story_segment_ids(ctx) and str(
+            seg_id
+        ) not in never_touch_segment_ids(ctx)
     except Exception:
-        story_exempt = False
+        admitted = False
     man = ctx.read_json("segments/manifest.json")
     for row in (man.get("segments") or []) if isinstance(man, dict) else []:
         if not isinstance(row, dict):
@@ -2260,12 +2285,16 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
             continue
         text = str(row.get("text") or "").strip()
         dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
+        # Empty / near-silent always unusable (even admitted story kids).
         if not text or dur < 400:
             return True
-        if story_exempt:
+        meta = row.get("_meta") if isinstance(row.get("_meta"), dict) else {}
+        story_keep_ok = bool(meta.get("story_keep_ok"))
+        # Listen-complete CTA story prefixes may stay short on air.
+        if admitted and story_keep_ok:
             return False
-        # Incomplete micro-fragments ("Within…", "But end of the day,") are high-gap
-        # noise — do not require on-air VO; ranking/exclude handles them.
+        # Incomplete micro-fragments are blank even if admitted without stamp
+        # (exec_11630 seg_003a/003j blank-on-air contradiction).
         words = [w for w in text.replace("…", " ").split() if w.strip(".,;:!?\"'")]
         if len(words) <= 8 and dur < 8000:
             return True
@@ -2732,6 +2761,27 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             # Still heal a missing forward cue so post-commit lint does not loop.
             if is_episode_orientation(line):
                 text_now = str(line.get("text") or "").strip()
+                try:
+                    from interview_mux.spoken_meta_lint import (
+                        rewrite_speaker_role_labels,
+                        spoken_structure_hits,
+                    )
+
+                    if text_now and "spoken_speaker_role_label" in spoken_structure_hits(
+                        text_now
+                    ):
+                        healed = rewrite_speaker_role_labels(text_now)
+                        if healed and healed != text_now:
+                            line["text"] = healed
+                            text_now = healed
+                            applied.append(
+                                {
+                                    "action": "preface_speaker_role_rewrite",
+                                    "line_id": line.get("line_id"),
+                                }
+                            )
+                except Exception:
+                    pass
                 if text_now and not has_forward_cue(text_now):
                     tid_now = str(line.get("targets_segment_id") or "").strip()
                     cat = str(line.get("line_category") or "episode_preface")
@@ -2791,6 +2841,27 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                     }
                 )
             text_now = str(line.get("text") or "").strip()
+            try:
+                from interview_mux.spoken_meta_lint import (
+                    rewrite_speaker_role_labels,
+                    spoken_structure_hits,
+                )
+
+                if text_now and "spoken_speaker_role_label" in spoken_structure_hits(
+                    text_now
+                ):
+                    healed = rewrite_speaker_role_labels(text_now)
+                    if healed and healed != text_now:
+                        line["text"] = healed
+                        text_now = healed
+                        applied.append(
+                            {
+                                "action": "speaker_role_rewrite",
+                                "line_id": line.get("line_id"),
+                            }
+                        )
+            except Exception:
+                pass
             tid_now = str(line.get("targets_segment_id") or "").strip()
             target_row = by_id.get(tid_now) or {}
             target_text = str(target_row.get("text") or target_row.get("text_excerpt") or "")
@@ -3091,10 +3162,27 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                     }
                 )
                 continue
-            raise ValueError(
+            # Required non-layup: never ValueError thrash (exec_11630 #13).
+            # Loud-fail pins compose/layup — never soft EDL.
+            from interview_mux.loud_fail import raise_loud_failure
+
+            pin_stage = (
+                "nugget_layup_compose"
+                if bool(out.get("nugget_layup_authority"))
+                else "gap_framing_compose"
+            )
+            raise_loud_failure(
+                ctx,
                 f"required gap VO blocked by spoken_copy_guard "
                 f"({row.get('line_id') or target}): "
-                + ", ".join(decision["violations"])
+                + ", ".join(decision["violations"]),
+                stage=pin_stage,
+                reason="spoken_copy_unhealable",
+                detail={
+                    "line_id": row.get("line_id"),
+                    "violations": decision.get("violations"),
+                    "guard_action": "block",
+                },
             )
         if decision["action"] == "omit":
             if required:
@@ -6045,6 +6133,46 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
             notes.append({"action": "exclude_for_edl_narrative", "segment_id": sid, "reason": reason})
     sel["ordered_segment_ids"] = order
     sel["excluded_segment_ids"] = excl
+    # Keep exclude_rationales aligned so narrative audit / lint do not see
+    # blank IDs still on air (exec_11630 seg_003a/seg_003j).
+    rat = dict(sel.get("exclude_rationales") or {})
+    for sid in drop_ids:
+        rat[sid] = str(rat.get(sid) or "blank_or_unusable_answer_audio")
+    sel["exclude_rationales"] = rat
+    sel = reconcile_ordered_vs_excluded(sel)
+    sel, _pruned = prune_stale_exclude_rationales(sel)
+    order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
+    # Drop blank/unusable IDs from chapter membership too.
+    chapters_out: list[dict[str, Any]] = []
+    for ch in sel.get("chapters") or []:
+        if not isinstance(ch, dict):
+            continue
+        ch = dict(ch)
+        ch["segment_ids"] = [
+            str(s) for s in (ch.get("segment_ids") or []) if str(s) in set(order)
+        ]
+        chapters_out.append(ch)
+    if chapters_out:
+        sel["chapters"] = chapters_out
+    # Absorb leftover air-order ids into nearest chapter (same as EDL prepare).
+    try:
+        from interview_mux.selection_order_repair import fill_chapter_list_membership_gaps
+
+        filled, filled_ids = fill_chapter_list_membership_gaps(
+            [dict(ch) for ch in (sel.get("chapters") or []) if isinstance(ch, dict)],
+            order,
+        )
+        if filled_ids:
+            sel["chapters"] = filled
+            notes.append(
+                {
+                    "action": "fill_chapter_membership_gaps",
+                    "count": len(filled_ids),
+                    "ids": filled_ids[:12],
+                }
+            )
+    except Exception:
+        pass
     order_set = set(order)
     if ctx.artifact_exists("master/coverage_audit.json"):
         cov = ctx.read_json("master/coverage_audit.json")

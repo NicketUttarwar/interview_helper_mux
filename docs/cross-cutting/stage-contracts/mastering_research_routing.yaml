@@ -14,7 +14,70 @@ outputs:
   staging: false
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: ingest/normalized.wav
+    producer: ingest
+  - path: ingest/source_meta.json
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
+  - path: master/edl.json
+    producer: edl
+  - path: master/edl_narrative_audit.json
+    producer: edl_narrative_audit
+  - path: master/master.wav
+    producer: master_finalize
+  - path: master/mix_report.json
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/transitions.json
+    producer: transitions
+  - path: preclean/lineage.json
+    producer: audio_preclean
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: segments/nle_edits.json
+  - path: sound_design/mmaudio_qa.json
+    producer: mmaudio_sfx
+  - path: sound_design/palettes.json
+  - path: sound_design/plan.json
+  - path: transcript/corrections.json
+    producer: transcript_review_build
+  - path: transcript/full.json
+    producer: transcribe
+  - path: transcript/review.json
+  - path: transcript/review_queue.json
+    producer: transcript_review_build
+  - path: transcript/words.json
+  - path: understanding/coherence_report.json
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
+  - path: understanding/gap_framing_plan.json
+    producer: gap_framing_compose
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: understanding/interview_spine.json
+    producer: interview_spine_build
+  - path: understanding/interview_spine/windows.json
+  - path: understanding/sonic_context.json
+    producer: sonic_context_build
+  - path: understanding/soundscape_policy.json
+    producer: soundscape_policy_build
+  - path: understanding/source_acoustic_profile.json
+    producer: source_acoustic_profile
+  - path: understanding/source_topology.json
+    producer: source_topology_build
+  - path: understanding/speaker_roles.json
+  - path: understanding/speakers.json
+    producer: speaker_roles
+  - path: understanding/value_features.json
+  - path: vo_pickup/synthesis_report.json
+    producer: vo_synthesize
 sufficiency: []
 propagation:
   invalidates_stages: []

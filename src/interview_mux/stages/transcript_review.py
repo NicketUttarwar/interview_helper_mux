@@ -162,9 +162,9 @@ def maybe_auto_complete_transcript_review(ctx: RunContext) -> bool:
 
 def check_transcript_review_pending(ctx: RunContext) -> bool:
     """True when review queue exists but operator has not signed off."""
-    if ctx.is_done("transcript_review"):
-        return False
-    return ctx.artifact_exists("transcript/review_queue.json")
+    from interview_mux.gates import check_transcript_review_pending as _gates_check
+
+    return _gates_check(ctx)
 
 
 def _write_transcript_json(ctx: RunContext, rel: str, data: Any) -> Path:
@@ -196,6 +196,11 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
         chunk["reviewed"] = True
     _write_transcript_json(ctx, "transcript/review_queue.json", queue)
     ctx.mark_done("transcript_review")
+    if not ctx.is_done("transcript_review"):
+        raise RuntimeError(
+            "transcript_review mark_done refused — G0 sign-off did not stick "
+            "(check authority / stage_outputs_present)."
+        )
     ctx.log("Transcript review complete — corrections applied to full.json.", level="success", stage="transcript_review")
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 
 import pytest
@@ -54,6 +55,45 @@ def clear_write_staging_context() -> None:
     exit_stage_staging()
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="run @pytest.mark.slow live-model tests (MusicGen weights, minutes each)",
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: live / long-running integration (MusicGen weights)")
     config.addinivalue_line("markers", "allow_network: permit outbound sockets")
+
+
+def _slow_enabled(config: pytest.Config) -> bool:
+    return bool(config.getoption("--run-slow")) or str(
+        os.environ.get("MUX_RUN_SLOW_TESTS") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """`slow` is opt-in: `--run-slow` or `MUX_RUN_SLOW_TESTS=1`.
+
+    These tests load real MusicGen weights and generate audio. When the weights
+    happen to be cached they do not skip and do not time out — they just run, for
+    tens of minutes each, which makes a plain `pytest tests/` unusable. The
+    existing `_musicgen_ready()` guards only skip when the weights are *missing*,
+    so the better-provisioned the machine, the worse the suite behaves.
+
+    Gating the marker rather than the individual tests keeps the capability
+    tests intact and reachable on demand.
+    """
+    if _slow_enabled(config):
+        return
+    skip_slow = pytest.mark.skip(
+        reason="live-model test: pass --run-slow or set MUX_RUN_SLOW_TESTS=1"
+    )
+    for item in items:
+        if item.get_closest_marker("slow"):
+            item.add_marker(skip_slow)

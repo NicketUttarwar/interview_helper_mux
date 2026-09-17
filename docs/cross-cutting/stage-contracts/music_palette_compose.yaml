@@ -12,16 +12,30 @@ outputs:
 - path: sound_design/music_palette_compose.json
   schema: music_palette_compose_artifact.schema.json
   staging: true
+- path: understanding/sound_design_plan.json
+  staging: true
 inputs:
   hard: []
-  soft: []
+  soft:
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_palettes
+  - path: understanding/music_brief.json
+    producer: sound_design_plan
+  - path: master/edl.json
+    producer: edl
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: understanding/episode_structure.json
+    producer: episode_structure_compose
 sufficiency:
 - path: cues
   rule: min_rows
   min_count: 1
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- mmaudio_sfx
+- mix
 remediation:
   strategies:
   - volley_retry

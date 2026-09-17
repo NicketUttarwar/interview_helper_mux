@@ -14,7 +14,7 @@ from interview_mux.framing_posture import (
     persist_framing_decision,
     should_run_framing_posture_llm,
 )
-from interview_mux.homunculus.runtime import is_homunculus_run
+from interview_mux.homunculus.runtime import has_homunculus_features
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
@@ -30,7 +30,7 @@ def _persist_allow_stub_and_mark(ctx: RunContext, *, decided_by: DecidedBy) -> N
 
 
 def run_framing_posture_decide(ctx: RunContext) -> None:
-    if not is_homunculus_run(ctx):
+    if not has_homunculus_features(ctx):
         _persist_allow_stub_and_mark(ctx, decided_by="homunculus_skip")
         return
 

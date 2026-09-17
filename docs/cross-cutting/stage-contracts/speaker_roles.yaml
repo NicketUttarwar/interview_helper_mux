@@ -13,8 +13,18 @@ outputs:
   schema: speakers_artifact.schema.json
   staging: true
 inputs:
-  hard: []
-  soft: []
+  hard:
+  - path: transcript/full.json
+    producer: transcribe
+  - path: understanding/interview_spine.json
+    producer: interview_spine_build
+    when:
+      spine_enabled: true
+  soft:
+  - path: transcript/speakers.json
+    producer: transcribe
+  - path: transcript/diarization_repairs.json
+    producer: transcribe
 sufficiency:
 - path: speakers
   rule: min_rows
@@ -30,7 +40,10 @@ propagation:
   - segment_classification
   - source_topology_build
 consumers:
-- speaker_roles
+- content_context
+- boundary_detection
+- segment_classification
+- source_topology_build
 remediation:
   strategies:
   - volley_retry

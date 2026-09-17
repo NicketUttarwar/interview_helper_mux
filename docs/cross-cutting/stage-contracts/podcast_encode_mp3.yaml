@@ -8,14 +8,22 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: publish/audio.mp3
+  schema: null
+  staging: false
+- path: publish/master.wav
+  staging: true
 inputs:
-  hard: []
+  hard:
+  - path: master/master.wav
+    producer: master_finalize
   soft: []
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- podcast_publish
 remediation:
   strategies:
   - volley_retry

@@ -186,17 +186,15 @@ def validate_vo_contract(ctx: RunContext) -> list[str]:
 
 
 def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
-    """Reseat omitted synthesize layup lines until the G-Framing VO floor is met.
+    """Keep already-on-air hosted framing seats; reseat only when unfrozen.
 
-    Air-script Pass B can omit every layup seat while orientation alone remains.
-    Hosted framing still requires ``min_synthetic_vo_lines`` active gap lines —
-    without a reseat, nugget_layup_compose thrash-fails the incompleteness floor.
+    Under **hard freeze**: never invent new seats or CTA holes (no
+    ``catastrophe_hosted_vo_floor`` bypass). Keep-on-air un-omits waived
+    prefaces except the canonical orientation id. If the G-Framing floor is
+    still unmet → no write of new seats; stamp incompleteness pin to
+    ``nugget_layup_compose`` with sticky halt.
 
-    C-04: no-op when G1 skip waived the hosted framing floor.
-
-    Soft/hard freeze normally blocks silent seat mutation, but an unmet
-    G-Framing synthetic floor is catastrophic — reseat without meta-gate so
-    air_contract omit-stamping cannot thrash layup/VO forever under freeze.
+    Soft/unfrozen: eligible synthesize layups may still reseat (i4).
     """
     from interview_mux.gap_fill_eligibility import (
         hosted_framing_requires_synthetic_vo,
@@ -225,45 +223,17 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
                 n += 1
         return n
 
+    hard = False
+    soft = False
     try:
-        from interview_mux.seat_authority import (
-            hard_freeze_active,
-            seat_mutation_allowed,
-            soft_freeze_active,
-        )
+        from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
 
-        floor_unmet = _active_count(lines_in) < need
-        if soft_freeze_active(ctx) or hard_freeze_active(ctx):
-            if floor_unmet:
-                allowed, _why = seat_mutation_allowed(
-                    ctx,
-                    reason="catastrophe_hosted_vo_floor",
-                    require_meta_gate=False,
-                )
-            else:
-                allowed, _why = seat_mutation_allowed(
-                    ctx, reason="ensure_hosted_framing", require_meta_gate=True
-                )
-            if not allowed:
-                return []
-            if floor_unmet:
-                try:
-                    from interview_mux.seat_authority import bump_seat_rewrite_generation
-
-                    bump_seat_rewrite_generation(ctx)
-                except Exception:
-                    pass
+        hard = bool(hard_freeze_active(ctx))
+        soft = bool(soft_freeze_active(ctx))
     except Exception:
-        # Fail-closed only when freeze may be active / unknown; else proceed.
-        try:
-            from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+        hard = True  # fail-closed when freeze state unknown
 
-            frozen = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
-        except Exception:
-            frozen = True
-        if frozen:
-            return []
-
+    # Keep-on-air: un-omit non-waived orientation that should stay audible.
     for i, row in enumerate(lines_in):
         if not is_episode_orientation(row):
             continue
@@ -281,6 +251,40 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
             changed_ids.append(str(cleared.get("line_id") or ""))
         lines_in[i] = cleared
 
+    floor_unmet = _active_count(lines_in) < need
+
+    # Hard freeze: never expand seats. If floor unmet → pin layup, no catastrophe.
+    if hard:
+        if floor_unmet:
+            _record_hosted_floor_unmet(ctx, need=need, active=_active_count(lines_in))
+            if changed_ids:
+                return _commit_hosted_floor_gap(ctx, gap, lines_in, changed_ids)
+            return []
+        if changed_ids:
+            return _commit_hosted_floor_gap(ctx, gap, lines_in, changed_ids)
+        return []
+
+    # Soft freeze: require seat_mutation_allowed (meta-gate) — no catastrophe token.
+    if soft and floor_unmet:
+        try:
+            from interview_mux.seat_authority import (
+                bump_seat_rewrite_generation,
+                seat_mutation_allowed,
+            )
+
+            allowed, _why = seat_mutation_allowed(
+                ctx,
+                reason="ensure_hosted_framing",
+                require_meta_gate=True,
+            )
+            if not allowed:
+                _record_hosted_floor_unmet(ctx, need=need, active=_active_count(lines_in))
+                return []
+            bump_seat_rewrite_generation(ctx)
+        except Exception:
+            _record_hosted_floor_unmet(ctx, need=need, active=_active_count(lines_in))
+            return []
+
     def _has_pickup_wav(row: dict[str, Any]) -> bool:
         return _gap_row_has_pickup_stem(ctx, row)
 
@@ -290,6 +294,7 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
     except Exception:
         seated_now = set()
 
+    cta_only_leftovers = True
     while _active_count(lines_in) < need:
         picked = None
         best_rank = 99
@@ -303,13 +308,10 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
             lid = str(row.get("line_id") or "").strip()
             if not lid or not str(row.get("text") or "").strip():
                 continue
-            # 1A omit-wins: never clear skip on a seated synthesize line, and
-            # never reseat durable omit-wins reasons to meet the hosted floor.
             if lid in seated_now or omit_wins_skip_reason(row):
                 continue
+            cta_only_leftovers = False
             sev = str(row.get("severity") or "medium").lower()
-            # Prefer already-rendered pickups so reseat does not thrash G1 on
-            # high-severity omitted lines that still need Chatterbox.
             wav_bonus = 0 if _has_pickup_wav(row) else 2
             rank = (0 if sev in {"high", "critical", "blocking"} else 1) + wav_bonus
             if rank < best_rank:
@@ -321,14 +323,82 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
         changed_ids.append(str(lines_in[picked].get("line_id") or ""))
 
     changed_ids = [x for x in dict.fromkeys(changed_ids) if x]
-    # Floor already met and nothing cleared — do not rewrite seats/beats (thrash).
+    if _active_count(lines_in) < need:
+        _record_hosted_floor_unmet(
+            ctx,
+            need=need,
+            active=_active_count(lines_in),
+            cta_only=cta_only_leftovers and not changed_ids,
+        )
+        if not changed_ids:
+            return []
+
     if not changed_ids:
         return []
 
+    return _commit_hosted_floor_gap(ctx, gap, lines_in, changed_ids)
+
+
+def _record_hosted_floor_unmet(
+    ctx: RunContext,
+    *,
+    need: int,
+    active: int,
+    cta_only: bool = False,
+) -> None:
+    """Stamp incompleteness + sticky pin to layup; never reseat under hard freeze."""
+    prose = (
+        f"hosted_vo_floor_unmet: need={need} active={active} "
+        f"— resume nugget_layup_compose: keep-on-air floor short"
+        + ("; cta_only_leftovers needs_operator" if cta_only else "")
+    )
+    try:
+        ctx.log(prose, level="warning", stage="vo_contract")
+    except Exception:
+        pass
+    try:
+
+        def _mut(meta: dict[str, Any]) -> None:
+            meta["hosted_vo_floor_unmet"] = True
+            meta["hosted_vo_floor_unmet_prose"] = prose
+            if cta_only:
+                meta["needs_operator"] = True
+                meta["needs_operator_stage"] = "nugget_layup_compose"
+                meta["needs_operator_reason"] = prose
+
+        ctx.mutate_run_meta(_mut)
+    except Exception:
+        pass
+    try:
+        from interview_mux.identical_failures import record_identical_failure
+
+        record_identical_failure(
+            ctx,
+            failed_stage="nugget_layup_compose",
+            producer="nugget_layup_compose",
+            reason="hosted_vo_floor_unmet",
+        )
+    except Exception:
+        pass
+
+
+def _commit_hosted_floor_gap(
+    ctx: RunContext,
+    gap: dict[str, Any],
+    lines_in: list[dict[str, Any]],
+    changed_ids: list[str],
+) -> list[str]:
+    from interview_mux.opening_orientation import ORIENTATION_LINE_ID, is_episode_orientation
+
     out = dict(gap)
     out["interviewer_lines"] = lines_in
-    gap_dest = ctx.write_json("understanding/gap_report.json", out)
+    gap_dest = ctx.write_json(
+        "understanding/gap_report.json",
+        out,
+        stage_key="nugget_layup_compose",
+    )
 
+    plan_dest = None
     if ctx.artifact_exists("mastering/mastering_plan.json"):
         from interview_mux.mastering_plan_loader import load_plan_raw
 
@@ -375,10 +445,11 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
         script["vo_seats"] = seats
         script["beats"] = beats
         plan["air_script"] = script
-        plan_dest = ctx.write_json("mastering/mastering_plan.json", plan)
-    else:
-        plan_dest = None
-    # Keep incomplete-stage pending shadows from re-omitting a newer floor reseat.
+        plan_dest = ctx.write_json(
+            "mastering/mastering_plan.json",
+            plan,
+            stage_key="air_contract_sanitize",
+        )
     try:
         import shutil
 
@@ -398,7 +469,9 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
                         shutil.copy2(src, candidate)
     except Exception:
         pass
-    return changed_ids
+    return [x for x in dict.fromkeys(changed_ids) if x]
+
+
 
 
 def _gap_row_has_pickup_stem(ctx: RunContext, row: dict[str, Any]) -> bool:
