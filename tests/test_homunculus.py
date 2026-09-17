@@ -2689,6 +2689,7 @@ def test_order_change_invalidates_nugget_layup(tmp_path: Path) -> None:
     assert not ctx.is_done("nugget_layup_compose")
 
 
+@pytest.mark.real_executions_root  # test supplies its own INTERVIEW_MUX_ROOT
 def test_homunculus_skip_stage_api_hollow_done(tmp_path, monkeypatch) -> None:
     import shutil
     from interview_mux.config import repo_root as real_repo_root

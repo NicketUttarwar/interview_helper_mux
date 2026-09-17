@@ -310,7 +310,7 @@ def init_run_meta_for_test(
 
 def isolated_run_ctx(tmp_path: Path, run_id: str) -> RunContext:
     """Run under tmp_path only — avoids collisions with data/run_* in the repo."""
-    ctx = RunContext(run_id, create=True)
+    ctx = RunContext(run_id, create=False)
     ctx.run_dir = tmp_path / run_id
     ctx.run_dir.mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)

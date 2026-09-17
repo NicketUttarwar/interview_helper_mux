@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import shutil
 
+import pytest
 from fastapi.testclient import TestClient
 
 from interview_mux.config import repo_root as real_repo_root
 from interview_mux.gui_session import set_active_execution
 from interview_mux.web.server import create_app
+
+# _seed_assets supplies its own INTERVIEW_MUX_ROOT; the asset paths asserted here
+# are relative to that root, so the conftest redirect must stay out of the way.
+pytestmark = pytest.mark.real_executions_root
 
 
 def _seed_assets(tmp_path, monkeypatch) -> TestClient:

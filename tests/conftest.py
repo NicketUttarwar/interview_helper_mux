@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -45,6 +46,71 @@ def fast_gpu_exclusive_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "0")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def executions_root_backstop(tmp_path_factory: pytest.TempPathFactory):
+    """Session-wide floor under the per-test redirect.
+
+    Job threads started by a test can outlive it, and the function-scoped
+    ``monkeypatch`` is undone by then — without this they mint run directories in
+    the live tree after the test that spawned them has passed.
+    """
+    from interview_mux import run_context
+
+    real_merged_config = run_context.merged_config
+    real_repo_root = run_context.repo_root
+    sandbox = tmp_path_factory.mktemp("mux_backstop_root")
+    (sandbox / "ASSETS" / "executions").mkdir(parents=True)
+
+    def _sandboxed_config() -> dict:
+        cfg = dict(real_merged_config())
+        cfg["assets_root"] = str(sandbox / "ASSETS")
+        cfg["executions_root"] = str(sandbox / "ASSETS" / "executions")
+        return cfg
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(run_context, "merged_config", _sandboxed_config)
+    mp.setattr(run_context, "repo_root", lambda: sandbox)
+    try:
+        yield {"merged_config": real_merged_config, "repo_root": real_repo_root}
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def redirect_executions_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    executions_root_backstop: dict,
+) -> None:
+    """Keep run directories out of the live ``ASSETS/executions``.
+
+    ``RunContext.__init__`` mkdirs the executions root and the run dir, so any
+    test that builds one without isolation mints a directory in the real tree.
+    Redirecting the config (rather than cleaning up afterwards) means nothing is
+    ever written there, which survives ``-x``, xdist, and hard crashes.
+
+    ``repo_root`` moves with it, so ``ctx.root`` still contains ``ctx.run_dir``
+    and repo-relative bookkeeping such as ``run_meta.storage_root`` resolves.
+
+    Opt out with ``@pytest.mark.real_executions_root`` when a test supplies its
+    own root (e.g. via ``INTERVIEW_MUX_ROOT``).
+    """
+    from interview_mux import run_context
+    from run_fixtures import patch_executions_root
+
+    if request.node.get_closest_marker("real_executions_root"):
+        for attr, real in executions_root_backstop.items():
+            monkeypatch.setattr(run_context, attr, real)
+        return
+
+    # A dedicated subdir, never tmp_path itself: many tests mkdir tmp_path/ASSETS
+    # without exist_ok, and the sandbox has to stay out of their way.
+    sandbox = tmp_path / "_mux_root"
+    patch_executions_root(monkeypatch, sandbox)
+    monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: sandbox)
+
+
 @pytest.fixture(autouse=True)
 def clear_write_staging_context() -> None:
     """ContextVar staging must not leak across tests (writes route into .pending_writes)."""
@@ -67,6 +133,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: live / long-running integration (MusicGen weights)")
     config.addinivalue_line("markers", "allow_network: permit outbound sockets")
+    config.addinivalue_line(
+        "markers", "real_executions_root: needs the live ASSETS/executions tree"
+    )
 
 
 def _slow_enabled(config: pytest.Config) -> bool:

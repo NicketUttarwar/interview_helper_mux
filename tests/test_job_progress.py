@@ -171,10 +171,15 @@ def test_overlay_keeps_running_stage_pending_and_upgrades_finished(monkeypatch) 
     assert stages[2]["status"] == "action_required"
 
 
-def test_attach_live_stage_progress_uses_done_markers(tmp_path: Path) -> None:
+def test_attach_live_stage_progress_uses_done_markers(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux.run_context import RunContext
     from interview_mux.web.job_progress import attach_live_stage_progress
+    from run_fixtures import patch_executions_root
 
-    ctx = isolated_run_ctx(tmp_path, "run_job_progress_attach")
+    # attach_live_stage_progress re-resolves the run by id, so the ctx under test
+    # has to live at the canonical executions path, not beside it.
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("run_job_progress_attach", create=True)
     marker = ctx.final_path(".stage_done", "transitions")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("ok", encoding="utf-8")

@@ -89,6 +89,7 @@ def _seed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(create_app())
 
 
+@pytest.mark.real_executions_root  # _seed_client supplies its own INTERVIEW_MUX_ROOT
 def test_create_run_manual_does_not_launch_full_auto(tmp_path, monkeypatch) -> None:
     client = _seed_client(tmp_path, monkeypatch)
     launched: list[dict] = []
@@ -119,6 +120,7 @@ def test_create_run_manual_does_not_launch_full_auto(tmp_path, monkeypatch) -> N
     assert '"full_auto": false' in meta
 
 
+@pytest.mark.real_executions_root  # _seed_client supplies its own INTERVIEW_MUX_ROOT
 def test_create_run_full_auto_launches_run_scoped_worker(tmp_path, monkeypatch) -> None:
     client = _seed_client(tmp_path, monkeypatch)
     launched: list[dict] = []
@@ -206,6 +208,7 @@ def test_shutdown_automation_stack_passes_keep_driver(monkeypatch) -> None:
     assert calls[-1]["kill_e2e"] is True
 
 
+@pytest.mark.real_executions_root  # _seed_client supplies its own INTERVIEW_MUX_ROOT
 def test_create_run_refuses_when_driver_already_running(tmp_path, monkeypatch) -> None:
     """D-04 / GUI-START: cross-run dual driver → 409 (not silent wrong launch)."""
     client = _seed_client(tmp_path, monkeypatch)
@@ -257,6 +260,7 @@ def test_refuse_dual_driver_allows_unbound_fresh_create(monkeypatch) -> None:
     assert fal.refuse_dual_driver_launch(requested_run_id="", requested_mode="full-auto") is None
 
 
+@pytest.mark.real_executions_root  # _seed_client supplies its own INTERVIEW_MUX_ROOT
 def test_create_run_allows_unbound_cli_driver_fresh(tmp_path, monkeypatch) -> None:
     """Fresh kickoff must not 409 when the launching CLI driver is already visible."""
     client = _seed_client(tmp_path, monkeypatch)
