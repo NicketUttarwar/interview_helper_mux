@@ -191,28 +191,41 @@ EXTERNAL_EVIDENCE: tuple[str, ...] = (
 # verdict, so an explanation can never quietly promote anything.
 KNOWN_DIVERGENCES: dict[str, str] = {
     "missing_framing": (
-        "**Traced, and it is not a replay artifact.** At exec_5188 seq 207 the "
-        "driver's own ledger has `missing_framing` *done* eight seconds earlier (seq "
-        "198, 04:34:05Z) and never invalidated, yet the solver calls it confidently "
-        "runnable. The cause is `stage_outputs_present('missing_framing')` → "
-        "`stage_completion._research_thin_late_refuse`, which refuses every "
-        "Shape/gap consumer while `research_shape_core_thin(ctx)` holds. "
-        "`mastering_research_rollup` *had* run (seq 181–183, 04:30:27Z) and wrote a "
-        "**thin** dossier, and it is dispatched exactly once in the whole run — so "
-        "the thinness never clears, `missing_framing` reads incomplete for the rest "
-        "of the phase, and `solver.stage_done` returns False on a stage that "
-        "finished. Reproducing the seq-207 snapshot gives "
-        "`stage_artifact_incompleteness('missing_framing')` = \"research shape-core "
-        "thin — resume mastering_research_rollup\" from the run's real bytes: the "
-        "dossier is present in the snapshot and thin, not a wrong revision. So this "
-        "is a genuine defect in the completeness predicate, where an early gap-phase "
-        "stage can never look complete until a research artifact is thick. The "
-        "solver is arguably *right* — the driver reached the same conclusion three "
-        "minutes later and re-dispatched `missing_framing` twice (seq 235, 245) — but "
-        "it is still a real ordering disagreement, so it stays in the unexplained "
-        "count. Because the driver did re-run the stage after the divergence, its "
-        "history does not prove the stage was unrunnable, so this is **not** a D12 "
-        "driver regression."
+        "**Resolved: the replay was shown content from 11h33m in the future.** "
+        "Superseded twice. The A-01 research-thin latch first diagnosed here was real "
+        "and is fixed (`b01d8436`); with it gone the refusal at exec_5188 seq 207 "
+        "became `missing_framing batch_fill — LLM must score 34 segment(s)`, and that "
+        "one is an artifact of the producer witness.\n"
+        "\n"
+        "  The run's `.archived/20260903T155920Z` copy of "
+        "`understanding/gap_evaluations.json` is the pre-repair revision committed at "
+        "04:42:31Z, and it decides the question. Its 234 evaluations partition into "
+        "three append blocks whose `_meta.repairs` stamps land strictly inside their "
+        "own block, matching the three `missing_framing` dispatches exactly: "
+        "**0–78 committed 04:34:05Z, 79–156 committed 04:39:57Z, 157–233 committed "
+        "04:42:31Z**. Unscored batch-coverage fills appear at indices **146–156 only** "
+        "— inside the *second* block. Run 1's block carries **zero** of them and every "
+        "row untagged. So at the 04:34:13Z decision point the artifact was run 1's 79 "
+        "scored evaluations, the batch_fill condition was **false**, and rebuilding the "
+        "snapshot with that revision gives `stage_done=True` → `already_done` → the "
+        "solver **agrees** with the driver's `gap_framing_compose`. Rebuilding it with "
+        "the 04:39:57Z revision reproduces the divergence, which is precisely why the "
+        "driver re-dispatched `missing_framing` at 04:40:06Z (seq 245, source `rerun`): "
+        "run 2's sparse shard is what introduced the fills. `seg_032` shows the "
+        "mechanism in one row — scored `severity=medium/missing_callback` in block 1, "
+        "an unscored `ok_with_light_bridge` fill in block 2, scored again in block 3.\n"
+        "\n"
+        "  One correction to the record, since the timing argument is the whole case: "
+        "the 34 fills in the surviving file carry **no repair stamp at all**. They are "
+        "`filled_by=missing_framing_batch_coverage / reason=llm_sparse_shard_output`, "
+        "minted by the stage body on a sparse LLM shard. The `_meta.repairs` instants "
+        "(16:07:16Z, five `default_value` patches; 16:35:33Z, 45 "
+        "`fabricate_evaluation` rows) describe *different* rows, none of which the "
+        "predicate flags. The ~11.5h gap is real but the witness for it is "
+        "`_meta.committed_at` (16:07:16Z, stamped by "
+        "`artifact_lifecycle.fingerprint_artifact` over the body actually in the file), "
+        "not the repair log. That is the witness `content_postdates_point` measures, "
+        "and it is what excuses this divergence — this prose does not."
     ),
     "content_brief_reanchor": (
         "`content_brief_reanchor` executes as a substep and never emits a "
@@ -224,6 +237,26 @@ KNOWN_DIVERGENCES: dict[str, str] = {
         "retired, and the solver correctly calls it runnable from state that is wrong."
     ),
 }
+
+# Findings from adjacent work that bear on the numbers above but were deliberately not
+# implemented. Recorded so they are not rediscovered from scratch; neither is a gate.
+ADJACENT_FINDINGS: tuple[str, ...] = (
+    "The `_MASTERING_SCHEMA_STAGES` short-circuit still swallows the research-thin "
+    "refusal for `mastering_shape_agenda` and `mastering_shape_candidates`. Wiring it "
+    "through is **not** obviously safe: the rollup's about-to-bind branch cannot fire "
+    "before the first Shape stage runs, so a naive fix risks minting a *fresh* latch of "
+    "the same shape as the A-01 one that `b01d8436` just removed.",
+    "\"Stale record versus live state\" looks like the general shape of this codebase's "
+    "recurring completed-but-inadequate class, of which "
+    "`research_dossier_shape_core_stale` is one instance. A single predicate might cover "
+    "several of them, but that is a refactor rather than a fix, and it is unowned.",
+    "The `content_postdates_point` witness this report relies on is only as good as "
+    "`_meta.committed_at` coverage. Artifacts written without going through "
+    "`artifact_lifecycle.fingerprint_artifact` carry no stamp, so a future-content "
+    "divergence on one of those would land in the genuine residue and veto. That "
+    "direction is the safe one, but it means the reconstruction-artifact count is a "
+    "floor, not an exact figure.",
+)
 
 FIDELITY: tuple[str, ...] = (
     "Artifact presence at time T is reconstructed from two witnesses: file mtime (the "
@@ -846,10 +879,32 @@ class Observation:
     choice_ever_dispatched: bool | None = None
     choice_evidence: str = ""
     regression_proof: str = ""
+    future_content: str = ""
 
     @property
     def family(self) -> str:
         return self.reason.split(":", 1)[0] if self.reason else "unknown"
+
+    @property
+    def resolution(self) -> str:
+        """Which reconstruction limitation, if any, accounts for a choice divergence.
+
+        Two independent limitations, each with its own witness, and one residue:
+
+        ``mtime_only``              the preferred stage emits no ``kind=stage`` ledger
+                                    row, so its done-timeline is marker mtime alone.
+        ``content_postdates_point`` the artifact that decided its runnability records a
+                                    commit *after* this decision point.
+        ``genuine``                 neither witness applies. This is the residue the
+                                    D12 gate counts.
+        """
+        if self.klass != CHOICE:
+            return ""
+        if self.choice_evidence != "ledger":
+            return "mtime_only"
+        if self.future_content:
+            return "content_postdates_point"
+        return "genuine"
 
     @property
     def driver_regression(self) -> bool:
@@ -859,7 +914,7 @@ class Observation:
     @property
     def unexplained(self) -> bool:
         """A choice divergence the replay's own evidence cannot account for."""
-        return self.klass == CHOICE and self.choice_evidence == "ledger"
+        return self.resolution == "genuine"
 
     def as_row(self) -> dict[str, Any]:
         row: dict[str, Any] = {
@@ -883,6 +938,9 @@ class Observation:
         if self.choice_evidence:
             row["choice_evidence"] = self.choice_evidence
             row["unexplained"] = self.unexplained
+            row["resolution"] = self.resolution
+            if self.future_content:
+                row["future_content"] = self.future_content
         if self.klass == CHOICE:
             row["driver_regression"] = self.driver_regression
             if self.regression_proof:
@@ -990,6 +1048,48 @@ def regression_proof(
         "%Y-%m-%dT%H:%M:%SZ"
     )
     return f"driver recorded `done` at {done_at_iso} and never started it again"
+
+
+def content_postdates_point(
+    snapshot_dir: Path, rels: Iterable[str], epoch: float
+) -> str:
+    """Proof that bytes the replay showed the solver did not exist at ``epoch``.
+
+    ``_meta.committed_at`` is stamped by ``artifact_lifecycle.fingerprint_artifact``
+    at commit time and describes *the body currently in the file*, alongside a
+    ``content_hash`` of that body. So when it post-dates the decision point, the
+    producer witness has handed the solver an artifact revision the live run could not
+    have shown it — the first FIDELITY limitation, measured off the run's own bytes
+    instead of narrated.
+
+    This is deliberately conservative. An artifact with no ``_meta.committed_at`` is no
+    proof and yields ``""``, which leaves the divergence in the unexplained count. The
+    witness can only ever *excuse* a divergence on positive, per-run evidence.
+    """
+    for rel in rels:
+        path = snapshot_dir / rel
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        stamp = (doc.get("_meta") or {}).get("committed_at") if isinstance(
+            doc.get("_meta"), dict
+        ) else None
+        committed = _epoch(stamp)
+        if committed is None or committed <= epoch:
+            continue
+        gap = committed - epoch
+        hours, rem = divmod(int(gap), 3600)
+        return (
+            f"`{rel}` records `_meta.committed_at` "
+            f"{datetime.fromtimestamp(committed, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}, "
+            f"{hours}h{rem // 60:02d}m after this decision point"
+        )
+    return ""
 
 
 def classify(comparison: Any, dispatched_ever: set[str]) -> tuple[str, bool | None]:
@@ -1150,6 +1250,13 @@ def replay_run(
                     if klass == CHOICE
                     else ""
                 ),
+                future_content=(
+                    content_postdates_point(
+                        dest, outputs.get(comparison.solver_choice or "", ()), point.epoch
+                    )
+                    if klass == CHOICE
+                    else ""
+                ),
             )
         )
         if census_stride > 0 and index % census_stride == 0:
@@ -1191,15 +1298,17 @@ def promotion_verdict(summary: dict[str, Any]) -> dict[str, Any]:
     """
     checks: list[dict[str, Any]] = []
     unexplained = summary["choice_unexplained"]
+    res = summary.get("choice_resolution") or {}
     checks.append(
         {
             "id": "no_unexplained_disagreements",
             "pass": unexplained <= MAX_CHOICE_DIVERGENCES,
             "detail": (
-                f"{unexplained} unexplained choice divergence(s) of "
+                f"{unexplained} genuine choice divergence(s) of "
                 f"{summary['choice_divergences']} total "
-                f"({summary['choice_reconstruction_limited']} attributed to "
-                f"mtime-only reconstruction); gate allows {MAX_CHOICE_DIVERGENCES}"
+                f"({res.get('mtime_only', 0)} attributed to mtime-only reconstruction, "
+                f"{res.get('content_postdates_point', 0)} to content that post-dates "
+                f"the decision point); gate allows {MAX_CHOICE_DIVERGENCES}"
             ),
         }
     )
@@ -1299,6 +1408,13 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
         ),
         "choice_divergences": counts[CHOICE],
         "choice_unexplained": sum(1 for o in observations if o.unexplained),
+        "choice_resolution": {
+            key: sum(1 for o in observations if o.resolution == key)
+            for key in ("mtime_only", "content_postdates_point", "genuine")
+        },
+        "choice_future_content_examples": [
+            o.as_row() for o in observations if o.resolution == "content_postdates_point"
+        ][:40],
         "driver_regressions": sum(1 for o in observations if o.driver_regression),
         "driver_regression_examples": [
             o.as_row() for o in observations if o.driver_regression
@@ -1328,6 +1444,7 @@ def summarise(replays: list[RunReplay]) -> dict[str, Any]:
         "structural_defer_rate": (
             (census.defer_buckets.get("structural", 0) / verdicts) if verdicts else None
         ),
+        "adjacent_findings": list(ADJACENT_FINDINGS),
         "pipeline_census": [
             {"run_id": r.run_id, **row} for r in replays for row in r.pipeline_census
         ][:40],
@@ -1432,6 +1549,22 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "AUTHORITATIVE` stays OFF."
         )
         add("")
+    else:
+        res = summary["choice_resolution"]
+        attributed = res["mtime_only"] + res["content_postdates_point"]
+        if attributed:
+            add(
+                f"> **Read this with the verdict.** The gate passes because all "
+                f"{attributed} of the {summary['choice_divergences']} choice "
+                "divergences are attributed to *known limitations of the replay "
+                "instrument*, not because the solver was independently shown to be "
+                "right at those points. Each attribution rests on a per-run witness "
+                "recorded below (§ *How the choice divergences resolve*), and the "
+                "replay genuinely cannot settle those points either way. D14 still "
+                "requires a live full-auto to confirm, and that confirmation is doing "
+                "more work than usual here."
+            )
+            add("")
 
     add("### Retired bars — reported as context, never as vetoes")
     add("")
@@ -1473,15 +1606,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "were already complete."
     )
     add("")
+    res = summary["choice_resolution"]
     add(
-        f"Real disagreements: **{summary['choice_unexplained']} unexplained** "
-        f"(of {summary['choice_divergences']} choice divergences; "
-        f"{summary['choice_reconstruction_limited']} are attributable to mtime-only "
-        f"state reconstruction, see below), and **{summary['driver_regressions']}** "
-        "regression(s) against the driver. Those two numbers are the D12 gate. The "
-        "coverage figure above is worthless as a gate in either direction — a solver "
-        "with no justified opinion disagrees with nobody — which is why it is never "
-        "quoted alone and no longer vetoes."
+        f"Real disagreements: **{summary['choice_unexplained']} genuine** of "
+        f"{summary['choice_divergences']} choice divergences "
+        f"({res['mtime_only']} attributed to mtime-only state reconstruction, "
+        f"{res['content_postdates_point']} to an artifact whose own commit stamp "
+        f"post-dates the decision point), and **{summary['driver_regressions']}** "
+        "regression(s) against the driver. Those two numbers are the D12 gate, and the "
+        "attributions behind the first are itemised under *How the choice divergences "
+        "resolve*. The coverage figure above is worthless as a gate in either direction "
+        "— a solver with no justified opinion disagrees with nobody — which is why it "
+        "is never quoted alone and no longer vetoes."
     )
     add("")
     add(
@@ -1649,17 +1785,56 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "a choice divergence instead."
         )
         add("")
+    res = summary["choice_resolution"]
+    add("### How the choice divergences resolve")
+    add("")
     add(
-        f"Of those {counts[CHOICE]} choice divergences, **{summary['choice_unexplained']}** "
-        f"{'is' if summary['choice_unexplained'] == 1 else 'are'} unexplained and "
-        f"**{summary['choice_reconstruction_limited']}** name a "
-        "preferred stage that produced no `kind=stage` ledger row anywhere in its run. "
-        "For that second group the stage's done-timeline rests on the surviving "
-        "`.stage_done` marker's mtime, which records the last write rather than the "
-        "first, so the replay cannot distinguish a solver preference from a marker "
-        "that was written early, invalidated and rewritten late. Both groups are listed."
+        f"The {counts[CHOICE]} choice divergences resolve as "
+        f"**{res['mtime_only'] + res['content_postdates_point']} reconstruction "
+        f"artifacts and {res['genuine']} genuine**. Only the genuine residue reaches "
+        "the D12 gate. Each row states the criterion and the witness it needs, and "
+        "every attribution is computed per run from the corpus bytes — no divergence is "
+        "excused by prose."
     )
     add("")
+    add("| Resolution | Count | Criterion | Witness |")
+    add("|---|---|---|---|")
+    add(
+        f"| `mtime_only` | {res['mtime_only']} | the preferred stage emits no "
+        "`kind=stage` ledger row anywhere in its run, so its done-timeline rests on the "
+        "surviving `.stage_done` marker's mtime — which records the *last* write, not "
+        "the first | absence of any `kind=stage` row for that stage |"
+    )
+    add(
+        f"| `content_postdates_point` | {res['content_postdates_point']} | an artifact "
+        "that decided the preferred stage's runnability records a commit **after** this "
+        "decision point, so the producer witness fed the solver a revision the live run "
+        "could not have shown it | `_meta.committed_at` on that artifact, stamped at "
+        "commit time by `artifact_lifecycle.fingerprint_artifact` |"
+    )
+    add(
+        f"| **`genuine`** | **{res['genuine']}** | neither witness applies — the replay "
+        "has sound evidence and the solver still disagreed | — |"
+    )
+    add("")
+    add(
+        "The two limitations are the first and sixth entries of *What this replay "
+        "cannot prove* below. Neither witness can be satisfied by an absent field: an "
+        "artifact with no `_meta.committed_at` is no proof and leaves its divergence in "
+        "the genuine residue, so the attribution can only ever be made on positive "
+        "evidence."
+    )
+    add("")
+    if summary["choice_future_content_examples"]:
+        add("Divergences excused by a future-content commit, with their proof:")
+        add("")
+        for row in summary["choice_future_content_examples"]:
+            add(
+                f"- `{row['run_id']}` seq {row['seq']} ({row['at']}): driver ran "
+                f"`{row['stage']}`, solver would have run `{row['solver_choice']}` — "
+                f"{row.get('future_content', '')}"
+            )
+        add("")
 
     add("### Regressions against the driver (D12 condition 2)")
     add("")
@@ -1714,29 +1889,41 @@ def render_markdown(summary: dict[str, Any]) -> str:
     if summary["choice_pairs"]:
         add("### Choice divergences (real disagreements)")
         add("")
-        add("| Driver ran | Solver would have run | Count | Evidence | Regression |")
+        add("| Driver ran | Solver would have run | Count | Resolution | Regression |")
         add("|---|---|---|---|---|")
-        evidence: dict[str, str] = {}
+        resolutions: dict[str, str] = {}
         regressed: dict[str, bool] = {}
         for row in summary["choice_examples"]:
             key = f"{row['stage']} -> {row['solver_choice']}"
-            evidence.setdefault(key, str(row.get("choice_evidence") or ""))
+            resolutions.setdefault(key, str(row.get("resolution") or ""))
             regressed[key] = regressed.get(key, False) or bool(row.get("driver_regression"))
+        labels = {
+            "mtime_only": "mtime-only reconstruction",
+            "content_postdates_point": "content post-dates the point",
+            "genuine": "**genuine — counts against the gate**",
+        }
         for pair, n in summary["choice_pairs"].items():
             ran, would = pair.split(" -> ", 1)
-            kind = evidence.get(pair, "")
-            label = "**unexplained**" if kind == "ledger" else "mtime-only reconstruction"
+            label = labels.get(resolutions.get(pair, ""), "unclassified")
             reg = "**yes**" if regressed.get(pair) else "no"
             add(f"| `{ran}` | `{would}` | {n} | {label} | {reg} |")
         add("")
         if summary["choice_unexplained_examples"]:
-            add("Unexplained, each needing its own account:")
+            add("Genuine residue — each of these counts against the gate:")
             add("")
             for row in summary["choice_unexplained_examples"]:
                 add(
                     f"- `{row['run_id']}` seq {row['seq']} ({row['at']}): driver ran "
                     f"`{row['stage']}`, solver would have run `{row['solver_choice']}`"
                 )
+            add("")
+        else:
+            add(
+                "**No genuine residue.** Every choice divergence carries one of the two "
+                "reconstruction witnesses above. That is what clears the D12 condition, "
+                "and it is a statement about the instrument as much as about the solver "
+                "— see the caveat under *Verdict*."
+            )
             add("")
         traced = {
             stage: note
@@ -1748,7 +1935,10 @@ def render_markdown(summary: dict[str, Any]) -> str:
             add("")
             add(
                 "These accounts are hand-maintained and deliberately do not change the "
-                "verdict — an explanation must never be able to promote anything."
+                "verdict — an explanation must never be able to promote anything. Where "
+                "an account below describes a divergence that no longer counts, the "
+                "thing that stopped it counting is the machine-computed witness in the "
+                "resolution table, never the prose."
             )
             add("")
             for stage, note in sorted(traced.items()):
@@ -1767,6 +1957,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
     add("## What this replay cannot prove")
     add("")
     for note in summary["fidelity"]:
+        add(f"- {note}")
+    add("")
+    add("## Known-adjacent, deliberately not implemented")
+    add("")
+    add(
+        "Recorded so they are not rediscovered from scratch. None of these is a gate, "
+        "and none is owned by this tool."
+    )
+    add("")
+    for note in summary["adjacent_findings"]:
         add(f"- {note}")
     add("")
     return "\n".join(lines)

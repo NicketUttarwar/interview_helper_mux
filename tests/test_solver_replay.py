@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,11 @@ def _summary(**patch) -> dict:
         "driver_regressions": 0,
         "authority_rate": 0.95,
         "structural_defer_rate": 0.0,
+        "choice_resolution": {
+            "mtime_only": 0,
+            "content_postdates_point": 0,
+            "genuine": 0,
+        },
     }
     base.update(patch)
     return base
@@ -83,16 +89,164 @@ def test_a_reconstruction_limited_divergence_is_reported_but_does_not_veto() -> 
     """The evidence, not the solver, is what fails on these — and dropping them silently
     would be the same laundering this harness exists to prevent, so they stay visible."""
     verdict = replay.promotion_verdict(
-        _summary(choice_divergences=13, choice_reconstruction_limited=13)
+        _summary(
+            choice_divergences=14,
+            choice_reconstruction_limited=14,
+            choice_resolution={
+                "mtime_only": 13,
+                "content_postdates_point": 1,
+                "genuine": 0,
+            },
+        )
     )
     assert verdict["promote"] is True
     detail = verdict["checks"][0]["detail"]
-    assert "13" in detail and "mtime-only" in detail
+    assert "14 total" in detail
+    assert "13 attributed to mtime-only" in detail
+    assert "1 to content that post-dates" in detail
 
 
 def test_evidence_is_read_off_the_ledger_not_guessed() -> None:
     assert replay.choice_evidence("mix", {"mix", "edl"}) == "ledger"
     assert replay.choice_evidence("content_brief_reanchor", {"mix"}) == "mtime_only"
+
+
+# --- the two reconstruction witnesses, and the residue they leave ------------
+
+def test_a_divergence_resolves_to_exactly_one_of_three_outcomes() -> None:
+    assert _observation(replay.CHOICE, choice_evidence="mtime_only").resolution == "mtime_only"
+    assert _observation(replay.CHOICE, choice_evidence="ledger").resolution == "genuine"
+    assert (
+        _observation(
+            replay.CHOICE, choice_evidence="ledger", future_content="committed later"
+        ).resolution
+        == "content_postdates_point"
+    )
+    assert _observation(replay.SKIP).resolution == ""
+
+
+def test_only_the_genuine_residue_counts_as_unexplained() -> None:
+    """This is the gate's input, so the mapping is pinned rather than implied."""
+    assert _observation(replay.CHOICE, choice_evidence="ledger").unexplained is True
+    for excused in (
+        _observation(replay.CHOICE, choice_evidence="mtime_only"),
+        _observation(
+            replay.CHOICE, choice_evidence="ledger", future_content="committed later"
+        ),
+    ):
+        assert excused.unexplained is False
+
+
+def test_future_content_is_proved_from_committed_at_not_assumed(tmp_path: Path) -> None:
+    rel = "understanding/gap_evaluations.json"
+    path = tmp_path / rel
+    path.parent.mkdir(parents=True)
+    point = 1_000_000.0
+    later = datetime.fromtimestamp(point + 41_580, timezone.utc).isoformat()
+    path.write_text(
+        json.dumps({"evaluations": [], "_meta": {"committed_at": later}}), encoding="utf-8"
+    )
+    proof = replay.content_postdates_point(tmp_path, (rel,), point)
+    assert proof
+    assert "committed_at" in proof and "11h33m" in proof
+
+
+def test_an_artifact_committed_before_the_point_is_no_excuse(tmp_path: Path) -> None:
+    rel = "understanding/gap_evaluations.json"
+    path = tmp_path / rel
+    path.parent.mkdir(parents=True)
+    point = 1_000_000.0
+    earlier = datetime.fromtimestamp(point - 60, timezone.utc).isoformat()
+    path.write_text(json.dumps({"_meta": {"committed_at": earlier}}), encoding="utf-8")
+    assert replay.content_postdates_point(tmp_path, (rel,), point) == ""
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        {"evaluations": []},
+        {"_meta": {}},
+        {"_meta": {"committed_at": ""}},
+        {"_meta": {"committed_at": "not-a-date"}},
+        {"_meta": "not-a-dict"},
+        [],
+    ],
+)
+def test_a_missing_or_unreadable_stamp_leaves_the_divergence_vetoing(
+    tmp_path: Path, doc
+) -> None:
+    """The witness must only ever excuse on positive evidence, never on absence."""
+    rel = "a.json"
+    (tmp_path / rel).write_text(json.dumps(doc), encoding="utf-8")
+    assert replay.content_postdates_point(tmp_path, (rel,), 1_000_000.0) == ""
+
+
+def test_an_absent_artifact_is_not_an_excuse(tmp_path: Path) -> None:
+    assert replay.content_postdates_point(tmp_path, ("nope.json",), 1_000_000.0) == ""
+    assert replay.content_postdates_point(tmp_path, (), 1_000_000.0) == ""
+
+
+def test_the_summary_reports_the_resolution_split_over_every_divergence() -> None:
+    run = replay.RunReplay(run_id="r", points=3, evaluated=3)
+    run.observations.append(_observation(replay.CHOICE, choice_evidence="mtime_only"))
+    run.observations.append(
+        _observation(replay.CHOICE, choice_evidence="ledger", future_content="later")
+    )
+    run.observations.append(_observation(replay.CHOICE, choice_evidence="ledger"))
+    summary = replay.summarise([run])
+    assert summary["choice_resolution"] == {
+        "mtime_only": 1,
+        "content_postdates_point": 1,
+        "genuine": 1,
+    }
+    assert sum(summary["choice_resolution"].values()) == summary["choice_divergences"]
+    assert summary["choice_unexplained"] == 1
+    assert summary["verdict"]["promote"] is False
+
+
+def test_the_report_states_the_resolution_split_and_its_criteria() -> None:
+    run = replay.RunReplay(run_id="r", points=2, evaluated=2)
+    run.observations.append(_observation(replay.CHOICE, choice_evidence="mtime_only"))
+    run.observations.append(
+        _observation(
+            replay.CHOICE,
+            choice_evidence="ledger",
+            future_content="`a.json` records `_meta.committed_at` later",
+        )
+    )
+    markdown = replay.render_markdown(replay.summarise([run]))
+    assert "How the choice divergences resolve" in markdown
+    assert "2 reconstruction artifacts and 0 genuine" in markdown
+    assert "_meta.committed_at" in markdown
+    assert "Criterion" in markdown
+
+
+def test_a_gate_cleared_by_attribution_carries_the_caveat_beside_the_verdict() -> None:
+    """If a whole class is excused by a tool limitation, the reader must see it there."""
+    run = replay.RunReplay(run_id="r", points=1, evaluated=1)
+    run.observations.append(_observation(replay.CHOICE, choice_evidence="mtime_only"))
+    markdown = replay.render_markdown(replay.summarise([run]))
+    verdict_section = markdown.split("## Headline")[0]
+    assert "D12 gate MET" in verdict_section
+    assert "known limitations of the replay instrument" in verdict_section
+    assert "Read this with the verdict" in verdict_section
+
+
+def test_a_clean_pass_does_not_claim_a_caveat_it_does_not_have() -> None:
+    markdown = replay.render_markdown(replay.summarise([]))
+    assert "D12 gate MET" in markdown
+    assert "Read this with the verdict" not in markdown
+
+
+def test_the_adjacent_findings_are_recorded_without_becoming_gates() -> None:
+    markdown = replay.render_markdown(replay.summarise([]))
+    for note in replay.ADJACENT_FINDINGS:
+        assert note in markdown
+    assert "_MASTERING_SCHEMA_STAGES" in markdown
+    verdict_ids = {
+        c["id"] for c in replay.promotion_verdict(_summary())["checks"]
+    }
+    assert verdict_ids == {"no_unexplained_disagreements", "no_regression_against_driver"}
 
 
 def test_promotion_needs_every_condition_at_once() -> None:
