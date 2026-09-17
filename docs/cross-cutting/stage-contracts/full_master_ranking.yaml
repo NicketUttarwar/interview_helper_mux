@@ -76,6 +76,10 @@ inputs:
     producer: speaker_roles
   - path: understanding/talking_points.json
     producer: talking_points_compose
+  - path: analysis/high_value_speech_boosts.json
+    producer: low_conf_island_scan
+  - path: analysis/high_value_speech_islands.json
+    producer: low_conf_island_scan
 sufficiency:
 - path: ranked_segments
   rule: min_rows

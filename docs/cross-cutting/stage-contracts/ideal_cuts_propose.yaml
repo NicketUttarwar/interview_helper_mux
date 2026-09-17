@@ -21,6 +21,14 @@ inputs:
     producer: speaker_roles
   - path: understanding/talking_points.json
     producer: talking_points_compose
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: transcript/review_queue.json
+    producer: transcript_review_build
+  - path: analysis/run_golden_facts.json
+    producer: audio_probe_build
+  - path: transcript/protected_zones.json
+    producer: audio_probe_build
 sufficiency:
 - path: cuts
   rule: min_rows

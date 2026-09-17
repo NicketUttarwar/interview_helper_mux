@@ -1135,18 +1135,29 @@ Sequence by **caller-file count ascending**, not by line count — the cost and 
 sites. That gives `seed_policy` (3) → `heal_routing` (4) → `execution_invalidation_profiles` (6) →
 `recovery_controller` (7) → … → `delivery_guardrails` (30) last.
 
-Three modules are **blocked on other work** and must not be started early:
+One module is **blocked on other work** and must not be started early:
 
-- `execution_invalidation_profiles` — blocked on `p15-precision-invalidate` (`pending`).
 - `heal_routing` — blocked on contract `remediation` edges being populated.
-- `forensics_stall` — blocked on `p15-reachability-real`; `ship_reachable()` is still a
-  conservative stub (`unknown ⇒ reachable`).
 
-And one precondition applies to the whole item: **contract `inputs.hard` is populated for only 30 of
-90 contracts** and `sufficiency` for 41 of 90. Until those reach 90/90, removing imperative input
-validation leaves stages with no input checking at all (H-11). *The replacement must exist before the
-original is removed* — which, on the evidence of this campaign, is the rule that most wants stating
-explicitly.
+Two blockers listed here have since **cleared**, and the modules they gated are now sequenced on
+caller-file count like the rest:
+
+- `execution_invalidation_profiles` — was blocked on `p15-precision-invalidate`. That has landed:
+  `precision_invalidate_enabled()` (`artifact_dependency_graph.py:540-545`) returns `True` when the
+  env var is unset, i.e. precision invalidation defaults **ON**, with the per-stage
+  `precision_eligible` / `precision_droppable` gate as the safety. Note the per-stage gate keys on
+  `contract_conformance.STRICT_GROUPS`, so precision is inert for any group still report-only.
+- `forensics_stall` — was blocked on `p15-reachability-real`. That has landed too:
+  `ship_reachability.py` is a full 733-line implementation and `ship_reachable(ctx)` decides on
+  `master_committed` / `severed_requirements`, not on `unknown ⇒ reachable`.
+
+And one precondition applies to the whole item: **contract `inputs.hard` is populated for 42 of 91
+contract files** (91 `*.yaml`, of which `_arbiter.yaml` is not a stage) and `sufficiency` for 43 of
+91. Only 11 files are fully hollow — no inputs, no outputs — and **none of the 11 is a pipeline
+stage**: they are `meta` sub-volleys, two `gate` non-stages and `_arbiter`. Until coverage reaches
+91/91, removing imperative input validation leaves stages with no input checking at all (H-11). *The
+replacement must exist before the original is removed* — which, on the evidence of this campaign, is
+the rule that most wants stating explicitly.
 
 ### 12.5 Tooling the successor inherits
 

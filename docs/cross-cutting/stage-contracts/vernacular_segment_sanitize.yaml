@@ -16,6 +16,7 @@ outputs:
   staging: true
 - path: analysis/vernacular_must_keep.json
   staging: true
+- path: transcript/protected_zones.json
 inputs:
   hard: []
   soft:
@@ -23,6 +24,11 @@ inputs:
     producer: audio_probe_build
   - path: segments/manifest.json
     producer: segment_classification
+  - path: analysis/run_golden_facts.json
+    producer: audio_probe_build
+  - path: transcript/speaker_flows.json
+    producer: transcribe
+  - path: vernacular/audio_tags_by_flow.json
 sufficiency: []
 propagation:
   invalidates_stages:

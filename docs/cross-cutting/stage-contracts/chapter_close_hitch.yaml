@@ -62,6 +62,8 @@ inputs:
     producer: talking_points_compose
   - path: segments/boundaries.json
     producer: boundary_detection
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency:
 - path: status
   rule: non_empty_string

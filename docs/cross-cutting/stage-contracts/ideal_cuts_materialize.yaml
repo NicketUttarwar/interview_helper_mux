@@ -23,6 +23,7 @@ inputs:
     producer: transcribe
   - path: ingest/normalized.wav
     producer: ingest
+  - path: segments/boundaries.json
 sufficiency: []
 propagation:
   invalidates_stages: []

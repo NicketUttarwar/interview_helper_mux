@@ -324,9 +324,79 @@ def test_strict_group_env_override(monkeypatch: pytest.MonkeyPatch):
     assert cc.strict_groups() == frozenset()
 
 
-def test_prepare_is_the_flipped_group():
+def test_the_flipped_groups_are_pinned():
     """Pinned so a flip is a deliberate, reviewed change — and only ever adds."""
-    assert cc.STRICT_GROUPS == ("prepare",)
+    assert cc.STRICT_GROUPS == ("prepare", "understand-c", "sound")
+
+
+# Why each remaining group is still report-only. Every entry is a claim about
+# code or about the ownership catalog, not about a contract — none of them can be
+# closed by declaring another input, which is why the D11 ratchet stopped here.
+REPORT_ONLY_REASONS: dict[str, str] = {
+    "understand-a": (
+        "flipping it makes content_context / talking_points_compose / "
+        "ideal_cuts_propose precision_droppable, which is the state "
+        "tests/test_precision_invalidation.py::test_an_ungreen_consumer_is_never_"
+        "dropped pins against"
+    ),
+    "understand-b": (
+        "flipping it drops boundary_topic_resplit from framing_posture_decide's "
+        "fan-out, and boundary_topic_resplit still reads protected_zones / "
+        "run_golden_facts / interview_spine through helpers no contract declares"
+    ),
+    "fill_gaps": (
+        "missing_framing and gap_framing_compose write "
+        "understanding/interviewer_script.txt with Path.write_text, bypassing the "
+        "commit path; the artifact has no ownership catalog row, so it can be "
+        "neither declared as an output nor honestly ignored"
+    ),
+    "plan_rank": (
+        "flipping it drops gap_report_sanitize from nugget_layup_compose's "
+        "fan-out even though nugget_layup_compose is a permitted writer of "
+        "understanding/gap_report.json — _input_producers collapses that "
+        "five-writer artifact to one canonical producer"
+    ),
+    "build": (
+        "5 of 11 stages have no row in tools/contract_dependency_data.py, so "
+        "their inputs are whatever the generator could derive; edl_narrative_audit "
+        "declares one input and reads five"
+    ),
+    "ship": (
+        "3 of 7 stages have no dependency-data row; master_transcript_build reads "
+        "six undeclared artifacts and podcast_publish writes publish/cover.png "
+        "and publish/cover_meta.json undeclared"
+    ),
+}
+
+
+def test_the_report_only_groups_are_pinned():
+    """The six groups the ratchet stopped short of, each with its reason.
+
+    Pinned in the same shape as the flipped set so closing one of these gaps is a
+    reviewed change too, and so the list can only shrink.
+    """
+    from interview_mux.v2.phases import PHASES, phase_stage_ids
+
+    dispatchable = {str(p.get("id")) for p in PHASES if phase_stage_ids(str(p.get("id")))}
+    assert dispatchable - set(cc.STRICT_GROUPS) == set(REPORT_ONLY_REASONS)
+
+
+def test_a_flip_leaves_precision_invalidation_inert():
+    """A flipped group must not start dropping stages from invalidation sets.
+
+    `precision_eligible` reads `STRICT_GROUPS`, so flipping a group is also a
+    claim that its stages may be left out of an upstream redo's fan-out. Under-
+    invalidation ships a master built from stale parts, so a flip is only allowed
+    while `transitive_invalidate` still equals `_blanket_invalidate` everywhere.
+    """
+    from interview_mux import artifact_dependency_graph as adg
+    from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+    dropped = {
+        sid: [s for s in adg._blanket_invalidate(sid) if s not in adg.transitive_invalidate(sid)]
+        for sid in list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    }
+    assert {k: v for k, v in dropped.items() if v} == {}
 
 
 def test_fail_mode_actually_fails_for_a_flipped_group(tmp_path: Path):

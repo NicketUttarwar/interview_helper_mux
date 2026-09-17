@@ -16,6 +16,7 @@ outputs:
   staging: true
 - path: preclean/lineage.json
   staging: true
+- path: preclean/skip.json
 inputs:
   hard: []
   soft:

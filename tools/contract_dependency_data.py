@@ -165,6 +165,21 @@ def back(*paths: str) -> list[dict[str, Any]]:
     return [dep(p, producer=None) for p in paths]
 
 
+# `stage_input_helpers.transcript_quality_for_ctx` reads these three and folds
+# them into `payload["transcript_quality"]` for every stage that calls it. It is
+# the read that `tests/test_precision_invalidation.py` pins as the near-miss:
+# undeclared, cross-module, and invisible to a call-depth-0 scan of the stage
+# body. Declared here so the callers' `inputs` are complete at the depth the
+# precision gate reasons about.
+def transcript_quality_reads() -> list[dict[str, Any]]:
+    return [
+        *deps("transcript/review_queue.json", "analysis/run_golden_facts.json"),
+        # `audio_probes.py:100` is the writer; the catalog row names `transcribe`,
+        # so pin the producer the way `vernacular_segment_sanitize` already does.
+        dep("transcript/protected_zones.json", producer="audio_probe_build"),
+    ]
+
+
 def rmw(*paths: str) -> list[dict[str, Any]]:
     """Artifacts this stage both reads and writes.
 
@@ -190,6 +205,11 @@ _PREPARE: dict[str, dict[str, Any]] = {
                 {"path": "ingest/normalized.wav", "producer": "ingest"},
             ]
         },
+        # The self-skip marker (§8.1) is a real committed write —
+        # `stages/audio_preclean.py:33` resolves it through `ctx.final_path` and
+        # the catalog names `audio_preclean` its owner — so it belongs in
+        # `outputs`, not just in `artifact_lifecycle`'s prose.
+        "outputs": [{"path": "preclean/skip.json"}],
         "consumers": ["ingest", "vo_ingest", "vo_synthesize"],
     },
     "ingest": {
@@ -380,6 +400,7 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                 {"path": "ingest/normalized.wav", "producer": "ingest"},
                 {"path": "transcript/review_queue.json", "producer": "transcript_review_build"},
                 *back("segments/manifest.json"),
+                *transcript_quality_reads(),
             ],
         },
         "consumers": [
@@ -402,6 +423,10 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
             ],
             "soft": [
                 {"path": "understanding/speakers.json", "producer": "speaker_roles"},
+                # `_talking_points_base_payload` folds the brief in when it
+                # exists (`stages/understanding.py:125`).
+                {"path": "understanding/content_brief.json", "producer": "content_context"},
+                *transcript_quality_reads(),
             ],
         },
         "consumers": [
@@ -424,6 +449,10 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                     "path": "understanding/talking_points.json",
                     "producer": "talking_points_compose",
                 },
+                # `build_input` folds the brief in when it exists
+                # (`stages/understanding.py:404`).
+                {"path": "understanding/content_brief.json", "producer": "content_context"},
+                *transcript_quality_reads(),
             ],
         },
         "consumers": ["ideal_cuts_materialize", "boundary_detection", "nugget_corpus_mine"],
@@ -436,6 +465,11 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                 {"path": "understanding/ideal_cuts.json", "producer": "ideal_cuts_propose"},
                 {"path": "transcript/full.json", "producer": "transcribe"},
                 {"path": "ingest/normalized.wav", "producer": "ingest"},
+                # `refresh_selection_seed_from_boundaries` / `run_ideal_cuts_
+                # materialize` read the boundaries back (`ideal_cuts.py:1001`,
+                # `:1121`). Every writer of that path is downstream in seed
+                # order, so `back()` omits the producer.
+                *back("segments/boundaries.json"),
             ]
         },
         "consumers": [
@@ -462,10 +496,14 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                     "path": "understanding/ideal_cuts_materialized.json",
                     "producer": "ideal_cuts_materialize",
                 },
+                # The proposal itself, not only the materialised form —
+                # `build_input` passes both (`stages/segmentation.py:124`).
+                {"path": "understanding/ideal_cuts.json", "producer": "ideal_cuts_propose"},
                 {
                     "path": "understanding/source_acoustic_profile.json",
                     "producer": "source_acoustic_profile",
                 },
+                *transcript_quality_reads(),
             ],
         },
         "consumers": [
@@ -486,7 +524,11 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                     "path": "understanding/talking_points.json",
                     "producer": "talking_points_compose",
                 },
+                # `build_classification_payload` passes `bundle.content_brief`
+                # (`segmentation_input_resolver.py:226`).
+                {"path": "understanding/content_brief.json", "producer": "content_context"},
                 *back("master/edl.json"),
+                *transcript_quality_reads(),
             ]
         },
         "consumers": [
@@ -578,8 +620,18 @@ _UNDERSTAND_B: dict[str, dict[str, Any]] = {
                     "producer": "audio_probe_build",
                 },
                 {"path": "segments/manifest.json", "producer": "segment_classification"},
+                # `enforcement_mode_for_ctx` / `load_must_keep_segment_ids` read
+                # the golden facts (`stages/audio_probes.py:38`, `:53`), and the
+                # resplit reads the flows and the audio tags (`:287`, `:289`).
+                *deps("analysis/run_golden_facts.json", "transcript/speaker_flows.json"),
+                # Own artifact, read for its pre-state.
+                *rmw("vernacular/audio_tags_by_flow.json"),
             ]
         },
+        # The resplit rewrites the protected zones it just read
+        # (`stages/audio_probes.py:420`) — read-modify-write, so the path is both
+        # a declared input and a declared output.
+        "outputs": [{"path": "transcript/protected_zones.json"}],
         "consumers": ["low_conf_island_scan", "connector_fuse_pass", "full_master_ranking"],
     },
     "low_conf_island_scan": {
@@ -1240,6 +1292,9 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                     "understanding/speakers.json",
                     "understanding/talking_points.json",
                     "segments/boundaries.json",
+                    # `resolve_keeper_air_bounds` measures the source audio
+                    # (`chapter_close_hitch.py:1755`).
+                    "ingest/normalized.wav",
                 ),
             ]
         },
@@ -1299,6 +1354,10 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                     "understanding/source_topology.json",
                     "understanding/speakers.json",
                     "understanding/talking_points.json",
+                    # `build_input` boosts the ranking with the high-value speech
+                    # scan when it exists (`stages/selection.py:360`, `:367`).
+                    "analysis/high_value_speech_boosts.json",
+                    "analysis/high_value_speech_islands.json",
                 ),
             ],
         },

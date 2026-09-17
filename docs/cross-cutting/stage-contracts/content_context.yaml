@@ -26,6 +26,12 @@ inputs:
   - path: transcript/review_queue.json
     producer: transcript_review_build
   - path: segments/manifest.json
+  - path: transcript/review_queue.json
+    producer: transcript_review_build
+  - path: analysis/run_golden_facts.json
+    producer: audio_probe_build
+  - path: transcript/protected_zones.json
+    producer: audio_probe_build
 sufficiency:
 - path: thesis
   rule: non_empty_string

@@ -72,7 +72,7 @@ records what has to be defused before switching them on.
 | `air_script_compose` | llm_full | mastering/mastering_plan.json, understanding/omit_ledger.json |
 | `air_script_seams` | llm_full | mastering/mastering_plan.json, understanding/gap_framing_plan.json |
 | `assembly_preview` | process | master/assembly_preview.wav |
-| `audio_preclean` | process | preclean/isolated.wav, preclean/provider.json, preclean/lineage.json |
+| `audio_preclean` | process | preclean/isolated.wav, preclean/provider.json, preclean/lineage.json, preclean/skip.json |
 | `audio_probe_build` | process | analysis/run_golden_facts.json, transcript/protected_zones.json, transcript/speaker_flows.json, vernacular/probe_report.json, vernacular/audio_tags_by_flow.json |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
@@ -154,7 +154,7 @@ records what has to be defused before switching them on.
 | `transcript_review_build` | process | transcript/review_queue.json, transcript/corrections.json, glob:transcript/review_clips/*.wav |
 | `transitions` | llm_full | master/transitions.json, understanding/synthetic_framing_plan.json, understanding/synthetic_context_packet.json, master/deferred_transition_pairs.json, master/transitions_pair_freeze.json, master/order_reconcile.json, master/rank_candidates.json, master/story_health.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json |
 | `transitions_refine` | meta | — |
-| `vernacular_segment_sanitize` | process | vernacular/resplit_report.json, segments/manifest.json, analysis/vernacular_must_keep.json |
+| `vernacular_segment_sanitize` | process | vernacular/resplit_report.json, segments/manifest.json, analysis/vernacular_must_keep.json, transcript/protected_zones.json |
 | `vo_ingest` | gate | vo_pickup/ |
 | `vo_line_adjudicate` | llm_full | understanding/vo_line_adjudication.json, understanding/gap_report.json, understanding/nugget_allocation_plan.json |
 | `vo_synthesize` | process | mastering/vo_synthesize.json, master/transitions/, vo_pickup/synthesized/ |

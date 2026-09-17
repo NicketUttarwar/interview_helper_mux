@@ -42,7 +42,31 @@ _ENV_STRICT_GROUPS = "MUX_CONTRACT_STRICT_GROUPS"
 # `prepare` is flipped: its five stages are `process` bodies whose artifact
 # reads and writes are all direct `ctx` calls in one entrypoint each, verified
 # against `web/stages.py::STAGE_BY_ID` and each stage's own raise sites.
-STRICT_GROUPS: tuple[str, ...] = ("prepare",)
+#
+# `understand-c` and `sound` join it on two pieces of evidence, both required.
+# First, every stage in them is clean under
+# `tools/extract_stage_artifact_touches.py --entrypoint-only --call-depth 0`
+# (the stage body plus its same-module helpers) fed through `evaluate()` — the
+# same matcher this module uses. Second, and the binding one: flipping a group
+# also makes its stages `precision_droppable` in
+# `artifact_dependency_graph.precision_eligible`, so a flip is a live claim that
+# those stages may be *left out* of an upstream redo's invalidation set. For
+# these two groups the claim costs nothing — `transitive_invalidate` still equals
+# `_blanket_invalidate` for all 72 stages with them strict, so precision stays
+# inert and the flip cannot under-invalidate anything.
+#
+# That second condition is why the other six groups are still report-only, and
+# why this reverses D11's payoff-first order rather than leading with `build`.
+# The reasons are per-group and are recorded in
+# `tests/test_contract_conformance.py::test_the_report_only_groups_are_pinned`;
+# none of them is fixable by editing a contract.
+#
+# NOTE on what a flip does and does not assert today: nothing in the tree has a
+# recorded `operator/contract_observed.json`, so
+# `test_recorded_run_conformance_for_flipped_groups` skips and the ratchet has no
+# runtime evidence to bite on yet. `MUX_CONTRACT_RECORD=1` on the next full-auto
+# is what turns these flips into a real assertion.
+STRICT_GROUPS: tuple[str, ...] = ("prepare", "understand-c", "sound")
 
 # Infrastructure paths that no contract declares and none should: operator
 # telemetry, done markers, the run manifest, GUI plumbing, and the homunculus
