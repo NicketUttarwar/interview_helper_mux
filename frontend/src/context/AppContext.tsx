@@ -238,7 +238,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto" | "partially-accelerated">(
     "partially-accelerated",
   );
-  const [homunculusVersion, setHomunculusVersionState] = useState("0.1.0");
+  const [homunculusVersion, setHomunculusVersionState] = useState("0.2.0");
   const brainTouchedRef = useRef(false);
   const setHomunculusVersion = useCallback((version: string) => {
     brainTouchedRef.current = true;
@@ -253,10 +253,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       kind: "original_pipeline",
     },
     {
-      id: "0.1.0",
+      id: "0.2.0",
       label: "Homunculus",
-      summary: "First homunculus brain: higher-level syncing, tool-loop conductor.",
+      summary: "Default brain: fixed seed walk with ledger, admit, packing, MusicGen, ears.",
       kind: "homunculus",
+      control_plane: "deterministic",
       is_default: true,
     },
   ]);

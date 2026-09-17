@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|junction_snip_qa->master_finalize|partial|M6_pending_shadow|seam_autopsy_blocking",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:20Z"
+}

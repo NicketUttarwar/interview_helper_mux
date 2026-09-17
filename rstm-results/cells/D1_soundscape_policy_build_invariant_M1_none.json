@@ -2,7 +2,9 @@
   "cell_id": "D1|soundscape_policy_build|invariant|M1_none",
   "status": "PASS",
   "tier": "D1",
-  "notes": [],
+  "notes": [
+    "incompleteness_ok:understanding/soundscape_policy.json is pending \u2014 resume soundscape_policy_build"
+  ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:34Z"
+  "executed_at": "2026-09-17T06:15:06Z"
 }

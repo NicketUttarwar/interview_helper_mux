@@ -181,13 +181,11 @@ def test_the_contract_layer_cannot_express_a_policy_satisfied_stage() -> None:
 def test_every_candidate_replacement_is_inert() -> None:
     """Off by default is not a replacement (audit rule 3).
 
-    `MUX_SOLVER_AUTHORITATIVE` off means the solver's seed index cannot select a stage —
-    `tests/test_solver_inert.py` pins that from four directions. `MUX_CONTRACT_REQUIRES`
-    off means the dependency graph emits only its frozen baseline edges, so no contract
-    declaration can reroute the walk. Neither can be reading `seed_policy`'s waiver.
+    Solver authority is gone — seed walk only. `MUX_CONTRACT_REQUIRES` off means the
+    dependency graph emits only its frozen baseline edges, so no contract declaration
+    can reroute the walk. Neither can be reading `seed_policy`'s waiver.
     """
     from interview_mux import artifact_dependency_graph as adg
-    from interview_mux import solver
 
-    assert solver.solver_authoritative() is False
+    assert not Path("src/interview_mux/solver.py").exists()
     assert adg.contract_requires_enabled() is False

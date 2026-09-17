@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-PC|boundary_detection->vernacular_segment_sanitize|invariant|M10_id_remap",
+  "status": "PASS",
+  "tier": "D2-PC",
+  "notes": [
+    "seed_block_ok:boundary_detection"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:23Z"
+}

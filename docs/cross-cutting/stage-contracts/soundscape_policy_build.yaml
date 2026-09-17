@@ -13,15 +13,15 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
+  hard:
+  - path: understanding/delivery_brief.json
+    producer: delivery_brief_build
   soft:
   - path: understanding/soundscape_policy.json
   - path: understanding/sonic_context.json
     producer: sonic_context_build
   - path: understanding/sound_design_plan.json
     producer: sound_design_palettes
-  - path: understanding/delivery_brief.json
-    producer: delivery_brief_build
   - path: understanding/source_acoustic_profile.json
     producer: source_acoustic_profile
   - path: mastering/mastering_plan.json

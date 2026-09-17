@@ -15,7 +15,9 @@ outputs:
 - path: understanding/episode_structure_compact.txt
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: understanding/soundscape_policy.json
+    producer: soundscape_policy_build
   soft:
   - path: understanding/content_brief.json
     producer: content_context

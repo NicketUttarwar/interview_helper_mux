@@ -30,6 +30,23 @@ def test_normalize_run_mode() -> None:
     assert normalize_run_mode("auto") == "full-auto"
 
 
+def test_daemon_defaults_homunculus_version_to_latest(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.delenv("MUX_HOMUNCULUS_VERSION", raising=False)
+    assert dal._default_homunculus_version() == "0.2.0"
+    env = dal._driver_env(
+        port=8765,
+        audio="ASSETS/input/x.wav",
+        keep_gui_server=True,
+        partial_auto=False,
+    )
+    assert env["MUX_HOMUNCULUS_VERSION"] == "0.2.0"
+    assert env["MUX_CONTRACT_RECORD"] == "1"
+    monkeypatch.setenv("MUX_HOMUNCULUS_VERSION", "0.1.0")
+    assert dal._default_homunculus_version() == "0.1.0"
+
+
 def test_full_auto_escalates_after_three_identical_vo_failures() -> None:
     full_auto_driver._VO_REPAIR_FAILURES.clear()
     error = (

@@ -40,12 +40,12 @@ The most reusable output of the campaign. Both were bought with a wave that dele
 and both would have prevented it. Apply them to a row's *Replacement* column **before** planning a
 deletion around it: a row that fails either rule reads **nothing**, not "partial".
 
-1. **Off by default is not a replacement.** Any replacement gated by `MUX_CONTRACT_REQUIRES`,
-   `MUX_SOLVER_AUTHORITATIVE` or `MUX_SHIP_REACHABILITY_HALT` is **nothing** until the flag defaults
-   on. All three are off at HEAD — `artifact_dependency_graph.py` ("with the flag OFF, the default",
-   emitting only the frozen baseline edge set), `solver.py:132` (`default=False`),
+1. **Off by default is not a replacement.** Any replacement gated by `MUX_CONTRACT_REQUIRES`
+   or `MUX_SHIP_REACHABILITY_HALT` is **nothing** until the flag defaults
+   on. Both are off at HEAD — `artifact_dependency_graph.py` ("with the flag OFF, the default",
+   emitting only the frozen baseline edge set),
    `ship_reachability.py:261` ("default OFF: the analysis always runs, the halt is opt-in"). A gated
-   rule does not guard a run nobody set the flag for. **Three rows mis-stated this and are now
+   rule does not guard a run nobody set the flag for. **Rows mis-stated this and are now
    corrected: H-02, H-08, H-09.** Replacements that *are* on by default keep their "partial":
    `MUX_DISPATCH_NO_DELTA` and `MUX_DISPATCH_MEMO` (`dispatch_delta.py:113`–`118`, `default=True`),
    ownership fail-closed (`artifact_ownership.py:57`), the `master_epoch` seal assertion (§8.1) and
@@ -720,7 +720,7 @@ gone — that is the question the patching pass must answer for each row.
 | H-05 | `artifact_sanitize/*` (4,390L, 22 files) | Per-artifact structural sanitation before commit: selection, EDL, transitions, gap report, air script, one-writer enforcement | One-writer enforcement (`one_writer.py`, 454L) is the i13/i14/i15 ownership battleground. `artifact_ownership.write_permitted()` covers *who may write*; `one_writer.py` also covers *concurrent write ordering within a stage*. | **partial.** `artifact_ownership` replaces the authority check. Structural sanitation of artifact *content* (`selection.py` 537L, `gap_report.py` 627L) is **nothing — hole**; contract `sufficiency` is populated for only 41/90 contracts. | 9 pinned files |
 | H-06 | `artifact_repairs.py` (5,378L deletable of 6,268L) | In-place repair of malformed artifacts before they reach a consumer | **Revised — this row was wrong.** A malformed artifact produced by a *successful* stage is never a dispatch refusal, so **no defect row is created** and PMQ's `no_open_ship_bar_defects` check passes. D1 does not cover this module at all. See §9.2: Class B, silent. | **nothing — hole.** Requires `record_defect` to be extended to post-dispatch artifact rejection (§9.5). | 2 pinned files |
 | H-07 | `execution_invalidation_profiles.py` (715L) | Structural-expansion decisions for invalidation blast radius | Precision invalidation (§5.4) is still `pending` in the plan and activates per-stage gated on conformance-green. Deleting the profiles before precision invalidation lands leaves whole-tail behaviour as the only mode. | **nothing yet — hole with a known owner.** `p15-precision-invalidate` is `pending`. **Do not run W2a's portion of this until that todo completes.** | 1 pinned file |
-| H-08 | `seed_policy.py` (104L) | Sticky seed marks and seed-satisfaction policy | Not a silent hole: deleting the module **deadlocks the seed walk**. `llm_flow_hardening`'s only fallback correctly refuses to mark a pass-2 stage with no sidecar, and `gap_framing_recompose` has no fallback at all. | **nothing — DECLINED, not a hole, §6.06.** The concession that `ensure_sticky_seed_mark` "has no equivalent" *is* the whole module — the sticky mark is the enforcement. Solver seed ordering is inert while `MUX_SOLVER_AUTHORITATIVE` is off (rule 1, §0), and no contract can express "satisfied by policy without an artifact". | 1 pinned file; pinned by `tests/test_seed_policy_replacement_absent.py` |
+| H-08 | `seed_policy.py` (104L) | Sticky seed marks and seed-satisfaction policy | Not a silent hole: deleting the module **deadlocks the seed walk**. `llm_flow_hardening`'s only fallback correctly refuses to mark a pass-2 stage with no sidecar, and `gap_framing_recompose` has no fallback at all. | **nothing — DECLINED, not a hole, §6.06.** The concession that `ensure_sticky_seed_mark` "has no equivalent" *is* the whole module — the sticky mark is the enforcement. Stage order is the fixed seed walk; no contract can express "satisfied by policy without an artifact". | 1 pinned file; pinned by `tests/test_seed_policy_replacement_absent.py` |
 | H-09 | `forensics_stall.py` (184L) | Stall escalation that blocks the driver | `escalation_blocks_driver` (11L) gated the driver on an escalated stall. Under D1 the run advances instead. | **nothing — rule 1, §0.** `ship_reachable()` is no longer a stub (§12.4), but its *halt* is opt-in: `MUX_SHIP_REACHABILITY_HALT` defaults off (`ship_reachability.py:261`), so the analysis records a verdict and keeps walking. Nothing blocks the driver at current defaults. | 0 pinned files — lowest-risk deletion in the campaign |
 | H-10 | `identical_failures.py` (570L deletable) | Repeat-failure fingerprinting and halt management | `record_identical_failure` is **KEPT** (§3). The halt-management half (`clear_halts_matching`, `sync_identical_halts_with_product`, `clear_halts_for_stages_if_predicate_flipped`) is deleted. Halts then never clear, or never set. | **partial.** No-delta guard replaces the *detection*; nothing replaces halt lifecycle management. | 2 pinned files |
 | H-11 | `stage_input_checks.py` (705L deletable) | Per-stage input assertions beyond `require_stage_inputs` | Contract `inputs.hard` is populated for only **30 of 90** contracts. Deleting imperative input checks before that reaches 90/90 leaves 60 stages with no input validation at all. | **nothing — hole, and a sequencing error if run early.** W8 is late in the order, which helps, but the gate is contract population (`p1-populate-groups`, `pending`), not wave position. | 9 pinned files |
@@ -798,8 +798,8 @@ recovery_controller` reports `DELETABLE: 0 symbols, 0 lines`.
 
 **H-08 `seed_policy.py` — DECLINED, and not a hole.** A contract declares what a stage must produce
 and cannot express "satisfied by policy without an artifact": `sufficiency` is empty for both freeze
-stages and no contract field references freeze state. Solver seed ordering is inert while
-`MUX_SOLVER_AUTHORITATIVE` is off. So deleting the module does not open a silent hole — it
+stages and no contract field references freeze state. Stage order is the fixed seed walk. So deleting
+the module does not open a silent hole — it
 **deadlocks the seed walk**, because `llm_flow_hardening`'s only fallback correctly refuses to mark a
 pass-2 stage with no sidecar and `gap_framing_recompose` has no fallback. Measured: **2 pre-existing
 tests break**, one of them the HF-1 predicate-family pin. Pinned by
@@ -1202,8 +1202,8 @@ sites. That gives `seed_policy` (3) → `heal_routing` (4) → `execution_invali
 
 **Two entries in that order are no longer pending — they are proven undeletable at current flag
 defaults.** `seed_policy` and `recovery_controller` were attempted and declined (§6.06), so they are
-not work waiting to be started: they are work that cannot start until `MUX_SOLVER_AUTHORITATIVE`
-defaults on and contract `remediation` discriminates among failure classes. With `heal_routing` also
+not work waiting to be started: they are work that cannot start until contract `remediation`
+discriminates among failure classes. With `heal_routing` also
 blocked below, the first startable module is `execution_invalidation_profiles` (6).
 
 One module is **blocked on other work** and must not be started early:

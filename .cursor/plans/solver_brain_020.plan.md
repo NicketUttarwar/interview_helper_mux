@@ -1,89 +1,25 @@
 ---
 name: Solver brain 0.2.0 — contract-authoritative control plane
-overview: "Make stage selection a total function of on-disk state so no turn budget is needed. SHIPPED: brain 0.2.0 (deterministic walk, control_plane=deterministic, now default) removed the LLM conductor. P0–P2, P1.5, D10, D12, D13 landed. D11 ratchet is 6/9 groups strict (fill_gaps/build/ship held with named defects). Solver is ARMED not enabled — MUX_SOLVER_AUTHORITATIVE stays default False until a D14 live full-auto. Read the Implementation status section before trusting any number. No real pipeline run has shipped a master under 0.2.0."
+overview: "RETIRED for authority/D14. Brain 0.2.0 seed walk shipped and is the default. Solver stage-reorder / MUX_SOLVER_AUTHORITATIVE will not ship. P3/D14 promotion retired — see HISTORY in docs/cross-cutting/mastering-homunculus.md. Body below is archival only."
 todos:
-  - id: plan-document
-    content: Plan document — contract-authoritative solver, phased with shadow-mode promotion
-    status: completed
-  - id: p0-phases
-    content: "P0: adopt the 5 phase-orphan stages (air_contract_sanitize, gap_report_sanitize, audio_probe_build, framing_posture_decide, selection_order_sanitize) + split understand into a/b/c"
-    status: completed
-  - id: p0-tiers
-    content: "P0 FOOTGUN §8.4: declare tier on all 90 contracts; partition test proves process/llm_full/deterministic == the 72 stages"
-    status: completed
-  - id: p0-ssot
-    content: "P0 FOOTGUN §8.7: collapse stage->path SSOT (STAGE_ARTIFACT_DISK_PATHS vs ownership catalog vs contracts) + drift test"
-    status: completed
-  - id: p0-test-policy
-    content: "P0 FOOTGUN §8.8: write the test-deletion policy (pinned forensics fixtures vs scaffolding) before any subtraction"
-    status: completed
-  - id: p1-conformance
-    content: "P1 GLOBAL: runtime read/write recorder + conformance test, report-only mode (all stages) — DONE (tests/test_contract_conformance.py); conformance-green is now measurable for all 72 stages"
-    status: completed
-  - id: p1-ownership-xcheck
-    content: "P1 GLOBAL: static test — every contract output has an ALLOW row via write_permitted() — DONE (tests/test_contract_ownership_xcheck.py); needs current_epoch(ctx), NOT ctx=None (see §4.2 correction)"
-    status: completed
-  - id: p1-gate-requires
-    content: "P1: gate requires-edge consumption behind MUX_CONTRACT_REQUIRES=0 — DONE, but the flag does NOT cover contract-input consumption by dispatch_delta.hard_input_paths or artifact_lifecycle.run_phase_checks (see §3.4/§4 corrections)"
-    status: completed
-  - id: p1-populate-groups
-    content: "P1/D11: 6 of 9 groups strict (prepare, understand-a/b/c, plan_rank, sound). fill_gaps populated and owned (compact.txt + hitch boundaries, aaad505a) but HELD — flipping drops episode_structure_compose from soundscape_policy_build's invalidation set. build/ship HELD on named code defects in REPORT_ONLY_REASONS. Do not fabricate contract edges to force a flip"
-    status: completed
-  - id: p15-budget-door
-    content: "P1.5 step1 (§5.3): DONE — but the driver walk ALREADY called check_dispatch; the real fix was counting ledger attempts instead of done-marked identities (see §5.3 correction) + the exemption audit"
-    status: completed
-  - id: p15-defect-ledger
-    content: "P1.5 step2 (§5.5): defect_ledger.json + ship_reachable() conservative stub (always reachable) + ALLOW row; pure telemetry"
-    status: completed
-  - id: p15-no-delta
-    content: "P1.5 step3 (§5.2): no-delta dispatch guard on declared hard-input hashes; kills mix<->junction ping-pong (55 excess)"
-    status: completed
-  - id: p15-attempt-memo
-    content: "P1.5 step4 (§5.3): per-re-entry attempt memo so 148+63 driver re-entries stop re-walking the same set (69 excess)"
-    status: completed
-  - id: p15-precision-invalidate
-    content: "P1.5 step5 (§5.4): DONE — TWO-SIDED conformance gate (source AND consumer) + clamp to a subsequence of the blanket set; measured payoff is 42 of 1420 stage-slots (3.0%), not the ~49 backward rewinds the plan predicted (see §5.4 correction)"
-    status: completed
-  - id: p15-reachability-real
-    content: "P1.5 step6 (§5.5): DONE — real critical-path ship_reachable + PMQ refusal on open ship-bar-degrading defects; halting stays behind MUX_SHIP_REACHABILITY_HALT (default OFF)"
-    status: completed
-  - id: p2-solver
-    content: "P2: DONE — admissible-set solver at src/interview_mux/solver.py (flat module, not solver/plan.py); lease read is mirrored read-only from gui_holds_fresh_lease, NOT driver_may_walk (§8.3 correction); audio_preclean is dispatchable, its DeepFilterNet enable is not (§8.1 correction)"
-    status: completed
-  - id: p2-posture-tests
-    content: "P2: DONE — per-posture matrix in tests/test_solver_posture.py (manual / partially-accelerated / full-auto); PARTIAL_*_GATES parity with partialOperatorGates.ts"
-    status: completed
-  - id: p2-observability
-    content: "P2: DONE — one artifact operator/solver_decision.jsonl (solver_shadow.jsonl struck, §6.2) + SolverHaltPanel.tsx"
-    status: completed
-  - id: p2-shadow
-    content: "P2: DONE — shadow logging ON by default (MUX_SOLVER_SHADOW). D12 re-gated replay (docs/cross-cutting/solver-replay-validation.md, 1892ec5e): 0 genuine disagreements / 0 driver regressions. Authority 24.7% and structural deferral 26.0% are reported metrics, not vetoes. MUX_SOLVER_AUTHORITATIVE stays default False until the D14 live confirmation"
-    status: completed
-  - id: p3-registry
-    content: "DONE: 0.2.0 registered (kind=homunculus + control_plane=deterministic, NOT kind=solver — a new kind would flip is_homunculus_run False at 22 sites and drop the ledger); default via 'latest'; GUI is dynamic, no rebuild"
-    status: completed
-  - id: p3-capability-predicates
-    content: "P3: DONE — is_homunculus_run split into has_dispatch_ledger / llm_owns_control_flow across pipeline.py, conversation_context.py and homunculus/{__init__,version,loop,runtime}.py; one is_homunculus_run site remains, in runtime.py"
-    status: completed
   - id: p3-promote
-    content: "P3: ARMED not enabled. D12 engineering gate MET (0 genuine / 0 regressions). MUX_SOLVER_AUTHORITATIVE stays default False by operator choice — D14 live full-auto (docs/cross-cutting/solver-promotion-d14-runbook.md) is the remaining confirmation, not a missing code path. Do not read this row as 'the flag flipped'"
-    status: completed
-  - id: p3-subtract
-    content: "P3: CLOSED at 427 gross / 21 shim / 406 net lines over 8 files, 19 symbols — docs/cross-cutting/subtraction-holes.md. The no-rewrite deletable set is exhausted (0 symbols / 0 lines). The 12-16k target was never reachable without rewriting call sites and is retired by D13 (§11); the 8,710-line EXTERNAL set is §12 of that doc"
-    status: completed
-  - id: p4-gate-decisions
-    content: "P4 (D10, §11): DONE — deterministic plane records via set_gate_decision at the Python closers (G0 complete, G-Framing auto-accept/GUI, G1 skip/complete, G-Publish). _gate_verdict reads gate_decisions.json; evaluate_stage stays read-only. New action `complete` (G0 cannot skip/auto_resolve). tests/test_solver_gate_decisions.py. ALLOW row already existed"
-    status: completed
-  - id: p4-strict-ratchet
-    content: "P4 (D11, §11): DONE as far as honest. Six groups strict. fill_gaps/build/ship remain report-only with pinned reasons (test_the_report_only_groups_are_pinned). Payoff-first was overridden by the precision-drop inertness gate — STRICT_GROUPS may grow only while transitive_invalidate equals _blanket_invalidate. Rollback still MUX_CONTRACT_STRICT_GROUPS"
-    status: completed
-  - id: p4-subtract-top
-    content: "P4 (D13, §11): DONE as declined. Final wave attempted seed_policy.py and recovery_controller.py, deleted nothing, shipped pinning tests (3dd0ebf4, 1ad4673f, subtraction-holes.md §0 + §6.06). Off-by-default flags and uniform contract remediation are not replacements. The 8,710-line EXTERNAL set stays unauthorised"
-    status: completed
+    content: "RETIRED — authority will not ship; D14 promotion cancelled"
+    status: cancelled
 isProject: true
 ---
 
-# Solver brain 0.2.0 — contract-authoritative control plane
+# RETIRED — authority / D14 will not ship
+
+**Authority will not ship.** Brain **0.2.0** is a fixed seed walk. Solver reorder,
+`MUX_SOLVER_AUTHORITATIVE`, shadow promotion, and D14 live confirmation are retired.
+See HISTORY in [docs/cross-cutting/mastering-homunculus.md](../../docs/cross-cutting/mastering-homunculus.md).
+
+The archival body below is kept for historical context only — do not treat promotion
+sections as current guidance.
+
+---
+
+# Solver brain 0.2.0 — contract-authoritative control plane (archival)
 
 **Thesis:** a turn budget is the symptom of *LLM owns control flow*. When the next stage is a
 pure function of on-disk state, the loop terminates by construction and there is nothing to bound.
@@ -108,9 +44,7 @@ original reasoning survives. Section numbers and cross-references are unchanged.
   `MUX_CONTRACT_REQUIRES` gate (§3.4). All three land globally, report-only by default.
 - **P1.5, all six steps** (§5.6) — dispatch-door counting fix, defect ledger + `ship_reachable`,
   no-delta guard, attempt memo, two-sided precision invalidation, real critical-path reachability.
-- **P2 solver** — `src/interview_mux/solver.py`, shadow logging ON by default
-  (`MUX_SOLVER_SHADOW`), non-authoritative (`MUX_SOLVER_AUTHORITATIVE` OFF), posture matrix,
-  `operator/solver_decision.jsonl`, `SolverHaltPanel.tsx`.
+- **P2 solver** — ~~`src/interview_mux/solver.py`~~ **deleted**; authority/shadow/D14 **retired**.
 - A live strand bug in brain 0.2.0 found and fixed en route — see §5.0.
 
 **Partial.**
@@ -125,32 +59,13 @@ original reasoning survives. Section numbers and cross-references are unchanged.
   sides of each edge, and its result is clamped to a subsequence of the blanket set.
 - **D10 gate persistence** is landed (`0e3fcd85`). Replay coverage of *historical*
   folders will not move until those runs have `gate_decisions.json`; new 0.2.0 walks
-  record at the Python closers. Not a D14 blocker.
+  record at the Python closers.
 
-**Validated offline.** `tools/solver_replay.py` first vetoed promotion (2026-09-16) on the old
-three-gate bar. D12 replaced that bar; a re-gate (`1892ec5e`,
-[solver-replay-validation.md](../../docs/cross-cutting/solver-replay-validation.md), generated
-2026-09-17) **MET** the only two remaining conditions: **0 genuine** disagreements of 14 choice
-divergences (13 mtime-only, 1 content-postdates-point) and **0** driver regressions. Authority
-**24.7%** and structural deferral **26.0%** are reported progress signals for D10/D11, not vetoes.
-`MUX_SOLVER_AUTHORITATIVE` stays default **False** — D14 (live full-auto, runbook committed
-`729c2163`) is the remaining confirmation. **§11 is still the coverage work**, not a failed gate.
-
-**Explicitly NOT validated.**
-
-- **No real pipeline run has exercised any of this.** No fresh full-auto run was made — the
-  forensics campaign is still open and a second fresh execution mid-campaign is prohibited.
-- All evidence in the corrections below is **static analysis plus the test suite**: contract and
-  graph walks over the 72 stages, fixture run-dirs, and `pytest`. Where this document says
-  "measured", that is the instrument. No number here is a runtime observation of 0.2.0 shipping a
-  master.
-- Consequently the §10.1 targets are **unverified**. P3's *engineering* gate (D12) is met; the
-  flag stays off until a live D14 full-auto confirms. See
-  [solver-promotion-d14-runbook.md](../../docs/cross-cutting/solver-promotion-d14-runbook.md).
+**Authority / D14:** **RETIRED.** Do not flip any authority env. Seed walk only.
 
 ---
 
-## 0. Evidence this is the right fix
+## 0. Evidence this is the right fix (archival)
 
 From `exec_11871_d19c15b58ab4_20260916T002245Z` (shipped, 11h47m, 54 code interventions):
 
@@ -170,7 +85,7 @@ Three conclusions that shape the design:
 1. **The brain was absent for 90% of the run.** Tuning brain parameters cannot fix the thrash —
    it happened after the conductor was out of turns.
 2. **Every thrash cause was a deterministic refusal**, not model wobble. Retrying an
-   `authority_denied` write with a better prompt yields the identical denial. These are
+  `authority_denied` write with a better prompt yields the identical denial. These are
    *statically decidable* facts about contracts × ownership.
 3. **Caps exist and are not enforced on the driver path.** `audio_probe_build` halted correctly at
    3/3 (`limit_exhausted.json`); `mix` reached 28 against a cap of 3 ~~because the driver walk never
@@ -1089,7 +1004,7 @@ The campaign is only worth running if this number moves. Baseline is `exec_11871
 | Wall clock, same tape, full-auto | **11 h 47 m** | < 4 h |
 | Code interventions needed to ship | **54** | 0 |
 | Hollow contracts | ~~**45 / 90**~~ **48 / 91** (§1.1) | 0 |
-| `authority_denied` / `seed order` runtime failures | 10 fingerprints | **0 — statically impossible** |
+| `authority_denied` / `seed order` runtime failures | 10 fingerprints | **0 seed-order leapfrogs under authority** (solver composes `_seed_prereq_block`; SEED_ORDER hard edges + `tools/audit_seed_contract_alignment.py`). Ownership denies remain separate. |
 | Control-layer lines | ~12,900 | ~~< 2,000~~ **RETIRED by D13 — see §11** |
 
 Measure excess with the same ledger arithmetic used in §3.2 so the numbers stay comparable.

@@ -17,10 +17,10 @@ outputs:
 - path: publish/cover_meta.json
   staging: true
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: publish/cover_prompt.json
     producer: episode_cover_prompt_craft
+  soft:
   - path: publish/episode_meta.json
     producer: episode_meta_build
   - path: understanding/content_brief.json

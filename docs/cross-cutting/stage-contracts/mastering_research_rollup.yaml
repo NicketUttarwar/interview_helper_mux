@@ -17,7 +17,9 @@ outputs:
 - path: glob:mastering/research/*.json
 - path: mastering/research/routing.json
 inputs:
-  hard: []
+  hard:
+  - path: mastering/research/waves.json
+    producer: mastering_research_waves
   soft:
   - path: ingest/normalized.wav
     producer: ingest

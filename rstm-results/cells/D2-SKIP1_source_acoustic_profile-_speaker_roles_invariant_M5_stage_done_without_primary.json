@@ -3,8 +3,9 @@
   "status": "PASS",
   "tier": "D2-SKIP1",
   "notes": [
+    "incompleteness_ok:understanding/source_acoustic_profile.json is pending \u2014 resume source_acoustic_p",
     "seed_block_ok:source_acoustic_profile"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:38Z"
+  "executed_at": "2026-09-17T06:15:09Z"
 }

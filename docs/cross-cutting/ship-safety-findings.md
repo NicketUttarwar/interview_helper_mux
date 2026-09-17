@@ -151,7 +151,7 @@ rather than *what went wrong*.
 
 **Budget refusals (`max_*`, `attempt_memo`) are deliberately NOT widened** — a spent cap says nothing about the artifact.
 
-## Finding 4 — the silent class — now OBSERVABLE (report-only)
+## Finding 4 — the silent class — ENFORCED on ship-critical stages
 
 A defect is recorded when a stage cannot be **dispatched**. Nothing was recorded when a stage dispatched **successfully**
 and emitted a semantically wrong artifact: schema validation passes; sufficiency covers 41 of 90 contracts (and is an
@@ -161,7 +161,10 @@ not correctness.
 **Landed — semantic-output sweep, REPORT-ONLY.** Walks every done-stamped stage's declared output through
 `artifact_status_for_stage`, plus a second pass for four rule-governed artifacts no stage declares.
 
-- Enforcement behind `MUX_DEFECT_SEMANTIC_BLOCKING=1` / `MUX_DEFECT_SEMANTIC_BLOCKING_STAGES`; **ratchet empty**.
+- Enforcement behind `MUX_DEFECT_SEMANTIC_BLOCKING=1` / `MUX_DEFECT_SEMANTIC_BLOCKING_STAGES`;
+  **ratchet now includes** `full_master_ranking`, `transitions`, `edl`, `mix`, `junction_snip_qa`,
+  `master_finalize`, `vo_synthesize`, `sound_design_vo_finalize`, `gap_framing_compose`,
+  `mastering_research_rollup`, `topic_coverage_audit`, `narrative_arc_plan`, `sound_design_palettes`.
 - **Self-healing:** it closes its own stale rows, because `resolve_stage_defects` only fires on re-dispatch and orphan
   rows have no stage to re-dispatch.
 - Every finding carries its **`completeness_coverage`**, so a `schema_only` verdict is never presented as semantic.
@@ -200,13 +203,13 @@ tree.
 **CORRECTION:** `edl` **IS** a real producer of transition WAVs via normal stage flush. The earlier
 "deliberate non-producer per `edl_must_not_mint_transitions`" claim was **wrong**.
 
-**Status.** Report-only telemetry landed. Ownership rows still **OWED**:
+**Status.** Catalog row `master/transitions/*.wav` landed (producers `transitions`,
+`vo_synthesize`, `edl`, `mix`, `junction_snip_qa`). `promote_pending` ALLOW rows for
+`edl_narrative_audit`, `master_finalize`, `connector_fuse_pass`,
+`connector_fuse_pass_pre_ranking`, `edl_overlap_repair`. `PROMOTE_DIR_STRICT_PREFIXES`
+is armed for `master/transitions/`.
 
-- `master/transitions/*.wav` — producers `transitions`, `vo_synthesize`, `edl`, `mix`, `junction_snip_qa`.
-- `promote_pending` ALLOW rows for `edl_narrative_audit`, `master_finalize`, `connector_fuse_pass`,
-  `connector_fuse_pass_pre_ranking`, `edl_overlap_repair`.
-
-## Finding 6 — reachability fails open when it cannot READ a contract (SILENT)
+## Finding 6 — reachability fails open when it cannot READ a contract — PMQ REFUSES
 
 **Status: OBSERVABLE — the silence is closed, the fail-open is deliberately kept.**
 
@@ -345,10 +348,10 @@ loud at the moment severance is actually evaluated — the only moment it matter
 
 ### Still owed
 
-The **enforcement** half is untouched by choice: a failed read on the **root** producer arguably means "reachability
-analysis unavailable" rather than `no_proven_severance`, and that distinction should eventually reach whatever *gates a
-ship decision* — the Finding 2 pattern of leniency on the advance path and refusal on the gating count. That is a verdict
-change and was explicitly out of scope here.
+Walk halt stays default-off (a false UNREACHABLE throws away a tape). The **ship gate**
+now refuses: `evaluate_post_master_quality` fails `ship_reachability_analysis` when
+`critical_path().degraded` (or when the analysis itself raises). That is the Finding 2
+pattern — leniency on the advance path, refusal on the gating count.
 
 ---
 

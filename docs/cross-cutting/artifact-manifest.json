@@ -175,6 +175,7 @@
       "schemas_by_producer": {
         "boundary_detection": "boundaries_artifact.schema.json",
         "boundary_topic_resplit": "boundaries_artifact.schema.json",
+        "chapter_close_hitch": null,
         "ideal_cuts_materialize": null
       },
       "producers": [
@@ -185,9 +186,16 @@
         "audio_probe_build",
         "content_brief_reanchor",
         "content_context",
+        "episode_structure_compose",
+        "full_master_ranking",
+        "gap_framing_compose",
         "ideal_cuts_materialize",
         "ideal_cuts_propose",
         "interview_spine_build",
+        "mastering_plan_confirm",
+        "mastering_plan_synthesize",
+        "narrative_arc_plan",
+        "selection_order_sanitize",
         "source_acoustic_profile",
         "source_topology_build",
         "speaker_roles",
@@ -327,7 +335,8 @@
         "soundscape_policy_build",
         "source_acoustic_profile",
         "source_topology_build",
-        "transitions"
+        "transitions",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },
@@ -823,7 +832,8 @@
       "consumers": [
         "full_master_ranking",
         "gap_framing_compose",
-        "selection_order_sanitize"
+        "selection_order_sanitize",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },
@@ -843,7 +853,8 @@
         "selection_order_sanitize",
         "sonic_context_build",
         "sound_design_palettes",
-        "topic_coverage_audit"
+        "topic_coverage_audit",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },
@@ -870,7 +881,8 @@
         "narrative_arc_plan",
         "nugget_layup_compose",
         "selection_order_sanitize",
-        "transitions"
+        "transitions",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },

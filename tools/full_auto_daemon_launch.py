@@ -33,6 +33,20 @@ _DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
 _KEEPALIVE_PGREP = r"full_auto_keepalive_loop\.py|baba_keepalive_loop\.py"
 
 
+def _default_homunculus_version() -> str:
+    """Registered default brain when MUX_HOMUNCULUS_VERSION is unset (currently 0.2.0)."""
+    pinned = (os.environ.get("MUX_HOMUNCULUS_VERSION") or "").strip()
+    if pinned:
+        return pinned
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from interview_mux.homunculus.version import default_version
+
+        return default_version()
+    except Exception:
+        return "0.2.0"
+
+
 def web_port() -> int:
     """GUI serve port from config (fallback 8765)."""
     try:
@@ -233,7 +247,9 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
         env={
             "INTERVIEW_MUX_E2E_SOFT": "1",
             "MUX_WEB_PORT": str(port),
-            "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+            "MUX_HOMUNCULUS_VERSION": _default_homunculus_version(),
+            # Cached per process — must be on the server at launch. "0" stays "0".
+            "MUX_CONTRACT_RECORD": os.environ.get("MUX_CONTRACT_RECORD") or "1",
         },
     )
     (ASSETS / "full_auto_server.pid").write_text(str(pid))
@@ -260,7 +276,8 @@ def _driver_env(
         "MUX_RUN_MODE": run_mode,
         "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
         "MUX_WEB_PORT": str(port),
-        "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+        "MUX_HOMUNCULUS_VERSION": _default_homunculus_version(),
+        "MUX_CONTRACT_RECORD": os.environ.get("MUX_CONTRACT_RECORD") or "1",
     }
     if partial_auto:
         env["MUX_PARTIAL_AUTO"] = "1"

@@ -14,10 +14,10 @@ outputs:
   staging: false
 - path: glob:mastering/evidence_packets/*.json
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: mastering/shape/candidates.json
     producer: mastering_shape_candidates
+  soft:
   - path: mastering/shape/agenda.json
     producer: mastering_shape_agenda
   - path: mastering/research_dossier.json

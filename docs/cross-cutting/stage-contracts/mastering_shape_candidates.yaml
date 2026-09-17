@@ -15,10 +15,10 @@ outputs:
 - path: mastering/shape/diversity_report.json
 - path: glob:mastering/evidence_packets/*.json
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: mastering/shape/agenda.json
     producer: mastering_shape_agenda
+  soft:
   - path: mastering/research_dossier.json
     producer: mastering_research_rollup
   - path: understanding/content_brief.json

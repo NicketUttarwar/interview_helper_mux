@@ -12,6 +12,7 @@ from interview_mux.homunculus.version import (
     is_homunculus_brain,
     list_brains,
     normalize_version,
+    requested_version,
     resolve_brain,
     stamp_run_meta,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "is_homunculus_brain",
     "list_brains",
     "normalize_version",
+    "requested_version",
     "resolve_brain",
     "stamp_run_meta",
 ]

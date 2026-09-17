@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|gap_framing_compose->delivery_brief_build|full_auto|M8_seated_vo_no_wav|framing_quality",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:gap_framing_compose"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:16Z"
+}

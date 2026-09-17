@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|mastering_research_rollup->mastering_shape_agenda|full_auto|M9_uncommitted_master|research dossier",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:mastering_research_rollup",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:20Z"
+}

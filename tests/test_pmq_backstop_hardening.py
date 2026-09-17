@@ -491,10 +491,47 @@ def test_coverage_agrees_with_the_completeness_module(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3b — rollout: report-only by default, blocking behind a flag
+# 3b — rollout: ship-critical stages block by default; others stay report-only
 # ---------------------------------------------------------------------------
 
-def test_report_only_is_the_default(tmp_path: Path) -> None:
+def test_default_ratchet_blocks_edl(tmp_path: Path) -> None:
+    from interview_mux import post_master_quality as pmq
+    from interview_mux.defect_ledger import SEMANTIC_BLOCKING_STAGES
+
+    assert "edl" in SEMANTIC_BLOCKING_STAGES
+    assert semantic_sweep_enforced() is True
+    assert semantic_sweep_blocks("edl") is True
+
+    ctx = _ctx(tmp_path, "sweep_default_blocks")
+    _stage_done_with_bad_output(ctx)
+    quality = pmq.evaluate_post_master_quality(ctx)
+    assert _check(quality, "stage_output_semantics")["passed"] is False
+    assert "stage_output_semantics" in quality["structural_failed_checks"]
+    assert quality["publish_allowed"] is False
+    assert _check(quality, "no_open_ship_bar_defects")["passed"] is False
+    assert [r["stage"] for r in open_ship_bar_defects(ctx)] == ["edl"]
+
+
+def test_unlisted_stage_stays_report_only(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path, "sweep_unlisted_report_only")
+    assert semantic_sweep_blocks("ingest") is False
+    mark_done_raw(ctx, "ingest")
+
+    report = record_semantic_output_defects(ctx)
+    assert report["findings"] == 1
+    assert report["blocking_findings"] == 0
+    row = defects(ctx)[0]
+    assert row["degrades_ship_bar"] is False
+    assert row["detail"]["report_only"] is True
+    assert open_ship_bar_defects(ctx) == []
+
+
+def test_empty_override_is_report_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux import post_master_quality as pmq
+
+    monkeypatch.setenv(_ENV_BLOCKING_STAGES, "")
     ctx = _ctx(tmp_path, "sweep_report_only")
     assert semantic_sweep_enforced() is False
     assert semantic_sweep_blocks("edl") is False
@@ -504,20 +541,12 @@ def test_report_only_is_the_default(tmp_path: Path) -> None:
     assert report["findings"] == 1
     assert report["blocking_findings"] == 0
     assert report["enforced"] is False
-    # Recorded — so the rate is observable — but not a ship-bar blocker.
     row = defects(ctx)[0]
     assert row["degrades_ship_bar"] is False
     assert row["detail"]["report_only"] is True
     assert open_ship_bar_defects(ctx) == []
-    # The classifier's own verdict is still on the row for when the flag flips.
     assert "critical_stage:edl" in row["ship_bar_reason"]
 
-
-def test_report_only_does_not_refuse_publish(tmp_path: Path) -> None:
-    from interview_mux import post_master_quality as pmq
-
-    ctx = _ctx(tmp_path, "sweep_report_only_pmq")
-    _stage_done_with_bad_output(ctx)
     quality = pmq.evaluate_post_master_quality(ctx)
     row = _check(quality, "stage_output_semantics")
     assert row["passed"] is True
@@ -600,11 +629,13 @@ def test_a_broken_sweep_is_unknown_not_clean(
     monkeypatch.setattr(defect_ledger, "record_semantic_output_defects", boom)
 
     ctx = _ctx(tmp_path, "sweep_broken_reportonly")
+    monkeypatch.setenv(_ENV_BLOCKING_STAGES, "")
     row = _check(pmq.evaluate_post_master_quality(ctx), "stage_output_semantics")
     assert row["passed"] is True  # report-only: visible, advisory
     assert row["detail"]["unresolved"] is True
     assert "sweep exploded" in row["detail"]["error"]
 
+    monkeypatch.delenv(_ENV_BLOCKING_STAGES, raising=False)
     monkeypatch.setenv(_ENV_BLOCKING, "1")
     ctx2 = _ctx(tmp_path, "sweep_broken_enforced")
     quality = pmq.evaluate_post_master_quality(ctx2)
@@ -632,6 +663,40 @@ def test_sweep_errors_are_surfaced_not_swallowed(
 
 
 def test_new_check_is_structural_so_it_cannot_be_softened() -> None:
-    from interview_mux.aspirational_quality import is_rubric_pmq_check
+    from interview_mux.aspirational_quality import (
+        is_rubric_pmq_check,
+        is_structural_pmq_check,
+    )
 
     assert is_rubric_pmq_check("stage_output_semantics") is False
+    assert is_structural_pmq_check("stage_output_semantics") is True
+    assert is_rubric_pmq_check("ship_reachability_analysis") is False
+    assert is_structural_pmq_check("ship_reachability_analysis") is True
+
+
+def test_pmq_refuses_when_reachability_analysis_is_degraded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 6 enforcement: unreadable contracts refuse the ship gate, not the walk."""
+    from interview_mux import post_master_quality as pmq
+    from interview_mux import stage_contract
+
+    def fake(stage_id: str):
+        raise ImportError("cannot import name 'correctness_required'")
+
+    monkeypatch.setattr(stage_contract, "load_contract", fake)
+
+    ctx = _ctx(tmp_path, "pmq_reachability_degraded")
+    quality = pmq.evaluate_post_master_quality(ctx)
+    row = _check(quality, "ship_reachability_analysis")
+    assert row["passed"] is False
+    assert row["detail"]["degraded"] is True
+    assert row["detail"]["unreadable_contracts"]
+    assert "ship_reachability_analysis" in quality["structural_failed_checks"]
+    assert quality["publish_allowed"] is False
+    # Walk doctrine is unchanged: a failed read still does not halt.
+    from interview_mux.ship_reachability import unreachable_halt
+
+    monkeypatch.setenv("MUX_SHIP_REACHABILITY_HALT", "1")
+    assert unreachable_halt(ctx) is None
+

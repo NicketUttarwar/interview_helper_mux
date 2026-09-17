@@ -15,7 +15,9 @@ outputs:
 - path: mastering/research/
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: mastering/research/routing.json
+    producer: mastering_research_routing
   soft:
   - path: ingest/normalized.wav
     producer: ingest

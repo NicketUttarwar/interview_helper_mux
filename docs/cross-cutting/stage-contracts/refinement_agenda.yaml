@@ -13,7 +13,9 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
+  hard:
+  - path: understanding/gap_report.json
+    producer: gap_report_sanitize
   soft:
   - path: master/coverage_audit.json
     producer: topic_coverage_audit

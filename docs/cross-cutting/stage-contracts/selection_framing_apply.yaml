@@ -17,14 +17,14 @@ outputs:
 - path: understanding/refinement_plan.json
 - path: understanding/refinement_skip_copy.json
 inputs:
-  hard: []
-  soft:
-  - path: understanding/gap_report.json
-    producer: gap_framing_compose
-  - path: master/coverage_audit.json
-    producer: topic_coverage_audit
+  hard:
   - path: master/selection.json
     producer: full_master_ranking
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  soft:
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
   - path: mastering/mastering_plan.json
     producer: mastering_plan_synthesize
   - path: segments/manifest.json

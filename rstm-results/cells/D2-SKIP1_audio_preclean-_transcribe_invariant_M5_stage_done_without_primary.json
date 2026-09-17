@@ -3,8 +3,9 @@
   "status": "PASS",
   "tier": "D2-SKIP1",
   "notes": [
+    "incompleteness_ok:preclean/isolated.wav is pending",
     "seed_block_ok:audio_preclean"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:38Z"
+  "executed_at": "2026-09-17T06:15:09Z"
 }

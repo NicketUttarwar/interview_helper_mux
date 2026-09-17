@@ -24,8 +24,17 @@ def test_020_is_registered_and_highest() -> None:
 def test_020_is_the_default() -> None:
     assert brain_version.default_version() == "0.2.0"
     assert brain_version.normalize_version("latest") == "0.2.0"
+    assert brain_version.normalize_version(None) == "0.2.0"
     default_rows = [b for b in brain_version.brains_public() if b["is_default"]]
     assert [b["id"] for b in default_rows] == ["0.2.0"]
+
+
+def test_requested_version_follows_env_then_default(monkeypatch) -> None:
+    monkeypatch.delenv("MUX_HOMUNCULUS_VERSION", raising=False)
+    assert brain_version.requested_version() == "0.2.0"
+    monkeypatch.setenv("MUX_HOMUNCULUS_VERSION", "0.1.0")
+    assert brain_version.requested_version() == "0.1.0"
+    assert brain_version.requested_version("0.0.0") == "0.0.0"
 
 
 def test_020_keeps_homunculus_rails_but_not_llm_control_flow() -> None:
@@ -40,8 +49,11 @@ def test_020_keeps_homunculus_rails_but_not_llm_control_flow() -> None:
 
 def test_brains_public_exposes_control_plane() -> None:
     rows = {b["id"]: b for b in brain_version.brains_public()}
-    assert rows["0.1.0"]["control_plane"] == "llm"
+    assert "0.1.0" not in rows
     assert rows["0.2.0"]["control_plane"] == "deterministic"
+    assert rows["0.0.0"]["kind"] == "original_pipeline"
+    # Legacy id remains resolvable for ancient run_meta resume.
+    assert brain_version.resolve_brain("0.1.0").control_plane == "llm"
 
 
 def test_runtime_predicates_on_a_020_run(tmp_path: Path) -> None:

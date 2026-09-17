@@ -1,4 +1,4 @@
-"""0.1.0 phase scheduler: conductor-owned skip/reorder/rerun; remainder walk only on request."""
+"""Homunculus phase scheduler: seed-order walk, skips, and surgical reruns."""
 
 from __future__ import annotations
 
@@ -1959,31 +1959,14 @@ def request_walk_seed_remainder(ctx: RunContext, *, reason: str = "conductor") -
 
 
 def _walk_sequence(ctx: RunContext, walk_stages: list[str], *, reason: str):
-    """Stages to attempt, in order. Seed order unless the solver is authoritative.
+    """Stages to attempt in fixed seed order (brain 0.2.0).
 
-    ``p3-promote`` (plan §7) is this one branch. With ``MUX_SOLVER_AUTHORITATIVE``
-    unset — the default — this is ``iter(walk_stages)`` and the walk is byte-for-byte
-    what it was. With it set, order comes from the admissible set and every stage the
-    solver marks *deferred* falls back to seed order, so the promotion is safe while
-    contract population is still in flight.
-
-    Either way the candidate set is the walk's own: the G0 truncation, the
-    voice-reference drop and ``filter_delivery_candidates`` have already run, and each
-    yielded stage still passes through the dispatch door, the defect ledger and the
-    reachability halt below. The solver composes with those rails, it does not
-    replace them — which is why ``evaluate_stage`` stops folding the door into
-    admissibility once it is authoritative. A door-refused stage has to reach the loop
-    below to get its defect row and its severance check; a stage the solver quietly
-    dropped would get neither.
+    The candidate list is already filtered (G0 truncation, voice-reference drop,
+    ``filter_delivery_candidates``). Each yielded stage still passes through the
+    dispatch door, defect ledger, and reachability halt in the walk loop.
     """
-    try:
-        from interview_mux.solver import authoritative_sequence, solver_authoritative
-
-        if not solver_authoritative():
-            return iter(walk_stages)
-        return authoritative_sequence(ctx, walk_stages, source=reason)
-    except Exception:
-        return iter(walk_stages)
+    _ = (ctx, reason)
+    return iter(walk_stages)
 
 
 def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None:
@@ -2125,17 +2108,6 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                     )
                     raise ShipUnreachable(halt)
                 continue
-            # §6.2 shadow: the walk has now committed to `stage`, so this is the
-            # stage-selection decision to record. Off unless MUX_SOLVER_SHADOW is set,
-            # and swallowed by the hook itself — a solver bug cannot break a run.
-            try:
-                from interview_mux.solver import observe_walk_choice
-
-                observe_walk_choice(
-                    ctx, stage, candidates=tuple(walk_stages), source=reason
-                )
-            except Exception:
-                pass
             try:
                 run_single_stage(ctx, stage)
             except Exception as exc:

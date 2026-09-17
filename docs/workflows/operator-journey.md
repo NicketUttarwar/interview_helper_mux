@@ -6,7 +6,7 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 
 | # | Phase | Operator action |
 |---|-------|-----------------|
-| 1 | Start | Select audio; pick **Manual / Full-auto / Partially accelerated**; pick **brain (default 0.1.0 latest homunculus, or 0.0.0 original)**; pick **destination podcast** (default Zero Shot Podcast DEMO — horizontal artwork cards); optional preclean offer (accept/dismiss). **Two paths (4B):** **0.1.0** runs `framing_posture_decide` + `vo_line_adjudicate` + 5C synth-before-audit; **0.0.0** keeps the legacy deterministic gap path without those stages. |
+| 1 | Start | Select audio; pick **Manual / Full-auto / Partially accelerated**; pick **brain (default 0.2.0 seed walk; 0.0.0 original remains selectable)**; pick **destination podcast** (default Zero Shot Podcast DEMO — horizontal artwork cards); optional preclean offer (accept/dismiss). **Two paths (4B):** **0.2.0** runs `framing_posture_decide` + `vo_line_adjudicate` + 5C synth-before-audit; **0.0.0** keeps the legacy deterministic gap path without those stages. |
 | 2 | Prepare | Automated: preclean → ingest → transcribe → review queue |
 | 3 | Fix transcript | **G0 mandatory** — correct STT in transcript review |
 | 4 | Understand | Automated analysis: speakers → talking-points/ideal cuts → segments → palettes stub → **Mastering research + Shape** |
@@ -14,7 +14,7 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 | 5b | Refine | Slim Pass-2 — agenda + gap recompose / selection apply only — [refinement-passes.md](../cross-cutting/refinement-passes.md) |
 | 6 | Plan & rank | Deterministic coverage/narrative when cuts bound → ranking → transitions |
 | 7 | Edit | Optional NLE (always-visible **Split segment** after segments exist); auto `segments/split_plan.json`; splits cascade re-rank |
-| 8 | Sound | SDP plan → VO finalize → **vo_line_adjudicate** (0.1.0+) |
+| 8 | Sound | SDP plan → VO finalize → **vo_line_adjudicate** (0.2.0) |
 | 9 | Build | **vo_synthesize** → narrative audit (heard WAV) → EDL → preview → listen delight (**authoritative** ship gate) → MMAudio → mix → junction snip QA |
 | 10 | Ship | `master_finalize` → `master_transcript_build` → optional **G-Publish** (prepare local package; sync ASSETS → S3 separately) → download `master.wav` |
 

@@ -17,14 +17,14 @@ outputs:
 - path: segments/manifest.json
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: analysis/low_conf_islands.json
+    producer: low_conf_island_scan
   soft:
   - path: segments/manifest.json
     producer: segment_classification
   - path: transcript/full.json
     producer: transcribe
-  - path: analysis/low_conf_islands.json
-    producer: low_conf_island_scan
   - path: analysis/low_conf_must_keep.json
     producer: low_conf_island_scan
 sufficiency: []

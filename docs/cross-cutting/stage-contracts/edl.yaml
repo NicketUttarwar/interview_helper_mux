@@ -22,14 +22,13 @@ inputs:
     producer: topic_coverage_audit
   - path: master/selection.json
     producer: full_master_ranking
-  soft:
-  - path: master/transitions.json
-    producer: transitions
-    correctness: true
-  - path: master/narrative_plan.json
-    producer: narrative_arc_plan
   - path: master/edl_narrative_audit.json
     producer: edl_narrative_audit
+  - path: master/transitions.json
+    producer: transitions
+  soft:
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
   - path: segments/manifest.json
     producer: segment_classification
   - path: understanding/gap_report.json

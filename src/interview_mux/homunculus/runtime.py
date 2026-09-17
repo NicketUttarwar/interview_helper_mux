@@ -41,9 +41,7 @@ def is_homunculus_run(ctx: RunContext) -> bool:
 def has_dispatch_ledger(ctx: RunContext) -> bool:
     """Rails: dispatch ledger, admit, telemetry, budget bookkeeping, packing.
 
-    True on 0.2.0 — the deterministic walk keeps every rail. This is the predicate
-    a future ``kind="solver"`` brain needs, because it is keyed on the capability
-    rather than on the brain being a homunculus.
+    True on 0.2.0 — the seed walk keeps every rail.
     """
     return brain_has_dispatch_ledger(homunculus_version(ctx))
 
@@ -52,26 +50,16 @@ def has_homunculus_features(ctx: RunContext) -> bool:
     """Content tier: per-stage brain features, not rails and not control flow.
 
     CTA copy, perspective prompt blocks, VO line adjudication, framing posture,
-    gate auto-resolve, publishability enforcement. True on 0.1.0 and 0.2.0.
+    gate auto-resolve, publishability enforcement. True on 0.1.0+ and 0.2.0.
     """
     return brain_has_homunculus_features(homunculus_version(ctx))
 
 
 def conductor_owns_control_flow(ctx: RunContext) -> bool:
-    """False on 0.2.0 — the seed walk picks stages, no conductor turns are spent.
+    """True only on the legacy 0.1.0 brain id (not offered on Start).
 
-    Also false on *any* brain once the solver is authoritative (plan §7 step 3): that
-    is the LLM demotion to content-only. It stays a capability question rather than a
-    version check, so a 0.1.0 run promoted to the solver cannot spend a conductor turn
-    on stage selection while the solver is deciding.
+    Brain 0.2.0 uses a fixed seed walk — this returns False there.
     """
-    try:
-        from interview_mux.solver import solver_authoritative
-
-        if solver_authoritative():
-            return False
-    except Exception:
-        pass
     return llm_owns_control_flow(homunculus_version(ctx))
 
 

@@ -1,8 +1,8 @@
 {
   "campaign_id": "RSTM-2026-09-09",
   "wave": "B",
-  "generated_at": "2026-09-17T01:19:21Z",
-  "git_head": "dd06aacb",
+  "generated_at": "2026-09-17T06:15:06Z",
+  "git_head": "3dd0ebf4",
   "merges_wave_a": "FAILURE_CATALOG-2026-09-09",
   "cell_ceiling": 12000,
   "cell_count": 9849,

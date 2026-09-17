@@ -15,7 +15,9 @@ outputs:
 - path: segments/manifest.json
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: mastering/chapter_close_hitch.json
+    producer: chapter_close_hitch
   soft:
   - path: segments/manifest.json
     producer: segment_classification
@@ -25,8 +27,6 @@ inputs:
     producer: low_conf_island_scan
   - path: analysis/connector_fuse_audit.json
     producer: connector_fuse_pass
-  - path: mastering/chapter_close_hitch.json
-    producer: chapter_close_hitch
 sufficiency: []
 propagation:
   invalidates_stages:

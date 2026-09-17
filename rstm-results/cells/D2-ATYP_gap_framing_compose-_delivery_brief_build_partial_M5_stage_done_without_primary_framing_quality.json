@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|gap_framing_compose->delivery_brief_build|partial|M5_stage_done_without_primary|framing_quality",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "incompleteness_ok:understanding/gap_report.json is pending",
+    "seed_block_ok:gap_framing_compose"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:16Z"
+}

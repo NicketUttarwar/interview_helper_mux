@@ -17,7 +17,9 @@ outputs:
 - path: vo_pickup/
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: mastering/vo_synthesize.json
+    producer: vo_synthesize
   soft: []
 sufficiency:
 - path: skipped

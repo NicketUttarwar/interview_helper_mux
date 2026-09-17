@@ -56,6 +56,15 @@ def _mark_analysis_prefix(ctx: RunContext, upto_stage: str) -> None:
             {"text": "fixture tape", "segments": []},
             skip_handoff=True,
         )
+    # Hollow-unmark at dispatch clears G0 prepare markers without a schema-valid queue.
+    if "transcript_review_build" in prefix and not ctx.artifact_exists(
+        "transcript/review_queue.json"
+    ):
+        ctx.write_json(
+            "transcript/review_queue.json",
+            {"chunks": []},
+            skip_handoff=True,
+        )
     mark_done_raw(ctx, *prefix)
 
 
@@ -71,8 +80,9 @@ def _ctx_000() -> RunContext:
 def test_normalize_version_default_and_unknown() -> None:
     assert normalize_version("0.0.0") == "0.0.0"
     assert normalize_version("0.1.0") == "0.1.0"
-    assert normalize_version(None) == "0.1.0"
-    assert normalize_version("latest") == "0.1.0"
+    assert normalize_version("0.2.0") == "0.2.0"
+    assert normalize_version(None) == "0.2.0"
+    assert normalize_version("latest") == "0.2.0"
     with pytest.raises(ValueError, match="Unknown"):
         normalize_version("9.9.9")
 
@@ -544,6 +554,7 @@ def test_conductor_stub_no_network() -> None:
     assert out["turns"] >= 1
 
 
+@pytest.mark.real_executions_root  # test supplies its own INTERVIEW_MUX_ROOT
 def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     import shutil
     from interview_mux.config import repo_root as real_repo_root
@@ -564,11 +575,11 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     body = vers.json()
     assert body["default"] == "0.2.0"
     ids = {b["id"] for b in body["brains"]}
-    assert {"0.0.0", "0.1.0", "0.2.0"} <= ids
+    assert {"0.0.0", "0.2.0"} <= ids
+    assert "0.1.0" not in ids
     by_id = {b["id"]: b for b in body["brains"]}
     assert by_id["0.2.0"].get("is_default") is True
     assert by_id["0.2.0"].get("control_plane") == "deterministic"
-    assert by_id["0.1.0"].get("is_default") is False
     assert by_id["0.0.0"].get("is_default") is False
 
     bad = client.post(
@@ -585,12 +596,12 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
         json={"input_audio_path": "ASSETS/input/interview.wav", "run_mode": "manual"},
     )
     assert ok.status_code == 200, ok.text
-    assert ok.json()["homunculus_version"] == "0.1.0"
+    assert ok.json()["homunculus_version"] == "0.2.0"
     assert ok.json()["podcast_id"] == "zero_shot_podcast_demo"
     meta = (tmp_path / "ASSETS" / "executions" / ok.json()["run_id"] / "run_meta.json").read_text(
         encoding="utf-8"
     )
-    assert '"homunculus_version": "0.1.0"' in meta
+    assert '"homunculus_version": "0.2.0"' in meta
     assert '"podcast_id": "zero_shot_podcast_demo"' in meta
 
 

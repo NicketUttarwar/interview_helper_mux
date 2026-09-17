@@ -16,10 +16,12 @@ outputs:
   staging: true
 - path: understanding/nugget_allocation_plan.json
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: understanding/nugget_layup_plan.json
     producer: nugget_layup_compose
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  soft:
   - path: understanding/nugget_corpus.json
     producer: nugget_corpus_mine
   - path: understanding/omit_ledger.json

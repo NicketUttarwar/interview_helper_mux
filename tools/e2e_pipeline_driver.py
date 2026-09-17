@@ -9,6 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 BASE = "http://127.0.0.1:8765"
@@ -18,11 +19,20 @@ INPUT_AUDIO = os.environ.get(
 )
 POLL_SEC = 15
 MAX_WAIT_SEC = 7200
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 if os.environ.get("MUX_E2E_PIPELINE_TEST", "").strip().lower() in {"1", "true", "yes"}:
     # Opt-in only for explicit e2e pipeline driver tests — not production Full-auto.
     os.environ.setdefault("MUX_E2E_MUSICGEN_ALLOW_STUB", "1")
 os.environ.pop("MUX_E2E_MUSICGEN_FAST_STUB", None)
 os.environ.pop("MUX_E2E_MUSICGEN_FORCE_STUB", None)
+
+
+def _homunculus_version() -> str:
+    from interview_mux.homunculus.version import requested_version
+
+    return requested_version()
 
 
 def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -71,7 +81,7 @@ def ensure_run(*, fresh: bool = True) -> str:
             "/api/runs",
             {
                 "input_audio_path": INPUT_AUDIO,
-                "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+                "homunculus_version": _homunculus_version(),
             },
         )
         return str(created["run_id"])
@@ -83,7 +93,7 @@ def ensure_run(*, fresh: bool = True) -> str:
         "/api/runs",
         {
             "input_audio_path": INPUT_AUDIO,
-            "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+            "homunculus_version": _homunculus_version(),
         },
     )
     return str(created["run_id"])

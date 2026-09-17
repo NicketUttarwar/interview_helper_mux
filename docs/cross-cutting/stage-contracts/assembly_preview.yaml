@@ -13,14 +13,14 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: master/edl.json
     producer: edl
-  - path: ingest/normalized.wav
-    producer: ingest
   - path: master/selection.json
     producer: full_master_ranking
+  soft:
+  - path: ingest/normalized.wav
+    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages: []

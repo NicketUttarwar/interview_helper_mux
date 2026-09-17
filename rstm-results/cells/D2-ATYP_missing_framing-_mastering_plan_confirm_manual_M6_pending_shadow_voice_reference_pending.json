@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|missing_framing->mastering_plan_confirm|manual|M6_pending_shadow|voice_reference_pending",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:missing_framing"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:22Z"
+}

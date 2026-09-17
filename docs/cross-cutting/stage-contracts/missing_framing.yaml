@@ -20,6 +20,8 @@ inputs:
     producer: content_context
   - path: segments/manifest.json
     producer: segment_classification
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
   soft:
   - path: understanding/gap_evaluations.json
   - path: transcript/full.json
@@ -37,8 +39,6 @@ inputs:
     producer: gap_framing_compose
   - path: understanding/speaker_delivery_plan.json
     producer: full_master_ranking
-  - path: mastering/mastering_plan.json
-    producer: mastering_plan_synthesize
   - path: master/selection.json
     producer: full_master_ranking
   - path: master/narrative_plan.json

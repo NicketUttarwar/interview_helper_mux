@@ -407,6 +407,16 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         end="C",
     ),
     _row(
+        "master/transitions/*.wav",
+        "transitions",
+        "vo_synthesize",
+        "edl",
+        "mix",
+        "junction_snip_qa",
+        mode="binary",
+        end="C",
+    ),
+    _row(
         "understanding/vo_line_adjudication.json",
         "vo_line_adjudicate",
         end="B",
@@ -563,13 +573,7 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         mode="operational",
         end="ops",
     ),
-    # Solver decision / halt log (§10.2) + observed stage contracts (§10.3).
-    _row(
-        "operator/solver_decision.jsonl",
-        "ops",
-        mode="operational",
-        end="ops",
-    ),
+    # Observed stage contracts (ops).
     _row(
         "operator/contract_observed.json",
         "ops",
@@ -1329,7 +1333,6 @@ def _build_allow() -> tuple[AllowRow, ...]:
         "operator/defect_ledger.json",
         "operator/dispatch_memo.json",
         "operator/ship_reachability.json",
-        "operator/solver_decision.jsonl",
         "operator/contract_observed.json",
     ):
         rows.append(
@@ -1341,9 +1344,27 @@ def _build_allow() -> tuple[AllowRow, ...]:
                 verb="persist",
             )
         )
-    # Promote pending — owner stage only (stage∈producers via write_permitted).
-    # Foreign flush of seating/omit/selection/gap/transitions is DENY below.
-    # Wildcard promote removed: glue/VO side-effects must pass producer check.
+    # Transition WAVs: producers already pass via owner_rerun. Glue stages that
+    # remaster a pair into pending still need an explicit promote_pending ALLOW.
+    for art in _CATALOG_SEED:
+        if art.path != "master/transitions/*.wav":
+            continue
+        for stage in (
+            "edl_narrative_audit",
+            "master_finalize",
+            "connector_fuse_pass",
+            "connector_fuse_pass_pre_ranking",
+            "edl_overlap_repair",
+        ):
+            rows.append(
+                AllowRow(
+                    path=art.path,
+                    stage=stage,
+                    role="producer",
+                    write_mode="binary",
+                    verb="promote_pending",
+                )
+            )
     return tuple(rows)
 
 

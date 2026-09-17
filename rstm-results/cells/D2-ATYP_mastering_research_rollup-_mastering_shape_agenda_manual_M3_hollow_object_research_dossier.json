@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|mastering_research_rollup->mastering_shape_agenda|manual|M3_hollow_object|research dossier",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:mastering_research_rollup",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:20Z"
+}

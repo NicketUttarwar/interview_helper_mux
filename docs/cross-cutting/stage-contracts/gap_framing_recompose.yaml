@@ -21,7 +21,9 @@ outputs:
 - path: understanding/refinement_plan.json
 - path: understanding/refinement_skip_copy.json
 inputs:
-  hard: []
+  hard:
+  - path: understanding/refinement_agenda.json
+    producer: refinement_agenda
   soft:
   - path: understanding/gap_report.json
     producer: gap_framing_compose
@@ -48,8 +50,6 @@ inputs:
     producer: missing_framing
   - path: understanding/nugget_corpus.json
     producer: nugget_corpus_mine
-  - path: understanding/refinement_agenda.json
-    producer: refinement_agenda
 sufficiency: []
 propagation:
   invalidates_stages: []

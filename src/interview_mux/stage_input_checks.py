@@ -482,6 +482,7 @@ def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_require_audio(ctx))
     for rel, remediation in (
+        ("master/selection.json", "Run full_master_ranking so mix has a selection."),
         ("master/edl.json", "Run edl."),
         ("understanding/sound_design_plan.json", "Run sound_design_plan."),
     ):

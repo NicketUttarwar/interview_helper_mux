@@ -15,14 +15,14 @@ outputs:
 - path: mastering/shadow_diff.json
 - path: glob:mastering/evidence_packets/*.json
 inputs:
-  hard: []
+  hard:
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
   soft:
   - path: mastering/mastering_plan.json
     producer: mastering_plan_synthesize
   - path: mastering/research_dossier.json
     producer: mastering_research_rollup
-  - path: understanding/gap_evaluations.json
-    producer: missing_framing
   - path: understanding/gap_report.json
     producer: gap_framing_compose
   - path: understanding/content_brief.json

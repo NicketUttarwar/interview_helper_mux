@@ -19,7 +19,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **Python** | 3.12 in **`.venv`** — **`scripts/bootstrap_venv.sh`**. |
 | **Local MLX** | STT/diarization + S2S in **`ASSETS/local_speech/venv`**; volley framer in **`ASSETS/local_llm/venv`** (fail-open). Bootstrap **`scripts/bootstrap_venv.sh`**. |
 | **Local audio** | DeepFilterNet + MMAudio in isolated ASSETS venvs — **`docs/cross-cutting/local-audio-stack.md`**. No cloud audio APIs. |
-| **LLM** | OpenAI artifacts via **`llm_simple.py`** (0.0.0) or **`homunculus/loop.py`** gateway (0.1.0); local MLX framer prep only (LX-01). Max 2 attempts per stage invoke. |
+| **LLM** | OpenAI artifacts via **`llm_simple.py`** (0.0.0) or **`homunculus/loop.py`** gateway (0.2.0); local MLX framer prep only (LX-01). Max 2 attempts per stage invoke. |
 | **Secrets** | **`config/secrets/secrets.env`** only. |
 | **AWS (podcast)** | Infra via **Terraform** (`scripts/tf-*.sh` → `terraform/state/`). See **`terraform/README.md`**. App S3/CF via **boto3** + secrets. Never AWS CLI / `aws login`. |
 | **Media** | Default **`./ASSETS/`** (gitignored). Runs under **`ASSETS/executions/`**. |
@@ -47,7 +47,7 @@ Full copy: **`docs/workflows/operator-gates.md`**.
 ## Pipeline
 
 - **72 stages:** 35 analysis + 37 delivery — orders in **`src/interview_mux/v2/config.py`** · inventory **`docs/v2/port-manifest.csv`** (76 manifest rows)
-- **Brains:** Start slider **0.1.0** homunculus (default — latest registered) vs **0.0.0** original — [docs/cross-cutting/mastering-homunculus.md](../../docs/cross-cutting/mastering-homunculus.md)
+- **Brains:** Start slider **0.2.0** homunculus seed walk (default — latest registered) vs **0.0.0** original — [docs/cross-cutting/mastering-homunculus.md](../../docs/cross-cutting/mastering-homunculus.md)
 - **Idempotency:** `.stage_done/<stage_id>`; **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**
 - **Artifacts:** writes via `ctx.path()` / `ctx.write_json()`; reads via `ctx.read_path()` / `ctx.read_json()` — see **`write_staging.py`**
 

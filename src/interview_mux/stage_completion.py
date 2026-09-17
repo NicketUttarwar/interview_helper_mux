@@ -695,6 +695,16 @@ def stage_artifact_incompleteness(
             heal_mmaudio_qa_wav_parity(ctx)
         except Exception:
             pass
+    if stage_id == "audio_preclean":
+        # HP-3 / prepare_outputs_present: operator skip is a finished outcome.
+        if ctx.artifact_exists("preclean/skip.json"):
+            return None
+        if ctx.artifact_exists("preclean/isolated.wav"):
+            return None
+        return (
+            "audio_preclean incomplete — resume audio_preclean: "
+            "preclean/isolated.wav or preclean/skip.json"
+        )
     if stage_id == "mix":
         unseated = _mix_unseated_incompleteness(ctx)
         if unseated:

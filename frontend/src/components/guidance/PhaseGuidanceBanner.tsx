@@ -284,7 +284,7 @@ export function StartPhaseGuidance() {
         Pick run mode, brain, destination podcast, then one interview WAV from ASSETS/.
       </p>
       <ol className="hint sm start-phase-steps">
-            <li>Choose Manual, Partially accelerated (default), or Full-auto; then Brain (default 0.1.0)</li>
+            <li>Choose Manual, Partially accelerated (default), or Full-auto; then Brain (default 0.2.0)</li>
             <li>Select the destination podcast (default Zero Shot)</li>
             <li>Click Start on your chosen file</li>
       </ol>

@@ -92,7 +92,10 @@ def test_declared_and_fallback_hard_inputs_are_unioned(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, "delta_fallback")
     contract = load_contract("mix")
     assert contract is not None
-    assert [d.path for d in contract.inputs if d.hard] == ["ingest/normalized.wav"]
+    assert [d.path for d in contract.inputs if d.hard] == [
+        "ingest/normalized.wav",
+        "master/selection.json",
+    ]
     paths = hard_input_paths(ctx, "mix")
     assert "ingest/normalized.wav" in paths
     assert "master/edl.json" in paths

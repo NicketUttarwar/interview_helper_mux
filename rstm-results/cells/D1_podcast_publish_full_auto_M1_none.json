@@ -2,7 +2,9 @@
   "cell_id": "D1|podcast_publish|full_auto|M1_none",
   "status": "PASS",
   "tier": "D1",
-  "notes": [],
+  "notes": [
+    "incompleteness_ok:package_ready \u2014 resume podcast_publish: publish/package_ready.json missing"
+  ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:34Z"
+  "executed_at": "2026-09-17T06:15:06Z"
 }

@@ -3,8 +3,9 @@
   "status": "PASS",
   "tier": "D3-P1",
   "notes": [
+    "incompleteness_ok:vernacular/resplit_report.json is pending \u2014 resume vernacular_segment_sanitize:",
     "seed_block_ok:vernacular_segment_sanitize"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:58:12Z"
+  "executed_at": "2026-09-17T06:15:43Z"
 }

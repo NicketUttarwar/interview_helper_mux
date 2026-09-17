@@ -106,11 +106,12 @@ def should_stamp_needs_operator(
     *,
     meta: dict | None = None,
 ) -> bool:
-    """Homunculus 0.1.0 unattended: only stamp needs_operator for operator gates."""
+    """Unattended (Full-auto / partial): stamp needs_operator only for journey gates.
+
+    Manual runs always stamp. Unattended 0.2.0 seed walk (and legacy 0.1.0 meta)
+    must route classified blocks through remediation instead of a human pause.
+    """
     if not is_unattended_run(meta):
-        return True
-    homunculus = str((meta or {}).get("homunculus_version") or "").strip()
-    if homunculus and not homunculus.startswith("0.1"):
         return True
     low = str(reason or "").lower()
     # Sanitize refuse is a hard product halt — never auto-continue past it.

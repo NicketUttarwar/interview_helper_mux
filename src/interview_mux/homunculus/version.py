@@ -1,4 +1,4 @@
-"""Homunculus brain registry. 0.0.0 is the original linear pipeline."""
+"""Homunculus brain registry. Operator-facing default is 0.2.0 seed walk."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ from typing import Any
 
 from interview_mux.config import merged_config, repo_root
 
-# Config alias: pick the highest registered brain (currently 0.1.0).
+# Config alias: pick the highest registered brain (currently 0.2.0).
 DEFAULT_VERSION = "latest"
 _LATEST_ALIASES = frozenset({"", "latest", "highest", "default"})
+# Legacy brain id kept for resume of ancient run_meta; not shown on Start.
+_LEGACY_OPERATOR_HIDDEN = frozenset({"0.1.0"})
 
 
 @dataclass(frozen=True)
@@ -19,11 +21,7 @@ class HomunculusBrain:
     summary: str
     kind: str  # original_pipeline | homunculus
     prompt_tree: str | None = None
-    # Who picks the next stage. "llm" = conductor tool-calls (0.1.0);
-    # "deterministic" = seed-order walk, no conductor turns (0.2.0).
-    # kind stays "homunculus" for both, but rails no longer depend on that: ask
-    # brain_has_dispatch_ledger (ledger, admit, dispatch budget) for rails and
-    # llm_owns_control_flow for stage selection. Only control flow differs here.
+    # "deterministic" = fixed seed walk (0.2.0). "llm" = legacy brain id only (0.1.0).
     control_plane: str = "llm"
 
 
@@ -40,23 +38,18 @@ _BUILTIN: tuple[HomunculusBrain, ...] = (
     ),
     HomunculusBrain(
         id="0.1.0",
-        label="Homunculus",
-        summary=(
-            "Authoritative conductor: skip/reorder/rerun, dynamic packing, "
-            "KB, MusicGen ladder, source-relative ears."
-        ),
+        label="Homunculus (legacy id)",
+        summary="Legacy brain id only — resume ancient run_meta; not offered on Start.",
         kind="homunculus",
         prompt_tree="docs/prompts/homunculus/",
         control_plane="llm",
     ),
     HomunculusBrain(
         id="0.2.0",
-        label="Homunculus (deterministic walk)",
+        label="Homunculus",
         summary=(
-            "Same rails as 0.1.0 — ledger, admit, dispatch budgets, packing, "
-            "MusicGen ladder, ears — but stage order is the deterministic seed "
-            "walk. No conductor turns, so no turn budget to exhaust. The LLM "
-            "still writes artifact content; it no longer picks the next stage."
+            "Default brain: ledger, admit, dispatch budgets, packing, MusicGen "
+            "ladder, ears. Stage order is the fixed seed walk."
         ),
         kind="homunculus",
         prompt_tree="docs/prompts/homunculus/",
@@ -145,6 +138,15 @@ def normalize_version(raw: str | None) -> str:
     return text
 
 
+def requested_version(raw: str | None = None) -> str:
+    """Resolve an explicit request, else ``MUX_HOMUNCULUS_VERSION``, else default."""
+    import os
+
+    if raw is not None and str(raw).strip():
+        return normalize_version(str(raw))
+    return normalize_version(os.environ.get("MUX_HOMUNCULUS_VERSION") or None)
+
+
 def resolve_brain(version: str | None) -> HomunculusBrain:
     vid = normalize_version(version)
     for b in list_brains():
@@ -170,29 +172,25 @@ def _brain_kind(version: str | None) -> str:
 def brain_has_dispatch_ledger(version: str | None) -> bool:
     """Rails capability: ledger, telemetry, dispatch accounting, budget bookkeeping.
 
-    Keyed on "not the original linear pipeline" rather than ``kind == "homunculus"``
-    so a future ``kind="solver"`` keeps the rails instead of silently dropping them.
+    True for every non-original brain (0.1.0 legacy id and 0.2.0 seed walk).
     """
     kind = _brain_kind(version)
     return bool(kind) and kind != "original_pipeline"
 
 
 def brain_has_homunculus_features(version: str | None) -> bool:
-    """Content capability: per-stage brain features (CTA, perspective blocks, gate
-    auto-resolve, framing posture, adjudication, publishability enforcement).
+    """Content capability: CTA, perspective blocks, gate auto-resolve, etc.
 
-    Same keying as the rails: a solver brain still runs the feature set; only the
-    original linear pipeline does not.
+    Same keying as the rails: every non-original brain.
     """
     kind = _brain_kind(version)
     return bool(kind) and kind != "original_pipeline"
 
 
 def llm_owns_control_flow(version: str | None) -> bool:
-    """True when a conductor LLM picks the next stage (0.1.0), not the seed walk.
+    """True only for the legacy 0.1.0 brain id (not offered on Start).
 
-    0.2.0 keeps every homunculus rail but hands stage selection to the
-    deterministic walk, so ``is_homunculus_brain`` stays True while this is False.
+    0.2.0 uses the fixed seed walk, so this is False for new runs.
     """
     try:
         brain = resolve_brain(version)
@@ -204,6 +202,7 @@ def llm_owns_control_flow(version: str | None) -> bool:
 
 
 def brains_public() -> list[dict[str, Any]]:
+    """Operator-facing Start-tab list — excludes legacy 0.1.0."""
     current = default_version()
     return [
         {
@@ -216,6 +215,7 @@ def brains_public() -> list[dict[str, Any]]:
             "is_default": b.id == current,
         }
         for b in list_brains()
+        if b.id not in _LEGACY_OPERATOR_HIDDEN
     ]
 
 
@@ -248,14 +248,11 @@ def stamp_build_identity(ctx: Any) -> None:
 
 def stamp_run_meta(ctx: Any, raw: str | None = None) -> str:
     """Persist homunculus_version on a new run. Never overwrite mid-run."""
-    import os
-
     if ctx.artifact_exists("run_meta.json"):
         existing = (ctx.read_json("run_meta.json") or {}).get("homunculus_version")
         if existing:
             return str(existing)
-    text = (raw or os.environ.get("MUX_HOMUNCULUS_VERSION") or "").strip() or None
-    vid = normalize_version(text)
+    vid = requested_version(raw)
     brain = resolve_brain(vid)
 
     def _mut(meta: dict[str, Any]) -> None:

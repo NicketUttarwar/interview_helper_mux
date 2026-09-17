@@ -16,11 +16,11 @@ inputs:
   hard:
   - path: transcript/full.json
     producer: transcribe
+  - path: understanding/content_brief.json
+    producer: content_context
   soft:
   - path: understanding/speakers.json
     producer: speaker_roles
-  - path: understanding/content_brief.json
-    producer: content_context
   - path: transcript/review_queue.json
     producer: transcript_review_build
   - path: analysis/run_golden_facts.json

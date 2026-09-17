@@ -13,7 +13,9 @@ outputs:
   schema: null
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: master/selection.json
+    producer: full_master_ranking
   soft: []
 sufficiency:
 - path: title

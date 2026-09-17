@@ -17,10 +17,10 @@ outputs:
 - path: glob:understanding/speaker_samples/*.wav
   staging: true
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: understanding/speakers.json
     producer: speaker_roles
+  soft:
   - path: transcript/full.json
     producer: transcribe
   - path: ingest/normalized.wav

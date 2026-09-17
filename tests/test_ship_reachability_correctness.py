@@ -55,10 +55,7 @@ from run_fixtures import MINIMAL_WAV_BYTES, isolated_run_ctx
 # The minimum marker set, spelled out so widening it is a deliberate edit.
 EXPECTED_MARKERS: set[tuple[str, str]] = {
     ("mix", "master/edl.json"),
-    ("mix", "master/selection.json"),
     ("master_finalize", "master/edl.json"),
-    ("master_finalize", "master/selection.json"),
-    ("junction_snip_qa", "master/edl.json"),
     ("junction_snip_qa", "master/selection.json"),
     ("edl", "master/transitions.json"),
 }
@@ -261,10 +258,13 @@ def test_every_marked_row_is_still_soft() -> None:
             assert correctness_required(dep) is True
 
 
-def test_mix_still_declares_one_hard_input() -> None:
+def test_mix_declares_tape_and_selection_hard() -> None:
     contract = load_contract("mix")
     assert contract is not None
-    assert [d.path for d in contract.inputs if d.hard] == ["ingest/normalized.wav"]
+    assert [d.path for d in contract.inputs if d.hard] == [
+        "ingest/normalized.wav",
+        "master/selection.json",
+    ]
 
 
 def test_dispatch_delta_hash_set_is_unchanged(tmp_path: Path, monkeypatch) -> None:
@@ -307,30 +307,6 @@ def test_prestage_checks_are_unchanged(tmp_path: Path, monkeypatch) -> None:
         sid: run_phase_checks(ctx, sid, LifecyclePhase.PRESTAGE) for sid in MARKED_STAGES
     }
     assert marked == plain
-
-
-def test_solver_admissibility_is_unchanged(tmp_path: Path, monkeypatch) -> None:
-    """`solver.evaluate_stage` — the hard-input clause of the admissibility rule."""
-    from interview_mux.solver import evaluate_stage
-
-    ctx = _ctx(tmp_path, "corr_solver")
-
-    def _snapshot() -> dict[str, tuple]:
-        out = {}
-        for sid in MARKED_STAGES:
-            verdict = evaluate_stage(ctx, sid)
-            out[sid] = (
-                verdict.admissible,
-                verdict.reasons,
-                verdict.unknowns,
-                verdict.detail.get("declared_hard_inputs"),
-                tuple(sorted((verdict.detail.get("producers") or {}).items())),
-            )
-        return out
-
-    marked = _snapshot()
-    _markers_stripped(monkeypatch)
-    assert marked == _snapshot()
 
 
 def test_the_runtime_gate_safety_filter_sees_no_new_rows() -> None:

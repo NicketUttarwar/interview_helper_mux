@@ -17,7 +17,9 @@ outputs:
 - path: analysis/low_conf_must_keep.json
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: vernacular/resplit_report.json
+    producer: vernacular_segment_sanitize
   soft:
   - path: segments/manifest.json
     producer: segment_classification

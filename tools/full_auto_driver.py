@@ -24,6 +24,12 @@ def _e2e_soft() -> bool:
     return e2e_soft_enabled()
 
 
+def _homunculus_version() -> str:
+    from interview_mux.homunculus.version import requested_version
+
+    return requested_version()
+
+
 def _heal_mark_or_resume(ctx: Any, stage: str, *, force: bool = True) -> bool:
     """Wave 3: True only if heal marked complete (not refused / still incomplete)."""
     sid = str(stage or "").strip()
@@ -8633,6 +8639,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     "message": "needs_operator",
                 }
             # T8: recompute from_stage after handle_gate — never stale original body.
+            # Seed-order refusals must pin the named producer only — never leap into
+            # delivery (selection_order_sanitize / topic_coverage_audit) while that
+            # producer is still incomplete (D14 thrash amplifier).
             try:
                 from interview_mux.run_context import RunContext
                 from interview_mux.thrash_hardening import (
@@ -8640,12 +8649,38 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     canonical_resume_pin,
                 )
 
-                pin = canonical_resume_pin(
-                    RunContext(RUN_ID, create=False),
-                    FAIL_CLASS_DELIVERY_BLOCKED,
-                    hint=gate_stage or str(body.get("from_stage") or ""),
+                ctx_gate = RunContext(RUN_ID, create=False)
+                gate_detail = str(
+                    job.get("message") or job.get("error") or gate_msg or ""
                 )
+                pin = ""
+                low_gate = gate_detail.lower()
+                if "seed order:" in low_gate and "complete " in low_gate:
+                    import re as _re_gate_seed
+
+                    sm = _re_gate_seed.search(
+                        r"complete ([a-z0-9_]+) before running", low_gate
+                    )
+                    if sm:
+                        pin = sm.group(1)
+                        try:
+                            from interview_mux.delivery_guardrails import (
+                                seed_stage_complete as _seed_ok_gate,
+                            )
+
+                            if _seed_ok_gate(ctx_gate, pin):
+                                pin = ""
+                        except Exception:
+                            pass
+                if not pin:
+                    pin = canonical_resume_pin(
+                        ctx_gate,
+                        FAIL_CLASS_DELIVERY_BLOCKED,
+                        hint=gate_stage or str(body.get("from_stage") or ""),
+                    )
                 mode = "delivery" if pin in DELIVERY_ORDER else str(body.get("mode") or "delivery")
+                if pin in ANALYSIS_ORDER:
+                    mode = "analysis"
                 log(f"gate re-execute recomputed pin={pin} (was body from_stage={body.get('from_stage')})")
                 execute({"mode": mode, "from_stage": pin})
             except Exception as gate_pin_exc:
@@ -13840,7 +13875,7 @@ def ensure_run() -> bool:
             "input_audio_path": INPUT_AUDIO,
             "run_mode": "full-auto",
             "full_auto": True,
-            "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+            "homunculus_version": _homunculus_version(),
         },
         timeout=300,
     )

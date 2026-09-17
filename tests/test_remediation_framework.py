@@ -25,10 +25,29 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 def test_automated_classified_vo_contract_not_operator_gate() -> None:
     from interview_mux.operator_gates import should_stamp_needs_operator
 
-    meta = {"partial_auto": True, "homunculus_version": "0.1.0"}
     reason = "VO contract: seated line vo_preface_episode_orientation missing from gap_report"
     assert is_automated_classified("nugget_layup_compose", reason)
-    assert not should_stamp_needs_operator("nugget_layup_compose", reason, meta=meta)
+    for version in ("0.1.0", "0.2.0"):
+        meta = {"partial_auto": True, "homunculus_version": version}
+        assert not should_stamp_needs_operator(
+            "nugget_layup_compose", reason, meta=meta
+        ), version
+
+
+def test_full_auto_020_classified_block_not_needs_operator() -> None:
+    """Stage Clinic Wave 2: 0.2.0 unattended must not early-stamp every reason."""
+    from interview_mux.operator_gates import should_stamp_needs_operator
+
+    meta = {"full_auto": True, "homunculus_version": "0.2.0"}
+    reason = (
+        "RuntimeError:seed order: complete air_script_seams before running transitions"
+    )
+    assert not should_stamp_needs_operator("transitions", reason, meta=meta)
+    assert should_stamp_needs_operator(
+        "transcript_review_build",
+        "transcript review incomplete",
+        meta=meta,
+    )
 
 
 def test_vo_seated_coverage_ladder(ctx: RunContext) -> None:

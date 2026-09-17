@@ -18,7 +18,7 @@ Authoritative specs for **interview_helper_mux** — messy interview audio → s
 | [logic-tree.md](./logic-tree.md) | Gap detection and decisions |
 | [prompts/](./prompts/) | LLM system prompts |
 | [cross-cutting/mastering-process.md](./cross-cutting/mastering-process.md) | Unified mastering process |
-| [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md) | 0.1.0 homunculus (default / latest) vs 0.0.0 original |
+| [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md) | 0.2.0 homunculus seed walk (default / latest) vs 0.0.0 original |
 | [cross-cutting/artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md) | Flagship LLM artifacts, gap-fill, schema + Zod validation |
 | [cross-cutting/source-derived-sonic-mix-profile.md](./cross-cutting/source-derived-sonic-mix-profile.md) | Source-derived pacing/mix profile for cohesive SFX (shipped, BUILD-082) |
 | [cross-cutting/](./cross-cutting/) | Schemas, artifacts, models |

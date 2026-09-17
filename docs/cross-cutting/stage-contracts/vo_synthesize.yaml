@@ -17,14 +17,19 @@ outputs:
 - path: vo_pickup/synthesized/
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
   soft: []
 sufficiency: []
 propagation:
   invalidates_stages:
   - edl_narrative_audit
   - edl
-consumers: []
+consumers:
+- sound_design_vo_finalize
+- edl_narrative_audit
+- edl
 remediation:
   strategies:
   - volley_retry

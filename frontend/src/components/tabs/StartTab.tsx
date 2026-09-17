@@ -49,6 +49,8 @@ export function StartTab() {
     podcastShows,
   } = useApp();
   const sessionLocked = Boolean(runId);
+  const selectedBrain = homunculusBrains.find((b) => b.id === homunculusVersion);
+  const defaultBrainId = homunculusBrains.find((b) => b.is_default)?.id || "0.2.0";
 
   const live = useLiveStatus(run, {
     jobRunning,
@@ -330,15 +332,15 @@ export function StartTab() {
             );
           })}
         </div>
-        {homunculusBrains.find((b) => b.id === homunculusVersion)?.kind === "homunculus" ? (
-          <p className="hint" data-testid="start-brain-homunculus-hint">
-            Homunculus {homunculusVersion} is the default tool-loop conductor over the same 65
-            stages. Switch to Original 0.0.0 for the linear walk.
-          </p>
-        ) : (
+        {selectedBrain?.kind !== "homunculus" ? (
           <p className="hint" data-testid="start-brain-original-hint">
             Original 0.0.0 walks analysis then delivery in the order stages were created. Default
-            for new runs is Homunculus {homunculusBrains.find((b) => b.is_default)?.id || "0.1.0"}.
+            for new runs is Homunculus {defaultBrainId}.
+          </p>
+        ) : (
+          <p className="hint" data-testid="start-brain-homunculus-hint">
+            Homunculus {homunculusVersion} runs a fixed seed-order walk with packing, ledger, and
+            heal rails. Switch to Original 0.0.0 for the linear walk without those rails.
           </p>
         )}
       </section>

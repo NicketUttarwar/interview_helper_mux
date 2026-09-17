@@ -13,7 +13,9 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
+  hard:
+  - path: analysis/connector_fuse_audit.json
+    producer: connector_fuse_pass
   soft:
   - path: understanding/content_brief.json
     producer: content_context

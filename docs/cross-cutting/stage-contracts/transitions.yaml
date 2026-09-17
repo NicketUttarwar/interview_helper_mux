@@ -29,6 +29,8 @@ inputs:
     producer: nugget_layup_compose
   - path: master/selection.json
     producer: full_master_ranking
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
   soft:
   - path: master/transitions.json
   - path: understanding/synthetic_framing_plan.json
@@ -42,8 +44,6 @@ inputs:
     producer: narrative_arc_plan
   - path: master/transitions_pair_freeze.json
     producer: transitions
-  - path: mastering/mastering_plan.json
-    producer: mastering_plan_synthesize
   - path: mastering/media_ip_cta.json
     producer: full_master_ranking
   - path: segments/manifest.json

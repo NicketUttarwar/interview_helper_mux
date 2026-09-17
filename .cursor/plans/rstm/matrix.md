@@ -1,7 +1,7 @@
 # RSTM matrix — RSTM-2026-09-09
 
-- generated_at: `2026-09-17T01:19:21Z`
-- git_head: `dd06aacb`
+- generated_at: `2026-09-17T06:15:06Z`
+- git_head: `3dd0ebf4`
 - cell_count: **9849** / ceiling 12000
 - tiers: D1, D2-ATYP, D2-GATE, D2-PC, D2-RR, D2-SEED, D2-SKIP1, D3-DUALMUT, D3-FANIN, D3-GATEMID, D3-P0, D3-P1, D4-S4, GATE, INV, RC-DW
 - coverage: `{"d1": true, "d2_seed": true, "d2_skip1": true, "p0_d3": true, "residual_donewhen": true, "formations": ["F1", "F2", "F3", "F4", "F5"]}`

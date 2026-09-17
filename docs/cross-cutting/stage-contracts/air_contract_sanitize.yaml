@@ -14,10 +14,10 @@ outputs:
   staging: false
 - path: understanding/omit_ledger.json
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: mastering/mastering_plan.json
     producer: air_script_seams
+  soft:
   - path: understanding/omit_ledger.json
     producer: air_script_compose
   - path: understanding/gap_report.json

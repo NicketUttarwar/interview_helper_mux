@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|master_transcript_build->episode_meta_build|partial|M5_stage_done_without_primary|cue_count_zero",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "incompleteness_ok:cue_count_zero \u2014 resume master_transcript_build: master/transcript.json missing",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:15Z"
+}

@@ -32,6 +32,10 @@ STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
         "air_order_integrity",
         # D1 advance-past: an open ship-bar defect is never a rubric advisory.
         "no_open_ship_bar_defects",
+        # Finding 4: a stage that succeeded on a hollow/wrong artifact.
+        "stage_output_semantics",
+        # Finding 6: unreadable contracts must refuse the ship gate, not the walk.
+        "ship_reachability_analysis",
     }
 )
 

@@ -29,17 +29,15 @@ outputs:
 - path: sound_design/placement_adjustments.json
   staging: true
 inputs:
-  hard: []
+  hard:
+  - path: master/edl.json
+    producer: edl
+  - path: master/selection.json
+    producer: full_master_ranking
   soft:
   - path: master/assembly_ledger.json
   - path: master/air_order.json
   - path: master/render_ledger.json
-  - path: master/edl.json
-    producer: edl
-    correctness: true
-  - path: master/selection.json
-    producer: full_master_ranking
-    correctness: true
   - path: master/assembly.wav
     producer: mix
   - path: segments/manifest.json

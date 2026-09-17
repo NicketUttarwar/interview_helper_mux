@@ -18,12 +18,11 @@ inputs:
   hard:
   - path: ingest/normalized.wav
     producer: ingest
+  - path: master/selection.json
+    producer: full_master_ranking
   soft:
   - path: master/edl.json
     producer: edl
-    correctness: true
-  - path: master/selection.json
-    producer: full_master_ranking
     correctness: true
   - path: master/transitions.json
     producer: transitions

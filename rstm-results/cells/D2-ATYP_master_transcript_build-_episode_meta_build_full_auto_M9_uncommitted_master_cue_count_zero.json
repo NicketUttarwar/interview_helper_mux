@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|master_transcript_build->episode_meta_build|full_auto|M9_uncommitted_master|cue_count_zero",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:master_finalize",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:15Z"
+}

@@ -18,7 +18,9 @@ outputs:
   staging: true
 - path: transcript/protected_zones.json
 inputs:
-  hard: []
+  hard:
+  - path: segments/boundaries.json
+    producer: boundary_topic_resplit
   soft:
   - path: transcript/protected_zones.json
     producer: audio_probe_build

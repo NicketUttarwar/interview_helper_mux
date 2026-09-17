@@ -122,6 +122,6 @@ User packets must contain **this tape’s meaning** (transcript, segment excerpt
 
 Research waves + Shape + analysis/delivery stages (**65** total) → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
-**Brains:** **0.1.0** (default — latest registered homunculus). **0.0.0** remains the original linear walk on the Start slider — [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
+**Brains:** **0.2.0** (default — latest registered homunculus, fixed seed walk). **0.0.0** original remains on the Start slider — [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
 
 See [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) and [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).

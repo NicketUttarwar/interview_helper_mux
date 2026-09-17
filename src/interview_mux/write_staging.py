@@ -355,7 +355,11 @@ _OWNER_PROMOTE_JSON: frozenset[str] = frozenset(
 
 def _may_promote_pending(ctx: RunContext, rel: str, stage_id: str) -> bool:
     """True when stage may flush this pending path (owner or non-gated side-effect)."""
-    if rel not in _OWNER_PROMOTE_JSON:
+    norm = str(rel or "").replace("\\", "/").lstrip("./")
+    wav_owned = norm.endswith(".wav") and (
+        norm.startswith("master/transitions/") or norm.startswith("vo_pickup/")
+    )
+    if rel not in _OWNER_PROMOTE_JSON and not wav_owned:
         return True
     try:
         from interview_mux.artifact_ownership import write_permitted
@@ -371,15 +375,12 @@ def _may_promote_pending(ctx: RunContext, rel: str, stage_id: str) -> bool:
 
 # Directory promotes (`rel` ending in "/") never consulted ownership at all:
 # `_may_promote_pending` runs on the file branch only, so a DENY row on a
-# directory artifact was documented and never imposed. Enforcing it outright
-# would refuse every promote of `master/transitions/` on day one — that
-# directory has no catalog row, and under `fail_closed()` an unrowed path is
-# `unknown_path`. So the verdict is computed per child always and *acted on*
-# only for prefixes on this ratchet, mirroring
-# `contract_conformance.STRICT_GROUPS`: scaffolding is global and immediate,
-# enforcement is local and incremental. Add a prefix only once every real
-# producer of that directory has an ALLOW row. Only ever grows.
-PROMOTE_DIR_STRICT_PREFIXES: tuple[str, ...] = ()
+# directory artifact was documented and never imposed. Verdict is computed per
+# child always and *acted on* for prefixes on this ratchet, mirroring
+# `contract_conformance.STRICT_GROUPS`. `master/transitions/*.wav` now has a
+# catalog row (producers + glue promote_pending ALLOWs), so the prefix is armed.
+# Only ever grows.
+PROMOTE_DIR_STRICT_PREFIXES: tuple[str, ...] = ("master/transitions/",)
 
 _ENV_PROMOTE_DIR_STRICT = "MUX_PROMOTE_DIR_STRICT_PREFIXES"
 

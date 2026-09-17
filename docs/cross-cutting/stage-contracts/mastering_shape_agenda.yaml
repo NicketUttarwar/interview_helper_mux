@@ -15,7 +15,9 @@ outputs:
 - path: mastering/shape/eval_rubric.json
 - path: glob:mastering/evidence_packets/*.json
 inputs:
-  hard: []
+  hard:
+  - path: mastering/research/rollup.json
+    producer: mastering_research_rollup
   soft:
   - path: mastering/research_dossier.json
     producer: mastering_research_rollup

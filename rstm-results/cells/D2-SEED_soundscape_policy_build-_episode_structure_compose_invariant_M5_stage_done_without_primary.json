@@ -3,8 +3,9 @@
   "status": "PASS",
   "tier": "D2-SEED",
   "notes": [
+    "incompleteness_ok:understanding/soundscape_policy.json is pending \u2014 resume soundscape_policy_build",
     "seed_block_ok:soundscape_policy_build"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:36Z"
+  "executed_at": "2026-09-17T06:15:07Z"
 }

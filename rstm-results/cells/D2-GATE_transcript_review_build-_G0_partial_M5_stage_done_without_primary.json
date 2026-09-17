@@ -2,7 +2,9 @@
   "cell_id": "D2-GATE|transcript_review_build->G0|partial|M5_stage_done_without_primary",
   "status": "PASS",
   "tier": "D2-GATE",
-  "notes": [],
+  "notes": [
+    "incompleteness_ok:transcript/review_queue.json is pending \u2014 resume transcript_review_build:"
+  ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:56Z"
+  "executed_at": "2026-09-17T06:15:28Z"
 }

@@ -15,10 +15,10 @@ outputs:
 - path: understanding/sound_design_plan.json
   staging: true
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: understanding/sound_design_plan.json
     producer: sound_design_palettes
+  soft:
   - path: understanding/music_brief.json
     producer: sound_design_plan
   - path: master/edl.json

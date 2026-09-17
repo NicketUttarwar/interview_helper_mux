@@ -2,7 +2,9 @@
   "cell_id": "D1|transcript_review_build|manual|M1_none",
   "status": "PASS",
   "tier": "D1",
-  "notes": [],
+  "notes": [
+    "incompleteness_ok:transcript/review_queue.json is pending \u2014 resume transcript_review_build:"
+  ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-11T20:57:34Z"
+  "executed_at": "2026-09-17T06:15:06Z"
 }

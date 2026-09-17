@@ -94,6 +94,8 @@
         "mastering/chapter_close_hitch.json",
         "mastering/chapter_close_hitch/intent_plan.json",
         "mastering/chapter_close_hitch/remap.json",
+        "understanding/episode_structure_compact.txt",
+        "segments/boundaries.json",
         "mastering/chapter_close_hitch/hitch_keepers.json",
         "mastering/chapter_close_hitch/pre_keepers.json",
         "mastering/chapter_close_hitch/omit_ledger.json",
@@ -219,7 +221,8 @@
       "stage": "episode_structure_compose",
       "tier": "process",
       "outputs": [
-        "understanding/episode_structure.json"
+        "understanding/episode_structure.json",
+        "understanding/episode_structure_compact.txt"
       ]
     },
     {
@@ -733,6 +736,7 @@
       "tier": "llm_full",
       "outputs": [
         "understanding/sound_design_plan.json",
+        "understanding/episode_structure_compact.txt",
         "understanding/music_brief.json"
       ]
     },

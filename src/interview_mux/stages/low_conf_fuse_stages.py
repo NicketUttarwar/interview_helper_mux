@@ -38,11 +38,15 @@ def run_low_conf_island_scan(ctx: RunContext) -> None:
     stage = "low_conf_island_scan"
     conf = low_conf_selection_cfg()
     if not conf.get("enabled", True):
+        # Still write skip artifact + heal so seed walk does not stall pending.
         ctx.log(
             "low_conf_island_scan skipped (analysis.low_conf_selection.enabled=false)",
             stage=stage,
             action_id="low_conf.scan.skip",
         )
+        with logged_step(f"{stage}/scan", ctx=ctx, stage=stage):
+            scan_low_conf_islands_for_ctx(ctx)
+        _heal_island_stage(ctx, stage)
         return
 
     with logged_step(f"{stage}/scan", ctx=ctx, stage=stage):

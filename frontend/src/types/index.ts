@@ -138,6 +138,7 @@ export interface HomunculusBrainInfo {
   summary: string;
   kind: "original_pipeline" | "homunculus" | string;
   prompt_tree?: string | null;
+  control_plane?: "llm" | "deterministic" | string;
   is_default?: boolean;
 }
 

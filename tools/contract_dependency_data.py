@@ -131,7 +131,7 @@ def dep(path: str, **extra: Any) -> dict[str, Any]:
 # gated dependency is safe as long as the predicate matches the gate the stage
 # itself checks.
 #
-# Every hard input below therefore rests on one of exactly three bases:
+# Every hard input below therefore rests on one of exactly four bases:
 #
 #   REFUSES   the stage body calls `artifact_exists_required` /
 #             `read_artifact_path` / raises on absence itself, so hard adds no
@@ -140,8 +140,15 @@ def dep(path: str, **extra: Any) -> dict[str, Any]:
 #             stage that errors on absence of this exact path.
 #   ALWAYS    the artifact is unconditionally present before dispatch in every
 #             posture and branch. Only `_TRANSCRIPT_ALWAYS_PRESENT` qualifies.
+#   SEED_ORDER seed law (`_seed_prereq_block`) always requires producer P before
+#             consumer C. Without a hard edge the authoritative solver can mark C
+#             confident while P is still deferred (D14 topology↔content_context
+#             thrash). Soft body degrade is fine; leapfrog under authority is not.
+#             Applied by `_apply_seed_order_hard_promotions` below for consecutive
+#             soft-underdeclare pairs (allowlisted optionals stay soft).
 #
-# Anything else is soft. When in doubt, soft.
+# Anything else is soft. When in doubt for *body* refuse modes, soft — but never
+# leave a SEED_ORDER predecessor soft on a confident-capable consumer.
 _TRANSCRIPT_ALWAYS_PRESENT = """transcript/full.json — `run_transcribe` either
 writes it or raises (no branch completes without it), it sits at ANALYSIS_ORDER
 position 2 ahead of every consumer, and nothing gates transcription: no posture,
@@ -390,13 +397,19 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
         ],
     },
     "content_context": {
-        # `_preflight_content_context` refuses on both.
+        # `_preflight_content_context` refuses on speakers + transcript.
+        # SEED_ORDER: topology hard — without it authority leapfrogs the deferred
+        # empty-hard topology stage (D14 thrash).
         "inputs": {
             "hard": [
                 {"path": "transcript/full.json", "producer": "transcribe"},
+                {"path": "understanding/speakers.json", "producer": "speaker_roles"},
+                {
+                    "path": "understanding/source_topology.json",
+                    "producer": "source_topology_build",
+                },
             ],
             "soft": [
-                {"path": "understanding/source_topology.json", "producer": "source_topology_build"},
                 {"path": "ingest/normalized.wav", "producer": "ingest"},
                 {"path": "transcript/review_queue.json", "producer": "transcript_review_build"},
                 *back("segments/manifest.json"),
@@ -415,17 +428,17 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
         ],
     },
     "talking_points_compose": {
-        # Transcript hard on the `_TRANSCRIPT_ALWAYS_PRESENT` basis; speakers
-        # soft because no preflight is registered for this stage.
+        # Transcript ALWAYS; content_brief SEED_ORDER (was soft under-declare).
         "inputs": {
             "hard": [
                 {"path": "transcript/full.json", "producer": "transcribe"},
+                {
+                    "path": "understanding/content_brief.json",
+                    "producer": "content_context",
+                },
             ],
             "soft": [
                 {"path": "understanding/speakers.json", "producer": "speaker_roles"},
-                # `_talking_points_base_payload` folds the brief in when it
-                # exists (`stages/understanding.py:125`).
-                {"path": "understanding/content_brief.json", "producer": "content_context"},
                 *transcript_quality_reads(),
             ],
         },
@@ -438,19 +451,17 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
         ],
     },
     "ideal_cuts_propose": {
-        # Same as `talking_points_compose`.
+        # talking_points SEED_ORDER (was soft under-declare).
         "inputs": {
             "hard": [
                 {"path": "transcript/full.json", "producer": "transcribe"},
-            ],
-            "soft": [
-                {"path": "understanding/speakers.json", "producer": "speaker_roles"},
                 {
                     "path": "understanding/talking_points.json",
                     "producer": "talking_points_compose",
                 },
-                # `build_input` folds the brief in when it exists
-                # (`stages/understanding.py:404`).
+            ],
+            "soft": [
+                {"path": "understanding/speakers.json", "producer": "speaker_roles"},
                 {"path": "understanding/content_brief.json", "producer": "content_context"},
                 *transcript_quality_reads(),
             ],
@@ -1567,11 +1578,13 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
     },
     "selection_framing_apply": {
         "inputs": {
-            "soft": [
+            "hard": [
+                dep("master/selection.json", producer="full_master_ranking"),
                 dep("understanding/gap_report.json", producer="gap_framing_compose"),
+            ],
+            "soft": [
                 *deps(
                     "master/coverage_audit.json",
-                    "master/selection.json",
                     "mastering/mastering_plan.json",
                     "segments/manifest.json",
                     "understanding/content_brief.json",
@@ -1744,13 +1757,14 @@ _SOUND: dict[str, dict[str, Any]] = {
         "consumers": ["sound_design_palettes", "mmaudio_sfx", "music_palette_compose"],
     },
     "vo_line_adjudicate": {
-        # Homunculus-0.1.0-only and config-gated on
-        # `analysis.gap_vo.adjudicate_before_synth`; both off-paths persist a skip
-        # stub and mark done. Every read is `artifact_exists`-guarded, so the
-        # stage has no hard input at all — it degrades to a stub, not a refusal.
+        # Skip-stub off-paths still run PRESTAGE. Layup + gap_report exist by this
+        # seed position; refusing without them is louder than a hollow skip-done.
         "inputs": {
+            "hard": [
+                dep("understanding/nugget_layup_plan.json", producer="nugget_layup_compose"),
+                dep("understanding/gap_report.json", producer="gap_framing_compose"),
+            ],
             "soft": deps(
-                "understanding/nugget_layup_plan.json",
                 "understanding/nugget_corpus.json",
                 "understanding/omit_ledger.json",
                 "understanding/native_comprehension_masks.json",
@@ -1779,6 +1793,24 @@ _SOUND: dict[str, dict[str, Any]] = {
 # contract hard input would re-create an exec_11871 halt.
 
 _BUILD: dict[str, dict[str, Any]] = {
+    "vo_synthesize": {
+        # Renders seated lines; a missing gap report is a hollow synth, not a skip.
+        "inputs": {
+            "hard": [
+                dep("understanding/gap_report.json", producer="gap_framing_compose"),
+            ],
+        },
+        "consumers": ["sound_design_vo_finalize", "edl_narrative_audit", "edl"],
+    },
+    "sound_design_vo_finalize": {
+        # Measures seated WAVs after synth; skip-done without the synth artifact
+        # is the hollow path Finding 4 exists to close.
+        "inputs": {
+            "hard": [
+                dep("mastering/vo_synthesize.json", producer="vo_synthesize"),
+            ],
+        },
+    },
     "edl": {
         # REFUSES: `check_narrative_qc(ctx, stage="edl", require_selection=True)`
         # raises SystemExit for a missing content brief, coverage audit or
@@ -1819,20 +1851,21 @@ _BUILD: dict[str, dict[str, Any]] = {
         ],
     },
     "assembly_preview": {
-        # `run_preview` reads the EDL with `read_json` and iterates `clips`, so an
-        # absent EDL yields an empty preview rather than a refusal. Soft.
+        # Preview without an EDL or selection is an empty WAV, not a refusal in
+        # the body — PRESTAGE records the missing hard input instead of shipping
+        # a silent blank preview. Seeded after `edl`.
         "inputs": {
+            "hard": [
+                dep("master/edl.json", producer="edl"),
+                dep("master/selection.json", producer="full_master_ranking"),
+            ],
             "soft": deps(
-                "master/edl.json",
                 "ingest/normalized.wav",
-                "master/selection.json",
             ),
         },
         "consumers": ["junction_snip_qa", "mix"],
     },
     "junction_snip_qa": {
-        # NO hard inputs, deliberately.
-        #
         # `FALLBACK_HARD_INPUTS` lists `master/assembly.wav` here, but
         # `junction_recut_precedes_mix` exists precisely because this stage must
         # be able to run *before* the first mix: "The ladder needs only
@@ -1841,8 +1874,12 @@ _BUILD: dict[str, dict[str, Any]] = {
         # the pre-mix recut posture it was added to serve, re-creating the
         # exec_11871 mix <-> junction_snip_qa ping-pong as a hard stop.
         #
-        # The EDL is read with `read_json`, so it is soft too.
+        # The EDL is now hard: without it the stage cannot adjudicate air order.
+        # Selection stays soft+correctness (assert_consumer returns early).
         "inputs": {
+            "hard": [
+                dep("master/edl.json", producer="edl"),
+            ],
             "soft": [
                 # Ownership makes `junction_snip_qa` authoritative for the air
                 # order, the assembly ledger and the render ledger: it reads each
@@ -1852,10 +1889,6 @@ _BUILD: dict[str, dict[str, Any]] = {
                     "master/air_order.json",
                     "master/render_ledger.json",
                 ),
-                # `assert_consumer` returns early without selection or the EDL,
-                # so their absence is precisely when the T0-3 order this stage
-                # adjudicates goes unchecked. Correctness-marked, still soft.
-                dep("master/edl.json", correctness=True),
                 dep("master/selection.json", correctness=True),
                 *deps(
                 "master/assembly.wav",
@@ -1873,12 +1906,13 @@ _BUILD: dict[str, dict[str, Any]] = {
     "mix": {
         # REFUSES: the speech bed is `load_audio(ctx.read_path("ingest",
         # "normalized.wav"))`, which raises on a missing file — there is no mix
-        # without a source tape in any posture.
+        # without a source tape in any posture. Selection is the other hard
+        # input: mix without a ranking is the silent-wrong-master path.
         #
-        # The EDL is soft: `mix` reads it with `read_json` and sanitises it, and
+        # The EDL stays soft: `mix` reads it with `read_json` and sanitises it, and
         # `assert_consumer` returns early when it is absent rather than refusing.
-        # It stays soft — a contract hard input would fire at PRESTAGE, upstream
-        # of `assert_consumer`'s `pre_mix_recut` exemption, and the
+        # A contract hard EDL would fire at PRESTAGE, upstream of
+        # `assert_consumer`'s `pre_mix_recut` exemption, and the
         # `junction_recut_precedes_mix` posture needs a mix that can run without
         # a settled EDL. `correctness` says the master would be wrong without it
         # while leaving that flexibility intact: nothing on the dispatch path
@@ -1886,10 +1920,10 @@ _BUILD: dict[str, dict[str, Any]] = {
         "inputs": {
             "hard": [
                 {"path": "ingest/normalized.wav", "producer": "ingest"},
+                {"path": "master/selection.json", "producer": "full_master_ranking"},
             ],
             "soft": [
                 dep("master/edl.json", correctness=True),
-                dep("master/selection.json", correctness=True),
                 *deps(
                     "master/transitions.json",
                     "master/junction_snip_qa.json",
@@ -1904,13 +1938,15 @@ _BUILD: dict[str, dict[str, Any]] = {
         "consumers": ["junction_snip_qa", "master_finalize", "listen_delight_audit"],
     },
     "listen_delight_audit": {
-        # Audit over whatever the master chain has produced; every read is
-        # existence-guarded and the stage reports rather than refuses.
+        # Seeded *before* mix, so assembly.wav cannot be hard (permanent PRESTAGE
+        # refusal on the first walk). EDL + selection exist by this seed position.
         "inputs": {
+            "hard": [
+                dep("master/edl.json", producer="edl"),
+                dep("master/selection.json", producer="full_master_ranking"),
+            ],
             "soft": deps(
                 "master/assembly.wav",
-                "master/edl.json",
-                "master/selection.json",
                 "understanding/sound_design_plan.json",
                 "understanding/delivery_brief.json",
             ),
@@ -1920,10 +1956,13 @@ _BUILD: dict[str, dict[str, Any]] = {
     "music_palette_compose": {
         # Owns cue placement on the SDP after the EDL exists (the `sound_design_plan`
         # note says so explicitly), so the plan is a read-modify-write: already a
-        # declared output, and declared as an input here too.
+        # declared output, and declared as an input here too. Hard: a palette
+        # composed against an absent plan is a hollow cue list.
         "inputs": {
+            "hard": [
+                dep("understanding/sound_design_plan.json"),
+            ],
             "soft": deps(
-                "understanding/sound_design_plan.json",
                 "understanding/music_brief.json",
                 "master/edl.json",
                 "master/selection.json",
@@ -1951,6 +1990,7 @@ _SHIP: dict[str, dict[str, Any]] = {
         "inputs": {
             "hard": [
                 {"path": "master/assembly.wav", "producer": "mix"},
+                {"path": "master/selection.json", "producer": "full_master_ranking"},
             ],
             "soft": [
                 # `master/seam_autopsy.json` is a declared output of this stage as
@@ -1964,7 +2004,6 @@ _SHIP: dict[str, dict[str, Any]] = {
                 # missing render ledger does not block publish.
                 {"path": "master/render_ledger.json", "producer": "junction_snip_qa"},
                 dep("master/edl.json", correctness=True),
-                dep("master/selection.json", correctness=True),
                 *deps(
                     "master/junction_snip_qa.json",
                     "master/transitions.json",
@@ -1989,12 +2028,23 @@ _SHIP: dict[str, dict[str, Any]] = {
         },
         "consumers": ["podcast_publish"],
     },
-    "episode_cover_generate": {
-        # Every read is `artifact_exists`-guarded and the stage returns early when
-        # the prompt is absent, so nothing is hard.
+    "episode_meta_build": {
+        # Title/description from the locked selection; skip-done without it is a
+        # hollow publish packet.
         "inputs": {
+            "hard": [
+                {"path": "master/selection.json", "producer": "full_master_ranking"},
+            ],
+        },
+        "consumers": ["episode_cover_prompt_craft", "episode_cover_generate", "podcast_publish"],
+    },
+    "episode_cover_generate": {
+        # Early-return without a prompt used to look like a successful cover stage.
+        "inputs": {
+            "hard": [
+                {"path": "publish/cover_prompt.json", "producer": "episode_cover_prompt_craft"},
+            ],
             "soft": deps(
-                "publish/cover_prompt.json",
                 "publish/episode_meta.json",
                 "understanding/content_brief.json",
                 "understanding/speakers.json",
@@ -2004,12 +2054,13 @@ _SHIP: dict[str, dict[str, Any]] = {
         "consumers": ["podcast_publish"],
     },
     "podcast_publish": {
-        # The optional G-Publish gate: `run_podcast_publish_skip` marks it skipped
-        # and writes `{"skipped": true}` without packaging anything, so by rule 1
-        # (presence must not depend on a gate outcome) nothing here can be hard.
+        # Skip still writes `{"skipped": true}` in the GUI path; the walk path
+        # must not stamp publish done without a master.
         "inputs": {
+            "hard": [
+                {"path": "master/master.wav", "producer": "master_finalize"},
+            ],
             "soft": deps(
-                "master/master.wav",
                 "master/edl.json",
                 "master/transcript.json",
                 "master/transcript.vtt",
@@ -2038,6 +2089,147 @@ GROUP_DEPS: dict[str, dict[str, dict[str, Any]]] = {
     "build": _BUILD,
     "ship": _SHIP,
 }
+
+
+# ---------------------------------------------------------------------------
+# SEED_ORDER promotions (applied at import — keeps body tables readable)
+# ---------------------------------------------------------------------------
+# Consecutive soft-underdeclare pairs to promote (producer → consumer → path).
+# Allowlisted optionals (preclean→ingest, ideal_cuts gated, mmaudio→mix,
+# mix→junction assembly) are omitted on purpose.
+_SEED_ORDER_PROMOTE: tuple[tuple[str, str, str], ...] = (
+    ("speaker_roles", "source_topology_build", "understanding/speakers.json"),
+    ("ideal_cuts_materialize", "boundary_detection", "understanding/ideal_cuts_materialized.json"),
+    ("low_conf_island_scan", "connector_fuse_pass", "analysis/low_conf_islands.json"),
+    ("sonic_context_build", "sound_design_palettes", "understanding/sonic_context.json"),
+    ("mastering_shape_agenda", "mastering_shape_candidates", "mastering/shape/agenda.json"),
+    ("mastering_shape_candidates", "mastering_plan_synthesize", "mastering/shape/candidates.json"),
+    ("mastering_plan_synthesize", "missing_framing", "mastering/mastering_plan.json"),
+    ("missing_framing", "mastering_plan_confirm", "understanding/gap_evaluations.json"),
+    ("mastering_plan_confirm", "gap_framing_compose", "mastering/mastering_plan.json"),
+    ("delivery_brief_build", "soundscape_policy_build", "understanding/delivery_brief.json"),
+    (
+        "chapter_close_hitch",
+        "connector_fuse_pass_pre_ranking",
+        "mastering/chapter_close_hitch.json",
+    ),
+    ("full_master_ranking", "selection_order_sanitize", "master/selection.json"),
+    ("refinement_agenda", "gap_framing_recompose", "understanding/refinement_agenda.json"),
+    ("air_script_seams", "air_contract_sanitize", "mastering/mastering_plan.json"),
+    ("air_contract_sanitize", "transitions", "mastering/mastering_plan.json"),
+    ("edl_narrative_audit", "edl", "master/edl_narrative_audit.json"),
+    ("junction_snip_qa", "master_finalize", "master/junction_snip_qa.json"),
+)
+
+# Mid-pipeline empty-hard stages: hard-require the previous seed stage primary.
+# framing_posture_decide / ideal_cuts_materialize stay allowlisted empty.
+_EMPTY_HARD_SEED_PREDECESSOR: tuple[str, ...] = (
+    "source_topology_build",
+    "vernacular_segment_sanitize",
+    "low_conf_island_scan",
+    "connector_fuse_pass",
+    "sonic_context_build",
+    "mastering_research_routing",
+    "mastering_research_waves",
+    "mastering_research_rollup",
+    "mastering_shape_agenda",
+    "mastering_shape_candidates",
+    "mastering_plan_synthesize",
+    "mastering_plan_confirm",
+    "soundscape_policy_build",
+    "episode_structure_compose",
+    "connector_fuse_pass_pre_ranking",
+    "selection_order_sanitize",
+    "gap_report_sanitize",
+    "refinement_agenda",
+    "gap_framing_recompose",
+    "air_contract_sanitize",
+)
+
+# Air-order correctness softs that must become hard (mix←edl stays soft — see
+# junction_recut_precedes_mix note on the mix stage).
+_CORRECTNESS_TO_HARD: tuple[tuple[str, str], ...] = (
+    ("edl", "master/transitions.json"),
+    ("junction_snip_qa", "master/selection.json"),
+    ("master_finalize", "master/edl.json"),
+)
+
+
+def _stage_inputs(stage_id: str) -> dict[str, Any] | None:
+    for group in GROUP_DEPS.values():
+        if stage_id in group:
+            inputs = group[stage_id].setdefault("inputs", {})
+            inputs.setdefault("hard", [])
+            inputs.setdefault("soft", [])
+            return inputs
+    return None
+
+
+def _move_soft_to_hard(inputs: dict[str, Any], path: str, *, producer: str | None = None) -> None:
+    hard = list(inputs.get("hard") or [])
+    soft = list(inputs.get("soft") or [])
+    if any(isinstance(d, dict) and d.get("path") == path for d in hard):
+        inputs["soft"] = [d for d in soft if not (isinstance(d, dict) and d.get("path") == path)]
+        return
+    moved = None
+    kept_soft: list[Any] = []
+    for d in soft:
+        if isinstance(d, dict) and d.get("path") == path:
+            moved = dict(d)
+            moved.pop("correctness", None)
+            if producer and not moved.get("producer"):
+                moved["producer"] = producer
+            continue
+        kept_soft.append(d)
+    if moved is None:
+        moved = {"path": path}
+        if producer:
+            moved["producer"] = producer
+    hard.append(moved)
+    inputs["hard"] = hard
+    inputs["soft"] = kept_soft
+
+
+def _apply_seed_order_hard_promotions() -> None:
+    """Promote SEED_ORDER / air-order edges so authority cannot leapfrog seed law."""
+    try:
+        from interview_mux.artifact_ownership import primary_path_for_stage
+        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+    except Exception:
+        return
+
+    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    index = {sid: i for i, sid in enumerate(order)}
+
+    for producer, consumer, path in _SEED_ORDER_PROMOTE:
+        inputs = _stage_inputs(consumer)
+        if inputs is None:
+            continue
+        _move_soft_to_hard(inputs, path, producer=producer)
+
+    for consumer in _EMPTY_HARD_SEED_PREDECESSOR:
+        inputs = _stage_inputs(consumer)
+        if inputs is None:
+            continue
+        if any(isinstance(d, dict) and d.get("path") for d in (inputs.get("hard") or [])):
+            continue
+        i = index.get(consumer)
+        if i is None or i < 1:
+            continue
+        producer = order[i - 1]
+        primary = primary_path_for_stage(producer)
+        if not primary:
+            continue
+        _move_soft_to_hard(inputs, primary, producer=producer)
+
+    for consumer, path in _CORRECTNESS_TO_HARD:
+        inputs = _stage_inputs(consumer)
+        if inputs is None:
+            continue
+        _move_soft_to_hard(inputs, path)
+
+
+_apply_seed_order_hard_promotions()
 
 
 def deps_for(stage_id: str) -> dict[str, Any]:

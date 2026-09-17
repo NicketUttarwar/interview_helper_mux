@@ -370,9 +370,9 @@ def defect_summary(ctx: RunContext) -> dict[str, Any]:
 # through `artifact_completeness.artifact_status_for_stage`, which runs the whole
 # `_gaps_*` rule table plus json-schema validation.
 #
-# Rollout mirrors `contract_conformance`: report-only by default, enforcement is a
-# ratchet that only grows. A report-only finding is still recorded in the ledger
-# (so the rate is observable) but carries `degrades_ship_bar: False`.
+# Rollout mirrors `contract_conformance`: enforcement is a ratchet that only
+# grows (`SEMANTIC_BLOCKING_STAGES`). Stages not on the ratchet stay report-only
+# (`degrades_ship_bar: False`) so the rate stays observable.
 
 SEMANTIC_OUTPUT_BLOCKER = "output_semantically_incomplete"
 SEMANTIC_OUTPUT_MISSING_BLOCKER = "output_missing_after_success"
@@ -381,11 +381,29 @@ SEMANTIC_SWEEP_SOURCE = "semantic_output_sweep"
 _ENV_SEMANTIC_BLOCKING = "MUX_DEFECT_SEMANTIC_BLOCKING"
 _ENV_SEMANTIC_BLOCKING_STAGES = "MUX_DEFECT_SEMANTIC_BLOCKING_STAGES"
 
-# Stages whose semantic-output findings BLOCK instead of reporting. Empty means
-# report-only everywhere. Like `contract_conformance.STRICT_GROUPS` this only ever
-# grows, and `MUX_DEFECT_SEMANTIC_BLOCKING_STAGES` overrides it so one bad stage
-# can be reverted without reverting the campaign.
-SEMANTIC_BLOCKING_STAGES: tuple[str, ...] = ()
+# Stages whose semantic-output findings BLOCK instead of reporting. Like
+# `contract_conformance.STRICT_GROUPS` this only ever grows, and
+# `MUX_DEFECT_SEMANTIC_BLOCKING_STAGES` overrides it so one bad stage can be
+# reverted without reverting the campaign.
+#
+# Ship-critical primaries whose completeness is more than existence: gap_rule
+# JSON, or a bytes check on the WAV/master itself. Schema-only stages stay
+# report-only until they grow a real `_gaps_*` rule.
+SEMANTIC_BLOCKING_STAGES: tuple[str, ...] = (
+    "full_master_ranking",
+    "transitions",
+    "edl",
+    "mix",
+    "junction_snip_qa",
+    "master_finalize",
+    "vo_synthesize",
+    "sound_design_vo_finalize",
+    "gap_framing_compose",
+    "mastering_research_rollup",
+    "topic_coverage_audit",
+    "narrative_arc_plan",
+    "sound_design_palettes",
+)
 
 # What `artifact_status_for_stage` will actually apply to an artifact. Recorded on
 # every finding so a weak verdict is never presented as a semantic one: a

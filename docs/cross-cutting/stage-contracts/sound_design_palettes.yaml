@@ -16,10 +16,10 @@ inputs:
   hard:
   - path: segments/boundaries.json
     producer: boundary_topic_resplit
-  soft:
-  - path: understanding/sound_design_plan.json
   - path: understanding/sonic_context.json
     producer: sonic_context_build
+  soft:
+  - path: understanding/sound_design_plan.json
   - path: understanding/content_brief.json
     producer: content_context
   - path: understanding/source_acoustic_profile.json

@@ -942,8 +942,10 @@ def sync_identical_halts_with_product(
 ) -> dict[str, Any]:
     """Reset identical-failure counters when product code changes or forensics restarts.
 
-    Forensics: clear **all** stage signatures on every driver start and when the product
+    Forensics: clear stage signatures on every driver start and when the product
     fingerprint changes — patch-and-resume must never inherit a prior ×3 halt.
+    Exception: ``seed_order_prereq`` rows whose named producer is still incomplete
+    are preserved so forensics cannot wipe a leapfrog thrash counter mid-spin.
 
     Production full-auto: product fingerprint change clears EDL repair chain only.
     """
@@ -958,8 +960,14 @@ def sync_identical_halts_with_product(
         meta = {}
     prev = str(meta.get(PRODUCT_FINGERPRINT_META_KEY) or "")
     product_changed = bool(prev and prev != fp)
+    preserved: dict[str, Any] = {}
     if forensics or force:
+        if forensics and not force and not product_changed:
+            preserved = _preserve_open_seed_order_prereq_rows(ctx)
         cleared = clear_all_halts(ctx)
+        if preserved:
+            _restore_identical_rows(ctx, preserved)
+            cleared = max(0, int(cleared) - len(preserved))
     elif product_changed:
         cleared = clear_edl_repair_halts(ctx)
     else:
@@ -974,5 +982,75 @@ def sync_identical_halts_with_product(
         "product_changed": product_changed,
         "forensics": forensics,
         "force": force,
+        "preserved_seed_order": len(preserved),
         "scope": "all" if (forensics or force) else ("edl" if product_changed else "none"),
     }
+
+
+def _preserve_open_seed_order_prereq_rows(ctx: RunContext) -> dict[str, Any]:
+    """Keep seed_order_prereq counters while the producer is still incomplete."""
+    try:
+        doc = read_identical_failures(ctx)
+    except Exception:
+        return {}
+    sigs = doc.get("signatures") if isinstance(doc, dict) else None
+    if not isinstance(sigs, dict):
+        return {}
+    keep: dict[str, Any] = {}
+    for key, row in sigs.items():
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("error_class") or "") != "seed_order_prereq" and (
+            "seed order:" not in str(row.get("reason") or "").lower()
+            and "seed_order_prereq" not in str(row.get("fail_key") or "")
+        ):
+            continue
+        producer = str(row.get("producer") or row.get("resume_attempted") or "").strip()
+        if not producer or producer in {"budget_exhausted", "homunculus_agenda"}:
+            # Try parse from reason text.
+            reason = str(row.get("reason") or row.get("raw_reason") or "")
+            m = re.search(r"complete ([a-z0-9_]+) before running", reason, re.I)
+            producer = m.group(1) if m else ""
+        if not producer:
+            continue
+        incomplete = True
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            incomplete = not seed_stage_complete(ctx, producer)
+        except Exception:
+            try:
+                incomplete = not ctx.is_done(producer)
+            except Exception:
+                incomplete = True
+        if incomplete:
+            keep[str(key)] = dict(row)
+    return keep
+
+
+def _restore_identical_rows(ctx: RunContext, rows: dict[str, Any]) -> None:
+    if not rows:
+        return
+    try:
+        doc = read_identical_failures(ctx)
+    except Exception:
+        doc = _empty_doc()
+    if not isinstance(doc, dict):
+        doc = _empty_doc()
+    sigs = doc.setdefault("signatures", {})
+    order = doc.setdefault("order", [])
+    if not isinstance(sigs, dict):
+        sigs = {}
+        doc["signatures"] = sigs
+    if not isinstance(order, list):
+        order = []
+        doc["order"] = order
+    for key, row in rows.items():
+        sigs[key] = row
+        if key not in order:
+            order.append(key)
+    doc["updated_at"] = _utc_now()
+    try:
+        _write(ctx, doc)
+    except Exception:
+        pass

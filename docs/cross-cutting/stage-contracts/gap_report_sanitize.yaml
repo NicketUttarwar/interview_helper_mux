@@ -13,7 +13,9 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
+  hard:
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
   soft:
   - path: understanding/gap_report.json
     producer: gap_framing_compose

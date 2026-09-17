@@ -53,16 +53,13 @@ def fresh_brain_ctx(tmp_path: Path) -> RunContext:
 def test_the_seed_order_guard_is_reachable_on_the_first_dispatch(
     fresh_brain_ctx: RunContext,
 ) -> None:
-    """"Unreachable by construction" is false, and the solver cannot make it true.
+    """"Unreachable by construction" is false — seed law still raises on the walk.
 
     `homunculus/runtime.dispatch_stage` raises on a non-empty `_seed_prereq_block`, so the
-    block returned here *is* the RuntimeError the run sees. `solver_authoritative()` being
-    False is why admissibility cannot pre-empt it — the solver is observing, not selecting.
+    block returned here *is* the RuntimeError the run sees. Stage order is seed-only.
     """
-    from interview_mux import solver
     from interview_mux.homunculus.runtime import _seed_prereq_block
 
-    assert solver.solver_authoritative() is False
     assert _seed_prereq_block(fresh_brain_ctx, SEED_ORDER_STAGE) == "audio_preclean"
 
     source = Path("src/interview_mux/homunculus/runtime.py").read_text(encoding="utf-8")

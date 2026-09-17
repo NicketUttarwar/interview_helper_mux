@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|junction_snip_qa->master_finalize|full_auto|M9_uncommitted_master|seam_autopsy_blocking",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_other:topic_coverage_audit",
+    "ship_path_ready=False reason='assembly_missing' wav=True committed=True"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-17T06:15:21Z"
+}

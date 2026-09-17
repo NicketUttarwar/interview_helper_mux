@@ -327,6 +327,37 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         defects,
     )
 
+    # Finding 6: a failed contract *read* is not a genuine hollow contract. The
+    # walk stays fail-open (a false UNREACHABLE throws away a tape), but the ship
+    # gate must refuse — same shape as an unreadable defect ledger.
+    try:
+        from interview_mux.ship_reachability import critical_path as _critical_path
+
+        path = _critical_path(ctx)
+        degraded = bool(path.degraded)
+        reachability = {
+            "degraded": degraded,
+            "unreadable_contracts": [u.as_row() for u in path.unreadable_stages],
+        }
+        if degraded:
+            reachability["operator_reason"] = (
+                "Ship-reachability could not read one or more contracts, so "
+                "wrong-master protection is incomplete. Fix the unreadable "
+                "contracts and re-run post-master quality."
+            )
+        reachability_ok = not degraded
+    except Exception as exc:
+        reachability_ok = False
+        reachability = {
+            "unresolved": True,
+            "error": f"{type(exc).__name__}: {exc}"[:200],
+            "operator_reason": (
+                "Ship-reachability analysis could not run, so wrong-master "
+                "protection is unknown; refusing rather than assuming healthy."
+            ),
+        }
+    add("ship_reachability_analysis", reachability_ok, reachability)
+
     plan_required = ctx.is_done("mastering_plan_synthesize") or ctx.is_done(
         "mastering_plan_confirm"
     )

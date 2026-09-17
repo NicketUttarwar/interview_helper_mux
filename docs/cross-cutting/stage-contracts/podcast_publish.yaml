@@ -23,10 +23,10 @@ outputs:
 - path: publish/description.txt
   staging: true
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: master/master.wav
     producer: master_finalize
+  soft:
   - path: master/edl.json
     producer: edl
   - path: master/transcript.json

@@ -18,9 +18,9 @@ inputs:
     producer: speaker_roles
   - path: transcript/full.json
     producer: transcribe
-  soft:
   - path: understanding/source_topology.json
     producer: source_topology_build
+  soft:
   - path: ingest/normalized.wav
     producer: ingest
   - path: transcript/review_queue.json

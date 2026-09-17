@@ -168,7 +168,7 @@ class CreateRunBody(BaseModel):
     run_id: str | None = None
     run_mode: str = "manual"  # manual | full-auto | partially-accelerated
     full_auto: bool | None = None  # optional explicit flag (overrides run_mode when true)
-    homunculus_version: str | None = None  # omitted → highest registered (currently 0.1.0)
+    homunculus_version: str | None = None  # omitted → highest registered (currently 0.2.0)
     podcast_id: str | None = None  # omitted → catalog default (zero_shot_podcast_demo)
 
 
@@ -1063,18 +1063,6 @@ def create_app() -> FastAPI:
             target_stage=target_stage or None,
             include_flow1_spine=target_stage not in (None, "", "topic_coverage_audit"),
         )
-
-    @app.get("/api/runs/{run_id}/solver-decision")
-    def get_solver_decision(run_id: str, limit: int = 25) -> dict[str, Any]:
-        """Shadow-only solver telemetry: admissible set + per-stage exclusion reason.
-
-        Read-only — the solver decides nothing (`solver.py`); this is the backend for
-        the "why is nothing runnable" halt panel (plan §10.2).
-        """
-        ctx = _ctx(run_id)
-        from interview_mux.solver import decision_view
-
-        return decision_view(ctx, limit=limit)
 
     @app.get("/api/runs/{run_id}/resilience")
     def get_resilience(run_id: str) -> dict[str, Any]:

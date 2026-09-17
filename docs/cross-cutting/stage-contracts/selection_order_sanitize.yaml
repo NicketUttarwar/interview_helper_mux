@@ -13,10 +13,10 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: master/selection.json
     producer: full_master_ranking
+  soft:
   - path: mastering/media_ip_cta.json
     producer: full_master_ranking
   - path: segments/manifest.json

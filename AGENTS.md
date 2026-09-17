@@ -11,7 +11,7 @@
 
 **Pipeline size:** **72 stages** — 35 analysis + 37 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) (76 manifest rows incl. aliases/retired).
 
-**Brains:** Start-tab slider. **0.1.0** (default — latest registered) first homunculus. **0.0.0** original linear walk (still available). Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
+**Brains:** Start-tab slider. **0.2.0** (default — latest registered) fixed seed-order homunculus walk. **0.0.0** original linear walk remains available. Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
 
 **Full-auto forensics (debug campaign):** [.cursor/plans/full_auto_forensics_run.plan.md](.cursor/plans/full_auto_forensics_run.plan.md) — **always kick off FRESH** (`MUX_FRESH=1`, new `exec_*`; never prior execution folders). On bugs: diagnose → cascade pytest (`MUX_FORENSICS=0`) → patch code → continue that same run_id (`MUX_FRESH=0`); log intervenes for later review — do **not** map to predicate-family / End-* ledgers mid-run. Parent must arm **§3.0a `AGENT_LOOP_TICK_forensics` every 4m** (`notify_on_output`). State: [.cursor/plans/full_auto_forensics_state.md](.cursor/plans/full_auto_forensics_state.md). Do **not** spawn a second fresh exec mid-campaign to verify a late-stage fix. Optional post-ship tape acceptance: plain full-auto with `MUX_FORENSICS` unset (§2.1).
 

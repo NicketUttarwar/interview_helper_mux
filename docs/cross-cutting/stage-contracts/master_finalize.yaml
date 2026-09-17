@@ -24,17 +24,15 @@ inputs:
   hard:
   - path: master/assembly.wav
     producer: mix
-  soft:
-  - path: master/seam_autopsy.json
-  - path: master/render_ledger.json
+  - path: master/selection.json
+    producer: full_master_ranking
+  - path: master/junction_snip_qa.json
     producer: junction_snip_qa
   - path: master/edl.json
     producer: edl
-    correctness: true
-  - path: master/selection.json
-    producer: full_master_ranking
-    correctness: true
-  - path: master/junction_snip_qa.json
+  soft:
+  - path: master/seam_autopsy.json
+  - path: master/render_ledger.json
     producer: junction_snip_qa
   - path: master/transitions.json
     producer: transitions

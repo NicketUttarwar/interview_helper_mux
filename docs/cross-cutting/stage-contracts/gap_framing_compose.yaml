@@ -21,6 +21,8 @@ inputs:
   hard:
   - path: understanding/gap_evaluations.json
     producer: missing_framing
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
   soft:
   - path: understanding/gap_report.json
   - path: understanding/nugget_layup_plan.json
@@ -54,8 +56,6 @@ inputs:
     producer: full_master_ranking
   - path: master/narrative_plan.json
     producer: narrative_arc_plan
-  - path: mastering/mastering_plan.json
-    producer: mastering_plan_synthesize
 sufficiency:
 - path: gaps
   rule: min_rows
