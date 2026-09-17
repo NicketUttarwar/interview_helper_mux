@@ -9,6 +9,10 @@
  * 2. `deferred` is not blocked. The solver defers when a contract declares no hard
  *    inputs, i.e. it has no opinion and the walk decides. Rendering a deferral as a
  *    blocker would send an operator hunting for a producer that was never missing.
+ * 3. An empty admissible set has two causes that need opposite operator responses, so
+ *    `halt_kind` is read before saying "nothing is runnable": a GUI lease empties the
+ *    set while another session walks the run (`lease_pause`, clears itself), where a
+ *    `structural_halt` needs someone to go unblock a producer.
  */
 
 export interface SolverVerdictRow {
@@ -34,9 +38,21 @@ export interface SolverDecisionRow {
   deferred?: string[];
   seed_first_incomplete?: string | null;
   halted?: boolean;
+  /** `""` | `"lease_pause"` | `"structural_halt"`. Absent on rows written before 84b79344. */
+  halt_kind?: string;
+  /** Mirrors `halt_kind === "lease_pause"`; absent on the same legacy rows. */
+  paused?: boolean;
   excluded?: SolverVerdictRow[];
   admissible_detail?: SolverVerdictRow[];
 }
+
+/** `""` | `"lease_pause"` | `"structural_halt"` — `Decision.halt_kind` in `solver.py`. */
+export type SolverHaltKind = "" | "lease_pause" | "structural_halt";
+
+export const LEASE_PAUSE = "lease_pause";
+export const STRUCTURAL_HALT = "structural_halt";
+/** The reason code a lease pause carries (`solver.py` `LEASE_REASON`). */
+export const LEASE_REASON_CODE = "lease_held_by_gui";
 
 export interface SolverHaltBlocker {
   stage?: string;
@@ -59,6 +75,11 @@ export interface SolverHaltUnmet {
 
 export interface SolverHaltPayload {
   halted?: boolean;
+  /** `halt_payload` names the halt kind `kind`, not `halt_kind` as the row does. */
+  kind?: string;
+  paused?: boolean;
+  /** `lease_held_by_gui` while paused, `""` otherwise. */
+  reason_code?: string;
   posture?: string;
   lease_ok?: boolean;
   seed_first_incomplete?: string | null;
@@ -138,7 +159,7 @@ export interface SeveredHalt {
   }[];
 }
 
-export type SolverPanelState = "no_data" | "halted" | "moving" | "complete";
+export type SolverPanelState = "no_data" | "paused" | "halted" | "moving" | "complete";
 
 export interface SolverPanelModel {
   state: SolverPanelState;
@@ -147,6 +168,13 @@ export interface SolverPanelModel {
   at: string;
   posture: string;
   leaseOk: boolean;
+  /** Why the admissible set is empty, resolved with the legacy fallback below. */
+  haltKind: SolverHaltKind;
+  paused: boolean;
+  /** `lease_held_by_gui` while paused, `""` otherwise. */
+  haltReasonCode: string;
+  /** Stages held only by the lease — waiting for another session, not blocked. */
+  waiting: string[];
   shadowOnly: boolean;
   shadowLogging: boolean;
   loggedRowCount: number;
@@ -172,6 +200,10 @@ const EMPTY_MODEL: SolverPanelModel = {
   at: "",
   posture: "",
   leaseOk: true,
+  haltKind: "",
+  paused: false,
+  haltReasonCode: "",
+  waiting: [],
   shadowOnly: true,
   shadowLogging: false,
   loggedRowCount: 0,
@@ -331,8 +363,29 @@ function producerFor(
   return fallback.get(verdict.stage)?.[artifact] ?? null;
 }
 
+/**
+ * Why the admissible set is empty, for one row.
+ *
+ * Rows written before `halt_kind` existed carry no answer, and the two failure
+ * directions are not symmetric: calling a real halt a pause hides a stuck pipeline
+ * behind "this clears on its own", where calling a pause a halt only over-alarms. So
+ * an absent or unrecognised `halt_kind` resolves to `structural_halt` — today's
+ * behaviour — and only the literal `lease_pause` stamp earns the calmer reading.
+ * `lease_ok` is deliberately not consulted as a substitute; on a legacy row it is not
+ * evidence the backend meant a pause.
+ */
+export function resolveHaltKind(row: SolverDecisionRow | null | undefined): SolverHaltKind {
+  if (!row) return "";
+  const nothingRunnable = row.halted === true || (row.admissible?.length ?? 0) === 0;
+  if (!nothingRunnable) return "";
+  return row.halt_kind === LEASE_PAUSE ? LEASE_PAUSE : STRUCTURAL_HALT;
+}
+
 function hasContent(row: SolverDecisionRow | null | undefined): boolean {
   if (!row) return false;
+  // A lease pause persists a decision with no verdicts at all (`_log_authoritative_pause`),
+  // so the stamp is the whole content. It is positive information, not absent telemetry.
+  if (row.halt_kind === LEASE_PAUSE) return true;
   return Boolean(
     row.excluded?.length ||
       row.admissible?.length ||
@@ -402,13 +455,24 @@ export function buildSolverPanelModel(
     }
   }
 
+  const haltKind = resolveHaltKind(row);
+  const paused = haltKind === LEASE_PAUSE;
+
   const blocked: BlockedStage[] = [];
   const doneStages: string[] = [];
+  const waiting: string[] = [];
   for (const verdict of row.excluded ?? []) {
     const reasons = verdict.reasons ?? (verdict.reason ? [verdict.reason] : []);
     const primary = reasons[0] ?? "";
     if (!primary || NON_BLOCKING_REASONS.has(primary)) {
       if (primary === "already_done") doneStages.push(verdict.stage);
+      continue;
+    }
+    // The lease excludes every stage at once, so during a pause it is the run-level
+    // wait condition rather than sixty blockers to chase. Outside a pause it stays a
+    // blocker, which is what legacy rows without `halt_kind` keep rendering as.
+    if (paused && primary === LEASE_REASON_CODE) {
+      waiting.push(verdict.stage);
       continue;
     }
     const copy = describeReason(primary);
@@ -466,7 +530,10 @@ export function buildSolverPanelModel(
   const deferredSet = new Set(deferred.map((d) => d.stage));
 
   let state: SolverPanelState = "moving";
-  if (runnable.length === 0 || row.halted === true) {
+  if (paused) {
+    // Empty because someone else holds the run. Nothing here is stuck.
+    state = "paused";
+  } else if (runnable.length === 0 || row.halted === true) {
     // Every stage done is a finished run, not a halt with a cause to chase.
     state = blocked.length === 0 && doneStages.length > 0 ? "complete" : "halted";
   }
@@ -478,6 +545,10 @@ export function buildSolverPanelModel(
     at: row.at ?? "",
     posture: row.posture ?? "",
     leaseOk: row.lease_ok !== false,
+    haltKind,
+    paused,
+    haltReasonCode: paused ? LEASE_REASON_CODE : "",
+    waiting,
     wouldChoose: row.would_choose ?? null,
     wouldChooseConfident: row.would_choose_confident ?? null,
     seedFirstIncomplete: row.seed_first_incomplete ?? null,

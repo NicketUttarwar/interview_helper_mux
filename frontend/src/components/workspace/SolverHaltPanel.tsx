@@ -96,7 +96,48 @@ function SeveredSection({ model }: { model: SolverPanelModel }) {
   );
 }
 
+/**
+ * A lease pause is somebody else's turn, not a dead end.
+ *
+ * It looks identical to a structural halt in the raw payload — an empty admissible set —
+ * and the two need opposite responses, so this reads as calm and self-resolving where
+ * the halt reads as an alarm with blockers to chase.
+ */
+function PauseSection({ model }: { model: SolverPanelModel }) {
+  if (model.state !== "paused") return null;
+  return (
+    <div className="solver-halt-pause" role="status">
+      <strong>Paused — another actor is working this run</strong>
+      <p className="hint sm">
+        The GUI holds a fresh lease, so the solver stands down rather than walking a run
+        somebody else is in the middle of. This is not a halt: nothing is broken, no producer
+        needs chasing, and it clears on its own when that session finishes or its lease goes
+        stale. Refresh in a minute.
+      </p>
+      {model.waiting.length ? (
+        <>
+          <p className="asset-meta">
+            {model.waiting.length} stage{model.waiting.length === 1 ? "" : "s"} waiting on the
+            lease · none blocked
+          </p>
+          <StageChips stages={model.waiting} />
+        </>
+      ) : (
+        <p className="asset-meta">No stage reported a blocking reason — only the lease.</p>
+      )}
+      <code className="solver-halt-reason">{model.haltReasonCode}</code>
+    </div>
+  );
+}
+
 function Headline({ model }: { model: SolverPanelModel }) {
+  if (model.state === "paused") {
+    return (
+      <p className="solver-halt-verdict paused" role="status">
+        Paused, not stuck — waiting on the operator session that holds the lease.
+      </p>
+    );
+  }
   if (model.state === "halted") {
     return (
       <p className="solver-halt-verdict blocked" role="alert">
@@ -131,6 +172,8 @@ function Headline({ model }: { model: SolverPanelModel }) {
  * Shadow-only telemetry, so the absent-log case is the normal case: it renders as "no
  * solver data yet", never as a halt. Blocked and deferred are kept visually separate —
  * a deferral means the solver has no opinion, not that the stage is waiting on anything.
+ * A lease pause is separate again: same empty admissible set, opposite response, so it
+ * never borrows the halt's title, colour or alarm.
  */
 export function SolverHaltPanel() {
   const { runId } = useApp();
@@ -181,8 +224,14 @@ export function SolverHaltPanel() {
       data-solver-state={state}
     >
       <div className="panel-head">
-        {/* The alarming title belongs to the halt case only. */}
-        <h3>{state === "halted" ? "Why is nothing runnable?" : "Solver view (shadow)"}</h3>
+        {/* The alarming title belongs to the structural halt only — a pause says so plainly. */}
+        <h3>
+          {state === "halted"
+            ? "Why is nothing runnable?"
+            : state === "paused"
+              ? "Paused — the GUI holds the lease"
+              : "Solver view (shadow)"}
+        </h3>
         <button
           type="button"
           className="btn ghost sm"
@@ -209,13 +258,30 @@ export function SolverHaltPanel() {
       ) : (
         <>
           <Headline model={model} />
+          <PauseSection model={model} />
           <SeveredSection model={model} />
           {model.blockedGroups.length ? (
-            <ul className="solver-halt-blocker-list">
-              {model.blockedGroups.map((group) => (
-                <BlockerRow key={group.reason} group={group} />
-              ))}
-            </ul>
+            model.state === "paused" ? (
+              // Exclusions recorded under a pause are not what the operator is waiting on,
+              // so they stay available without competing with the pause message.
+              <details className="solver-halt-deferred">
+                <summary>
+                  {model.blockedGroups.length} other exclusion
+                  {model.blockedGroups.length === 1 ? "" : "s"} recorded while paused
+                </summary>
+                <ul className="solver-halt-blocker-list">
+                  {model.blockedGroups.map((group) => (
+                    <BlockerRow key={group.reason} group={group} />
+                  ))}
+                </ul>
+              </details>
+            ) : (
+              <ul className="solver-halt-blocker-list">
+                {model.blockedGroups.map((group) => (
+                  <BlockerRow key={group.reason} group={group} />
+                ))}
+              </ul>
+            )
           ) : model.state === "halted" ? (
             <p className="hint sm">
               No stage reported a blocking reason. Nothing is dispatchable for a run-level reason —

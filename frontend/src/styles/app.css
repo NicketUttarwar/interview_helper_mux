@@ -7952,6 +7952,25 @@ button.pipeline-step-row:focus-visible,
   font-weight: 600;
 }
 
+/* A pause is somebody else's turn — accent, never the halt's warning colour. */
+.solver-halt-verdict.paused {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.solver-halt-pause {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--accent-subtle);
+}
+
+.solver-halt-pause > .hint {
+  margin: 0.3rem 0 0.35rem;
+}
+
 .solver-halt-blocker-list {
   list-style: none;
   margin: 0.25rem 0 0.5rem;

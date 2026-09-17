@@ -3,6 +3,7 @@ import {
   buildSolverPanelModel,
   describeReason,
   describeUnknown,
+  resolveHaltKind,
   type SolverDecisionRow,
   type SolverDecisionView,
 } from "./solverDecision";
@@ -225,6 +226,134 @@ describe("deferred is not blocked", () => {
     const model = buildSolverPanelModel(deferredView);
     expect(model.runnable).toEqual(["transitions", "edl"]);
     expect(model.confidentRunnable).toEqual(["edl"]);
+  });
+});
+
+describe("lease pause vs structural halt", () => {
+  const leaseExclusions = [
+    {
+      stage: "speaker_roles",
+      admissible: false,
+      phase: "understand-a",
+      reason: "lease_held_by_gui",
+      reasons: ["lease_held_by_gui"],
+      confident: true,
+    },
+    {
+      stage: "content_context",
+      admissible: false,
+      phase: "understand-a",
+      reason: "lease_held_by_gui",
+      reasons: ["lease_held_by_gui"],
+      confident: true,
+    },
+  ];
+
+  it("reads a lease_pause row as paused, with the waiting stages", () => {
+    const model = buildSolverPanelModel(
+      view({
+        live: row({
+          halted: true,
+          paused: true,
+          halt_kind: "lease_pause",
+          lease_ok: false,
+          excluded: leaseExclusions,
+        }),
+      }),
+    );
+    expect(model.state).toBe("paused");
+    expect(model.haltKind).toBe("lease_pause");
+    expect(model.paused).toBe(true);
+    expect(model.haltReasonCode).toBe("lease_held_by_gui");
+    expect(model.waiting).toEqual(["speaker_roles", "content_context"]);
+    // The lease is a run-level wait, not sixty blockers to chase.
+    expect(model.blocked).toEqual([]);
+    expect(model.blockedGroups).toEqual([]);
+  });
+
+  it("reads a structural_halt row as halted and keeps its blockers", () => {
+    const model = buildSolverPanelModel(
+      view({
+        live: row({
+          halted: true,
+          paused: false,
+          halt_kind: "structural_halt",
+          lease_ok: true,
+          excluded: [
+            {
+              stage: "edl",
+              admissible: false,
+              reason: "hard_input_missing:delivery/selection.json",
+              reasons: ["hard_input_missing:delivery/selection.json"],
+            },
+          ],
+        }),
+      }),
+    );
+    expect(model.state).toBe("halted");
+    expect(model.haltKind).toBe("structural_halt");
+    expect(model.paused).toBe(false);
+    expect(model.haltReasonCode).toBe("");
+    expect(model.waiting).toEqual([]);
+    expect(model.blocked.map((b) => b.stage)).toEqual(["edl"]);
+  });
+
+  it("leaves a moving row with no halt kind at all", () => {
+    const model = buildSolverPanelModel(
+      view({ live: row({ halted: false, halt_kind: "", admissible: ["transcribe"] }) }),
+    );
+    expect(model.state).toBe("moving");
+    expect(model.haltKind).toBe("");
+    expect(model.paused).toBe(false);
+  });
+
+  it("renders a pause row that carries no verdicts, rather than calling it no_data", () => {
+    // `_log_authoritative_pause` persists a decision with an empty verdict tuple.
+    const model = buildSolverPanelModel(
+      view({
+        live: row({ halted: true, paused: true, halt_kind: "lease_pause", lease_ok: false }),
+      }),
+    );
+    expect(model.state).toBe("paused");
+    expect(model.waiting).toEqual([]);
+  });
+
+  it("treats a legacy row without halt_kind as a structural halt, not a pause", () => {
+    // Rows predating 84b79344 carry lease_ok but no halt_kind. Calling a real halt a
+    // pause would hide a stuck pipeline, so the missing field degrades to today's alarm.
+    const legacy = row({
+      halted: true,
+      lease_ok: false,
+      excluded: leaseExclusions,
+    });
+    delete legacy.halt_kind;
+    delete legacy.paused;
+    const model = buildSolverPanelModel(view({ live: legacy }));
+    expect(model.state).toBe("halted");
+    expect(model.haltKind).toBe("structural_halt");
+    expect(model.paused).toBe(false);
+    expect(model.waiting).toEqual([]);
+    expect(model.blockedGroups[0].kind).toBe("lease");
+  });
+
+  it("does not upgrade an unrecognised halt_kind into a pause", () => {
+    const model = buildSolverPanelModel(
+      view({ live: row({ halted: true, halt_kind: "something_new", excluded: leaseExclusions }) }),
+    );
+    expect(model.state).toBe("halted");
+    expect(model.haltKind).toBe("structural_halt");
+  });
+
+  it("resolves the halt kind of a row on its own", () => {
+    expect(resolveHaltKind(null)).toBe("");
+    expect(resolveHaltKind(row({ halted: false, admissible: ["ingest"] }))).toBe("");
+    expect(resolveHaltKind(row({ halt_kind: "lease_pause" }))).toBe("lease_pause");
+    expect(resolveHaltKind(row({ halt_kind: "structural_halt" }))).toBe("structural_halt");
+    expect(resolveHaltKind(row({}))).toBe("structural_halt");
+    // An admissible stage outranks a stale stamp: there is something to run.
+    expect(
+      resolveHaltKind(row({ halted: false, admissible: ["ingest"], halt_kind: "lease_pause" })),
+    ).toBe("");
   });
 });
 
