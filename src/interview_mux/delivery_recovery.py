@@ -389,6 +389,13 @@ def ensure_g1_pickups(
                 s2s_runner.promote_synthesized_vo(ctx, line_id=wav.stem, src=wav)
 
     missing_final = check_g1_vo(ctx)
+    if not missing_final:
+        try:
+            from interview_mux.homunculus.gates import try_set_gate_decision
+
+            try_set_gate_decision(ctx, "vo_pickup", "complete")
+        except Exception:
+            pass
     return {
         "ok": not errors and not missing_final,
         "synthesized": synthesized,

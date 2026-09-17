@@ -799,6 +799,12 @@ def clear_g_publish(ctx: RunContext, *, skipped: bool = False) -> None:
             meta.pop("g_publish_skipped", None)
 
     ctx.mutate_run_meta(patch)
+    try:
+        from interview_mux.homunculus.gates import try_set_gate_decision
+
+        try_set_gate_decision(ctx, "publish_package", "skip" if skipped else "complete")
+    except Exception:
+        pass
 
 
 def mark_g_publish_pending(ctx: RunContext) -> None:

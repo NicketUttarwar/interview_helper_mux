@@ -315,8 +315,23 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
                 enabled = False
         except Exception:
             pass
+        rec = ""
+        try:
+            from interview_mux.homunculus.gates import recommended_framing_action
+
+            rec = recommended_framing_action(ctx)
+        except Exception:
+            rec = ""
         set_gap_framing_enabled(ctx, enabled)
         applied = True
+        # Honor the set_gate_decision guard: recommended skip cannot auto_resolve.
+        framing_action = "skip" if (not enabled or rec == "skip") else "auto_resolve"
+        try:
+            from interview_mux.homunculus.gates import try_set_gate_decision
+
+            try_set_gate_decision(ctx, "framing_consent", framing_action)
+        except Exception:
+            pass
         ctx.log(
             f"Gap framing auto-accepted (defaults): {'enabled' if enabled else 'disabled'}",
             level="action",

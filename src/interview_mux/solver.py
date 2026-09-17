@@ -510,6 +510,12 @@ def gate_enforcement(gate_id: str, posture: Posture) -> str:
 def _gate_verdict(
     ctx: RunContext, stage: str, posture: Posture
 ) -> tuple[list[str], list[str], dict[str, Any]]:
+    from interview_mux.homunculus.gates import (
+        RESOLVED_GATE_ACTIONS,
+        SOLVER_GATE_CATEGORIES,
+        recorded_gate_action,
+    )
+
     reasons: list[str] = []
     unknowns: list[str] = []
     detail: dict[str, Any] = {}
@@ -522,6 +528,18 @@ def _gate_verdict(
             continue
         detail.setdefault("open_gates", []).append(gate_id)
         mode = gate_enforcement(gate_id, posture)
+        # Preclean stays a live block via `_preclean_auto_enabled`; ignore ledger rows.
+        recorded = ""
+        if gate_id != G_PRECLEAN:
+            try:
+                category = SOLVER_GATE_CATEGORIES.get(gate_id)
+                recorded = recorded_gate_action(ctx, category) if category else ""
+            except Exception:
+                recorded = ""
+            if recorded in RESOLVED_GATE_ACTIONS:
+                # Plane already resolved it. Lagging live-open is neither a
+                # blocker nor an unknown (D10).
+                continue
         if mode == "block":
             reasons.append(f"gate_open:{gate_id}")
         elif mode == "may_pause":

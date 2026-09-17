@@ -201,6 +201,12 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
             "transcript_review mark_done refused — G0 sign-off did not stick "
             "(check authority / stage_outputs_present)."
         )
+    try:
+        from interview_mux.homunculus.gates import try_set_gate_decision
+
+        try_set_gate_decision(ctx, "transcript_integrity", "complete")
+    except Exception:
+        pass
     ctx.log("Transcript review complete — corrections applied to full.json.", level="success", stage="transcript_review")
 
 

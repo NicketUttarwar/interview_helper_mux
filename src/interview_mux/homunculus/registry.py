@@ -283,14 +283,14 @@ def stage_tool_specs() -> list[ToolSpec]:
             ),
             ToolSpec(
                 name="set_gate",
-                description="Gate controller: open / auto_resolve / present_operator / skip a category. G0 cannot skip.",
+                description="Gate controller: open / auto_resolve / present_operator / skip / complete a category. G0 cannot skip or auto_resolve — use complete.",
                 parameters={
                     "type": "object",
                     "properties": {
                         "category": {"type": "string"},
                         "action": {
                             "type": "string",
-                            "enum": ["open", "auto_resolve", "present_operator", "skip"],
+                            "enum": ["open", "auto_resolve", "present_operator", "skip", "complete"],
                         },
                     },
                     "required": ["category", "action"],

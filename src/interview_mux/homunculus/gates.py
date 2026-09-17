@@ -20,7 +20,40 @@ CATEGORIES = (
     "prompt_promotion",
 )
 
+# Solver gate ids (`solver.SOLVER_GATES`) → CATEGORIES. One SSOT for D10.
+SOLVER_GATE_CATEGORIES: dict[str, str] = {
+    "transcript_review": "transcript_integrity",
+    "gap_framing": "framing_consent",
+    "g1_vo_pickup": "vo_pickup",
+    "source_preclean": "source_preclean",
+    "g_publish": "publish_package",
+}
+
+# Actions that mean the deterministic plane already resolved the gate.
+RESOLVED_GATE_ACTIONS = frozenset({"auto_resolve", "skip", "complete"})
+
 DECISIONS_REL = "mastering/homunculus/gate_decisions.json"
+
+
+def load_gate_decisions(ctx: RunContext) -> dict[str, Any]:
+    """``{category: {action: ...} | str}`` from ``gate_decisions.json``; ``{}`` if absent."""
+    if not ctx.artifact_exists(DECISIONS_REL):
+        return {}
+    raw = ctx.read_json(DECISIONS_REL)
+    if not isinstance(raw, dict):
+        return {}
+    decisions = raw.get("decisions") or raw
+    return decisions if isinstance(decisions, dict) else {}
+
+
+def recorded_gate_action(ctx: RunContext, category: str) -> str | None:
+    """Recorded action for a CATEGORIES key, or ``None`` when absent/blank."""
+    raw = load_gate_decisions(ctx).get(category)
+    if isinstance(raw, dict):
+        action = str(raw.get("action") or "").strip()
+    else:
+        action = str(raw or "").strip()
+    return action or None
 
 
 def _monologue_topology(topo: str) -> bool:
@@ -38,18 +71,9 @@ def recommended_framing_action(ctx: RunContext) -> str:
     """
     # 1) Operator sticky from gate_decisions.json
     try:
-        if ctx.artifact_exists(DECISIONS_REL):
-            raw_d = ctx.read_json(DECISIONS_REL)
-            decisions = {}
-            if isinstance(raw_d, dict):
-                decisions = raw_d.get("decisions") or raw_d
-            framing = decisions.get("framing_consent") if isinstance(decisions, dict) else None
-            if isinstance(framing, dict):
-                action = str(framing.get("action") or "").strip()
-            else:
-                action = str(framing or "").strip()
-            if action in {"skip", "auto_resolve", "present_operator"}:
-                return action
+        action = recorded_gate_action(ctx, "framing_consent") or ""
+        if action in {"skip", "auto_resolve", "present_operator"}:
+            return action
     except Exception:
         pass
 
@@ -155,11 +179,7 @@ def category_status(ctx: RunContext) -> dict[str, Any]:
     except Exception:
         g1_open = False
         g1_must_act = False
-    decisions = {}
-    if ctx.artifact_exists(DECISIONS_REL):
-        raw_d = ctx.read_json(DECISIONS_REL)
-        if isinstance(raw_d, dict):
-            decisions = raw_d.get("decisions") or raw_d
+    decisions = load_gate_decisions(ctx)
     framing_open = False
     try:
         from interview_mux.gap_vo_gates import check_gap_framing_decision_pending
@@ -196,7 +216,11 @@ def category_status(ctx: RunContext) -> dict[str, Any]:
 
 
 def set_gate_decision(ctx: RunContext, category: str, action: str) -> dict[str, Any]:
-    """Homunculus controller: open / auto_resolve / present_operator / skip."""
+    """Homunculus controller: open / auto_resolve / present_operator / skip / complete.
+
+    ``complete`` is sign-off (any category may use it). G0 / ``transcript_integrity``
+    must use ``complete`` — never ``skip`` or ``auto_resolve``.
+    """
     if category not in CATEGORIES:
         raise ValueError(f"unknown gate category {category}")
     if category == "transcript_integrity" and action in {"skip", "auto_resolve"}:
@@ -221,3 +245,18 @@ def set_gate_decision(ctx: RunContext, category: str, action: str) -> dict[str, 
         {"kind": "gate", "identity": f"gate:{category}", "action": action},
     )
     return doc
+
+
+def try_set_gate_decision(ctx: RunContext, category: str, action: str) -> dict[str, Any] | None:
+    """``set_gate_decision`` that never fails a gate closer — log and return ``None``."""
+    try:
+        return set_gate_decision(ctx, category, action)
+    except Exception as exc:
+        try:
+            ctx.log(
+                f"gate_decisions {category}/{action} not recorded: {exc}",
+                level="warning",
+            )
+        except Exception:
+            pass
+        return None

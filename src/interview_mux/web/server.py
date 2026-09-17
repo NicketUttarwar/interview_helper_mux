@@ -2320,6 +2320,12 @@ def create_app() -> FastAPI:
                     meta["g1_skip_applied_line_ids"] = merged
 
                 ctx.mutate_run_meta(_mark_g1_skipped)
+                try:
+                    from interview_mux.homunculus.gates import try_set_gate_decision
+
+                    try_set_gate_decision(ctx, "vo_pickup", "skip")
+                except Exception:
+                    pass
             try:
                 from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
                 from interview_mux.seat_authority import stamp_soft_seat_freeze
@@ -3351,7 +3357,15 @@ def create_app() -> FastAPI:
             from interview_mux.vo_synthesis_audit import record_recorded_vo
 
             record_recorded_vo(ctx, line_id, out_wav=dest, backend="upload")
-            return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
+            missing = check_g1_vo(ctx)
+            if not missing:
+                try:
+                    from interview_mux.homunculus.gates import try_set_gate_decision
+
+                    try_set_gate_decision(ctx, "vo_pickup", "complete")
+                except Exception:
+                    pass
+            return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": missing}
 
     @app.post("/api/runs/{run_id}/vo/{line_id}/synthesize")
     def vo_synthesize_line(run_id: str, line_id: str) -> dict[str, Any]:
@@ -3780,6 +3794,12 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             enabled = bool(body.get("enabled"))
             set_gap_framing_enabled(ctx, enabled)
+            try:
+                from interview_mux.homunculus.gates import try_set_gate_decision
+
+                try_set_gate_decision(ctx, "framing_consent", "complete" if enabled else "skip")
+            except Exception:
+                pass
             from interview_mux.automation_run import take_gate_advance_lease
 
             take_gate_advance_lease(ctx, source="gui", gate_id="gap_framing")
