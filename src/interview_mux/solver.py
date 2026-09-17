@@ -32,7 +32,17 @@ Admissibility (plan §2.1, with the §8.1-§8.3 terms the rule was missing)::
               committed(d.path) ∧ sufficient(d)           # §8.6 — committed, not staged
       ∧   ∀ output o : write_permitted(stage, o.path)      # §4.2
       ∧   lease permits acting                            # §8.3
-      ∧   evaluate_dispatch(...) allows it                # composes with the door
+      ∧   evaluate_dispatch(...) allows it                # observing only — see below
+
+The last two terms are the two places where "inadmissible" and "must not be offered"
+come apart, so both are qualified where they are applied:
+
+* The **door** term is dropped while the solver is authoritative. A door refusal has
+  side effects the walk owns — the defect ledger row and the ship-severance halt — and
+  those only run on a stage the walk is actually handed (``evaluate_stage`` step 8).
+* The **lease** is a run-level condition. It empties the set per stage so the halt panel
+  has something to render, but ``authoritative_sequence`` reports it as a *pause*, never
+  as the §2.1 structural halt (``Decision.halt_kind``).
 
 **Partial contract truth is a first-class answer.** Contract population is still in
 flight (45/90 hollow at plan time), so a check the contract cannot answer yields
@@ -73,6 +83,14 @@ AGREE = "agree"
 DISAGREE = "disagree"
 DEFER = "defer"
 SHADOW_VERDICTS: tuple[str, ...] = (AGREE, DISAGREE, DEFER)
+
+# Why the sequence stopped. The distinction is operator-facing: a structural halt says
+# "this run cannot proceed until state changes", a lease pause says "another session is
+# driving this run right now" and resolves itself on the next tick. Presenting the second
+# as the first sends an operator hunting for a blocker that was never there.
+HALT_STRUCTURAL = "structural_halt"
+PAUSE_LEASE = "lease_pause"
+LEASE_REASON = "lease_held_by_gui"
 
 # --- gate ids (§8.1). These are the ids `automation_run.PARTIAL_*_GATES`,
 # `phases.PHASES[*]["gate"]` and `dispatch_door.GATE_STAGES` all speak. ---
@@ -197,7 +215,20 @@ class Decision:
 
     @property
     def halted(self) -> bool:
+        """The admissible set is empty. Consult ``halt_kind`` for *why* before saying so."""
         return not self.admissible
+
+    @property
+    def paused(self) -> bool:
+        """Empty because another session holds the run — waiting, not stuck."""
+        return self.halted and not self.lease_ok
+
+    @property
+    def halt_kind(self) -> str:
+        """``""`` | ``lease_pause`` | ``structural_halt``."""
+        if not self.halted:
+            return ""
+        return PAUSE_LEASE if not self.lease_ok else HALT_STRUCTURAL
 
     @property
     def confident_admissible(self) -> tuple[str, ...]:
@@ -235,6 +266,8 @@ class Decision:
             "deferred": list(self.deferred),
             "seed_first_incomplete": self.seed_first_incomplete,
             "halted": self.halted,
+            "halt_kind": self.halt_kind,
+            "paused": self.paused,
             "excluded": [v.as_row() for v in self.verdicts if not v.admissible],
             "admissible_detail": [v.as_row() for v in self.verdicts if v.admissible],
         }
@@ -558,8 +591,13 @@ def evaluate_stage(
     *,
     posture: Posture | None = None,
     lease_ok: bool | None = None,
+    include_door: bool | None = None,
 ) -> StageVerdict:
-    """Pure decision for one stage. Reads disk; writes nothing."""
+    """Pure decision for one stage. Reads disk; writes nothing.
+
+    ``include_door`` defaults to *observing*, i.e. ``not solver_authoritative()`` — see
+    step 8 for why the door term has to come out once the solver picks.
+    """
     from interview_mux.artifact_ownership import write_permitted
     from interview_mux.stage_contract import (
         evaluate_when,
@@ -678,9 +716,26 @@ def evaluate_stage(
         if inflight and inflight != sid:
             reasons.append(f"audio_serialize_inflight:{inflight}")
 
-    # 8. the dispatch door — a stage the door would refuse is not admissible. The
-    #    door is composed with, never re-implemented: caps, no-delta and the attempt
-    #    memo all stay its business.
+    # 8. the dispatch door. Composed with, never re-implemented — caps, no-delta and
+    #    the attempt memo all stay its business either way. What changes is *who* acts
+    #    on a refusal:
+    #
+    #    Observing: a stage the door would refuse is not admissible, which keeps the
+    #    shadow scan honest — the solver must not report `solver_prefers:X` for an X the
+    #    walk's own door would have turned away.
+    #
+    #    Authoritative: the term comes out. A door refusal is not inert — the walk
+    #    answers it by writing a defect ledger row (`refuse_dispatch`) and then asking
+    #    `unreachable_halt` whether the ship path is severed. Both only run on a stage
+    #    the walk is handed, so excluding door-refused stages here would silently delete
+    #    the defect row and make `ShipUnreachable` unreachable. Deferring cannot re-open
+    #    the re-dispatch loop the door exists to stop: `authoritative_sequence` offers
+    #    each stage at most once, and the walk still runs the door before dispatching.
+    if include_door is None:
+        include_door = not solver_authoritative()
+    if not include_door:
+        detail["door_deferred_to_walk"] = True
+        return _verdict()
     from interview_mux.dispatch_door import evaluate_dispatch
 
     try:
@@ -700,13 +755,20 @@ def admissible_set(
     *,
     posture: Posture | None = None,
     stages: tuple[str, ...] | None = None,
+    include_door: bool | None = None,
 ) -> Decision:
     """Evaluate every dispatchable stage. Pure: no ctx mutation, no LLM, no network."""
     resolved_posture = posture or posture_for(ctx)
     lease_ok = lease_permits_acting(ctx)
     candidates = tuple(stages) if stages is not None else dispatchable_stages()
     verdicts = tuple(
-        evaluate_stage(ctx, sid, posture=resolved_posture, lease_ok=lease_ok)
+        evaluate_stage(
+            ctx,
+            sid,
+            posture=resolved_posture,
+            lease_ok=lease_ok,
+            include_door=include_door,
+        )
         for sid in candidates
     )
     admissible = tuple(v.stage for v in verdicts if v.admissible)
@@ -743,12 +805,24 @@ def next_stage(ctx: RunContext, posture: Posture | None = None) -> Decision:
 
 
 def halt_payload(decision: Decision) -> dict[str, Any]:
-    """"Why is nothing runnable" (§10.2) — the unmet dep and who would satisfy it."""
+    """"Why is nothing runnable" (§10.2) — the unmet dep and who would satisfy it.
+
+    ``blockers`` is capped for the panel, so the aggregates are computed over all of
+    them: ``reason_families`` is the histogram a halt line can be read from, and
+    ``hard_input_blockers`` isolates the failure mode a promoted solver introduces —
+    one over-declared ``inputs.hard`` entry retires its stage permanently, where the
+    unpromoted walk would attempt it and let the pre-stage checks decide. Each entry
+    carries the artifact, its declared producer and how many hard inputs the contract
+    declares, which is what tells a wrong declaration apart from a real missing input.
+    """
     blockers: list[dict[str, Any]] = []
+    families: dict[str, int] = {}
+    hard_input_blockers: list[dict[str, Any]] = []
     for verdict in decision.verdicts:
         if verdict.admissible or verdict.seed_index < 0:
             continue
-        producers = (verdict.detail or {}).get("producers") or {}
+        detail = verdict.detail or {}
+        producers = detail.get("producers") or {}
         blockers.append(
             {
                 "stage": verdict.stage,
@@ -757,14 +831,37 @@ def halt_payload(decision: Decision) -> dict[str, Any]:
                 "reasons": list(verdict.reasons),
                 "producers": producers,
                 "confident": verdict.confident,
+                "unknowns": list(verdict.unknowns),
+                "seed_index": verdict.seed_index,
             }
         )
+        for reason in verdict.reasons:
+            family = reason.split(":", 1)[0]
+            families[family] = families.get(family, 0) + 1
+            if not family.startswith("hard_input_"):
+                continue
+            artifact = reason.split(":", 1)[1] if ":" in reason else ""
+            hard_input_blockers.append(
+                {
+                    "stage": verdict.stage,
+                    "artifact": artifact,
+                    "blocker": family,
+                    "producer": producers.get(artifact) or "",
+                    "declared_hard_inputs": detail.get("declared_hard_inputs"),
+                }
+            )
     return {
         "halted": decision.halted,
+        "kind": decision.halt_kind,
+        "paused": decision.paused,
+        "reason_code": LEASE_REASON if decision.paused else "",
         "posture": decision.posture,
         "lease_ok": decision.lease_ok,
         "seed_first_incomplete": decision.seed_first_incomplete,
         "blockers": blockers[:24],
+        "blocked_total": len(blockers),
+        "reason_families": dict(sorted(families.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "hard_input_blockers": hard_input_blockers[:24],
     }
 
 
@@ -775,12 +872,12 @@ def halt_payload(decision: Decision) -> dict[str, Any]:
 def decision_log_writable(ctx: RunContext) -> tuple[bool, str]:
     """Ask the ownership matrix, never assume. ``(ok, reason)``.
 
-    `artifact_ownership.py` is owned by another worker while this lands, so the
-    explicit ALLOW row does not exist yet. The matrix currently answers
-    ``operational_unregistered`` for any ``operator/`` path, which is a legal write —
-    but a *registered* row is what pins the owner, so ``decision_log_registered``
-    reports the gap and this predicate is what actually gates the write. If the
-    catalog ever tightens, the writer goes quiet instead of writing illegally.
+    ``operator/solver_decision.jsonl`` now has its own ``ops`` ALLOW row in
+    `artifact_ownership.py`, so this resolves to a registered owner rather than the
+    blanket ``operational_unregistered`` answer the matrix gives any other ``operator/``
+    path. ``decision_log_registered`` asserts that row is still there; this predicate
+    remains what gates the write, so if the catalog ever tightens the writer goes quiet
+    instead of writing illegally.
     """
     try:
         from interview_mux.artifact_ownership import write_permitted
@@ -1100,6 +1197,11 @@ def authoritative_sequence(
     3. An **empty** admissible set ends the sequence — that is the structural halt
        from §2.1, and every remaining stage's exclusion reason is logged for it.
 
+    A GUI lease is checked first and separately. It is the one run-level condition that
+    empties the set for reasons that have nothing to do with the pipeline's state, so it
+    ends the sequence as a *pause* — and short-circuiting it also spares a full sweep of
+    per-stage evaluations that could only ever answer ``lease_held_by_gui``.
+
     Termination is structural: a stage is only ever yielded once, so the loop is
     bounded by ``len(candidates)`` regardless of what the stages do.
     """
@@ -1108,6 +1210,9 @@ def authoritative_sequence(
     while True:
         remaining = tuple(s for s in pending if s not in offered)
         if not remaining:
+            return
+        if not lease_permits_acting(ctx):
+            _log_authoritative_pause(ctx, remaining, source=source, posture=posture)
             return
         try:
             decision = admissible_set(ctx, posture=posture, stages=remaining)
@@ -1147,13 +1252,70 @@ def authoritative_sequence(
 
 
 def _log_authoritative_halt(ctx: RunContext, decision: Decision, *, source: str) -> None:
+    """The §2.1 structural halt: nothing is runnable until on-disk state changes.
+
+    The reason histogram goes in the line itself, not only the detail, because the
+    diagnosis this halt most needs to support — a stage retired by an ``inputs.hard``
+    entry it should never have declared — reads as a ``hard_input_*`` family against a
+    stage whose producer already ran, and that has to be visible from the log alone.
+    """
     payload = halt_payload(decision)
+    families = payload.get("reason_families") or {}
+    summary = ", ".join(f"{k}×{v}" for k, v in list(families.items())[:6])
     try:
         ctx.log(
-            "solver authoritative: admissible set is empty — nothing runnable "
-            f"({len(payload['blockers'])} blocked stage(s))",
+            "solver authoritative: structural halt — admissible set is empty, nothing "
+            f"runnable ({payload.get('blocked_total', 0)} blocked stage(s)"
+            f"{'; ' + summary if summary else ''})",
             level="warning",
             detail={"source": source, **payload},
+        )
+    except Exception:
+        pass
+    if shadow_logging_enabled():
+        log_decision(ctx, decision)
+
+
+def _log_authoritative_pause(
+    ctx: RunContext,
+    remaining: tuple[str, ...],
+    *,
+    source: str,
+    posture: Posture | None = None,
+) -> None:
+    """A GUI lease pauses the sequence. It is *not* the structural halt.
+
+    ``lease_held_by_gui`` is a run-level condition that ``evaluate_stage`` reports per
+    stage, so on its own it empties the admissible set and is indistinguishable from
+    "this run cannot proceed". The two need opposite operator responses — wait for the
+    other session, versus go and unblock a producer — so the pause gets its own line,
+    its own reason code and its own ``halt_kind`` on the persisted row.
+    """
+    try:
+        resolved_posture = posture or posture_for(ctx)
+    except Exception:
+        resolved_posture = MANUAL
+    decision = Decision(
+        posture=resolved_posture,
+        admissible=(),
+        would_choose=None,
+        verdicts=(),
+        lease_ok=False,
+        at=_utcnow(),
+    )
+    try:
+        ctx.log(
+            "solver authoritative: paused — the GUI holds a fresh lease, so this run is "
+            f"another session's to walk ({len(remaining)} stage(s) waiting, none blocked)",
+            level="info",
+            detail={
+                "source": source,
+                "kind": PAUSE_LEASE,
+                "reason_code": LEASE_REASON,
+                "lease_ok": False,
+                "waiting": list(remaining[:24]),
+                "waiting_total": len(remaining),
+            },
         )
     except Exception:
         pass
@@ -1166,7 +1328,10 @@ __all__ = [
     "DEFER",
     "DISAGREE",
     "FULL_AUTO",
+    "HALT_STRUCTURAL",
+    "LEASE_REASON",
     "MANUAL",
+    "PAUSE_LEASE",
     "PARTIAL",
     "POSTURES",
     "SHADOW_VERDICTS",

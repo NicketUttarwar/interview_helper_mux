@@ -1971,7 +1971,10 @@ def _walk_sequence(ctx: RunContext, walk_stages: list[str], *, reason: str):
     voice-reference drop and ``filter_delivery_candidates`` have already run, and each
     yielded stage still passes through the dispatch door, the defect ledger and the
     reachability halt below. The solver composes with those rails, it does not
-    replace them.
+    replace them — which is why ``evaluate_stage`` stops folding the door into
+    admissibility once it is authoritative. A door-refused stage has to reach the loop
+    below to get its defect row and its severance check; a stage the solver quietly
+    dropped would get neither.
     """
     try:
         from interview_mux.solver import authoritative_sequence, solver_authoritative
