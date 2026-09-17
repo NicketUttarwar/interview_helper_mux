@@ -13,6 +13,12 @@ no-rewrite deletable set is **exhausted** (`DELETABLE: 0 symbols / 0 lines`), no
 remains is 8,710 lines that cannot be deleted without rewriting their callers, scoped as a successor
 refactor in **§12**. Final accounting in **§1.4.6**.
 
+**The final wave ran, and declined.** It attempted the two top-of-stack imperative control modules —
+`seed_policy.py` (104L) and `recovery_controller.py` (1,816L) — and refused both, shipping **353
+lines of pinning tests and zero deletions** (`3dd0ebf4`, §6.06). Nothing was skipped and nothing is
+still open; the totals above are unchanged because nothing was deleted. The two rules that decided it
+are in **§0** and apply to every future wave.
+
 This document is the plan, the inventory, the execution record, and the worklist for the later
 patching pass.
 
@@ -25,6 +31,30 @@ deleting the imperative guardrail mass now that contracts, the dispatch door and
 > replacement can be cited. A later pass patches the resulting holes. This document is the map that
 > makes that later pass possible — which is why the "no proven replacement" rows in §6 are the real
 > product, not a defect report.
+
+---
+
+## 0. What counts as a replacement — two rules, read before any wave
+
+The most reusable output of the campaign. Both were bought with a wave that deleted nothing (§6.06),
+and both would have prevented it. Apply them to a row's *Replacement* column **before** planning a
+deletion around it: a row that fails either rule reads **nothing**, not "partial".
+
+1. **Off by default is not a replacement.** Any replacement gated by `MUX_CONTRACT_REQUIRES`,
+   `MUX_SOLVER_AUTHORITATIVE` or `MUX_SHIP_REACHABILITY_HALT` is **nothing** until the flag defaults
+   on. All three are off at HEAD — `artifact_dependency_graph.py` ("with the flag OFF, the default",
+   emitting only the frozen baseline edge set), `solver.py:132` (`default=False`),
+   `ship_reachability.py:261` ("default OFF: the analysis always runs, the halt is opt-in"). A gated
+   rule does not guard a run nobody set the flag for. **Three rows mis-stated this and are now
+   corrected: H-02, H-08, H-09.** Replacements that *are* on by default keep their "partial":
+   `MUX_DISPATCH_NO_DELTA` and `MUX_DISPATCH_MEMO` (`dispatch_delta.py:113`–`118`, `default=True`),
+   ownership fail-closed (`artifact_ownership.py:57`), the `master_epoch` seal assertion (§8.1) and
+   precision invalidation (§12.4).
+2. **A uniform contract declaration is not a replacement for a discriminating one. Check
+   *cardinality*, not presence.** Contract `remediation` is present in all 91 contracts and declares
+   `[volley_retry, full_stage_rerun]` in every one of them — no discrimination among the 37 error
+   classes `recovery_controller` names, and no resume stage. 91 identical blocks carry **zero bits**
+   about which failure shape occurred. A populated field proves a schema, not a behaviour.
 
 ---
 
@@ -684,14 +714,14 @@ gone — that is the question the patching pass must answer for each row.
 | # | Deleted | What it protected against | Failure mode now unguarded | Replacement | Pinned test that will fail |
 |---|---|---|---|---|---|
 | H-01 | `heal_routing.py` (660L, whole) | Stage X failing without a defined repair route to stage Y | A stage fails and nothing routes a repair; the run advances past it on D1 and records a defect. Whether the defect is *correctly classified as ship-bar-degrading* is unproven. | **nothing — hole.** Contract `remediation` edges are not populated; `requires` consumption is still gated behind `MUX_CONTRACT_REQUIRES=0`. | 20 pinned files reference `heal_routing` |
-| H-02 | `recovery_controller.py` (1,816L) — 23 orphan + 14 test-only playbooks | Named recovery playbooks for 37 specific observed failure shapes (`seed_order_prereq`, `selection_edl_order_drift`, `mint_reorder_glue`, `upstream_stale_rerun`, …) | Each playbook encodes one exec_11871 lesson. With them gone, the shapes recur and the run advances past them. `playbook_selection_edl_order_drift` (81L) and `playbook_seed_order_prereq` (73L) guard the publishability contract's "selection leads EDL" rule. | **partial.** Solver admissibility makes `seed order` *unreachable by construction* (plan §2.3). The other 35 have **no replacement**. | 9 pinned files |
+| H-02 | `recovery_controller.py` (1,816L) — 23 orphan + 14 test-only playbooks | Named recovery playbooks for 37 specific observed failure shapes (`seed_order_prereq`, `selection_edl_order_drift`, `mint_reorder_glue`, `upstream_stale_rerun`, …) | Each playbook encodes one exec_11871 lesson. With them gone, the shapes recur and the run advances past them. `playbook_selection_edl_order_drift` (81L) and `playbook_seed_order_prereq` (73L) guard the publishability contract's "selection leads EDL" rule. | **nothing — DECLINED, §6.06.** Superseding the "partial" that stood here: plan §2.3's "seed order unreachable by construction" is **false at HEAD**. Contract `remediation` is read by `stage_resilience` but declares `[volley_retry, full_stage_rerun]` in all 91 contracts — no discrimination among the 37 error classes, no resume stage (rule 2, §0). | 9 pinned files; pinned by `tests/test_recovery_controller_replacement_absent.py` |
 | H-03 | `thrash_hardening.py` (3,488L) | Sticky heals, oscillation halts, premature caps, gate-wait ticks, wasted-work detection | The no-delta guard covers the *repeat-identical-input* case only. Oscillation with a changing-but-non-converging input is **not** covered by either the no-delta guard or the attempt memo. | **partial.** `dispatch_delta.no_delta_refusal` + `memo_skip` replace the cap assertions. `note_sticky_heal_attempt` (112L), `record_thrash_hit` (98L), `infer_heal_intent` (70L) have no replacement. | 23 pinned files |
 | H-04 | `delivery_guardrails.py` (2,904L) | Delivery-epoch matching, listen-delight waivers, critical residual counting, music-limbo exit, selection-order fingerprints | `delivery_epoch_matches` / `read_delivery_epoch_at_dispatch` guard stale-delivery detection. `master_epoch.py` implements the §5.4 epoch assertion **at the seal only** — mid-pipeline epoch drift becomes invisible between deletion and the `verify_master` check. | **partial.** `master_epoch.py` replaces the seal assertion. Listen-delight waiver logic (`listen_delight_waived_unattended`, `ensure_listen_delight_waiver_unattended`) has **no replacement** and touches the authoritative listen-delight ship gate from NORTH_STAR. | 42 pinned files — the largest single blast radius |
 | H-05 | `artifact_sanitize/*` (4,390L, 22 files) | Per-artifact structural sanitation before commit: selection, EDL, transitions, gap report, air script, one-writer enforcement | One-writer enforcement (`one_writer.py`, 454L) is the i13/i14/i15 ownership battleground. `artifact_ownership.write_permitted()` covers *who may write*; `one_writer.py` also covers *concurrent write ordering within a stage*. | **partial.** `artifact_ownership` replaces the authority check. Structural sanitation of artifact *content* (`selection.py` 537L, `gap_report.py` 627L) is **nothing — hole**; contract `sufficiency` is populated for only 41/90 contracts. | 9 pinned files |
 | H-06 | `artifact_repairs.py` (5,378L deletable of 6,268L) | In-place repair of malformed artifacts before they reach a consumer | **Revised — this row was wrong.** A malformed artifact produced by a *successful* stage is never a dispatch refusal, so **no defect row is created** and PMQ's `no_open_ship_bar_defects` check passes. D1 does not cover this module at all. See §9.2: Class B, silent. | **nothing — hole.** Requires `record_defect` to be extended to post-dispatch artifact rejection (§9.5). | 2 pinned files |
 | H-07 | `execution_invalidation_profiles.py` (715L) | Structural-expansion decisions for invalidation blast radius | Precision invalidation (§5.4) is still `pending` in the plan and activates per-stage gated on conformance-green. Deleting the profiles before precision invalidation lands leaves whole-tail behaviour as the only mode. | **nothing yet — hole with a known owner.** `p15-precision-invalidate` is `pending`. **Do not run W2a's portion of this until that todo completes.** | 1 pinned file |
-| H-08 | `seed_policy.py` (104L) | Sticky seed marks and seed-satisfaction policy | Solver picks lowest seed index; sticky marks were a separate mechanism for "this seed stage is satisfied by policy not by artifact". | **partial.** Solver seed ordering replaces selection; `ensure_sticky_seed_mark` has no equivalent. | 1 pinned file |
-| H-09 | `forensics_stall.py` (184L) | Stall escalation that blocks the driver | `escalation_blocks_driver` (11L) gated the driver on an escalated stall. Under D1 the run advances instead. | **partial.** `ship_reachable()` is the replacement concept, but is still a *conservative stub* (`unknown ⇒ reachable`); `p15-reachability-real` is `pending`. | 0 pinned files — lowest-risk deletion in the campaign |
+| H-08 | `seed_policy.py` (104L) | Sticky seed marks and seed-satisfaction policy | Not a silent hole: deleting the module **deadlocks the seed walk**. `llm_flow_hardening`'s only fallback correctly refuses to mark a pass-2 stage with no sidecar, and `gap_framing_recompose` has no fallback at all. | **nothing — DECLINED, not a hole, §6.06.** The concession that `ensure_sticky_seed_mark` "has no equivalent" *is* the whole module — the sticky mark is the enforcement. Solver seed ordering is inert while `MUX_SOLVER_AUTHORITATIVE` is off (rule 1, §0), and no contract can express "satisfied by policy without an artifact". | 1 pinned file; pinned by `tests/test_seed_policy_replacement_absent.py` |
+| H-09 | `forensics_stall.py` (184L) | Stall escalation that blocks the driver | `escalation_blocks_driver` (11L) gated the driver on an escalated stall. Under D1 the run advances instead. | **nothing — rule 1, §0.** `ship_reachable()` is no longer a stub (§12.4), but its *halt* is opt-in: `MUX_SHIP_REACHABILITY_HALT` defaults off (`ship_reachability.py:261`), so the analysis records a verdict and keeps walking. Nothing blocks the driver at current defaults. | 0 pinned files — lowest-risk deletion in the campaign |
 | H-10 | `identical_failures.py` (570L deletable) | Repeat-failure fingerprinting and halt management | `record_identical_failure` is **KEPT** (§3). The halt-management half (`clear_halts_matching`, `sync_identical_halts_with_product`, `clear_halts_for_stages_if_predicate_flipped`) is deleted. Halts then never clear, or never set. | **partial.** No-delta guard replaces the *detection*; nothing replaces halt lifecycle management. | 2 pinned files |
 | H-11 | `stage_input_checks.py` (705L deletable) | Per-stage input assertions beyond `require_stage_inputs` | Contract `inputs.hard` is populated for only **30 of 90** contracts. Deleting imperative input checks before that reaches 90/90 leaves 60 stages with no input validation at all. | **nothing — hole, and a sequencing error if run early.** W8 is late in the order, which helps, but the gate is contract population (`p1-populate-groups`, `pending`), not wave position. | 9 pinned files |
 | H-12 | `delivery_invariants.py` (532L deletable) | Delivery-stage invariants: seed-order consumers, VO line owner sync, live producer authority | `sync_vo_line_owners` (68L) keeps VO line ownership consistent — directly relevant to the G1 VO pickup gate. | **partial.** `committed_master_wav` kept; `live_producer_authority` superseded by `artifact_ownership.owners_of`. `sync_vo_line_owners` is **nothing — hole**. | 2 pinned files |
@@ -758,14 +788,40 @@ One hazard class was retired by the same investigation: an AST scan of `src/inte
 a static closure is sound. The real hazard is in-module and inter-candidate call chains, which
 `_closure_evict` now covers.
 
+### 6.06 Final wave — both modules DECLINED, zero lines deleted
+
+The last wave attempted the two top-of-stack imperative control modules, `seed_policy.py` (104L) and
+`recovery_controller.py` (1,816L). **Both were declined.** It shipped **353 lines of pinning tests and
+no deletions** (`3dd0ebf4`), so the §1.4.6 totals stand unchanged. The campaign's own planner reaches
+the same verdict independently: `subtraction_predict.py plan --modules seed_policy --modules
+recovery_controller` reports `DELETABLE: 0 symbols, 0 lines`.
+
+**H-08 `seed_policy.py` — DECLINED, and not a hole.** A contract declares what a stage must produce
+and cannot express "satisfied by policy without an artifact": `sufficiency` is empty for both freeze
+stages and no contract field references freeze state. Solver seed ordering is inert while
+`MUX_SOLVER_AUTHORITATIVE` is off. So deleting the module does not open a silent hole — it
+**deadlocks the seed walk**, because `llm_flow_hardening`'s only fallback correctly refuses to mark a
+pass-2 stage with no sidecar and `gap_framing_recompose` has no fallback. Measured: **2 pre-existing
+tests break**, one of them the HF-1 predicate-family pin. Pinned by
+`tests/test_seed_policy_replacement_absent.py`.
+
+**H-02 `recovery_controller.py` — DECLINED.** Plan §2.3's "seed order unreachable by construction" is
+**false at HEAD**: on a fresh 0.1.0 run `_seed_prereq_block` returns `audio_preclean` for the first
+stage dispatched and `dispatch_stage` raises. That confirms the flag
+[delivery-invariants-anomaly.md](delivery-invariants-anomaly.md) §6 raised. The other candidate
+replacement, contract `remediation`, is read by `stage_resilience` but is uniform across all 91
+contracts, so it discriminates nothing (rule 2, §0). Pinned by
+`tests/test_recovery_controller_replacement_absent.py`.
+
 ### 6.1 Hole accounting
 
 | Category | Count |
 |---|---:|
 | Deletion groups with a **citable replacement** (contract field, ownership row, door verdict, solver term) | **0 fully** |
-| Deletion groups with a **partial** replacement (some symbols covered, some not) | **11** of 15 |
-| Deletion groups with **no replacement at all** — pure holes | **4** of 15 (H-01, H-11, H-13, and the content-sanitation half of H-05) |
-| Deletion groups **blocked on a pending plan todo** | **3** (H-07 on `p15-precision-invalidate`; H-09 on `p15-reachability-real`; H-11 on `p1-populate-groups`) |
+| Deletion groups with a **partial** replacement (some symbols covered, some not) | **8** of 15 — was 11; H-02, H-08 and H-09 moved out under §0 rule 1 |
+| Deletion groups with **no replacement at all** — pure holes | **5** of 15 (H-01, H-09, H-11, H-13, and the content-sanitation half of H-05) |
+| Deletion groups **attempted and DECLINED**, replacement proven absent, zero lines deleted | **2** (H-02 and H-08 — §6.06; H-08 deadlocks rather than opening a hole) |
+| Deletion groups **blocked on a pending plan todo** | **3** (H-07 on `p15-precision-invalidate`; H-11 on `p1-populate-groups`; H-09 now gated on the `MUX_SHIP_REACHABILITY_HALT` default rather than on `p15-reachability-real`, which landed — §12.4) |
 
 Not one of the 15 groups has a *fully* citable replacement. That is the honest answer to "how many
 deletions will have no proven replacement": **at symbol granularity, the large majority.** The
@@ -1010,7 +1066,8 @@ Every wave, in order. A wave that cannot tick every box does not run.
    and verify the new-system modules are inside it by `git cat-file`.
 3. `python tools/subtraction_predict.py orphans --json <wave>.json` — strict mode, never `--loose`.
 4. Cross-check the wave's symbols against §3 (load-bearing) and §9.2 (carve-out). Any overlap is
-   removed from the wave, not argued about.
+   removed from the wave, not argued about. Re-read the wave's §6 *Replacement* cells against the two
+   rules in **§0** — a cell that fails either one is **nothing**, and the deletion does not run.
 5. `python tools/subtraction_predict.py predict <wave>.json --json predicted.json`.
 6. Two baseline `pytest tests/ -q --tb=no` runs; record both.
 
@@ -1038,8 +1095,9 @@ Every wave, in order. A wave that cannot tick every box does not run.
 "~410 lines of guardrail logic" is approximate and carries the caveat in §1.4.6c. Every
 wave passed its attribution gate; the closeout deletion had zero new failures by node-id set
 comparison, on 4,693 tests collected before and after. `DELETABLE` is now **0 symbols / 0 lines** —
-the no-rewrite set is exhausted, not abandoned. The remaining 8,710 lines are scoped as a successor
-refactor in §12.
+the no-rewrite set is exhausted, not abandoned. The final wave tested that claim from the other end:
+it attempted the two top-of-stack control modules and **declined both, deleting nothing** (§6.06). The
+remaining 8,710 lines are scoped as a successor refactor in §12.
 
 Criteria as originally written, all met:
 
@@ -1067,8 +1125,9 @@ implementer inherits the analysis rather than repeating it. **Do not treat it as
 
 **256 symbols / 8,710 lines across 12 modules.** These are guardrails that the contract system,
 dispatch door and solver have genuinely superseded *by policy* — the campaign's premise about them
-holds. What makes them different from everything this campaign deleted is that **they still have live
-call sites in ordinary pipeline code.** They are not dead. Deleting one without touching its callers
+holds, **with two proven exceptions: `seed_policy` and `recovery_controller`, where no supersession
+exists at current flag defaults (§6.06).** What makes the rest different from everything this
+campaign deleted is that **they still have live call sites in ordinary pipeline code.** They are not dead. Deleting one without touching its callers
 does not remove a guard; it breaks a caller.
 
 So the unit of work is not "delete a symbol" but "**rewrite the call site, then delete the symbol**"
@@ -1118,7 +1177,7 @@ best single proxy for blast radius, and the number that should drive sequencing.
 |---|---:|---:|---:|---|
 | `thrash_hardening` | 48 | 2,447 | 15 | Largest by lines. Sticky heals, oscillation halts, premature caps. `dispatch_delta.no_delta_refusal` covers only repeat-identical input; non-converging oscillation is **not** covered (H-03). |
 | `delivery_guardrails` | 43 | 1,761 | 30 | **Widest blast radius — 30 caller files.** Contains listen-delight waiver logic touching the NORTH_STAR ship gate; much of that is Class B and already carved. Do this one last. |
-| `recovery_controller` | 49 | 1,290 | 7 | Named playbooks for 37 observed failure shapes. Only 7 caller files despite 49 symbols — **the best ratio in the set, and the natural starting point.** |
+| `recovery_controller` | 49 | 1,290 | 7 | Named playbooks for 37 observed failure shapes. Best symbol/caller ratio in the set, which made it the natural starting point — **but it was attempted and DECLINED (§6.06).** |
 | `identical_failures` | 30 | 744 | 14 | `record_identical_failure` is KEPT (§3). The halt-lifecycle half has no replacement (H-10). |
 | `heal_routing` | 6 | 453 | 4 | Only 4 caller files. Blocked on contract `remediation` edges being populated, which they are not. |
 | `delivery_invariants` | 16 | 427 | 10 | Chain-heavy — see the anomaly writeup before touching it. `sync_vo_line_owners` is Class B. |
@@ -1127,13 +1186,25 @@ best single proxy for blast radius, and the number that should drive sequencing.
 | `remediation_framework` | 13 | 328 | 13 | Plan mutex is **not** the solver walk lease — different lock, different scope (H-13). |
 | `execution_invalidation_profiles` | 8 | 290 | 6 | **Gated: do not start until `p15-precision-invalidate` lands.** |
 | `forensics_stall` | 9 | 149 | 8 | Depends on `ship_reachable()` being real rather than a conservative stub. |
-| `seed_policy` | 5 | 75 | 3 | Smallest. Solver seed ordering replaces selection; sticky marks have no equivalent. |
+| `seed_policy` | 5 | 75 | 3 | Smallest, and was first in the suggested order — **attempted and DECLINED (§6.06).** Solver seed ordering is inert at current flag defaults; sticky marks have no equivalent, and that mark *is* the enforcement. |
+
+**Audit hygiene: these caller counts undercount — read them as a floor, not a measurement.** They
+appear to include only production Python importers, excluding tests and shell-script audit targets.
+Re-measured for `recovery_controller`: **7 production / 17 test / 2 shell**, not "7". Since §12.4
+sequences on this column as a blast-radius proxy, re-measure all three classes before trusting the
+order.
 
 ### 12.4 Suggested sequencing and preconditions
 
 Sequence by **caller-file count ascending**, not by line count — the cost and risk are in the call
 sites. That gives `seed_policy` (3) → `heal_routing` (4) → `execution_invalidation_profiles` (6) →
 `recovery_controller` (7) → … → `delivery_guardrails` (30) last.
+
+**Two entries in that order are no longer pending — they are proven undeletable at current flag
+defaults.** `seed_policy` and `recovery_controller` were attempted and declined (§6.06), so they are
+not work waiting to be started: they are work that cannot start until `MUX_SOLVER_AUTHORITATIVE`
+defaults on and contract `remediation` discriminates among failure classes. With `heal_routing` also
+blocked below, the first startable module is `execution_invalidation_profiles` (6).
 
 One module is **blocked on other work** and must not be started early:
 
@@ -1157,7 +1228,8 @@ contract files** (91 `*.yaml`, of which `_arbiter.yaml` is not a stage) and `suf
 stage**: they are `meta` sub-volleys, two `gate` non-stages and `_arbiter`. Until coverage reaches
 91/91, removing imperative input validation leaves stages with no input checking at all (H-11). *The
 replacement must exist before the original is removed* — which, on the evidence of this campaign, is
-the rule that most wants stating explicitly.
+the rule that most wants stating explicitly. **§0 defines what "exist" means:** on by default, and
+discriminating.
 
 ### 12.5 Tooling the successor inherits
 
