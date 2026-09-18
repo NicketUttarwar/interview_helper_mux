@@ -85,7 +85,7 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
             "understanding/gap_report.json is an empty stub while framing is enabled — "
             "resume nugget_layup_compose"
         )
-    # CSP-05 / GFC: framing Yes + compose zero/hollow lines → incomplete (not soft-done).
+    # GFC Q6B: framing Yes + compose zero lines allowed (helper always None).
     try:
         from interview_mux.openai_primary_honesty import gap_compose_zero_lines_while_framing
 

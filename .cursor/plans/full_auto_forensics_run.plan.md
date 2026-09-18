@@ -165,7 +165,6 @@ curl -s http://127.0.0.1:8765/api/health || echo 'server down'
 
 ```bash
 MUX_RUN_MODE=full-auto \
-MUX_HOMUNCULUS_VERSION=0.1.0 \
 MUX_FRESH=1 \
 MUX_FORENSICS=1 \
 MUX_KEEPALIVE=1 \
@@ -174,6 +173,8 @@ MUX_INPUT_AUDIO=ASSETS/input/<INPUT_FILE> \
 ```
 
 Replace `<INPUT_FILE>` with the basename only. **Do not** pass `MUX_RUN_ID` at kickoff. **Do not** point at an existing `ASSETS/executions/exec_*` from a prior campaign.
+
+**Brain (homunculus version):** do **not** set `MUX_HOMUNCULUS_VERSION` unless the operator explicitly pins a registered brain. Unset → product default (`mastering.homunculus.default_version` = `latest` → currently **0.2.0**). Never hardcode `0.1.0` (legacy resume-only; hidden from Start).
 
 ### 1.2 After kickoff — lock THIS campaign and monitor
 
@@ -384,9 +385,9 @@ Record in state file: `last_predicate`, `last_predicate_before`, `predicate_flip
 ```bash
 # Only stop if needed to clear dual drivers — do NOT wipe the exec directory
 # do NOT switch MUX_RUN_ID to any prior campaign
+# Do not set MUX_HOMUNCULUS_VERSION — keep this run's stamped brain (default 0.2.0)
 python tools/full_auto_daemon_launch.py stop
 MUX_RUN_MODE=full-auto \
-MUX_HOMUNCULUS_VERSION=0.1.0 \
 MUX_FRESH=0 \
 MUX_FORENSICS=1 \
 MUX_KEEPALIVE=1 \

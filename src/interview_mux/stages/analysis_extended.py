@@ -87,16 +87,41 @@ def run_topic_coverage(ctx: RunContext) -> None:
                 ensure_openai_primary_complete(ctx, "topic_coverage_audit")
             except Exception as exc:
                 if isinstance(exc, StageError):
-                    raise
-                from interview_mux.openai_primary_honesty import hollow_openai_reason
+                    # Q5B: soft stub + heal (advisory coverage — do not stall Full-auto).
+                    stub = {
+                        "version": 1,
+                        "coverage_score": 0.0,
+                        "topic_mappings": [],
+                        "missing_coverage": [],
+                        "source": "stub",
+                        "llm_failed": True,
+                        "notes": [f"tca_soft_stub:{str(exc)[:160]}"],
+                        "_meta": {"producer_stage": "topic_coverage_audit"},
+                    }
+                    write_validated_artifact(
+                        ctx,
+                        "master/coverage_audit.json",
+                        stub,
+                        merge_from_disk=False,
+                        stage_key="topic_coverage_audit",
+                    )
+                    ctx.log(
+                        f"topic_coverage_audit: soft stub after hollow LLM ({exc})",
+                        level="warning",
+                        stage="topic_coverage_audit",
+                    )
+                    if not ctx.is_done("topic_coverage_audit"):
+                        heal_or_refuse_mark(ctx, "topic_coverage_audit", force=True)
+                else:
+                    from interview_mux.openai_primary_honesty import hollow_openai_reason
 
-                raise StageError(
-                    "topic_coverage_audit",
-                    hollow_openai_reason(
+                    raise StageError(
                         "topic_coverage_audit",
-                        str(exc)[:200] or "llm_soft_fail_hollow",
-                    ),
-                ) from exc
+                        hollow_openai_reason(
+                            "topic_coverage_audit",
+                            str(exc)[:200] or "llm_soft_fail_hollow",
+                        ),
+                    ) from exc
     if ctx.is_done("topic_coverage_audit"):
         regions = emphasis_regions_for_segments(ctx)
         ctx.log(

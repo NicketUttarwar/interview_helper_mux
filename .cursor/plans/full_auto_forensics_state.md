@@ -1,25 +1,25 @@
 # Forensics loop state
 
-- **campaign_mode:** fresh_campaign_continue_on_bug
-- **campaign_kind:** clinic Q8C live Full-auto confirmation (post Stage Clinic)
+- **campaign_mode:** stopped
+- **campaign_kind:** clinic optional revisit — **Q7C no live run**
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_13155_d19c15b58ab4_20260918T163214Z
+- **run_id:** exec_13155_d19c15b58ab4_20260918T163214Z (historical; not resumed)
 - **fresh_launches:** 1
 - **driver_restarts:** 0
 - **started_at:** 2026-09-18T16:32:14Z
-- **stopped_at:**
+- **stopped_at:** 2026-09-18 (Q8C STOP; Q7C confirms no relaunch)
 - **last_progress_at:** 2026-09-18T16:36:00Z
-- **driver_alive:** true
-- **stages_done:** 2/72 (audio_preclean, ingest; transcribe running)
-- **current_stage:** transcribe
+- **driver_alive:** false
+- **stages_done:** 2/72 (historical)
+- **current_stage:** stopped
 - **g1_complete:** false
 - **intervention_count:** 0
 - **last_predicate:** null
 - **last_predicate_flipped:** null
 - **resume_from_stage:** null
 - **open_blockers:** []
-- **patches_this_session:** []
+- **patches_this_session:** [Q3B voice_ref gate, Q4B auto_accept, Q5B TCA soft stub, Q6B GFC allow empty]
 - **hard_blocker:** null
-- **monitor_loop:** stopped (PID 85937 terminated_by_user)
+- **monitor_loop:** stopped (do not re-arm)
 - **ship:** false
-- **notes:** Nudge killed by user 2026-09-18T16:38Z. Driver still on transcribe. Re-arm §3.0a only if operator wants agent auto-wake ticks again.
+- **notes:** Operator Q7C — no live Full-auto for now. MPS/MRR architecture deferred to explanation only (flags unchanged).

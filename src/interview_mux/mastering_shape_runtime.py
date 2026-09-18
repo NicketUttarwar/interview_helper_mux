@@ -14,6 +14,7 @@ Fail-open degradation ladder; no spend/timeout caps.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,6 +30,7 @@ from interview_mux.mastering_research import compile_shape_evidence, load_dossie
 from interview_mux.config import merged_config
 from interview_mux.narrative_mode import (
     GRAMMAR_MOVES,
+    NARRATIVE_MODES,
     default_pov_for_mode,
     nearest_mode_from_priors,
     prefer_forbid_volley_block,
@@ -200,6 +202,111 @@ def _talking_points_bound(ctx: RunContext) -> bool:
     )
 
 
+_COLD_OPEN_KINDS = frozenset(
+    {"none", "segment_hook", "vo_clone_open", "vo_plus_segment"}
+)
+
+
+def _slim_brief_for_llm(doc: dict[str, Any]) -> dict[str, Any]:
+    topics = []
+    for t in (doc.get("topics") or [])[:8]:
+        if isinstance(t, dict):
+            topics.append(
+                {
+                    "name": t.get("name") or t.get("topic"),
+                    "summary": str(t.get("summary") or "")[:240],
+                }
+            )
+    return {
+        "thesis": str(doc.get("thesis") or "")[:400],
+        "topics": topics,
+        "episode_title": doc.get("episode_title") or doc.get("title"),
+    }
+
+
+def _slim_gaps_for_llm(doc: dict[str, Any]) -> dict[str, Any]:
+    rows = doc.get("evaluations") or doc.get("gaps") or []
+    if not isinstance(rows, list):
+        rows = []
+    slim_rows = []
+    for row in rows[:12]:
+        if not isinstance(row, dict):
+            continue
+        slim_rows.append(
+            {
+                "gap_type": row.get("gap_type") or row.get("type"),
+                "severity": str(row.get("severity") or row.get("summary") or "")[:200],
+                "severity": row.get("severity"),
+            }
+        )
+    return {"count": len(rows), "top": slim_rows}
+
+
+def _slim_manifest_for_llm(doc: dict[str, Any]) -> dict[str, Any]:
+    segs = doc.get("segments") if isinstance(doc.get("segments"), list) else []
+    out_segs = []
+    for seg in segs[:40]:
+        if not isinstance(seg, dict):
+            continue
+        out_segs.append(
+            {
+                "segment_id": seg.get("segment_id") or seg.get("id"),
+                "text": str(seg.get("text") or "")[:160],
+                "speaker": seg.get("speaker") or seg.get("speaker_id"),
+            }
+        )
+    return {"segment_count": len(segs), "segments": out_segs}
+
+
+def _slim_evidence_inline(ref: str, inline: Any) -> Any:
+    """Slim evidence packet inlines for LLM payload (disk packet stays full)."""
+    if not isinstance(inline, dict):
+        return inline
+    rel = str(ref or "")
+    if rel.endswith("content_brief.json"):
+        return _slim_brief_for_llm(inline)
+    if rel.endswith("gap_evaluations.json") or rel.endswith("gap_report.json"):
+        if "interviewer_lines" in inline:
+            lines = [
+                {
+                    "line_id": ln.get("line_id"),
+                    "gap_type": ln.get("gap_type"),
+                    "text": str(ln.get("text") or "")[:160],
+                }
+                for ln in (inline.get("interviewer_lines") or [])[:12]
+                if isinstance(ln, dict)
+            ]
+            return {"interviewer_line_count": len(inline.get("interviewer_lines") or []), "lines": lines}
+        return _slim_gaps_for_llm(inline)
+    if rel.endswith("manifest.json"):
+        return _slim_manifest_for_llm(inline)
+    if rel.endswith("selection.json"):
+        ordered = inline.get("ordered_segment_ids") or inline.get("kept_segment_ids") or []
+        if isinstance(ordered, list):
+            return {"ordered_segment_ids": [str(x) for x in ordered[:40]]}
+    if rel.endswith("source_topology.json"):
+        return {
+            "topology_class": inline.get("topology_class") or inline.get("class"),
+            "speaker_count": len(inline.get("speakers") or [])
+            if isinstance(inline.get("speakers"), list)
+            else inline.get("speaker_count"),
+        }
+    if rel.endswith("analysis_state.json"):
+        return {
+            k: inline.get(k)
+            for k in ("status", "phase", "gap_framing_enabled", "pipeline_mode")
+            if k in inline
+        }
+    # Research dossier summary already small; pass through capped.
+    try:
+        raw = json.dumps(inline, ensure_ascii=False, default=str)
+    except Exception:
+        return {"status": "unserializable"}
+    if len(raw) > 2500:
+        return {"_truncated": True, "keys": list(inline.keys())[:24]}
+    return inline
+
+
 def _shape_llm_user_payload(
     ctx: RunContext,
     *,
@@ -207,14 +314,59 @@ def _shape_llm_user_payload(
     pass_name: str,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Pack a bounded, structured Shape LLM packet (Q6B + honesty slim).
+
+    Prefer the budgeted evidence packet over dumping full artifacts. Slim
+    companion docs and evidence inlines so the model sees finishability signal.
+    """
     packet = compile_shape_evidence(ctx, consumer_id=consumer_id, pass_name=pass_name)
+    items = list(packet.get("items") or []) if isinstance(packet, dict) else []
+    omitted = list(packet.get("omitted") or []) if isinstance(packet, dict) else []
     payload: dict[str, Any] = {
         "pass": pass_name,
+        "consumer_id": consumer_id,
         "evidence_packet_hash": evidence_packet_hash(packet),
+        "evidence": {
+            "items": [
+                {
+                    "ref": it.get("ref"),
+                    "kind": it.get("kind"),
+                    "salience": it.get("salience"),
+                    "inline": _slim_evidence_inline(
+                        str(it.get("ref") or ""), it.get("inline")
+                    ),
+                }
+                for it in items
+                if isinstance(it, dict)
+            ],
+            "omitted_refs": [
+                (o.get("ref") if isinstance(o, dict) else None) for o in omitted
+            ],
+            "token_estimate": packet.get("token_estimate") if isinstance(packet, dict) else None,
+        },
         "goal": (
             "Produce the best bespoke mastering shape artifact for this tape — "
-            "not a generic template. Prefer finishable, recommendable listen."
+            "not a generic template. Prefer finishable, recommendable listen. "
+            "Return schema-valid JSON only (no prose wrapper)."
         ),
+        "response_contract": {
+            "agenda": [
+                "mode_candidates or steps or primary_mode_hypothesis",
+                "budgets.max_steps",
+                "north_star_pillars",
+            ],
+            "candidates": [
+                "candidates[] with narrative_mode",
+                "optional scores.bespoke_fit / finishability",
+            ],
+            "plan": [
+                "narrative_mode in known set",
+                "cold_open.kind",
+                "bespoke_rationale or decisions[]",
+                "montage_grammar subset of known moves",
+            ],
+            "forbid": ["empty {}", "template five-act checklists", "invented guest evidence"],
+        },
     }
     dossier = load_dossier(ctx)
     if isinstance(dossier, dict):
@@ -223,21 +375,56 @@ def _shape_llm_user_payload(
             "thin_fields": dossier.get("thin_fields"),
             "field_count": len(dossier.get("fields") or {}),
         }
-    for rel, key in (
-        ("understanding/content_brief.json", "content_brief"),
-        ("understanding/gap_evaluations.json", "gap_evaluations"),
-        ("mastering/shape/agenda.json", "agenda"),
-        ("mastering/shape/candidates.json", "candidates_doc"),
-        ("mastering/mastering_plan.json", "prior_plan"),
-        ("segments/manifest.json", "manifest"),
+
+    for rel, key, slim in (
+        ("understanding/content_brief.json", "content_brief", _slim_brief_for_llm),
+        ("understanding/gap_evaluations.json", "gap_evaluations", _slim_gaps_for_llm),
+        ("mastering/shape/agenda.json", "agenda", None),
+        ("mastering/shape/candidates.json", "candidates_doc", None),
+        ("mastering/mastering_plan.json", "prior_plan", None),
+        ("segments/manifest.json", "manifest", _slim_manifest_for_llm),
     ):
-        if ctx.artifact_exists(rel):
-            try:
-                doc = ctx.read_json(rel)
-            except Exception:
-                continue
-            if isinstance(doc, dict) and doc:
-                payload[key] = doc
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict) or not doc:
+            continue
+        if slim is not None:
+            payload[key] = slim(doc)
+        elif key == "prior_plan":
+            payload[key] = {
+                "plan_status": doc.get("plan_status"),
+                "narrative_mode": doc.get("narrative_mode"),
+                "source": doc.get("source"),
+                "pass": doc.get("pass"),
+            }
+        elif key == "agenda":
+            payload[key] = {
+                "mode_candidates": doc.get("mode_candidates"),
+                "primary_mode_hypothesis": doc.get("primary_mode_hypothesis"),
+                "steps": (doc.get("steps") or [])[:8],
+                "source": doc.get("source"),
+            }
+        elif key == "candidates_doc":
+            cands = [
+                {
+                    "candidate_id": c.get("candidate_id"),
+                    "narrative_mode": c.get("narrative_mode"),
+                    "rationale": str(c.get("rationale") or "")[:200],
+                }
+                for c in (doc.get("candidates") or [])[:6]
+                if isinstance(c, dict)
+            ]
+            payload[key] = {
+                "pass": doc.get("pass"),
+                "candidates": cands,
+                "source": doc.get("source"),
+            }
+        else:
+            payload[key] = doc
     if extra:
         payload.update(extra)
     return payload
@@ -361,21 +548,36 @@ def _heuristic_agenda_and_rubric(
     return ensure_schema_agenda(agenda), rubric
 
 
+def _lint_shape_agenda_llm(doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Reject hollow / schema-invalid agenda before ingest (Q6B)."""
+    if not isinstance(doc, dict):
+        return None
+    if not (doc.get("mode_candidates") or doc.get("steps") or doc.get("primary_mode_hypothesis")):
+        return None
+    ensured = ensure_schema_agenda(doc)
+    try:
+        from interview_mux.prompt_validation import validate_mastering_shape_agenda
+
+        errs = validate_mastering_shape_agenda(ensured)
+        if errs:
+            return None
+    except Exception:
+        pass
+    return ensured
+
+
 def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(arts, dict):
         return None
     cand = arts.get("agenda") if isinstance(arts.get("agenda"), dict) else arts
     if not isinstance(cand, dict):
         return None
-    # Soft acceptance: either soft-gate shape (mode_candidates) or schema steps.
-    if not (cand.get("mode_candidates") or cand.get("steps") or cand.get("primary_mode_hypothesis")):
-        return None
     out = dict(cand)
     out.setdefault("version", 1)
     out.setdefault("pass", "provisional")
     out["source"] = "llm"
     out.setdefault("generated_at", _now())
-    return ensure_schema_agenda(out)
+    return _lint_shape_agenda_llm(out)
 
 
 def _rubric_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -551,21 +753,46 @@ def _heuristic_candidates(ctx: RunContext, *, llm_failed: bool = False) -> dict[
     return doc
 
 
+def _lint_shape_candidates_llm(doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Reject hollow / invalid candidates before ingest (Q6B)."""
+    if not isinstance(doc, dict):
+        return None
+    raw = doc.get("candidates")
+    if not isinstance(raw, list) or not raw:
+        return None
+    cands = [
+        c
+        for c in raw
+        if isinstance(c, dict) and str(c.get("narrative_mode") or "").strip()
+    ]
+    if not cands:
+        return None
+    out = {
+        "version": int(doc.get("version") or 1),
+        "pass": str(doc.get("pass") or "provisional"),
+        "candidates": cands,
+        "source": "llm",
+        "generated_at": doc.get("generated_at") or _now(),
+    }
+    try:
+        from interview_mux.prompt_validation import validate_mastering_shape_candidates
+
+        errs = validate_mastering_shape_candidates(out)
+        if errs:
+            return None
+    except Exception:
+        pass
+    return out
+
+
 def _candidates_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(arts, dict):
         return None
-    raw = arts.get("candidates")
-    if isinstance(raw, list) and raw:
-        cands = [c for c in raw if isinstance(c, dict) and c.get("narrative_mode")]
-        if not cands:
-            return None
-        return {
-            "version": 1,
-            "pass": "provisional",
-            "candidates": cands,
-            "source": "llm",
-            "generated_at": _now(),
-        }
+    if isinstance(arts.get("candidates"), list):
+        return _lint_shape_candidates_llm(arts)
+    nested = arts.get("candidates_doc") if isinstance(arts.get("candidates_doc"), dict) else None
+    if nested is not None:
+        return _lint_shape_candidates_llm(nested)
     return None
 
 
@@ -698,14 +925,34 @@ def _plan_from_candidate(
     }
 
 
-def _plan_looks_valid(plan: dict[str, Any]) -> bool:
-    if plan.get("version") != 1:
-        return False
-    if not isinstance(plan.get("narrative_mode"), str) or not plan.get("narrative_mode"):
-        return False
-    if "cold_open" not in plan:
-        return False
-    return True
+def _lint_shape_plan_llm(plan: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Reject weak/hollow LLM plans before stamping complete (honesty pass)."""
+    if not isinstance(plan, dict):
+        return None
+    mode = str(plan.get("narrative_mode") or "").strip()
+    if mode not in NARRATIVE_MODES:
+        return None
+    cold = plan.get("cold_open")
+    if not isinstance(cold, dict):
+        return None
+    kind = str(cold.get("kind") or "").strip() or "none"
+    if kind not in _COLD_OPEN_KINDS:
+        return None
+    rationale = str(plan.get("bespoke_rationale") or "").strip()
+    decisions = plan.get("decisions") if isinstance(plan.get("decisions"), list) else []
+    if not rationale and not decisions:
+        return None
+    grammar_raw = plan.get("montage_grammar") or []
+    if not isinstance(grammar_raw, list):
+        grammar_raw = []
+    grammar = [g for g in grammar_raw if g in GRAMMAR_MOVES]
+    out = dict(plan)
+    out["narrative_mode"] = mode
+    out["cold_open"] = {**cold, "kind": kind}
+    out["montage_grammar"] = grammar
+    if rationale:
+        out["bespoke_rationale"] = rationale
+    return out
 
 
 def _plan_from_llm_artifacts(
@@ -720,9 +967,10 @@ def _plan_from_llm_artifacts(
     nested = arts.get("mastering_plan") or arts.get("plan")
     if isinstance(nested, dict):
         plan = nested
-    if not _plan_looks_valid(plan):
+    linted = _lint_shape_plan_llm(plan)
+    if linted is None:
         return None
-    out = dict(plan)
+    out = dict(linted)
     out["version"] = 1
     out["pass"] = pass_name
     out["plan_status"] = claim_plan_complete(source="llm")
@@ -742,10 +990,9 @@ def _plan_from_llm_artifacts(
 def run_mastering_plan_synthesize(ctx: RunContext) -> None:
     """Pass1 synthesize → provisional plan.
 
-    MPS-B1 / A-03: under defaults (``shape.llm`` off) always writes a degraded
-    provisional plan; soft_gate / heuristic paths never stamp
+    MPS-B1 / A-03: under defaults soft_gate / heuristic paths never stamp
     ``plan_status=complete``. Authoritative complete only via accepted Shape-LLM
-    artifacts (``claim_plan_complete(source=\"llm\")``).
+    artifacts that pass ``_lint_shape_plan_llm``.
     """
     if not soft_gate_enabled():
         write_plan(ctx, forced_sparse_plan(reason="soft_gate_disabled"))
@@ -753,6 +1000,7 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
     try:
         packet = compile_shape_evidence(ctx, consumer_id="shape_synthesize_pass1", pass_name="provisional")
         eh = evidence_packet_hash(packet)
+        llm_miss = False
 
         if shape_llm_enabled():
             from interview_mux.mastering_llm import invoke_mastering_prompt
@@ -773,18 +1021,28 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
                 llm_plan = attach_shape_order(ctx, llm_plan)
                 write_plan(ctx, llm_plan)
                 return
+            llm_miss = True
 
         cdoc = ctx.read_json(CANDIDATES_REL) if ctx.artifact_exists(CANDIDATES_REL) else {}
         cands = list((cdoc or {}).get("candidates") or [])
         if not cands:
-            plan = forced_sparse_plan(reason="no_survivors", evidence_hash=eh)
+            reason = "no_survivors"
+            if llm_miss:
+                reason = "llm_failed_no_survivors"
+            plan = forced_sparse_plan(reason=reason, evidence_hash=eh)
+            if llm_miss:
+                reasons = list(plan.get("degradation_reasons") or [])
+                if "llm_failed" not in reasons:
+                    reasons.append("llm_failed")
+                plan["degradation_reasons"] = reasons
+                plan["source"] = "soft_gate"
             write_plan(ctx, plan)
             return
         chosen = cands[0]
         # MPS-B1 / A-03: soft_gate/heuristic never claims authoritative complete.
         status = claim_plan_complete(source="soft_gate")
         reasons = ["soft_gate_not_authoritative"]
-        if shape_llm_enabled() and "llm_failed" not in reasons:
+        if llm_miss and "llm_failed" not in reasons:
             reasons.append("llm_failed")
         plan = _plan_from_candidate(
             chosen,
@@ -818,6 +1076,7 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
         prev = ctx.read_json("mastering/mastering_plan.json") if ctx.artifact_exists("mastering/mastering_plan.json") else {}
         if not isinstance(prev, dict):
             prev = {}
+        llm_miss = False
 
         if shape_llm_enabled():
             from interview_mux.mastering_llm import invoke_mastering_prompt
@@ -854,6 +1113,7 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
 
                 heal_or_raise(ctx, "mastering_plan_confirm")
                 return
+            llm_miss = True
 
         provisional_mode = str(prev.get("narrative_mode") or prev.get("provisional_mode") or "conversational_host")
         # Re-score with gap evidence if present
@@ -881,7 +1141,7 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
             reasons.append("pass2_mode_changed")
         status = claim_plan_complete(source="soft_gate")
         reasons.append("soft_gate_not_authoritative")
-        if shape_llm_enabled() and "llm_failed" not in reasons:
+        if llm_miss and "llm_failed" not in reasons:
             reasons.append("llm_failed")
         plan = _plan_from_candidate(
             cand,

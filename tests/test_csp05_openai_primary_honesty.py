@@ -68,15 +68,18 @@ def test_csp05_tca_scored_coverage_complete() -> None:
     )
 
 
-def test_csp05_gfc_zero_lines_helper() -> None:
-    reason = gap_compose_zero_lines_while_framing(
-        {
-            "interviewer_lines": [],
-            "_meta": {"producer": "gap_framing_compose"},
-        },
-        framing_enabled=True,
+def test_csp05_gfc_zero_lines_allowed_q6b() -> None:
+    """Q6B: framing Yes + zero compose lines no longer incompleteness."""
+    assert (
+        gap_compose_zero_lines_while_framing(
+            {
+                "interviewer_lines": [],
+                "_meta": {"producer": "gap_framing_compose"},
+            },
+            framing_enabled=True,
+        )
+        is None
     )
-    assert reason and "zero interviewer_lines" in reason
     assert (
         gap_compose_zero_lines_while_framing(
             {

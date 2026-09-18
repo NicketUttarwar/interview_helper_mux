@@ -187,6 +187,26 @@ def test_vs_b3_rewrite_no_op_outside_full_auto(ctx: RunContext) -> None:
     )
 
 
+def test_vs_b3_rewrite_requires_voice_ref(ctx: RunContext) -> None:
+    """Q3B: Full-auto does not rewrite record→synth without approved voice ref."""
+    from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [_gap_line(delivery="record")]},
+        skip_handoff=True,
+    )
+    meta = _chatterbox_meta(full_auto=True, partial_auto=False)
+    meta.pop("partial_auto_driver_active", None)
+    meta.pop("voice_reference_approved_at", None)
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    assert rewrite_full_auto_record_lines_to_synth(ctx) == []
+    assert (
+        ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]["delivery"]
+        == "record"
+    )
+
+
 def test_hv5_vo_unsanitary_fresh_mtime_still_halts(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

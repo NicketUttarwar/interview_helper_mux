@@ -1,7 +1,8 @@
-"""Fail-open mastering prompt invokes (A-03 Shape/research LLM cutover).
+"""Mastering prompt invokes (A-03 Shape/research LLM cutover).
 
 Canon: docs/prompts/mastering/. Max 2 attempts per stage invoke.
-Flags default false — callers gate via research_llm_enabled / shape_llm_enabled.
+Callers gate via research_llm_enabled / shape_llm_enabled.
+Shape LLM default on (Q6B) with packed payloads + response lint; research.llm stays off.
 """
 
 from __future__ import annotations

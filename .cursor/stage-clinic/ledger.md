@@ -30,7 +30,7 @@
 | `mastering_research_rollup` | analysis | remediation | complete | draft | done | yes |  | MRRoll-B2 RESEARCH_CONSUMER (1A); CSP-02 hard:[] |
 | `mastering_shape_agenda` | analysis | remediation | complete | draft | done | yes |  | Q2A CSP-05: rubric LLM fail → incomplete |
 | `mastering_shape_candidates` | analysis | remediation | complete | draft | done | yes |  | MSC-B2 LLM-only when shape.llm (2B) |
-| `mastering_plan_synthesize` | analysis | remediation | complete | draft | done | yes |  | MPS-B2 KEEP consumers_bind=false (3A) |
+| `mastering_plan_synthesize` | analysis | remediation | complete | draft | done | yes |  | MPS-B2 KEEP consumers_bind=false (3A; re-ask A 2026-09-18) |
 | `missing_framing` | analysis | remediation | complete | done | done | yes |  | B1 Full-auto arms auto path; B3 KEEP auto_skip=false |
 | `mastering_plan_confirm` | analysis | remediation | complete | draft | done | yes |  | MPC-B2 drop upstream missing_framing (4A) |
 | `gap_framing_compose` | analysis | remediation | complete | draft | done | yes |  | Q2A CSP-05: framing Yes + zero lines → incomplete |

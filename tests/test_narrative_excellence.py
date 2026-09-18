@@ -90,7 +90,7 @@ def test_research_waves_writes_waves_json(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_research_rollup_fail_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A-01: early rollup thin is advisory; Shape consumers refuse shape-core thin under defaults."""
-    from interview_mux.mastering_plan_loader import shape_llm_enabled
+    from interview_mux.mastering_plan_loader import research_llm_enabled
     from interview_mux.mastering_research import research_shape_core_thin
     from interview_mux.stage_completion import (
         _research_is_thin,
@@ -104,8 +104,8 @@ def test_research_rollup_fail_open(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "fields" in dossier
     assert len(WAVE_FIELDS) == 8
     assert len(dossier["fields"]) == sum(len(v) for v in WAVE_FIELDS.values())
-    # Defaults: LLM flags remain off — refuse must not depend on them.
-    assert shape_llm_enabled() is False
+    # Defaults: research.llm stays off; shape.llm may be on (Q6B) — refuse must not depend on them.
+    assert research_llm_enabled() is False
     # Early: thin rollup does not late-refuse the rollup stage itself.
     assert _research_thin_late_refuse(ctx, "mastering_research_rollup") is None
     assert _research_is_thin(ctx) is True
@@ -131,7 +131,7 @@ def test_a01_shape_core_complete_allows_shape_despite_late_waves_thin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """W1–3 complete + W5–8 thin still allows Shape consumers under defaults."""
-    from interview_mux.mastering_plan_loader import shape_llm_enabled
+    from interview_mux.mastering_plan_loader import research_llm_enabled
     from interview_mux.mastering_research import (
         DOSSIER_REL,
         SHAPE_CORE_REQUIRED_FIELDS,
@@ -143,7 +143,7 @@ def test_a01_shape_core_complete_allows_shape_despite_late_waves_thin(
 
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("exec_a01_core_ok", create=True)
-    assert shape_llm_enabled() is False
+    assert research_llm_enabled() is False
 
     fields: dict = {}
     for wave, fids in WAVE_FIELDS.items():
@@ -262,6 +262,11 @@ def test_a03_soft_gate_cannot_claim_complete_when_llm_flags_on(
 
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("exec_a03_shape", create=True)
+    # Heuristic stage bodies; claim_plan_complete still sees shape.llm on via loader.
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: False,
+    )
     monkeypatch.setattr(
         "interview_mux.mastering_plan_loader.shape_llm_enabled",
         lambda _cfg=None: True,
@@ -280,6 +285,15 @@ def test_a03_soft_gate_cannot_claim_complete_when_llm_flags_on(
 def test_two_pass_shape_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("exec_ne_shape", create=True)
+    # Exercise heuristic two-pass Shape (not live OpenAI).
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_plan_loader.shape_llm_enabled",
+        lambda _cfg=None: False,
+    )
     ctx.write_json("understanding/content_brief.json", {"thesis": "t", "topics": []})
     # Bypass schema: evidence probe only needs file presence for research/shape
     ctx.path("understanding").mkdir(parents=True, exist_ok=True)

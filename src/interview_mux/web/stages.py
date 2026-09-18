@@ -556,7 +556,7 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "vo_line_adjudicate",
         "VO line adjudicate",
-        "Smart second-pass LLM adjudication of body layup lines before synthesis (homunculus 0.1.0+).",
+        "Smart second-pass LLM adjudication of body layup lines before synthesis (homunculus 0.2.0 default).",
         "delivery",
         (
             "understanding/vo_line_adjudication.json",

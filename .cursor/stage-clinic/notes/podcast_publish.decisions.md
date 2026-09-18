@@ -13,3 +13,4 @@
 | 2026-09-17 | L3 | PPUB-B6 skip + advisory sync tests? | Wave 2 yes | pytest host honesty; sync mocked (no AWS) |
 | 2026-09-17 | L3 CONTINUE | PPUB-B2 Full-auto advisory consent? | DONE-local / refuse-remote | local package ready; no S3 without consent; `note_remote_publish_refused`; Full-auto clears pending hang; Partial keeps must-act; never auto-consent |
 | 2026-09-17 | L3 CONTINUE | PPUB-B4 require_g_publish_clear? | KEEP DEAD | confirmed unused outside `gates.py` def; notes + AST pin test; do not wire |
+| 2026-09-18 | optional revisit | Q4A publish remote | KEEP DONE-local / refuse-remote | notes only |

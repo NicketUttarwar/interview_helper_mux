@@ -1128,7 +1128,7 @@
       "enabled": true,
       "default_framing_enabled": true,
       "require_explicit_opt_in": true,
-      "auto_accept_defaults": false,
+      "auto_accept_defaults": true,
       "succinct_master_default": true,
       "auto_skip_when_ineligible": false,
       "frame_confidence_min": 0.65,
@@ -1506,8 +1506,8 @@
     },
     "shape": {
       "llm": {
-        "enabled": false,
-        "_comment": "A-03: when true, Shape LLM happy-path may stamp plan_status=complete; soft_gate always degraded; consumers_bind stays false until shadow pass"
+        "enabled": true,
+        "_comment": "Q6B: Shape LLM on by default — packed evidence payloads + response lint; hollow after ≤2 → incomplete (CSP-05). soft_gate still never authoritative; consumers_bind stays false (MPS deferred)."
       },
       "soft_gate": {
         "enable": true,

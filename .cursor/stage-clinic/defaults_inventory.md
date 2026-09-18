@@ -66,14 +66,14 @@ Each row: key/behavior | default value | code site | unattended effect
 | listen_delight_audit | fail_early + ship re-run | KEEP `fail_early_at_audit_stage=false` + finalize authoritative re-run | listen_delight + master_finalize | LOW |
 | transitions | empty transitions | min_rows 0 KEEP empty OK | contract sufficiency + llm_simple empty persist | LOW |
 | mmaudio_sfx | omit-all reserved themes | NOT ship-legal under creative_delivery — block mix + sonic_weave=0 | theme_slot_integrity + listen_delight | HIGH (honest fail) |
-| framing / missing_framing | `auto_accept_defaults=false`; env OR config OR Full-auto+auto_resolve (B1) OR 0.2.0 homunculus features; **KEEP** `auto_skip_when_ineligible=false` (B3) | `gap_vo_gates` + `homunculus/gates` | LOW Full-auto; MED Partial without env/driver |
+| framing / missing_framing | `auto_accept_defaults=true` (Q4B); env OR Full-auto+auto_resolve OR 0.2.0 homunculus; **KEEP** `auto_skip_when_ineligible=false` (B3); skip only true monologue/topology | `gap_vo_gates` + `homunculus/gates` | LOW Full-auto; MED Partial without clone host |
 | full_master_ranking | `narrative_qc.strict=true` landmine softened under Full-auto (FMR-B2 advisory continue); manual/partial still SystemExit | `gates.check_narrative_qc` | LOW Full-auto; HIGH Partial/manual on QC fail |
 | refinement_agenda | RA-B2: present dirty gap blocks agenda (`gap_unsanitary`); missing gap soft | `refinement_agenda._gap_unsanitary_block` | MED until sanitize |
 | gap_framing_recompose | GFR-B3: non-layup activate retired → skip-copy; authority path default | `refinement_passes.run_gap_framing_recompose` | LOW |
 | transcribe | non-ARM or missing `ASSETS/local_speech`; empty words KEEP done (4B) | hard RuntimeError on env; empty words mark_done | `transcribe_local.run_transcribe` | HIGH (env prerequisite); LOW empty-words |
 | audio_probe_build | fail_open empty artifacts KEEP (4B) | `audio_probes.fail_open=true` | `audio_probe_orchestrator` / `stages/audio_probes` | LOW |
 | gap_framing_compose | framing Yes + zero/hollow lines → incomplete (Q2A CSP-05) | framing Yes | `gaps.run_gap_framing_compose` + completeness | MED |
-| mastering_shape_agenda | rubric LLM fail → incomplete (Q2A CSP-05); soft_gate on | shape.llm=false default | `run_mastering_shape_agenda` | LOW |
+| mastering_shape_agenda | rubric LLM fail → incomplete (Q2A CSP-05); soft_gate on | **shape.llm=true** (Q6B packed+lint) | `run_mastering_shape_agenda` | MED (OpenAI ≤2 then incomplete) |
 | topic_coverage_audit | soft-fail LLM → incomplete/refuse (Q2A CSP-05); det-first | soft_progression | `run_topic_coverage` | MED |
 | source_topology_build | mid-seed pickup auto removed (STB-B3); confirm at framing/gap | `auto_accept_defaults=false`; Full-auto driver sets env | `gap_vo_gates.maybe_auto_accept_gap_gate_defaults` (+ pipeline) | MED (stall if neither env nor homunculus) |
 | ideal_cuts_propose | long-tape span floor + OpenAI ≤2; enable default true; enable=false KEEP stub (4B) | `min_span_coverage_ratio=0.45` in app.defaults + code; `enable=true` | `run_ideal_cuts_propose` + `llm_simple` persist retry→StageError | MED (span refuse after budget); LOW when disabled stub |
@@ -86,7 +86,7 @@ Each row: key/behavior | default value | code site | unattended effect
 | mastering_research_routing | stub when LLM off; llm_failed refuse when on+fail (Q2A CSP-05) | **`mastering.research.llm.enabled=false`** | `run_research_routing` | LOW (default off; refuse only when llm on) |
 | mastering_research_rollup | A-01 shape-core thin pins Shape/gap (not soft-done) | research.llm off; dual dossier/rollup write | `_persist_research_dossier` + `_research_thin_late_refuse` | MED (thin delays Shape under Full-auto — intentional) |
 | information_package_plan | mode commits packages onto plan (not shadow) | **`commit_music_vo`** (enable=true) | `information_packages.py` + app.defaults | LOW unattended; IPP-B2 empty corpus → incomplete |
-| vo_line_adjudicate | coverage shortfall warn+continue | **`adjudicate_fail_open=true`** | `adjudicate_cfg` + app.defaults | LOW (shipped fail_open; HV3 hollow-done still refuse) |
+| vo_line_adjudicate | coverage shortfall warn+continue; VO text hard-gate | **`adjudicate_fail_open=true`** + synthesize VO comprehensibility hard fail (Q1A+) | `adjudicate_cfg` + `synthesize_vo_comprehensibility_errors` | MED (junk VO stops; thin coverage continues) |
 | vo_synthesize | Full-auto record-required lines | rewrite → `delivery=synthesize` | `rewrite_full_auto_record_lines_to_synth` | LOW unattended; partial-auto still hard_blocks record (HV-5) |
 
 ## Wave 2 fix priority (unambiguous)

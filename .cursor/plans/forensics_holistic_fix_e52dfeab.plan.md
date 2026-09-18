@@ -231,11 +231,13 @@ pkill -f 'full_auto_keepalive_loop\.py' 2>/dev/null || true
 pkill -f 'full_auto_driver\.py' 2>/dev/null || true
 rm -f ASSETS/full_auto_current_run.txt ASSETS/full_auto_fresh_pending.json
 
-MUX_RUN_MODE=full-auto MUX_HOMUNCULUS_VERSION=0.1.0 MUX_FRESH=1 \
+MUX_RUN_MODE=full-auto MUX_FRESH=1 \
   MUX_FORENSICS=1 MUX_KEEPALIVE=1 \
   MUX_INPUT_AUDIO=ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3 \
   ./scripts/run.sh --full-auto --input ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
 ```
+
+Brain: leave `MUX_HOMUNCULUS_VERSION` unset (product default `latest` → **0.2.0**). Do not pin `0.1.0`.
 
 Do **not** resume exec_4628 or exec_3751 for ship validation.
 

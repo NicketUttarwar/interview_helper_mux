@@ -9,3 +9,4 @@ Append-only. Do not rewrite history.
 | 2026-09-17 | L3 | Soft-fail LLM path honesty (B3)? | skipped needs_you + FULL_AUTO_REGRESSION_RISK | leave open |
 | 2026-09-17 | L3 | TCA-B3 soft-fail LLM honesty? | **2B KEEP soft-fail** (confirm) | det-first; LLM path via `run_flow_llm_stage` / soft_progression lint; no CSP-05 refuse-all; no harden to incomplete |
 | 2026-09-18 | L3 | Q2A CSP-05: soft-fail LLM →? | **incomplete/refuse** (binding) | `auto_complete=False` + `ensure_openai_primary_complete`; hollow coverage incompleteness; pin `test_csp05_*` |
+| 2026-09-18 | optional revisit | Q5B TCA soft stub | hollow LLM → degraded stub + heal (finishability) | `run_topic_coverage` StageError path writes `coverage_score=0` stub |

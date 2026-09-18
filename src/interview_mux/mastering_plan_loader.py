@@ -336,11 +336,19 @@ def precedence_ordered_segment_ids(
     nle_ordered: list[str] | None,
     selection_ordered: list[str] | None,
 ) -> list[str]:
-    from interview_mux.air_script import omitted_segment_ids, ordered_ids_from_air_script
+    from interview_mux.air_script import (
+        load_air_script,
+        omitted_segment_ids,
+        ordered_ids_from_air_script,
+    )
 
-    air_ids = ordered_ids_from_air_script(plan)
     omitted = omitted_segment_ids(plan)
-    if air_ids:
+    script = load_air_script(plan) or {}
+    has_real_air = bool(isinstance(script, dict) and (script.get("beats") or []))
+    # ordered_ids_from_air_script falls back to plan.ordered_segment_ids — only
+    # honor that when the plan is authoritative or a real air_script exists.
+    air_ids = ordered_ids_from_air_script(plan)
+    if air_ids and (plan_is_authoritative(plan) or has_real_air):
         if nle_ordered:
             nle = [str(x) for x in nle_ordered if x and x not in omitted]
             kept_air = set(air_ids)
@@ -350,7 +358,12 @@ def precedence_ordered_segment_ids(
                 return nle_in + tail
         return list(air_ids)
     plan_ids = plan.get("ordered_segment_ids")
-    if consumers_bind_enabled() and isinstance(plan_ids, list) and plan_ids:
+    if (
+        consumers_bind_enabled()
+        and plan_is_authoritative(plan)
+        and isinstance(plan_ids, list)
+        and plan_ids
+    ):
         return [str(x) for x in plan_ids]
     if nle_ordered:
         return list(nle_ordered)

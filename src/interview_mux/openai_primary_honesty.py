@@ -99,33 +99,12 @@ def gap_compose_zero_lines_while_framing(
     *,
     framing_enabled: bool,
 ) -> str | None:
-    """GFC: framing Yes + zero/hollow interviewer_lines must not complete."""
-    if not framing_enabled or not isinstance(doc, dict):
-        return None
-    meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
-    producer = str(meta.get("producer") or meta.get("producer_stage") or "")
-    if producer not in {"gap_framing_compose", "optimal_questions"}:
-        return None
-    lines = [
-        row for row in (doc.get("interviewer_lines") or []) if isinstance(row, dict)
-    ]
-    if lines:
-        # Hollow = rows present but no usable spoken text.
-        usable = [
-            row
-            for row in lines
-            if str(row.get("text") or row.get("line_text") or row.get("script") or "").strip()
-        ]
-        if usable:
-            return None
-        return hollow_openai_reason(
-            "gap_framing_compose",
-            "hollow interviewer_lines while framing Yes",
-        )
-    return hollow_openai_reason(
-        "gap_framing_compose",
-        "zero interviewer_lines while framing Yes",
-    )
+    """GFC Q6B: framing Yes + zero/hollow compose lines may complete (allow empty).
+
+    Sanitize empty-stub (GRS) remains a separate incompleteness path.
+    """
+    _ = doc, framing_enabled
+    return None
 
 
 def ensure_openai_primary_complete(ctx: RunContext, stage_id: str) -> None:

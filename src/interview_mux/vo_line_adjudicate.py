@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Callable
 
 from interview_mux.config import merged_config
@@ -54,6 +55,7 @@ __all__ = [
     "persist_allocation_plan",
     "collect_waived_nugget_ids",
     "body_plan_from_gap_report",
+    "synthesize_vo_comprehensibility_errors",
 ]
 
 
@@ -192,6 +194,52 @@ def _body_synthesize_lines(gap_report: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         out.append(line)
     return out
+
+
+def _synthesize_vo_lines(gap_report: dict[str, Any]) -> list[dict[str, Any]]:
+    """All seated synthesize VO lines (body + episode_preface intro)."""
+    out: list[dict[str, Any]] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        if line.get("skipped_optional") or line.get("omit"):
+            continue
+        if str(line.get("delivery") or "").lower() != "synthesize":
+            continue
+        out.append(line)
+    return out
+
+
+def synthesize_vo_comprehensibility_errors(
+    gap_report: dict[str, Any],
+    *,
+    min_words: int = 4,
+) -> list[str]:
+    """Hard-gate: seated synthesize VO must be non-empty, speakable, and reviewed copy.
+
+    Coverage shortfall may still fail-open (``adjudicate_fail_open``). Incomprehensible
+    or unreviewed VO text always fails — north-star: no silent thin/junk air.
+    """
+    from interview_mux.spoken_meta_lint import lint_spoken_text
+
+    errors: list[str] = []
+    floor = max(1, int(min_words or 4))
+    for line in _synthesize_vo_lines(gap_report):
+        lid = str(line.get("line_id") or "line").strip() or "line"
+        text = str(line.get("text") or "").strip()
+        if not text:
+            errors.append(f"{lid}: empty synthesize VO text")
+            continue
+        words = [w for w in text.split() if w]
+        if len(words) < floor:
+            errors.append(
+                f"{lid}: synthesize VO too thin ({len(words)} words; min {floor})"
+            )
+        errors.extend(lint_spoken_text(text, label=f"vo[{lid}]"))
+        # Bracket / angle placeholders are never speakable air.
+        if re.search(r"[\[{<][^\]}>]{0,80}[\]}>]", text):
+            errors.append(f"{lid}: synthesize VO has unspeakable placeholder markup")
+    return errors
 
 
 def lines_needing_adjudicate(
@@ -837,6 +885,20 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
                 stage=STAGE_ID,
                 reason="nugget_air_coverage_below_floor",
             )
+
+    # Q1A+: coverage may fail-open, but seated synthesize VO must stay comprehensible.
+    vo_errs = synthesize_vo_comprehensibility_errors(gap_report)
+    if vo_errs:
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Synthesize VO transcript not comprehensible after adjudicate+intro: "
+            + "; ".join(vo_errs[:6]),
+            stage=STAGE_ID,
+            reason="synthesize_vo_incomprehensible",
+        )
+
     if not ctx.artifact_exists(ADJUDICATION_REL):
         persist_adjudication_skip_stub(
             ctx,

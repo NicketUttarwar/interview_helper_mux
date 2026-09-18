@@ -26,7 +26,7 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "enabled": True,
         "default_framing_enabled": True,
         "require_explicit_opt_in": True,
-        "auto_accept_defaults": False,
+        "auto_accept_defaults": True,
         "succinct_master_default": True,
         "auto_skip_when_ineligible": False,
         "frame_confidence_min": 0.65,
@@ -40,18 +40,15 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 def auto_accept_gap_gate_defaults_enabled(cfg: dict[str, Any] | None = None) -> bool:
     """True when env/config may apply gap gate product defaults without a human.
 
-    Shipped default: ``analysis.gap_fill.auto_accept_defaults=false``. Unattended
-    drivers set ``INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`` (OR with the config flag).
-
-    Separate from (1) homunculus 0.2.0 ``recommended_framing_action`` auto_resolve
-    and (2) Full-auto arming that same path (B1) — both can still auto-Yes
-    G-Framing when this flag and the env are off
-    (``maybe_auto_accept_gap_gate_defaults``).
+    Shipped default: ``analysis.gap_fill.auto_accept_defaults=true`` (Q4B).
+    Env ``INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`` still forces on.
+    True-monologue / topology skip still skips gap-fill; ambiguous clone host
+    still blocks voice-ref auto-approve.
     """
     env = os.environ.get("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "").strip().lower()
     if env in {"1", "true", "yes", "on"}:
         return True
-    return bool(gap_fill_cfg_block(cfg).get("auto_accept_defaults", False))
+    return bool(gap_fill_cfg_block(cfg).get("auto_accept_defaults", True))
 
 
 def _run_meta(ctx: RunContext) -> dict[str, Any]:
@@ -143,11 +140,12 @@ def resolve_gap_vo_delivery(ctx: RunContext) -> GapVoDelivery:
 
 
 def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
-    """Full-auto owns formerly record-required gap lines via synthesize (VS-B3).
+    """Full-auto owns formerly record-required gap lines via synthesize (VS-B3 / Q3B).
 
     Persists ``delivery: synthesize`` on open record lines so G1 does not stall
     for a human take and ``vo_synthesize`` / ensure_g1 can close the WAVs.
-    No-op outside Full-auto; partial-auto keeps HV-5 record hard_block.
+    Requires an approved voice reference (clone path). No-op outside Full-auto;
+    partial-auto keeps HV-5 record hard_block.
     """
     from interview_mux.automation_run import is_full_auto_run
 
@@ -155,6 +153,13 @@ def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
     if not is_full_auto_run(meta):
         return []
     if gap_fill_was_skipped(ctx):
+        return []
+    if not voice_reference_approved(ctx):
+        ctx.log(
+            "Full-auto record→synth skipped — voice reference not approved yet",
+            level="info",
+            stage="vo_synthesize",
+        )
         return []
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []

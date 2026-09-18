@@ -59,7 +59,7 @@ Caveat added by polish **6B**: Full-auto must produce a non-placeholder episode 
 
 ## Remaining optional `needs_you` debt
 
-None. Clinic Waves 0–3 complete.
+None. Clinic Waves 0–3 complete. Deferred Q7 `consumers_bind` re-ask closed **KEEP false** (2026-09-18).
 
 ## Operator north star (post Q1–Q8)
 

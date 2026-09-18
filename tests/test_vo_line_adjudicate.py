@@ -303,3 +303,53 @@ def test_adjudicate_coverage_fail_open_warns_not_loud(
     assert any("coverage below floor" in w.lower() for w in warnings)
     assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
     assert ctx.is_done("vo_line_adjudicate")
+
+
+def test_adjudicate_incomprehensible_vo_hard_fails_even_fail_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Q1A+: coverage may warn+continue; empty/junk synthesize VO always loud-fails."""
+    from interview_mux.vo_line_adjudicate import (
+        run_vo_line_adjudicate_stage,
+        synthesize_vo_comprehensibility_errors,
+    )
+
+    bad = _gap_with_body_line(text="")
+    assert synthesize_vo_comprehensibility_errors(bad)
+    scaffold = _gap_with_body_line(text="Welcome back to today's episode about snacks.")
+    assert synthesize_vo_comprehensibility_errors(scaffold)
+
+    ctx = isolated_run_ctx(tmp_path, "adj_vo_hard")
+    ctx.write_json("run_meta.json", {"homunculus_version": "0.2.0"}, skip_handoff=True)
+    ctx.write_json("understanding/gap_report.json", bad, skip_handoff=True)
+    ctx.write_json("understanding/nugget_corpus.json", _corpus(), skip_handoff=True)
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.lines_needing_adjudication",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.run_intro_compose",
+        lambda ctx, gap, **_k: (gap, []),
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.persist_allocation_plan",
+        lambda *_a, **_k: {},
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.collect_waived_nugget_ids",
+        lambda *_a, **_k: set(),
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.evaluate_nugget_air_coverage",
+        lambda *_a, **_k: {"ok": True, "errors": []},
+    )
+    loud_reasons: list[str] = []
+
+    def _loud(ctx_arg, msg, *a, reason: str = "", **k):
+        loud_reasons.append(str(reason or msg))
+        raise RuntimeError("loud_fail")
+
+    monkeypatch.setattr("interview_mux.loud_fail.raise_loud_failure", _loud)
+    with pytest.raises(RuntimeError, match="loud_fail"):
+        run_vo_line_adjudicate_stage(ctx)
+    assert any("synthesize_vo_incomprehensible" in r for r in loud_reasons)

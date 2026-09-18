@@ -304,7 +304,7 @@ def test_shape_llm_fail_refuses_incomplete(
     defaults = json.loads(Path("config/app.defaults.json").read_text(encoding="utf-8"))
     assert defaults["mastering"]["shape"]["soft_gate"]["consumers_bind"] is False
     assert defaults["mastering"]["research"]["llm"]["enabled"] is False
-    assert defaults["mastering"]["shape"]["llm"]["enabled"] is False
+    assert defaults["mastering"]["shape"]["llm"]["enabled"] is True  # Q6B
     assert consumers_bind_enabled() is False
 
 
@@ -380,7 +380,7 @@ def test_a03_claim_plan_complete_policy(monkeypatch: pytest.MonkeyPatch) -> None
 def test_a03_defaults_soft_gate_never_complete(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Under real defaults (no flag monkeypatch), soft-gate writes degraded not complete."""
+    """Soft-gate never claims complete; Q6B defaults may enable shape.llm."""
     from interview_mux.mastering_plan_loader import (
         consumers_bind_enabled,
         research_llm_enabled,
@@ -390,9 +390,19 @@ def test_a03_defaults_soft_gate_never_complete(
     from interview_mux.mastering_research import run_research_rollup
 
     assert research_llm_enabled() is False
-    assert shape_llm_enabled() is False
+    assert shape_llm_enabled() is True  # Q6B default on
     assert consumers_bind_enabled() is False
     assert soft_gate_may_claim_complete() is False
+
+    # Soft-gate path only when shape.llm is forced off — prove it stays degraded.
+    monkeypatch.setattr(
+        "interview_mux.mastering_plan_loader.shape_llm_enabled",
+        lambda *_a, **_k: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda *_a, **_k: False,
+    )
 
     ctx.write_json(
         "understanding/content_brief.json",
@@ -437,7 +447,7 @@ def test_a03_hybrid_bind_requires_complete() -> None:
     ok2, ordered2, reason2 = shape_order_bindable(complete, kept_ids={"a", "b", "c"})
     assert ok2 is True
     assert ordered2 == ["a", "b", "c"]
-    assert reason2 == "bind_ok"
+    assert reason2 in ("bind_ok", "air_script_bind")
     bind2 = resolve_air_order(
         mastering_plan=complete,
         selection_ordered=["c", "b", "a"],
@@ -464,3 +474,157 @@ def test_a03_validate_or_degrade_missing_plan_status(
     plan = validate_or_degrade(ctx)
     assert plan.get("plan_status") == "degraded"
     assert "missing_plan_status" in list(plan.get("degradation_reasons") or [])
+
+
+def test_mps_lint_rejects_hollow_plan_shell() -> None:
+    from interview_mux.mastering_shape_runtime import _plan_from_llm_artifacts
+
+    assert (
+        _plan_from_llm_artifacts(
+            {
+                "version": 1,
+                "narrative_mode": "not_a_real_mode",
+                "cold_open": {"kind": "none"},
+                "bespoke_rationale": "x",
+            },
+            pass_name="provisional",
+            evidence_hash="abc",
+        )
+        is None
+    )
+    assert (
+        _plan_from_llm_artifacts(
+            {
+                "version": 1,
+                "narrative_mode": "sparse_source",
+                "cold_open": {"kind": "none"},
+                "decisions": [],
+                "bespoke_rationale": "",
+            },
+            pass_name="provisional",
+            evidence_hash="abc",
+        )
+        is None
+    )
+    ok = _plan_from_llm_artifacts(_minimal_valid_plan(), pass_name="provisional", evidence_hash="abc")
+    assert ok is not None
+    assert ok.get("source") == "llm"
+    assert ok.get("montage_grammar") == []
+
+
+def test_mps_llm_hollow_soft_degrades_not_complete(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Honesty: weak LLM plan → soft_gate degraded, never complete."""
+    monkeypatch.setattr(
+        "interview_mux.mastering_plan_loader.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        lambda *_a, **_k: {
+            "version": 1,
+            "narrative_mode": "sparse_source",
+            "cold_open": {"kind": "none"},
+            "bespoke_rationale": "",
+            "decisions": [],
+        },
+    )
+    ctx.write_json(
+        "mastering/shape/candidates.json",
+        {
+            "version": 1,
+            "candidates": [
+                {
+                    "candidate_id": "cand_0",
+                    "narrative_mode": "sparse_source",
+                    "rationale": "fallback",
+                }
+            ],
+            "generated_at": "2026-01-01T00:00:00+00:00",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "t", "topics": [{"name": "a", "summary": "b"}]},
+        skip_handoff=True,
+    )
+    run_mastering_plan_synthesize(ctx)
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    assert plan.get("plan_status") == "degraded"
+    assert plan.get("source") == "soft_gate"
+    assert "llm_failed" in list(plan.get("degradation_reasons") or [])
+
+
+def test_shape_payload_slims_evidence_inlines(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.mastering_shape_runtime import _shape_llm_user_payload
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.compile_shape_evidence",
+        lambda *_a, **_k: {
+            "items": [
+                {
+                    "ref": "segments/manifest.json",
+                    "kind": "artifact",
+                    "salience": 0.65,
+                    "inline": {
+                        "segments": [
+                            {"segment_id": f"seg_{i}", "text": "word " * 80}
+                            for i in range(60)
+                        ]
+                    },
+                }
+            ],
+            "omitted": [],
+            "token_estimate": 9999,
+        },
+    )
+    payload = _shape_llm_user_payload(
+        ctx, consumer_id="shape_synthesize_pass1", pass_name="provisional"
+    )
+    items = payload["evidence"]["items"]
+    assert items
+    inline = items[0]["inline"]
+    assert inline.get("segment_count") == 60
+    assert len(inline.get("segments") or []) <= 40
+    assert all(len(str(s.get("text") or "")) <= 160 for s in inline["segments"])
+
+
+def test_precedence_requires_authoritative_complete() -> None:
+    from interview_mux.mastering_plan_loader import precedence_ordered_segment_ids
+
+    degraded = {
+        "plan_status": "degraded",
+        "ordered_segment_ids": ["a", "b", "c"],
+    }
+    # Even if consumers_bind were on, degraded must not win over selection.
+    import interview_mux.mastering_plan_loader as mpl
+
+    prev = mpl.consumers_bind_enabled
+    try:
+        mpl.consumers_bind_enabled = lambda _cfg=None: True  # type: ignore[assignment]
+        out = precedence_ordered_segment_ids(
+            plan=degraded,
+            nle_ordered=None,
+            selection_ordered=["x", "y"],
+        )
+        assert out == ["x", "y"]
+        complete = {
+            "plan_status": "complete",
+            "ordered_segment_ids": ["a", "b", "c"],
+        }
+        out2 = precedence_ordered_segment_ids(
+            plan=complete,
+            nle_ordered=None,
+            selection_ordered=["x", "y"],
+        )
+        assert out2 == ["a", "b", "c"]
+    finally:
+        mpl.consumers_bind_enabled = prev  # type: ignore[assignment]

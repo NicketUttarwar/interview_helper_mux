@@ -39,7 +39,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | B1 | P0 | unambiguous | Preserve soft_gate never complete | A-03 tests | 2,6 | no |
-| B2 | P1 | needs_you | consumers_bind flip criteria | inventory | 5,6 | yes |
+| B2 | P1 | answered | consumers_bind KEEP false (re-ask A) | inventory | 5,6 | n/a kept |
 
 ## Defaults inventory impact
 
@@ -47,4 +47,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft` — Wave 2 applied MPS-B1; B2 still `needs_you` + FULL_AUTO_REGRESSION_RISK
+`draft` — Wave 2 applied MPS-B1; B2 answered KEEP false (2026-09-18 re-ask)
