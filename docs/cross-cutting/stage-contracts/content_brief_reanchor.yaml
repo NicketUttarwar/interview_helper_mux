@@ -18,11 +18,11 @@ inputs:
     producer: segment_classification
   - path: understanding/content_brief.json
     producer: content_context
+  - path: understanding/speakers.json
+    producer: speaker_roles
   soft:
   - path: segments/boundaries.json
     producer: boundary_detection
-  - path: understanding/speakers.json
-    producer: speaker_roles
 sufficiency:
 - path: thesis
   rule: non_empty_string
@@ -38,7 +38,6 @@ propagation:
   - sonic_context_build
   - sound_design_palettes
   - missing_framing
-  - optimal_questions
 consumers:
 - boundary_topic_resplit
 - sonic_context_build

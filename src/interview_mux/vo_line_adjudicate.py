@@ -66,7 +66,7 @@ def adjudicate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "adjudicate_before_synth": bool(gap_vo.get("adjudicate_before_synth", True)),
         "adjudicate_batch_size": int(gap_vo.get("adjudicate_batch_size", 5)),
         "adjudicate_flow_threshold": float(gap_vo.get("adjudicate_flow_threshold", 0.55)),
-        "adjudicate_fail_open": bool(gap_vo.get("adjudicate_fail_open", False)),
+        "adjudicate_fail_open": bool(gap_vo.get("adjudicate_fail_open", True)),
         "full_resynth_on_adjudicate_change": bool(
             gap_vo.get("full_resynth_on_adjudicate_change", True)
         ),

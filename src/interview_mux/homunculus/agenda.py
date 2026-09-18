@@ -772,14 +772,22 @@ def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
 
 
 def _package_ready_true(ctx: RunContext) -> bool:
-    """HPUB-2: podcast_publish seed requires package_ready with ready:true."""
+    """HPUB-2: podcast_publish outputs present when ready:true or honest skip.
+
+    Clinic B1: ``ready:false`` + ``skipped:true`` counts as present so Skip
+    seed-completes without a local package.
+    """
     if not ctx.artifact_exists("publish/package_ready.json"):
         return False
     try:
         doc = ctx.read_json("publish/package_ready.json")
     except Exception:
         return False
-    return isinstance(doc, dict) and doc.get("ready") is True
+    if not isinstance(doc, dict):
+        return False
+    if doc.get("ready") is True:
+        return True
+    return doc.get("skipped") is True
 
 
 def stage_outputs_present(ctx: RunContext, stage: str) -> bool:

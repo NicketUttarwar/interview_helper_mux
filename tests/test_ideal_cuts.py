@@ -441,3 +441,73 @@ def test_empty_snap_demotes_bind_mode_instead_of_raising(tmp_path, monkeypatch):
     assert mat["bind_mode_used"] == "off"
     assert mat["boundary_skip_reason"] == "empty_snap_demote"
     assert mat.get("cuts") == []
+
+
+def test_icp_b4_span_persist_raises_stage_error_after_retry(monkeypatch):
+    """ICP-B4: span coverage RuntimeError retries once, then StageError (no fail-open)."""
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    from interview_mux.llm_simple import StageError, run_llm_stage_simple
+
+    ctx = MagicMock()
+    ctx.mark_done = MagicMock()
+    ctx.log = MagicMock()
+    persist_calls = {"n": 0}
+
+    cuts = {
+        "cuts": [
+            {
+                "cut_id": "c1",
+                "talking_point_id": "tp_1",
+                "start_ms": 0,
+                "end_ms": 3000,
+                "priority": "must_keep",
+                "rationale": "clustered fixture",
+            }
+        ]
+    }
+    envelope = {"status": "complete", "artifacts": cuts}
+
+    def _persist(_ctx, _arts):
+        persist_calls["n"] += 1
+        raise RuntimeError(
+            "ideal_cuts_propose span coverage 0.100 < min 0.450 "
+            "(cuts clustered early — redistribute across the interview)"
+        )
+
+    with patch("interview_mux.llm_simple.ensure_analysis_workspace"):
+        with patch(
+            "interview_mux.llm_simple.run_prompt_envelope", return_value=envelope
+        ) as invoke:
+            with patch(
+                "interview_mux.local_volley_framer.prepare_volley_for_llm",
+                side_effect=Exception("skip framer"),
+            ):
+                with pytest.raises(StageError, match="span coverage"):
+                    run_llm_stage_simple(
+                        ctx,
+                        "ideal_cuts_propose",
+                        "understanding/ideal-cuts-propose.system.txt",
+                        lambda _c: {"task": "propose"},
+                        _persist,
+                        auto_complete=True,
+                    )
+
+    assert invoke.call_count == 2
+    assert persist_calls["n"] == 2
+    ctx.mark_done.assert_not_called()
+
+
+def test_icp_b2_defaults_expose_min_span_coverage_ratio():
+    """ICP-B2: app.defaults.json documents the 0.45 span floor used by ideal_cuts_cfg."""
+    import json
+    from pathlib import Path
+
+    from interview_mux.ideal_cuts import ideal_cuts_cfg
+
+    defaults = json.loads(Path("config/app.defaults.json").read_text(encoding="utf-8"))
+    block = (defaults.get("analysis") or {}).get("ideal_cuts") or {}
+    assert block.get("min_span_coverage_ratio") == 0.45
+    assert float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0) == 0.45

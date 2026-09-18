@@ -57,6 +57,7 @@ def _pin_earliest_incomplete(monkeypatch: pytest.MonkeyPatch, stage: str) -> Non
 def test_i25_live_incomplete_cuts_unblock_junction_before_mix(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """JSQ-B2 / MIX-B2: junction_recut_precedes_mix golden — live residuals → junction first."""
     _pin_earliest_incomplete(monkeypatch, "mix")
     monkeypatch.setattr(
         "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
@@ -67,6 +68,34 @@ def test_i25_live_incomplete_cuts_unblock_junction_before_mix(
     assert _seed_prereq_block(ctx, "junction_snip_qa") is None, (
         "junction recut owner must run before first mix while residuals are live"
     )
+
+
+def test_jsq_b2_mix_refuse_and_junction_first_handshake(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JSQ-B2: thrash handshake — mix refuses live incompletes; junction owns recut first."""
+    from interview_mux.junction_snip_qa import (
+        junction_recut_precedes_mix,
+        refuse_mix_if_live_incomplete_cuts,
+    )
+    from interview_mux.loud_fail import LoudStageFailure
+
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
+        lambda _ctx: [
+            {"kind": "on_a_roll", "severity": "critical", "segment_id": "seg_071"}
+        ],
+    )
+    assert junction_recut_precedes_mix(ctx) is True
+    with pytest.raises(LoudStageFailure, match="incomplete_cut_unresolved"):
+        refuse_mix_if_live_incomplete_cuts(ctx)
+    _pin_earliest_incomplete(monkeypatch, "mix")
+    assert _seed_prereq_block(ctx, "junction_snip_qa") is None
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
+        lambda _ctx: [],
+    )
+    assert junction_recut_precedes_mix(ctx) is False
 
 
 def test_i25_clean_edl_keeps_mix_first(

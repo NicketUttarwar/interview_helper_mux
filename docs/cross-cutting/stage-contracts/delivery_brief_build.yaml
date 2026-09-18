@@ -49,7 +49,6 @@ sufficiency:
 propagation:
   invalidates_stages: []
 consumers:
-- gap_framing_compose
 - soundscape_policy_build
 - full_master_ranking
 - transitions

@@ -1133,8 +1133,8 @@ def evaluate_nugget_air_coverage(
 ) -> dict[str, Any]:
     """Body + intro nugget air coverage vs eligible corpus.
 
-    Soft warn at compose (``hard=False``); hard fail after adjudicate + intro
-    (``hard=True``) when below ``min_nugget_air_coverage``.
+    Compose QC uses ``hard=True`` (NLC-B2). Soft warn remains available for
+    callers that pass ``hard=False`` (e.g. exploratory coverage probes).
     """
     cfg = nugget_layup_cfg()
     floor = float(
@@ -4073,9 +4073,11 @@ def evaluate_layup_qc(
     craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
     errors.extend(craft["errors"])
 
-    nugget_cov = evaluate_nugget_air_coverage(plan, [], None, corpus, hard=False)
+    # NLC-B2: compose-time hard nugget-air floor (same floor as adjudicate).
+    nugget_cov = evaluate_nugget_air_coverage(plan, [], None, corpus, hard=True)
     warnings = list(craft.get("warnings") or [])
     warnings.extend(nugget_cov.get("warnings") or [])
+    errors.extend(nugget_cov.get("errors") or [])
 
     return {
         "version": 1,

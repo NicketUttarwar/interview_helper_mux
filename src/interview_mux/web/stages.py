@@ -35,7 +35,7 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
         "Ingest",
         "Normalize source to standard WAV, stabilize loudness for listening (−18 LUFS), and record checksums.",
         "analysis",
-        ("ingest/checksums.json", "ingest/loudness.json"),
+        ("ingest/checksums.json", "ingest/loudness.json", "ingest/waveform_peaks.json"),
         (),
         ("ingest/normalized.wav",),
     ),
@@ -46,6 +46,15 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
         "analysis",
         ("transcript/full.json", "transcript/speakers.json"),
         (),
+    ),
+    StageInfo(
+        "transcript_review_build",
+        "STT review prep",
+        "Rank transcript clips by local STT confidence and pre-cut audio for human review.",
+        "analysis",
+        ("transcript/review_queue.json", "transcript/corrections.json"),
+        (),
+        ("glob:transcript/review_clips/*.wav",),
     ),
     StageInfo(
         "audio_probe_build",
@@ -60,15 +69,6 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
             "vernacular/audio_tags_by_flow.json",
         ),
         (),
-    ),
-    StageInfo(
-        "transcript_review_build",
-        "STT review prep",
-        "Rank transcript clips by local STT confidence and pre-cut audio for human review.",
-        "analysis",
-        ("transcript/review_queue.json", "transcript/corrections.json"),
-        (),
-        ("glob:transcript/review_clips/*.wav",),
     ),
 )
 
@@ -188,7 +188,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
     StageInfo(
         "framing_posture_decide",
         "Framing posture (advisory)",
-        "Homunculus 0.1.0+: LLM recommends Yes/No/sparse for G-Framing; monologue skips without LLM.",
+        "Homunculus 0.2.0+: LLM recommends Yes/No/sparse for G-Framing; monologue skips without LLM.",
         "analysis",
         ("understanding/framing_posture_decision.json",),
         ("understanding/framing_posture_decision.json",),
@@ -206,9 +206,10 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Vernacular sanitize",
         "N-way split of segments that contain protected vernacular spans; refresh must_keep ids.",
         "analysis",
+        # HS-5 primary first (done gate), then co-writes.
         (
-            "segments/manifest.json",
             "vernacular/resplit_report.json",
+            "segments/manifest.json",
             "analysis/vernacular_must_keep.json",
         ),
         (),
@@ -647,8 +648,9 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     ),
     StageInfo(
         "mmaudio_sfx",
-        "Generate SFX",
-        "Local MMAudio text-to-audio per unique asset_id; writes sound_design/assets/{asset_id}.wav.",
+        "Generate theme audio",
+        "MusicGen-first theme/SFX per unique asset_id (optional MMAudio backup off by default); "
+        "writes sound_design/assets/{asset_id}.wav + mmaudio_qa.json; honest music_omitted on ladder exhaust.",
         "delivery",
         (
             "understanding/sound_design_plan.json",
@@ -691,7 +693,8 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "master_finalize",
         "Master export",
-        "Apply loudness mastering (−16 LUFS) and export the final podcast.",
+        "Apply loudness mastering (−16 LUFS), run post-master quality and "
+        "authoritative listen-delight ship gate, then export master.wav.",
         "delivery",
         (
             "master/post_master_quality.json",
@@ -747,7 +750,13 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Episode cover",
         "OpenAI gpt-image ×3 + flagship vision picks most brilliant (fail-open to show art).",
         "delivery",
-        ("publish/cover.jpg", "publish/cover_pick.json", "publish/cover_meta.json"),
+        (
+            "publish/cover.jpg",
+            "publish/cover_pick.json",
+            "publish/cover_meta.json",
+            # ECG-B1: candidate batches must flush with the stage (G-Publish lists them).
+            "publish/cover_candidates/",
+        ),
         (),
         ("publish/cover.jpg",),
     ),

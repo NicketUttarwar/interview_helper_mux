@@ -856,7 +856,9 @@ def run_source_topology_build(ctx: RunContext) -> None:
         ctx.write_json("understanding/source_topology.json", topology, stage_key="source_topology_build")
         ctx.write_json("understanding/flow_adaptation.json", adaptation, stage_key="source_topology_build")
         ctx.mark_done("source_topology_build")
-        maybe_auto_confirm_pickup_speaker(ctx)
+        # STB-B3: do not call maybe_auto_confirm_pickup_speaker here — mid-seed
+        # check_pickup_speaker_pending is always false. SSOT = gap_vo_gates /
+        # pipeline after framing (maybe_auto_accept_gap_gate_defaults).
         conf = adaptation.get("tbiy_conformance") if isinstance(adaptation.get("tbiy_conformance"), dict) else {}
         score = conf.get("score") if isinstance(conf.get("score"), dict) else {}
         modes = conf.get("modes") if isinstance(conf.get("modes"), dict) else {}

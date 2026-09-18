@@ -1,8 +1,8 @@
 """HS-2: resplit heal must not archive its own boundaries.json write.
 
 Live write survives seg_resplit_heal (1A). Same fingerprint does not archive
-even if the allowlist is restored (2A). Missing-at-entry skip may still
-complete; wrote-then-lost must not _mark_done_raw (3A).
+even if the allowlist is restored (2A). Missing-at-entry and wrote-then-lost
+must not _mark_done_raw (3A / clinic B1).
 
 Do not start a run. HS-3 fuse skip-audit, HS-1 remainder cap, HS-5 vernacular stay.
 """
@@ -121,10 +121,10 @@ def test_hs2_fingerprint_flip_would_archive_only_when_allowlisted(
     assert not ctx.artifact_exists(_BOUNDS)
 
 
-def test_hs2_missing_at_entry_still_skip_completes(ctx: RunContext) -> None:
+def test_hs2_missing_at_entry_refuses_hollow_done(ctx: RunContext) -> None:
     assert not ctx.artifact_exists(_BOUNDS)
     run_boundary_topic_resplit(ctx)
-    assert ctx.is_done("boundary_topic_resplit")
+    assert not ctx.is_done("boundary_topic_resplit")
 
 
 def test_hs2_wrote_then_lost_does_not_raw_mark(ctx: RunContext) -> None:

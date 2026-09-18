@@ -1,7 +1,7 @@
 """`correctness`-marked soft inputs: reachability sees the selection chain.
 
-`ship_reachability.critical_path()` used to walk *hard* inputs only, and the two
-stages between the source tape and the master declare almost everything soft. The
+`ship_reachability.critical_path()` used to walk *hard* inputs only, and stages
+between the source tape and the master declared almost everything soft. The
 whole path was therefore:
 
     ingest/normalized.wav   producer=ingest  required_by=mix
@@ -11,18 +11,12 @@ No EDL, no selection, no transitions — so a dead `full_master_ranking` could n
 sever anything, and the run would walk on to build a master out of whatever
 `mix` found lying around.
 
-Hardness is the wrong lever to fix that with. `mix` genuinely does not refuse
-without the EDL, and it must not start: `junction_recut_precedes_mix` needs a mix
-that can run before the EDL settles, and a contract hard input fires at PRESTAGE —
-upstream of `air_order.assert_consumer`'s `pre_mix_recut` exemption — which is the
-exec_11871 ping-pong turned into a hard stop.
-
-So the row stays `soft` and gains a `correctness` marker. `ship_reachability` is
-its only reader (`stage_contract.correctness_required`); every dispatch consumer
-still filters on `dep.hard` alone. The justification is uniform across the marked
-rows: `assert_consumer` returns early when selection or the EDL is absent, so
-absence is exactly the condition under which the T0-3 ordering invariant goes
-unenforced, and `run_edl` substitutes `{"transitions": []}` the same way.
+MIX-B1 promotes mix's EDL + SDP to hard (matches `_check_mix`). Remaining
+`correctness` soft markers on other stages still widen the critical path for
+rows that must stay soft on the dispatch path (e.g. master_finalize←edl was
+already hard; transitions←edl soft+correctness). `ship_reachability` reads
+`stage_contract.correctness_required`; every dispatch consumer still filters on
+`dep.hard` alone.
 
 What this does *not* do: reachability answers "is the goal still attainable", not
 "did the required work happen". A live `full_master_ranking` that writes a bad
@@ -52,15 +46,13 @@ from interview_mux.stage_contract import (
 )
 from run_fixtures import MINIMAL_WAV_BYTES, isolated_run_ctx
 
-# The minimum marker set, spelled out so widening it is a deliberate edit.
+# Correctness soft markers after MIX-B1 / edl+finalize promotions:
+# JSQ-B4 keeps junction←selection soft+correctness (matches `_check`).
 EXPECTED_MARKERS: set[tuple[str, str]] = {
-    ("mix", "master/edl.json"),
-    ("master_finalize", "master/edl.json"),
     ("junction_snip_qa", "master/selection.json"),
-    ("edl", "master/transitions.json"),
 }
 
-# Stages whose dispatch posture the markers must not touch.
+# Stages whose dispatch posture hard-vs-correctness must stay stable.
 MARKED_STAGES = ("mix", "master_finalize", "junction_snip_qa", "edl")
 
 
@@ -224,8 +216,9 @@ def test_the_markers_alone_cannot_make_a_run_unreachable(tmp_path: Path, monkeyp
     plain_path = critical_path(ctx)
     plain = ship_reachable(ctx)
 
-    # Strictly more requirements, same verdict — the monotone direction.
-    assert set(plain_path.by_path()) < set(marked_path.by_path())
+    # Markers may be empty (MIX-B1 + _CORRECTNESS_TO_HARD): path is monotone
+    # non-decreasing when markers are stripped, never smaller with markers.
+    assert set(plain_path.by_path()) <= set(marked_path.by_path())
     assert (plain.reachable, plain.certain) == (with_markers.reachable, with_markers.certain)
 
 
@@ -258,13 +251,45 @@ def test_every_marked_row_is_still_soft() -> None:
             assert correctness_required(dep) is True
 
 
-def test_mix_declares_tape_and_selection_hard() -> None:
+def test_mix_declares_tape_selection_edl_sdp_hard() -> None:
+    """MIX-B1: hard matches `_check_mix` (tape + selection + edl + SDP)."""
     contract = load_contract("mix")
     assert contract is not None
     assert [d.path for d in contract.inputs if d.hard] == [
         "ingest/normalized.wav",
         "master/selection.json",
+        "master/edl.json",
+        "understanding/sound_design_plan.json",
     ]
+
+
+def test_mix_contract_lifecycle_is_non_llm() -> None:
+    """MIX-B5: mix is a deterministic host — contract must not claim llm_execute."""
+    contract = load_contract("mix")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
+def test_master_finalize_contract_lifecycle_is_non_llm() -> None:
+    """MF-B4: process host — contract must not claim llm_execute."""
+    contract = load_contract("master_finalize")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
+def test_master_finalize_stageinfo_mentions_pmq_and_delight() -> None:
+    """MF-B1: StageInfo must name PMQ + authoritative listen-delight, not loudness-only."""
+    from interview_mux.web.stages import STAGE_BY_ID
+
+    info = STAGE_BY_ID["master_finalize"]
+    desc = info.description.lower()
+    assert "post-master quality" in desc or "pmq" in desc
+    assert "listen-delight" in desc or "listen delight" in desc
+    assert "−16 lufs" in desc or "-16 lufs" in desc or "loudness" in desc
 
 
 def test_dispatch_delta_hash_set_is_unchanged(tmp_path: Path, monkeypatch) -> None:
@@ -296,9 +321,9 @@ def test_prestage_checks_are_unchanged(tmp_path: Path, monkeypatch) -> None:
     marked = {
         sid: run_phase_checks(ctx, sid, LifecyclePhase.PRESTAGE) for sid in MARKED_STAGES
     }
-    # `mix` must not start refusing without an EDL — `junction_recut_precedes_mix`
-    # depends on that flexibility, and PRESTAGE is upstream of the
-    # `pre_mix_recut` exemption in `assert_consumer`.
+    # Lenient PRESTAGE: absent hard inputs refuse via `prestage_refused`, they do
+    # not return fatal errors. MIX-B1 hard EDL must not change that posture —
+    # junction_recut_precedes_mix still flips seed order while incomplete cuts live.
     assert marked["mix"] == []
     assert marked["junction_snip_qa"] == []
 
@@ -314,8 +339,7 @@ def test_the_runtime_gate_safety_filter_sees_no_new_rows() -> None:
 
     That test walks every declared hard input and demands an upstream producer.
     A marked row that leaked into the hard set would show up as a downstream
-    producer (`mix` <- `master/edl.json` is produced by `edl`, seeded after it is
-    read in the recut posture), so pinning the filtered set is the direct proof.
+    producer conflict; pinning the filtered set is the direct proof.
     """
     from interview_mux.stage_contract import is_path_spec
 

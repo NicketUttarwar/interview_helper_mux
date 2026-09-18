@@ -71,13 +71,32 @@ def run_topic_coverage(ctx: RunContext) -> None:
         persist = make_stage_persist("master/coverage_audit.json", "topic_coverage_audit")
 
         with logged_step("topic_coverage_audit/llm_stage", ctx=ctx, stage="topic_coverage_audit"):
+            # CSP-05 / TCA: soft-fail LLM must not auto-heal hollow; assert then heal.
             run_flow_llm_stage(
                 ctx,
                 "topic_coverage_audit",
                 prompt_variant("selection/topic-coverage-audit.system.txt", ctx),
                 build_input,
                 persist,
+                auto_complete=False,
             )
+            from interview_mux.openai_primary_honesty import ensure_openai_primary_complete
+            from interview_mux.llm_simple import StageError
+
+            try:
+                ensure_openai_primary_complete(ctx, "topic_coverage_audit")
+            except Exception as exc:
+                if isinstance(exc, StageError):
+                    raise
+                from interview_mux.openai_primary_honesty import hollow_openai_reason
+
+                raise StageError(
+                    "topic_coverage_audit",
+                    hollow_openai_reason(
+                        "topic_coverage_audit",
+                        str(exc)[:200] or "llm_soft_fail_hollow",
+                    ),
+                ) from exc
     if ctx.is_done("topic_coverage_audit"):
         regions = emphasis_regions_for_segments(ctx)
         ctx.log(
@@ -194,6 +213,8 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
 
         persist(c, strip_never_touch_nuggets(c, artifacts if isinstance(artifacts, dict) else {}))
 
+    # NCM-B2: auto_complete=False so empty corpus cannot hollow-stamp via mark_done;
+    # heal_or_raise refuses when enabled mine yields zero nuggets.
     with logged_step("nugget_corpus_mine/llm_stage", ctx=ctx, stage="nugget_corpus_mine"):
         run_flow_llm_stage(
             ctx,
@@ -201,7 +222,11 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
             prompt_variant("nugget_layup/nugget-corpus-mine.system.txt", ctx),
             build_corpus_mine_input,
             persist_corpus,
+            auto_complete=False,
         )
+    from interview_mux.stage_completion import heal_or_raise
+
+    heal_or_raise(ctx, "nugget_corpus_mine")
 
 
 def commit_layup_cta_selection(
@@ -227,6 +252,55 @@ def commit_layup_cta_selection(
         stage_key="nugget_layup_compose",
         checkpoint_mode="detect",
     )
+
+
+def _heal_nugget_layup_compose_if_complete(ctx: RunContext) -> None:
+    """Mark done only when artifacts are complete; else leave incomplete (NLC-B1)."""
+    if ctx.is_done("nugget_layup_compose"):
+        return
+    try:
+        from interview_mux.stage_completion import (
+            StageArtifactsIncompleteError,
+            assert_stage_artifacts_complete,
+            heal_or_raise,
+        )
+
+        assert_stage_artifacts_complete(ctx, "nugget_layup_compose")
+        heal_or_raise(ctx, "nugget_layup_compose")
+    except StageArtifactsIncompleteError as exc:
+        ctx.log(
+            f"nugget_layup_compose not marked done — {exc.reason}",
+            level="warning",
+            stage="nugget_layup_compose",
+        )
+
+
+def _stamp_layup_compose_shards_pending(
+    plan: dict[str, Any],
+    *,
+    shard_index: int,
+    shard_total: int,
+) -> dict[str, Any]:
+    """Mark intermediate shard merges so mid-crash cannot hollow-complete (NLC-B1)."""
+    out = dict(plan) if isinstance(plan, dict) else {}
+    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+    meta["compose_shards_pending"] = True
+    meta["compose_shard_index"] = int(shard_index)
+    meta["compose_shard_total"] = int(shard_total)
+    out["_meta"] = meta
+    return out
+
+
+def _clear_layup_compose_shards_pending(plan: dict[str, Any]) -> dict[str, Any]:
+    out = dict(plan) if isinstance(plan, dict) else {}
+    meta = out.get("_meta")
+    if isinstance(meta, dict):
+        meta = dict(meta)
+        meta.pop("compose_shards_pending", None)
+        meta.pop("compose_shard_index", None)
+        meta.pop("compose_shard_total", None)
+        out["_meta"] = meta
+    return out
 
 
 def run_nugget_layup_compose(ctx: RunContext) -> None:
@@ -256,8 +330,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 "warnings": ["nugget_layup_disabled"],
             },
         )
-        if not ctx.is_done("nugget_layup_compose"):
-            heal_or_refuse_mark(ctx, "nugget_layup_compose", force=True)
+        _heal_nugget_layup_compose_if_complete(ctx)
         return
 
     try:
@@ -335,6 +408,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             )
         # Selection is the only order_lock authority — stamp before freshness.
         doc = prepare_layup_plan_for_persist(c, doc)
+        doc = _clear_layup_compose_shards_pending(doc)
         assert_layup_fresh_vs_selection(c, doc)
         persist_plan(c, doc)
         report = publish_layup_plan_to_gap_report(c, doc)
@@ -555,11 +629,17 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 doc = dict(artifacts) if isinstance(artifacts, dict) else {}
                 # Intermediate write so later shards see claimed nuggets via prior_plan.
                 # ordered_segment_ids stays shard-local here; final merge restores full order.
+                # NLC-B1: stamp compose_shards_pending so mid-crash cannot hollow-done.
                 merged_so_far = merge_layup_plan_parts(
                     parts + [doc],
                     ordered_segment_ids=ordered,
                 )
-                c.write_json(PLAN_REL, prepare_layup_plan_for_persist(c, merged_so_far))
+                pending = _stamp_layup_compose_shards_pending(
+                    prepare_layup_plan_for_persist(c, merged_so_far),
+                    shard_index=bi + 1,
+                    shard_total=len(batches),
+                )
+                c.write_json(PLAN_REL, pending)
                 shard_box["doc"] = doc
 
             log_step(
@@ -599,5 +679,4 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             },
         )
         persist(ctx, merged)
-        if not ctx.is_done("nugget_layup_compose"):
-            heal_or_refuse_mark(ctx, "nugget_layup_compose", force=True)
+        _heal_nugget_layup_compose_if_complete(ctx)

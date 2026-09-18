@@ -6,6 +6,8 @@ import base64
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from interview_mux.podcast_rss.catalog import (
     allocate_episode_number,
     apply_version_suffix,
@@ -793,4 +795,49 @@ def test_podcast_id_from_execution_defaults(tmp_path):
         encoding="utf-8",
     )
     assert podcast_id_from_execution("exec_1", exec_root=tmp_path) == "zero_shot_podcast_demo"
+
+
+def test_episode_meta_build_requires_selection(tmp_path, monkeypatch) -> None:
+    """EMB-B2: hard selection — refuse before LLM when selection missing."""
+    from interview_mux.run_context import RunContext
+    from interview_mux.stages.podcast_publish import run_episode_meta_build
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    llm_calls: list[str] = []
+
+    def _boom(*_a, **_k):
+        llm_calls.append("llm")
+        raise AssertionError("LLM must not run without selection")
+
+    monkeypatch.setattr("interview_mux.stages.podcast_publish.run_llm_stage_simple", _boom)
+    monkeypatch.setattr("interview_mux.llm_simple.run_llm_stage_simple", _boom)
+    ctx = RunContext(str(tmp_path / "emb_no_sel"), create=True)
+    with pytest.raises(RuntimeError, match="selection required"):
+        run_episode_meta_build(ctx)
+    assert llm_calls == []
+    assert not ctx.is_done("episode_meta_build")
+
+
+def test_episode_meta_build_refuses_untitled(tmp_path, monkeypatch) -> None:
+    """EMB-B1: empty/Untitled title → refuse persist (no hollow episode_meta)."""
+    from interview_mux.run_context import RunContext
+    from interview_mux.stages.podcast_publish import _persist_meta
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(str(tmp_path / "emb_untitled"), create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "chapters": []},
+        skip_handoff=True,
+    )
+    # No content_brief → thesis fallback empty → still refuse Untitled/empty.
+
+    for bad in ("", "Untitled", "Untitled Episode", "untitled episode"):
+        with pytest.raises(RuntimeError, match="non-empty real title"):
+            _persist_meta(ctx, {"title": bad, "description": "x"})
+    assert not ctx.artifact_exists("publish/episode_meta.json")
+
+    _persist_meta(ctx, {"title": "Real Episode Title", "description": "About X"})
+    meta = ctx.read_json("publish/episode_meta.json")
+    assert meta["title"] == "Real Episode Title"
 

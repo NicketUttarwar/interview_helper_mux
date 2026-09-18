@@ -43,7 +43,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | pass | heal_or_raise | IN_CODE | |
 | fail early | remutate + loud_fail | IN_CODE | |
 | fail deferred | ingest_catch; continue | IN_CODE | |
-| remutate exhausted | loud_fail detail | IN_CODE | |
+| remutate exhausted (N=`max_remutate_attempts`) | sticky exhaust; pick-best; refuse | IN_CODE | |
 
 ## 5. Side effects
 

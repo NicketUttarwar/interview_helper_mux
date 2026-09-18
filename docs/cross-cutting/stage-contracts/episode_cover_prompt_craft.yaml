@@ -13,10 +13,14 @@ outputs:
   schema: null
   staging: true
 inputs:
-  hard:
+  hard: []
+  soft:
   - path: publish/episode_meta.json
     producer: episode_meta_build
-  soft: []
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: master/selection.json
+    producer: full_master_ranking
 sufficiency:
 - path: prompt
   rule: non_empty_string

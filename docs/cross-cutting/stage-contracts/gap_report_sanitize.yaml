@@ -13,9 +13,7 @@ outputs:
   schema: null
   staging: false
 inputs:
-  hard:
-  - path: understanding/nugget_layup_plan.json
-    producer: nugget_layup_compose
+  hard: []
   soft:
   - path: understanding/gap_report.json
     producer: gap_framing_compose
@@ -23,9 +21,13 @@ inputs:
     producer: full_master_ranking
 sufficiency: []
 propagation:
-  invalidates_stages: []
+  invalidates_stages:
+  - vo_line_adjudicate
+  - vo_synthesize
+  - edl_narrative_audit
+  - edl
+  - assembly_preview
 consumers:
-- nugget_layup_compose
 - gap_framing_recompose
 - selection_framing_apply
 - air_script_seams

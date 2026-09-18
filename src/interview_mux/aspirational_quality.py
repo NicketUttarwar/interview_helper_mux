@@ -520,4 +520,53 @@ def consent_g_publish_advisories(ctx: RunContext) -> None:
     if not isinstance(meta, dict):
         meta = {}
     meta["g_publish_advisory_consent"] = True
+    meta.pop("g_publish_remote_refused", None)
+    meta.pop("g_publish_remote_refuse_reason", None)
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
+
+
+def note_remote_publish_refused(ctx: RunContext, *, reason: str) -> None:
+    """Clinic PPUB-B2: local package may be ready; remote sync refused honestly.
+
+    Never sets ``g_publish_advisory_consent``. On Full-auto, clears
+    ``g_publish_pending`` so the journey does not hang waiting for consent that
+    will not be auto-granted. Partial/manual keep pending (operator must Upload
+    or Skip).
+    """
+    reason_s = str(reason or "remote_publish_refused")[:240]
+
+    def _patch(meta: dict[str, Any]) -> None:
+        meta["g_publish_remote_refused"] = True
+        meta["g_publish_remote_refuse_reason"] = reason_s
+        try:
+            from interview_mux.automation_run import is_full_auto_run
+
+            if is_full_auto_run(meta):
+                # Local DONE; refuse-remote — do not wait forever for consent.
+                meta["g_publish_pending"] = False
+        except Exception:
+            pass
+
+    try:
+        ctx.mutate_run_meta(_patch)
+    except Exception:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        _patch(meta)
+        ctx.write_json("run_meta.json", meta, skip_handoff=True)
+
+    try:
+        if ctx.artifact_exists("publish/publish_result.json"):
+            pr = ctx.read_json("publish/publish_result.json")
+            if isinstance(pr, dict):
+                pr["uploaded"] = False
+                pr["remote_refused"] = True
+                pr["remote_refuse_reason"] = reason_s
+                pr["hint"] = (
+                    "Local package ready; S3 sync refused — quality advisories "
+                    "require explicit Upload consent (or Skip). No silent hang."
+                )
+                ctx.write_json("publish/publish_result.json", pr, skip_handoff=True)
+    except Exception:
+        pass

@@ -23,8 +23,6 @@ inputs:
   soft:
   - path: ingest/normalized.wav
     producer: ingest
-  - path: transcript/review_queue.json
-    producer: transcript_review_build
   - path: segments/manifest.json
   - path: transcript/review_queue.json
     producer: transcript_review_build

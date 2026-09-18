@@ -2,9 +2,10 @@
 
 Computes per-dimension scores from on-disk artifacts at call time. With default
 ``mastering.aspirational_quality.enabled``, floor failures are advisory: register
-candidates, remutate up to three times, pick-best, and continue to ``master.wav``.
-Set ``aspirational_quality.enabled: false`` and ``listen_delight.mode: authoritative``
-to restore hard ship blocks.
+candidates, remutate up to ``mastering.listen_delight.max_remutate_attempts``
+(default 3), pick-best, and continue to ``master.wav`` — or refuse honestly when
+authoritative floors remain unmet. Set ``aspirational_quality.enabled: false`` and
+``listen_delight.mode: authoritative`` to restore hard ship blocks.
 """
 
 from __future__ import annotations
@@ -316,7 +317,17 @@ def _sonic_weave(ctx: RunContext) -> float:
 
     When air-script sonic_scenes exist, reward motif/scene-bed/outro architecture and
     penalize an empty or every-Nth-only score.
+
+    Clinic MSFX-B2: omit-all reserved themes under creative_delivery fails delight
+    (score 0) — not ship-legal hollow sonic weave.
     """
+    try:
+        from interview_mux.theme_slot_integrity import reserved_themes_all_omitted
+
+        if reserved_themes_all_omitted(ctx):
+            return 0.0
+    except Exception:
+        pass
     base = 0.9
     if ctx.artifact_exists("master/seam_autopsy.json"):
         try:
@@ -700,15 +711,23 @@ def _handle_listen_delight_failure(
     elif not remutate.get("exhausted"):
         applied = apply_listen_delight_remutate(ctx, remutate)
         audit_patch["remutate_applied"] = applied
-    elif family_attempts_exhausted(ctx, "listen_delight"):
+    else:
+        # Cap reached: ship best candidate, then refuse under authoritative.
         audit_patch["pick_best"] = apply_best_quality_candidate(
             ctx, family="listen_delight"
+        )
+        audit_patch["remutate_terminate"] = remutate.get("terminate") or (
+            "remutate_budget_exhausted"
         )
         if authoritative:
             soft_proceed = False
             audit_patch["blocking"] = True
             audit_patch["advisory"] = False
             audit_patch["needs_operator_reason"] = "listen_delight_floors_exhausted"
+        elif family_attempts_exhausted(ctx, "listen_delight"):
+            soft_proceed = True
+            audit_patch["blocking"] = False
+            audit_patch["advisory"] = True
     if ctx.artifact_exists(AUDIT_REL):
         try:
             loaded = ctx.read_json(AUDIT_REL)
@@ -815,6 +834,20 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
             applied = apply_listen_delight_remutate(ctx, remutate)
             audit["remutate_applied"] = applied
             ctx.write_json(AUDIT_REL, audit)
+        else:
+            # Cap reached: ship-best then refuse (loud_fail below).
+            try:
+                from interview_mux.aspirational_quality import apply_best_quality_candidate
+
+                audit["pick_best"] = apply_best_quality_candidate(
+                    ctx, family="listen_delight"
+                )
+                audit["remutate_terminate"] = remutate.get("terminate") or (
+                    "remutate_budget_exhausted"
+                )
+                ctx.write_json(AUDIT_REL, audit)
+            except Exception:
+                pass
         raise_loud_failure(
             ctx,
             "Listen delight floors failed: overall="

@@ -36,6 +36,55 @@ CONSECUTIVE_SOFT_ALLOWLIST: dict[tuple[str, str], str] = {
     ("ideal_cuts_propose", "ideal_cuts_materialize"): (
         "ideal_cuts.json is required only when analysis.ideal_cuts.enable — use when="
     ),
+    ("ideal_cuts_materialize", "boundary_detection"): (
+        "materialize soft on BD (BD-B1): LLM build_input optional; skip-when-bound "
+        "uses committed boundaries publisher stamp, not a hard materialize refuse"
+    ),
+    ("boundary_topic_resplit", "vernacular_segment_sanitize"): (
+        "vernacular skip-completes without boundaries; soft zones+manifest only (VSS-B1)"
+    ),
+    ("low_conf_island_scan", "connector_fuse_pass"): (
+        "fuse skip-completes without islands; soft enrichment only (CFP-B1)"
+    ),
+    ("chapter_close_hitch", "connector_fuse_pass_pre_ranking"): (
+        "pre_ranking fuse skip-completes without hitch latch; soft manifest "
+        "gate like connector_fuse_pass (pre_ranking CFP-B1)"
+    ),
+    ("connector_fuse_pass", "sonic_context_build"): (
+        "sonic hard = brief+manifest+acoustic (input_checks); fuse audit not required (SCB-B1)"
+    ),
+    ("sound_design_palettes", "mastering_research_routing"): (
+        "routing stub/LLM soft-probes catalog; never hard-gates on palettes SDP (CSP-02)"
+    ),
+    ("mastering_research_routing", "mastering_research_waves"): (
+        "waves probes soft-presence only; never reads routing.json (MRW-B1)"
+    ),
+    ("mastering_research_waves", "mastering_research_rollup"): (
+        "rollup re-probes waves; never hard-gates on waves.json (CSP-02)"
+    ),
+    ("connector_fuse_pass_pre_ranking", "full_master_ranking"): (
+        "ranking hard = narrative+manifest+gap (input_checks); fuse rounds soft (FMR-B1)"
+    ),
+    ("air_script_compose", "nugget_corpus_mine"): (
+        "mine soft-admits mastering_plan; hard PRESTAGE would regress Full-auto (NCM-B3)"
+    ),
+    ("information_package_plan", "nugget_layup_compose"): (
+        "layup soft-admits IP audit (shadow/budget enrichment); hard = selection+corpus "
+        "(NLC-B3)"
+    ),
+    ("interview_spine_build", "speaker_roles"): (
+        "speaker_roles body never requires spine; soft enrichment only (SR-B1)"
+    ),
+    ("gap_report_sanitize", "refinement_agenda"): (
+        "agenda body never reads gap_report; soft seed adjacency only (RA-B1)"
+    ),
+    ("refinement_agenda", "gap_framing_recompose"): (
+        "recompose authority/freeze paths skip without agenda; soft seed "
+        "adjacency only (GFR-B1)"
+    ),
+    ("episode_meta_build", "episode_cover_prompt_craft"): (
+        "cover craft soft-harvests motifs; never hard-gates on episode_meta (ECPC-B2)"
+    ),
     ("mmaudio_sfx", "mix"): (
         "MusicGen/sfx can be deferred until Phase A seal; mix must not hard-block on qa"
     ),
@@ -49,13 +98,47 @@ CONSECUTIVE_SOFT_ALLOWLIST: dict[tuple[str, str], str] = {
 EMPTY_HARD_ALLOWLIST: dict[str, str] = {
     "framing_posture_decide": "posture gate; outputs decision from speakers+topology soft reads",
     "ideal_cuts_materialize": "gated by analysis.ideal_cuts.enable",
+    "vernacular_segment_sanitize": (
+        "HS-5 process stage skip-completes with soft zones/manifest; no hard boundary (VSS-B1)"
+    ),
+    "connector_fuse_pass": (
+        "HS-3 fuse skip-completes without islands; soft manifest+islands (CFP-B1)"
+    ),
+    "connector_fuse_pass_pre_ranking": (
+        "HS-3 pre_ranking fuse skip-completes without hitch; soft manifest "
+        "(pre_ranking CFP-B1)"
+    ),
+    "mastering_research_routing": (
+        "stub/LLM routing probes soft catalog; never hard-gates on prior SDP (CSP-02)"
+    ),
+    "mastering_research_waves": (
+        "deterministic probes soft-presence only; never reads routing.json (MRW-B1)"
+    ),
+    "mastering_research_rollup": (
+        "re-probes waves+routing; never hard-gates on waves.json (CSP-02)"
+    ),
+    "gap_report_sanitize": (
+        "stubs missing gap_report then sanitize; never hard-gates on "
+        "nugget_layup_plan (GRS-B1)"
+    ),
+    "refinement_agenda": (
+        "confirm-phase agenda from character+policy; never hard-gates on "
+        "gap_report (RA-B1)"
+    ),
+    "gap_framing_recompose": (
+        "layup-authority thin adapter / seat-freeze skip; never hard-gates on "
+        "refinement_agenda (GFR-B1)"
+    ),
+    "episode_cover_prompt_craft": (
+        "soft-harvest motifs / F7 fail-open; never hard-gates on episode_meta (ECPC-B2)"
+    ),
 }
 
 # Soft+correctness rows that must be promoted to hard (air-order / assert_consumer).
-# mix←edl intentionally stays soft+correctness — junction_recut_precedes_mix.
+# mix←edl is already hard (MIX-B1); not listed here.
+# JSQ-B4: junction←selection deliberately stays soft+correctness (matches `_check`).
 CORRECTNESS_MUST_BE_HARD: frozenset[tuple[str, str]] = frozenset(
     {
-        ("junction_snip_qa", "master/selection.json"),
         ("master_finalize", "master/edl.json"),
         ("edl", "master/transitions.json"),
     }

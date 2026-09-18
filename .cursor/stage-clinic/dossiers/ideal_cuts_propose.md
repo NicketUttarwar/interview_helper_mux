@@ -1,7 +1,9 @@
 # Stage clinic dossier — ideal_cuts_propose
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+
+# Wave 2 2026-09-17 — ICP-B2/B4 applied; ICP-B1 skipped (soft probes used via transcript_quality); ICP-B3 needs_you.
 
 ## §5.0 Evidence index card
 

@@ -45,7 +45,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | clean success | persist after span check → mark | IN_CODE | |
 | soft fail | not fail_open | IN_CODE | |
 | hard fail | StageError; persist RuntimeError span (retryable as schema-like in llm_simple) | IN_CODE | llm_simple persist RuntimeError retry |
-| hollow persist | schema + span floor on ≥15min | IN_CODE | |
+| hollow persist | schema + span floor on ≥15min; span fail → StageError after ≤2 (ICP-B4) | IN_CODE | llm_simple |
 | disabled stub | placeholder cut | IN_CODE | |
 
 ## 5. Side effects
@@ -57,13 +57,14 @@ code_is_king: true | prior_exec: ignored_by_default
 
 - OpenAI + host redistribute_clustered_cuts
 - Disable stub
+- Soft probes via transcript_quality (kept; ICP-B1 prune skipped)
 
 ## 7. Contract honesty
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
 | hard transcript+talking_points | talking_points enforced; transcript read | IN_CODE |
-| soft brief/speakers/probes | optional | IN_CODE |
+| soft brief/speakers + transcript_quality probes | optional; build_input reads all | IN_CODE |
 | outputs ideal_cuts schema | matches | IN_CODE |
 | invalidates [] | true | IN_CODE |
 
@@ -74,25 +75,25 @@ code_is_king: true | prior_exec: ignored_by_default
 | malformed/schema | ≤2 then raise | IN_CODE | |
 | retry exhausted | StageError | IN_CODE | |
 | hollow persist | blocked | IN_CODE | |
-| span fail after accept | RuntimeError may consume retry budget | IN_CODE | llm_simple persist handler |
+| span fail after accept | RuntimeError retryable once; attempt 2 → StageError (ICP-B4) | IN_CODE | llm_simple persist handler |
 
 ## 9. Full-auto / defaults path
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| Full-auto defaults | enable=true → OpenAI propose + span gate on long interviews | IN_CODE | |
+| Full-auto defaults | enable=true → OpenAI propose + span gate on long interviews; floor 0.45 in app.defaults (ICP-B2) | IN_CODE | |
 | human stall? | No | IN_CODE | |
 | GUI-only? | No | IN_CODE | |
 | partial-only fix risk | lowering span floor only for partial would diverge masters | FULL_AUTO_REGRESSION_RISK | |
 
 ## DoD threats
 
-- [x] 1 Progression  [x] 2 Honesty  [ ] 3 Stalls  [x] 4 OpenAI  [ ] 5 Defaults  [ ] 6 Ship bar  [ ] 7 Cross-stage
+- [x] 1 Progression  [x] 2 Honesty  [ ] 3 Stalls  [x] 4 OpenAI  [x] 5 Defaults  [ ] 6 Ship bar  [ ] 7 Cross-stage
 
 ## Open questions for operator
 
-1. _(none)_
+1. ICP-B3: enable=false stub force-done vs incompleteness refuse?
 
 ## discovery_status
 
-`complete`
+`complete` — Wave 2 ICP-B2/B4 patched; ICP-B1 skipped (probes used); ICP-B3 open

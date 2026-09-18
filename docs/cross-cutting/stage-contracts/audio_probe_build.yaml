@@ -27,10 +27,6 @@ inputs:
   soft:
   - path: ingest/normalized.wav
     producer: ingest
-  - path: master/edl.json
-  - path: understanding/flow_adaptation.json
-  - path: understanding/gap_fill_skip.json
-  - path: understanding/source_topology.json
 sufficiency: []
 propagation:
   invalidates_stages: []

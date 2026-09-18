@@ -1,4 +1,9 @@
-"""Lazy waveform peak envelope for GUI timeline."""
+"""Waveform peak envelope for GUI timeline.
+
+Producer SSOT: ``ingest`` writes ``ingest/waveform_peaks.json`` for normalized
+audio. GUI / API paths load only (may compute ephemeral peaks in-memory for
+non-cached or non-normalized paths — never persist).
+"""
 
 from __future__ import annotations
 
@@ -8,11 +13,12 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
-from interview_mux.file_store import read_json, write_json
+from interview_mux.file_store import read_json
 from interview_mux.run_context import RunContext
 
 PEAKS_REL = "ingest/waveform_peaks.json"
 _WINDOW_MS = 100
+_NORMALIZED_REL = "ingest/normalized.wav"
 
 
 def _resolve_audio_path(ctx: RunContext, rel_path: str) -> Path:
@@ -41,26 +47,40 @@ def generate_peaks(audio_path: Path, *, window_ms: int = _WINDOW_MS) -> list[dic
     ]
 
 
-def load_or_generate_peaks(ctx: RunContext, rel_path: str) -> dict[str, Any]:
-    cache_path = ctx.read_path(PEAKS_REL)
-    audio_path = _resolve_audio_path(ctx, rel_path)
+def _peaks_payload(rel_path: str, audio_path: Path) -> dict[str, Any]:
     fingerprint = f"{audio_path.stat().st_size}:{int(audio_path.stat().st_mtime)}"
-    if rel_path == "ingest/normalized.wav" and cache_path.is_file():
-        cached = read_json(cache_path)
-        if (
-            cached.get("source_path") == rel_path
-            and cached.get("source_fingerprint") == fingerprint
-        ):
-            return cached
-
     peaks = generate_peaks(audio_path)
-    payload = {
+    return {
         "source_path": rel_path,
         "source_fingerprint": fingerprint,
         "window_ms": _WINDOW_MS,
         "duration_ms": int(len(peaks) * _WINDOW_MS) if peaks else 0,
         "peaks": peaks,
     }
-    if rel_path == "ingest/normalized.wav":
-        write_json(ctx.path(PEAKS_REL), payload)
+
+
+def persist_normalized_peaks(ctx: RunContext) -> dict[str, Any]:
+    """Ingest-owned write of peaks for ``ingest/normalized.wav`` (ING-B3)."""
+    audio_path = _resolve_audio_path(ctx, _NORMALIZED_REL)
+    payload = _peaks_payload(_NORMALIZED_REL, audio_path)
+    ctx.write_json(PEAKS_REL, payload, stage_key="ingest")
     return payload
+
+
+def load_or_generate_peaks(ctx: RunContext, rel_path: str) -> dict[str, Any]:
+    """Load cached peaks when valid; otherwise compute in-memory (no write).
+
+    GUI must not persist ``ingest/waveform_peaks.json`` — ingest is sole writer.
+    """
+    audio_path = _resolve_audio_path(ctx, rel_path)
+    fingerprint = f"{audio_path.stat().st_size}:{int(audio_path.stat().st_mtime)}"
+    if rel_path == _NORMALIZED_REL:
+        cache_path = ctx.read_path(PEAKS_REL)
+        if cache_path.is_file():
+            cached = read_json(cache_path)
+            if (
+                cached.get("source_path") == rel_path
+                and cached.get("source_fingerprint") == fingerprint
+            ):
+                return cached
+    return _peaks_payload(rel_path, audio_path)

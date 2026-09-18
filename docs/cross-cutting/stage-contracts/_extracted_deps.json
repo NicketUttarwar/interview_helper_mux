@@ -266,6 +266,7 @@
       "transcript/speakers.json",
       "understanding/content_brief.json",
       "understanding/source_acoustic_profile.json",
+      "understanding/source_topology.json",
       "understanding/speakers.json",
       "understanding/talking_points.json"
     ],

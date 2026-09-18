@@ -86,7 +86,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## TEST_GAP
 
-- Forced sparse path when agenda empty
+- Forced sparse path when agenda empty — closed (MSC-B1)
 - diversity enable path
 
 ## DoD threats

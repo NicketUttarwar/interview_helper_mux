@@ -29,7 +29,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | NCM-B1 | P1 | unambiguous | Drop QC from contract outputs | YAML/ownership | 7 | no |
-| NCM-B2 | P1 | needs_you | Empty enabled corpus incomplete? | sufficiency | 2,6 | yes |
+| NCM-B2 | P1 | answered | Empty enabled corpus incomplete | sufficiency + heal | 2,6 | yes (accepted) | applied |
 | NCM-B3 | P2 | unambiguous | Demote mastering_plan to soft | YAML | 7 | no |
 
 ## Defaults inventory impact
@@ -38,4 +38,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 CONTINUE: NCM-B2 applied (empty enabled → incomplete)

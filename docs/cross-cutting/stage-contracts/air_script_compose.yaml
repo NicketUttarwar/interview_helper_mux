@@ -1,17 +1,17 @@
 stage_id: air_script_compose
-tier: llm_full
+tier: process
 lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
 outputs:
 - path: mastering/mastering_plan.json
   schema: mastering_plan.schema.json
-  staging: true
+  staging: false
 - path: understanding/omit_ledger.json
 inputs:
   hard:
@@ -49,5 +49,4 @@ consumers:
 - edl
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

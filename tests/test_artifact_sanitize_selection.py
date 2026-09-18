@@ -284,3 +284,17 @@ def test_sanitize_prunes_exclude_rationales_on_air_ids() -> None:
     assert "seg_041" not in (result.doc.get("exclude_rationales") or {})
     assert "seg_099" in (result.doc.get("exclude_rationales") or {})
     assert any(a.get("action") == "prune_stale_exclude_rationales" for a in result.actions)
+
+
+def test_sos_b1_contract_schema_matches_selection_artifact() -> None:
+    """SOS-B1: sanitize co-writer declares same schema as ranking mint."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("selection_order_sanitize")
+    assert contract is not None
+    primary = next(o for o in contract.outputs if o.path == "master/selection.json")
+    assert primary.schema == "master_selection_artifact.schema.json"
+    ranking = load_contract("full_master_ranking")
+    assert ranking is not None
+    ranked = next(o for o in ranking.outputs if o.path == "master/selection.json")
+    assert ranked.schema == primary.schema

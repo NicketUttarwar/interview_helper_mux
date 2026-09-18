@@ -13,7 +13,7 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - immediate downstream consumers (code + contract claim): spine, sonic, palettes
 - gate_adjacency: none
 - LLM?: no
-- thrash_hotspot: listed thrash set
+- thrash_hotspot: false (FORCE_DONE_GUARDED = hollow-force guard only; SAP-B5 Q2B)
 - test_gravity: solid (test_source_acoustic_profile) (excl. local-ML)
 
 ## Evidence checklist (§5.1–5.6)

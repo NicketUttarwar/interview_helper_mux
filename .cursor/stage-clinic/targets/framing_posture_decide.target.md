@@ -48,4 +48,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied B1 (StageInfo 0.2.0 blurb)

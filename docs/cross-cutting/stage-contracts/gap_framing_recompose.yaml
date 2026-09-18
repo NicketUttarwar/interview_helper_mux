@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -12,18 +12,10 @@ outputs:
 - path: understanding/gap_framing_recompose.json
   schema: null
   staging: false
-- path: understanding/gap_framing_plan.json
-- path: understanding/gap_report.draft.json
-- path: understanding/gap_vo_context_audit.json
 - path: understanding/nugget_layup_plan.json
-- path: understanding/cold_open_audition.json
-- path: understanding/listener_outcome_trajectory.json
-- path: understanding/refinement_plan.json
 - path: understanding/refinement_skip_copy.json
 inputs:
-  hard:
-  - path: understanding/refinement_agenda.json
-    producer: refinement_agenda
+  hard: []
   soft:
   - path: understanding/gap_report.json
     producer: gap_framing_compose
@@ -31,6 +23,8 @@ inputs:
     producer: gap_framing_compose
   - path: understanding/nugget_layup_plan.json
     producer: nugget_layup_compose
+  - path: understanding/refinement_agenda.json
+    producer: refinement_agenda
   - path: master/coverage_audit.json
     producer: topic_coverage_audit
   - path: master/narrative_plan.json
@@ -53,8 +47,16 @@ inputs:
 sufficiency: []
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- selection_framing_apply
+- air_script_seams
+- air_contract_sanitize
+- transitions
+- vo_line_adjudicate
+- vo_synthesize
+- edl
+- mix
+- master_finalize
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

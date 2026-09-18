@@ -139,6 +139,54 @@ def test_hv5_record_line_keeps_hard_block(ctx: RunContext) -> None:
     assert g1_journey_clear(ctx, meta) is False
 
 
+def test_vs_b3_full_auto_rewrites_record_to_synth_automation_pending(
+    ctx: RunContext,
+) -> None:
+    """VS-B3: Full-auto owns record-required lines via synth — no human stall."""
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [_gap_line(delivery="record", severity="high")]},
+        skip_handoff=True,
+    )
+    meta = _chatterbox_meta(
+        full_auto=True,
+        partial_auto=False,
+        needs_operator=True,
+        needs_operator_stage="g1_vo_pickup",
+        needs_operator_reason="G1 VO pickup needs operator action",
+    )
+    meta.pop("partial_auto_driver_active", None)
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    view = resolve_g1_vo_gate(ctx, None, meta)
+    gap = ctx.read_json("understanding/gap_report.json")
+    line = (gap.get("interviewer_lines") or [])[0]
+    assert line.get("delivery") == "synthesize"
+    assert line.get("full_auto_record_rewritten") is True
+    assert view.severity == "automation_pending"
+    assert view.operator_must_act is False
+    assert g1_journey_clear(ctx, meta) is True
+
+
+def test_vs_b3_rewrite_no_op_outside_full_auto(ctx: RunContext) -> None:
+    from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [_gap_line(delivery="record")]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "run_meta.json",
+        {"partial_auto": True, "homunculus_version": "0.2.0"},
+        skip_handoff=True,
+    )
+    assert rewrite_full_auto_record_lines_to_synth(ctx) == []
+    assert (
+        ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]["delivery"]
+        == "record"
+    )
+
+
 def test_hv5_vo_unsanitary_fresh_mtime_still_halts(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -10,11 +10,11 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 | `analysis.ideal_cuts.enable=true` (default) + talking_points + transcript | OpenAI propose ≤2 attempts → persist → mark_done | Completes unattended |
 | talking_points missing | `RuntimeError` before LLM — no hollow done | Honest halt / heal pin talking_points |
 | OpenAI schema/malformed | ≤2 then `StageError` — no soft-lie done | Honest halt |
-| long tape (≥15 min) cuts clustered early | redistribute once; if still `< min_span_coverage_ratio` (0.45) → RuntimeError; retryable once as schema-like | Honest refuse after budget; no hollow early-cluster master seed |
+| long tape (≥15 min) cuts clustered early | redistribute once; if still `< min_span_coverage_ratio` (0.45) → RuntimeError; retryable once; attempt 2 → `StageError` | Honest refuse after budget; no hollow early-cluster master seed |
 | short tape (&lt;15 min) | span floor not enforced | Completes |
 | `enable=false` | placeholder single cut + `heal_or_refuse_mark(..., force=True)` | Completes with stub — **downstream bind/skip paths must tolerate**; do not change default enable |
-| soft brief/speakers present | attached to LLM packet when present | Optional enrichment |
-| soft review_queue / golden_facts / protected_zones | **unused by `build_input` today** | No behavior change until contract pruned |
+| soft brief/speakers | optional enrichment | IN_CODE |
+| soft review_queue / golden_facts / protected_zones via transcript_quality | optional (ICP-B1 keep — not unused) | IN_CODE |
 
 ## Rules set (prefer deterministic)
 
@@ -27,16 +27,16 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## Complexity subtraction list
 
-- Contract soft inputs never read: `transcript/review_queue.json`, `analysis/run_golden_facts.json`, `transcript/protected_zones.json`
+- Soft probe paths stay via `transcript_quality_for_ctx` (not unused — ICP-B1 skip)
 - Disabled stub force-done as a second product path — prefer single enabled path for Full-auto; leave disable as explicit operator/dev escape (document, don’t invent Partial-only stub)
-- Host redistribute + LLM retry double complexity — keep (load-bearing honesty); do not remove span gate
+- Host redistribute + LLM retry double complexity — keep (load-bearing honesty); do not remove span gate; after budget raise StageError (ICP-B4)
 
 ## Contract / dependency deltas (proposed; not applied)
 
 - Keep hard transcript + talking_points; keep soft brief + speakers (actually used)
-- Drop unused soft probe/review paths from this stage’s contract inputs
+- Keep soft probe/review paths via `transcript_quality_reads()` — `build_input` calls `transcript_quality_for_ctx` (ICP-B1 skip; discovery "unused" was false)
 - Keep `volley_retry` + `full_stage_rerun` (LLM stage — remediation claim matches)
-- Optionally surface `min_span_coverage_ratio` in `app.defaults.json` to match code default 0.45 (docs honesty only)
+- `min_span_coverage_ratio: 0.45` now in `app.defaults.json` (ICP-B2)
 
 ## Non-goals
 
@@ -49,10 +49,12 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 - Missing talking_points → no LLM call, no done
 - Schema fail ×2 → StageError, no done
-- ≥15 min clustered cuts → redistribute log; still under floor → RuntimeError; one LLM retry then hard stop
+- ≥15 min clustered cuts → redistribute log; still under floor → RuntimeError; one LLM retry then StageError
 - `enable=true` default path writes schema-valid cuts with min_rows≥1
 - `enable=false` writes placeholder + done (document as intentional skip stub)
-- After ICP-B1: contract soft list matches `build_input` reads only
+- After ICP-B1: soft probe list remains via `transcript_quality_reads` (matches `build_input`; prune skipped)
+- ICP-B2: `app.defaults.json` has `min_span_coverage_ratio: 0.45`
+- ICP-B4: span persist RuntimeError → StageError after attempt 2 (no fail-open)
 
 ## Upgrade backlog
 
@@ -60,7 +62,7 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
 | ICP-B1 | P1 | unambiguous | Prune unused soft inputs (review_queue, golden_facts, protected_zones) from contract | dependency data + verify | 2 | no |
 | ICP-B2 | P2 | unambiguous | Document/code-default align: put `min_span_coverage_ratio: 0.45` in `app.defaults.json` ideal_cuts block | defaults audit | 2,5 | no |
-| ICP-B3 | P2 | needs_you | `enable=false` stub force-done: keep as escape hatch vs incompleteness refuse? | disable-path pytest + materialize skip | 2 | **yes** if default enable flipped or stub removed without materialize skip |
+| ICP-B3 | P2 | confirmed | `enable=false` KEEP stub force-done (4B) | disable-path placeholder + heal | 2 | **yes** if default enable flipped or stub removed |
 | ICP-B4 | P3 | unambiguous | Ensure span persist RuntimeError always raises StageError after attempt 2 (no fail-open for ideal_cuts) | llm_simple path + focused test | 2,4 | no |
 
 ## Defaults inventory impact
@@ -69,4 +71,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied ICP-B2/B4; ICP-B1 skipped; ICP-B3 confirmed KEEP stub (4B)

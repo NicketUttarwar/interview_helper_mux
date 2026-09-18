@@ -1,19 +1,19 @@
 # Stage clinic dossier — air_script_compose
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
 
 ## §5.0 Evidence index card
 
 - stage_id: `air_script_compose`
 - seed_position: 42 (delivery)
-- tier (contract claim): llm_full (contract) / process (code Pass A) — verified vs body in map
+- tier (contract claim): process (ASC-B1) — matches deterministic Pass A
 - primary_artifact_path (SSOT claim): mastering/mastering_plan.json
 - immediate upstream producers (from code — L1): full_master_ranking / selection_order_sanitize
 - immediate downstream consumers (code + contract claim): nugget_corpus_mine, air_script_seams, edl
 - gate_adjacency: none
-- LLM?: none for Pass A (contract claims llm_full)
-- thrash_hotspot: enable=false unmarked; automation fail_closed
+- LLM?: none for Pass A
+- thrash_hotspot: automation fail_closed (enable=false skip latch ASC-B2 done)
 - test_gravity: solid (excl. local-ML)
 
 ## Evidence checklist (§5.1–5.6)

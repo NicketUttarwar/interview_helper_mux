@@ -1,6 +1,6 @@
 # Target Spec — sound_design_plan
 
-brain: 0.2.0 | target_status: draft
+brain: 0.2.0 | target_status: draft | L3: B2 applied; B1/B3 skipped
 
 ## Ideal behavior
 
@@ -43,4 +43,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied B2; B1 skipped (FULL_AUTO_REGRESSION_RISK); B3 skipped (needs_you + FULL_AUTO_REGRESSION_RISK)

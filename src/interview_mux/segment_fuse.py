@@ -1831,6 +1831,33 @@ def already_adjudicated(audit: dict[str, Any]) -> dict[str, str]:
     return out
 
 
+def resolve_fuse_round_caps(conf: dict[str, Any] | None = None) -> tuple[int, int]:
+    """Map config 0 → finite defaults; negative → explicit unlimited (CFP-B3 / DEEP-FUSE-01).
+
+    Returns ``(max_rounds, max_fuses_per_pass)``.
+    """
+    cfg = conf if isinstance(conf, dict) else connector_fuse_cfg()
+    try:
+        raw_rounds = int(cfg.get("max_fuse_rounds") or 0)
+    except (TypeError, ValueError):
+        raw_rounds = 0
+    if raw_rounds == 0:
+        max_rounds = _FINITE_DEFAULT_FUSE_ROUNDS
+    elif raw_rounds < 0:
+        max_rounds = 10_000
+    else:
+        max_rounds = raw_rounds
+    try:
+        cap = int(cfg.get("max_fuses_per_pass") or 0)
+    except (TypeError, ValueError):
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    if cap == 0:
+        cap = _FINITE_DEFAULT_FUSES_PER_PASS
+    elif cap < 0:
+        cap = 10_000_000
+    return max_rounds, cap
+
+
 def run_connector_fuse_pass(
     ctx: RunContext,
     *,
@@ -1859,24 +1886,7 @@ def run_connector_fuse_pass(
     hv_applied = int(hv_rounds.get("total_applied") or 0)
     rounds_doc["high_value_cluster_fuse"] = hv_rounds
 
-    try:
-        raw_rounds = int(conf.get("max_fuse_rounds") or 0)
-    except (TypeError, ValueError):
-        raw_rounds = 0
-    if raw_rounds == 0:
-        max_rounds = _FINITE_DEFAULT_FUSE_ROUNDS
-    elif raw_rounds < 0:
-        max_rounds = 10_000  # explicit unlimited
-    else:
-        max_rounds = raw_rounds
-    try:
-        cap = int(conf.get("max_fuses_per_pass") or 0)
-    except (TypeError, ValueError):
-        cap = _FINITE_DEFAULT_FUSES_PER_PASS
-    if cap == 0:
-        cap = _FINITE_DEFAULT_FUSES_PER_PASS
-    elif cap < 0:
-        cap = 10_000_000
+    max_rounds, cap = resolve_fuse_round_caps(conf)
 
     from interview_mux.diarization_suspicion import forced_diarization_fuse_verdicts
 
@@ -2174,6 +2184,7 @@ __all__ = [
     "plan_cluster_fuses",
     "plan_high_value_fuses",
     "remap_fused_ids",
+    "resolve_fuse_round_caps",
     "rerun_air_bounds_on_fused",
     "run_connector_fuse_pass",
     "run_high_value_cluster_fuse_rounds",

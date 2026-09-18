@@ -1,57 +1,86 @@
 # Full-auto readiness rollup (Wave 3)
 
-last_scored: 2026-09-17  
-verdict: `not_ready`
+last_scored: 2026-09-18 (re-score after Wave 2 polish 1B/2B/3B/4B/5A/6B)  
+verdict: `ready_for_unattended_full_auto_attempt`
 
-Campaign end-state: unattended Full-auto on shipped defaults, brain 0.2.0.  
-Evidence: Wave 1 maps (72/72 complete) + Wave 2 patches below + defaults_inventory.md.  
-No `exec_*` used.
+Campaign end-state: unattended Full-auto on shipped defaults, brain **0.2.0**.  
+Evidence: ledger **72/72** L3=`done` · CONTINUEs + polish answers · `defaults_inventory.md` · `cross_stage_patterns.md` · maps/targets.  
+No `exec_*` / forensics used.
 
-## Wave 2 patches landed this campaign
+## Campaign inventory
 
-- `operator_gates.should_stamp_needs_operator` — 0.2.0 unattended uses classified allowlist (CSP-03)
-- `stages/low_conf_fuse_stages.run_low_conf_island_scan` — disabled path writes + heals (CSP-01)
-- `stage_completion.stage_artifact_incompleteness(audio_preclean)` — skip.json is complete (CSP-06)
-- Tests: `test_remediation_framework` 0.2.0 cases; `test_stage_clinic_wave2_remediation.py`
+| Layer | Status |
+|-------|--------|
+| Wave 1 maps | 72/72 complete |
+| Wave 2 L3 + CONTINUEs | ship-critical + residual + polish applied |
+| Defaults inventory | post-polish |
+| Cross-stage patterns | **CSP-01/02/03/04/05/06 ruled** |
+
+## Polish delta (this re-score)
+
+| Binding | Effect |
+|---------|--------|
+| 1B ASC-B3 | Air omits leave selection alone (no shrink thrash) |
+| 2B OpenAI soft | Historical soft-stub KEPT notes; **Q2A CSP-05 pins** refuse/incomplete after ≤2 (not heal-done) |
+| 3B CSP-02 | **Q1A fleet soft/hard align** (CC-B1 / MRW / MPC-B2 + research empty-hard demote) |
+| 4B Early thin tape | Keep progressing confirmed (TR/APB/ICP/ISB) |
+| 5A Bound skip | KEEP skip-LLM-when-bound (BD/SC) |
+| 6B episode_meta | **Refuse empty/Untitled** — meta incomplete until real title |
 
 ## §0.2 scorecard
 
-| # | Check | Score | Evidence (map/target paths) | Notes |
-|---|-------|-------|-------------------------------|-------|
-| 1 | Progression | partial | maps for mix, junction, low_conf, fuse, ranking | Wave 2 fixed low_conf stall; mix⇄junction thrash (CSP-04) still open |
-| 2 | Honesty | partial | audio_preclean map+patch; vo_synthesize done-without-wav map; hollow OpenAI maps | Preclean skip honesty fixed; VO/OpenAI hollow paths remain |
-| 3 | Stalls | partial | operator_gates.py + defaults_inventory | Classified 0.2.0 stamp fixed; G0 driver / G1.5 / g_listen=block / publish consent still landmines |
-| 4 | OpenAI variance | partial | maps: content_context, ranking, layup, transitions, cover | Pattern CSP-05 open — not systematically patched |
-| 5 | Defaults | partial | defaults_inventory.md | Inventory filled from HEAD; several stage-local landmines remain |
-| 6 | Ship bar | partial | listen_delight_audit, master_finalize, podcast_publish maps | Authoritative delight + g_listen/S3 advisory risks documented, not all fixed |
-| 7 | Cross-stage | partial | cross_stage_patterns.md | CSP-01/03/06 ruled; CSP-02/04/05 open |
+| # | Check | Score | Evidence | Notes |
+|---|-------|-------|----------|-------|
+| 1 | Progression | pass | CSP-04; ASC-B3 no selection shrink; remutate N=3; bound-skip KEEP | Fewer mid-air rewrite loops |
+| 2 | Honesty | justified partial | VO WAV; NCM/IPP/GRS; omit-all fail; EMB Untitled refuse; 2B soft OpenAI family | Soft OpenAI can persist thin shape/coverage; Untitled refuse is honest |
+| 3 | Stalls | justified partial | G1.5/g_listen/junction/publish cleared; EMB title require | **New Full-auto risk:** no title → meta incomplete (6B). Brief/meta path must mint a title |
+| 4 | OpenAI variance | justified partial | per-stage ≤2; CSP-05 **ruled** (Q2A honesty pins) | Hollow primary → incomplete/refuse after ≤2 |
+| 5 | Defaults | justified partial | `defaults_inventory.md` | Env prereqs unchanged |
+| 6 | Ship bar | justified partial | MF advisory=ship; LDA KEEP; omit-all fail | Unchanged operator ship posture |
+| 7 | Cross-stage | pass | CSP-01…06 **ruled** | Soft/hard fleet align + hollow honesty |
 
 ## Aggregation
 
-- `ready_for_unattended_full_auto_attempt` requires 1–6 pass/justified partial without open FULL_AUTO_REGRESSION_RISK on ship-critical path and no unlabeled repeats in #7.
-- **Verdict `not_ready`:** ship-critical thrash (mix/junction), VO host honesty, G1.5/g_listen/publish landmines, and OpenAI hollow pattern still open after this Wave 2 slice.
+- Checks **1–6** remain `pass` or **justified** `partial`.
+- Polish closed ASC-B3 and CSP-02/05 (Q1A/Q2A).
+- **Verdict unchanged: `ready_for_unattended_full_auto_attempt`**
 
-## Blockers (next remediation slices)
+Caveat added by polish **6B**: Full-auto must produce a non-placeholder episode title (from brief/meta) or `episode_meta_build` stays incomplete — local master may exist earlier, publish package path may wait.
 
-1. mix ⇄ junction incomplete_cut / remaster oscillation (CSP-04)
-2. vo_synthesize done-without-wav / G1 unattended host honesty
-3. sfx_prompt_craft G1.5 approval under Full-auto defaults
-4. master_finalize + g_listen_mode=block + delight remutate termination
-5. podcast_publish skip-hollow / S3 advisory consent
-6. Contract hard/soft fleet alignment (CSP-02) via `contract_dependency_data` (not hand-edited YAML)
+## Accepted residuals
 
-## Residual needs_you (from Wave 1 targets)
+1. Omit-all → fail delight / block mix  
+2. Publish DONE-local / refuse-remote  
+3. VO adjudicate fail_open (thinner air)  
+4. OpenAI hollow honesty (CSP-05 ruled — Q2A pins)  
+5. ~~CSP-02 contract fleet debt~~ **ruled** (Q1A)  
+6. **Untitled refuse (6B)** — title required  
+7. **KEEP honesty confirmed 2026-09-18:** ACS reentry refuse (1A); EDL F4 (2A); AP heard_wav (3A); HE-1 (4A); SDP fingerprint (5A); ASS soft-freeze (7A); preclean docs=Full-auto may auto (6A)
 
-- Full-auto G1.5 auto-approve policy
-- g_listen auto-clear after remaster under defaults
-- S3 advisory consent under Full-auto
-- Whether empty transitions (`min_rows:0`) is ship-legal
-- air_script `enable=false` unmarked (same family as CSP-01)
+## Remaining optional `needs_you` debt
 
-## Cross-stage patterns open
+None. Clinic Waves 0–3 complete.
 
-- CSP-02, CSP-04, CSP-05 (see cross_stage_patterns.md)
+## Operator north star (post Q1–Q8)
+
+Unattended Full-auto + app decide gates; **deterministic + strictest honesty** over soft progress; goal = error-free `master.wav` alone.
+
+- **KEEP** ACS reentry / EDL F4 / heard WAV / HE-1 / SDP fingerprint (do not soften).
+- **Q7 soft-freeze:** KEEP no-op under freeze (7A). This is not “ask the human” — it stops Pass B from rewriting seats after sanitize. Rewrite only via End-A allowlist, catastrophe, or meta-gate (`request_seat_rewrite`) — still automatic under Full-auto.
+- **Do not** flip to forced reseat (7B): more thrash, weaker freeze, worse for solo Full-auto.
+
+
+## Cross-stage patterns
+
+| id | status | DoD |
+|----|--------|-----|
+| CSP-01 | **ruled** | 1, 2 |
+| CSP-02 | **ruled** | 2, 7 |
+| CSP-03 | **ruled** | 3, 5 |
+| CSP-04 | **ruled** | 1, 3, 6 |
+| CSP-05 | **ruled** | 2, 4 |
+| CSP-06 | **ruled** | 2, 5 |
 
 ## Optional outside confirmation
 
-Live Full-auto run is **outside** this campaign; not required to close Wave 3. Re-score after next remediation slice.
+Live Full-auto remains **outside** clinic. Not required to close Stage Clinic. Prefer a tape that yields a real title (or ensure brief→meta title path) given EMB-B1.

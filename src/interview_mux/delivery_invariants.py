@@ -439,11 +439,19 @@ def sync_vo_line_owners(ctx: RunContext) -> dict[str, Any]:
 def resolve_g1_vo_open_resume(ctx: RunContext) -> str:
     """Single resume policy for g1_vo_open (Wave 1 / C-01).
 
-    - Record G1 open → never seed-heal into synth loop (pin adjudicate/operator).
+    - Full-auto: rewrite record→synthesize first (VS-B3), then resume as synth.
+    - Record G1 open (manual/partial) → never seed-heal into synth loop
+      (pin adjudicate/operator).
     - Synth G1 + adjudicate seeded (seed-complete **or** done+gap present) → vo_synthesize
     - Synth G1 + adjudicate hollow / ambiguous → vo_line_adjudicate
     - Same fingerprint bounce adjudicate↔synth → stick on vo_synthesize
     """
+    try:
+        from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+
+        rewrite_full_auto_record_lines_to_synth(ctx)
+    except Exception:
+        pass
     owners_doc = sync_vo_line_owners(ctx)
     owners = owners_doc.get("owners") if isinstance(owners_doc, dict) else {}
     if not isinstance(owners, dict):

@@ -48,4 +48,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied SDP-B1 (palettes min_rows only when early_palettes_llm)

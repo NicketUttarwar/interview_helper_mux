@@ -17,9 +17,7 @@ outputs:
 - path: glob:mastering/research/*.json
 - path: mastering/research/routing.json
 inputs:
-  hard:
-  - path: mastering/research/waves.json
-    producer: mastering_research_waves
+  hard: []
   soft:
   - path: ingest/normalized.wav
     producer: ingest
@@ -92,6 +90,8 @@ consumers:
 - mastering_shape_candidates
 - mastering_plan_synthesize
 - mastering_plan_confirm
+- missing_framing
+- gap_framing_compose
 remediation:
   strategies:
   - volley_retry

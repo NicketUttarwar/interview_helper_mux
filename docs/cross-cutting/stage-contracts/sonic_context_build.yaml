@@ -14,20 +14,18 @@ outputs:
   staging: false
 inputs:
   hard:
-  - path: analysis/connector_fuse_audit.json
-    producer: connector_fuse_pass
-  soft:
   - path: understanding/content_brief.json
     producer: content_context
+  - path: segments/manifest.json
+    producer: segment_classification
   - path: understanding/source_acoustic_profile.json
     producer: source_acoustic_profile
+  soft:
   - path: understanding/speakers.json
     producer: speaker_roles
   - path: understanding/value_features.json
   - path: understanding/gap_report.json
     producer: gap_framing_compose
-  - path: segments/manifest.json
-    producer: segment_classification
   - path: transcript/full.json
     producer: transcribe
   - path: transcript/disfluencies.json

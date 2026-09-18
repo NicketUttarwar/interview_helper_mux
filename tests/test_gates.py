@@ -205,3 +205,66 @@ def test_require_analysis_artifacts_complete_noop_in_v2(tmp_path, monkeypatch):
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
     ctx.mark_done("optimal_questions")
     require_analysis_artifacts_complete(ctx)
+
+
+def test_narrative_qc_full_auto_softens_strict_fail(tmp_path, monkeypatch):
+    """FMR-B2: Full-auto QC-fail is advisory continue; manual stays hard."""
+    from interview_mux.gates import check_narrative_qc
+    from interview_mux.operator_quality import qc_summary
+
+    monkeypatch.setattr(
+        "interview_mux.gates.narrative_qc_strict_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.validate_flow1_narrative",
+        lambda *_a, **_k: ["missing chapter callback"],
+    )
+
+    ctx_auto = isolated_run_ctx(tmp_path / "fa", "exec_fmr_b2_auto")
+    ctx_auto.write_json(
+        "run_meta.json",
+        {"run_mode": "full-auto", "full_auto": True},
+        skip_handoff=True,
+    )
+    check_narrative_qc(ctx_auto, stage="full_master_ranking")
+    summary = qc_summary(ctx_auto.read_json("run_meta.json"), "narrative_qc")
+    assert summary["passed"] is False
+    assert summary.get("full_auto_softened") is True
+    assert summary.get("effective_strict") is False
+
+    ctx_manual = isolated_run_ctx(tmp_path / "man", "exec_fmr_b2_manual")
+    ctx_manual.write_json(
+        "run_meta.json",
+        {"run_mode": "manual", "full_auto": False},
+        skip_handoff=True,
+    )
+    with pytest.raises(SystemExit, match="narrative_qc strict"):
+        check_narrative_qc(ctx_manual, stage="full_master_ranking")
+
+
+def test_narrative_qc_already_soft_unchanged_under_full_auto(tmp_path, monkeypatch):
+    """FMR-B2: when narrative_qc.strict is already false, leave soft (no flip)."""
+    from interview_mux.gates import check_narrative_qc
+    from interview_mux.operator_quality import qc_summary
+
+    monkeypatch.setattr(
+        "interview_mux.gates.narrative_qc_strict_enabled",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.validate_flow1_narrative",
+        lambda *_a, **_k: ["soft warn only"],
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_fmr_b2_soft")
+    ctx.write_json(
+        "run_meta.json",
+        {"run_mode": "full-auto", "full_auto": True},
+        skip_handoff=True,
+    )
+    check_narrative_qc(ctx, stage="full_master_ranking")
+    summary = qc_summary(ctx.read_json("run_meta.json"), "narrative_qc")
+    assert summary["passed"] is False
+    assert summary.get("strict") is False
+    assert summary.get("full_auto_softened") is False
+    assert summary.get("effective_strict") is False

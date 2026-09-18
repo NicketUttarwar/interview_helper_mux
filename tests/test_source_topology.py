@@ -329,3 +329,69 @@ def test_delivery_plan_does_not_override_host_when_framing_yes(tmp_path: Path) -
     plan = build_speaker_delivery_plan(ctx)
     assert plan["clone_speaker_id"] == "spk_1"
     assert plan["insert_strategy"] != "self_clone_no_interviewer"
+
+
+def test_stb_contract_hard_transcript_and_no_volley() -> None:
+    """STB-B1/B2/B4/B5: hard speakers+transcript; no volley; no optimal_questions."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("source_topology_build")
+    assert contract is not None
+    hard = {d.path for d in contract.inputs if d.hard and d.path}
+    soft = {d.path for d in contract.inputs if not d.hard and d.path}
+    assert hard == {
+        "understanding/speakers.json",
+        "transcript/full.json",
+    }
+    assert "ingest/normalized.wav" in soft
+    assert contract.remediation == ["full_stage_rerun"] or (
+        "full_stage_rerun" in contract.remediation and "volley_retry" not in contract.remediation
+    )
+    assert "llm_execute" not in (contract.lifecycle_phases or [])
+    assert "optimal_questions" not in (contract.propagation or [])
+
+
+def test_stb_topology_build_does_not_call_pickup_auto_confirm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """STB-B3: mid-seed pickup confirm is not invoked from topology body."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    calls: list[str] = []
+
+    def _spy(ctx):
+        calls.append("confirm")
+        return False
+
+    monkeypatch.setattr(
+        "interview_mux.source_topology.maybe_auto_confirm_pickup_speaker",
+        _spy,
+    )
+    from interview_mux.source_topology import run_source_topology_build
+
+    ctx = RunContext(str(tmp_path / "stb_topo"), create=True)
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
+                {"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello world",
+            "words": [
+                {"text": "hello", "start_ms": 0, "end_ms": 200, "speaker_id": "spk_0"},
+                {"text": "world", "start_ms": 250, "end_ms": 500, "speaker_id": "spk_1"},
+            ],
+        },
+        skip_handoff=True,
+    )
+    run_source_topology_build(ctx)
+    assert calls == []
+    assert ctx.is_done("source_topology_build")
+    assert ctx.artifact_exists("understanding/source_topology.json")
+    assert ctx.artifact_exists("understanding/flow_adaptation.json")

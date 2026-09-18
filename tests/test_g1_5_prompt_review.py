@@ -4,8 +4,86 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from interview_mux.sfx_prompt_review import (
+    can_run_sfx_generation,
+    maybe_auto_approve_prompt_review,
+)
 from interview_mux.web.server import create_app
 from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config, patch_server_ctx
+
+
+def _write_prompts_with_soft_warning(ctx) -> None:
+    """Prompts pass schema but SDP alignment warning fires (missing SDP)."""
+    ctx.write_json(
+        "sound_design/sfx_prompts.json",
+        {
+            "prompts": [
+                {
+                    "asset_id": "sting_a",
+                    "sfx_prompt": "Warm podcast sting, no vocals.",
+                    "duration_seconds": 1.5,
+                    "negative_prompt": "speech",
+                }
+            ]
+        },
+    )
+
+
+def test_g15_full_auto_auto_approves_with_soft_warnings(tmp_path, monkeypatch) -> None:
+    """SPC-B2: Full-auto auto-approves G1.5 even when completeness QA has soft warnings."""
+    patch_merged_config(monkeypatch, {"g1_5_require_prompt_approval": True})
+    ctx = isolated_run_ctx(tmp_path, "run_g15_fa_warn")
+    init_run_meta_for_test(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["full_auto"] = True
+    meta["run_mode"] = "full-auto"
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    _write_prompts_with_soft_warning(ctx)
+
+    assert maybe_auto_approve_prompt_review(ctx) is True
+    review = ctx.read_json("run_meta.json")["sfx_prompt_review"]
+    assert review["approved"] is True
+    assert review["approved_by"] == "auto_full_auto"
+    ok, _ = can_run_sfx_generation(ctx)
+    assert ok is True
+
+
+def test_g15_partial_does_not_auto_approve_with_soft_warnings(tmp_path, monkeypatch) -> None:
+    """SPC-B2: Partial keeps G1.5 wait when soft warnings present."""
+    patch_merged_config(monkeypatch, {"g1_5_require_prompt_approval": True})
+    ctx = isolated_run_ctx(tmp_path, "run_g15_partial_warn")
+    init_run_meta_for_test(ctx)
+    meta = ctx.read_json("run_meta.json")
+    meta["partial_auto"] = True
+    meta["run_mode"] = "partially-accelerated"
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    _write_prompts_with_soft_warning(ctx)
+
+    assert maybe_auto_approve_prompt_review(ctx) is False
+    ok, msg = can_run_sfx_generation(ctx)
+    assert ok is False
+    assert "G1.5" in msg
+
+
+def test_g15_first_try_green_still_auto_approves(tmp_path, monkeypatch) -> None:
+    """first_try + green QA still auto-approves outside Full-auto."""
+    patch_merged_config(
+        monkeypatch,
+        {
+            "g1_5_require_prompt_approval": True,
+            "journey_ui": {"first_try_mode": True},
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "run_g15_ft_green")
+    init_run_meta_for_test(ctx)
+    _write_prompts_with_soft_warning(ctx)
+    monkeypatch.setattr(
+        "interview_mux.sfx_prompt_review.prompt_completeness_warnings",
+        lambda *_a, **_k: [],
+    )
+
+    assert maybe_auto_approve_prompt_review(ctx) is True
+    assert ctx.read_json("run_meta.json")["sfx_prompt_review"]["approved_by"] == "auto_qa_green"
 
 
 def test_sfx_prompts_get_put_approve(tmp_path, monkeypatch) -> None:

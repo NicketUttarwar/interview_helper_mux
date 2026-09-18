@@ -135,6 +135,7 @@ def test_dominant_roles_longest_speaker_is_not_interviewer() -> None:
 
 
 def test_fallback_speakers_artifact_validates() -> None:
+    """SR-B2: mixed-diarization fallback is a schema-valid Full-auto honesty path."""
     artifact = fallback_speakers_artifact(
         [
             {"speaker_id": "spk_0", "talk_ms": 90_000, "question_count": 2, "turn_count": 10},
@@ -143,6 +144,19 @@ def test_fallback_speakers_artifact_validates() -> None:
     )
     assert artifact is not None
     assert not validate_stage_artifacts("speaker_roles", artifact)
+
+
+def test_speaker_roles_contract_spine_is_soft_not_hard() -> None:
+    """SR-B1: interview_spine must not be a hard PRESTAGE gate."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("speaker_roles")
+    assert contract is not None
+    hard = {d.path for d in contract.inputs if d.hard and d.path}
+    soft = {d.path for d in contract.inputs if not d.hard and d.path}
+    assert "transcript/full.json" in hard
+    assert "understanding/interview_spine.json" not in hard
+    assert "understanding/interview_spine.json" in soft
 
 
 def test_persist_mixed_diarization_fallback_writes_speakers(tmp_path) -> None:

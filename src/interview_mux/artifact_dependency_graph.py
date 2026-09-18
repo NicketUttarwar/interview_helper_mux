@@ -21,14 +21,12 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "sonic_context_build",
         "sound_design_palettes",
         "missing_framing",
-        "optimal_questions",
     ),
     "segment_classification": (
         "content_brief_reanchor",
         "sonic_context_build",
         "sound_design_palettes",
         "missing_framing",
-        "optimal_questions",
     ),
     "speaker_roles": ("content_context", "boundary_detection", "segment_classification", "source_topology_build"),
     "source_topology_build": (
@@ -36,7 +34,6 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "boundary_detection",
         "segment_classification",
         "missing_framing",
-        "optimal_questions",
         "narrative_arc_plan",
         "full_master_ranking",
         "sound_design_plan",
@@ -54,7 +51,6 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "sonic_context_build",
         "sound_design_palettes",
         "missing_framing",
-        "optimal_questions",
     ),
     "boundary_topic_resplit": (
         "segment_classification",
@@ -107,8 +103,9 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "connector_fuse_pass_pre_ranking",
         "full_master_ranking",
     ),
+    # EMB-B3: episode_meta_build does not read master transcript — only podcast_publish
+    # consumes VTT/txt; stop over-invalidate of meta on transcript rebuild.
     "master_transcript_build": (
-        "episode_meta_build",
         "podcast_publish",
     ),
     "full_master_ranking": (
@@ -136,11 +133,21 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "vo_synthesize",
         "edl",
     ),
+    # GRS-B3: match artifact_sanitize.invalidate `_SANITIZE_CASCADE` for
+    # understanding/gap_report.json (marker-only VO/EDL; no music wipe).
+    "gap_report_sanitize": (
+        "vo_line_adjudicate",
+        "vo_synthesize",
+        "edl_narrative_audit",
+        "edl",
+        "assembly_preview",
+    ),
     "transitions": ("sound_design_plan", "vo_line_adjudicate", "vo_synthesize", "edl"),
     "sound_design_plan": ("sfx_prompt_craft", "vo_line_adjudicate", "vo_synthesize", "edl"),
-    "sound_design_vo_finalize": ("vo_line_adjudicate", "vo_synthesize", "edl_narrative_audit", "edl"),
+    # SDVF-B3 / ENA-B3 (8B): no reverse invalidate of VO adjudicate/synth (thrash).
+    "sound_design_vo_finalize": ("edl_narrative_audit", "edl"),
     "vo_line_adjudicate": ("vo_synthesize", "edl_narrative_audit", "edl"),
-    "edl_narrative_audit": ("vo_synthesize", "edl"),
+    "edl_narrative_audit": ("edl",),
     "vo_synthesize": ("edl_narrative_audit", "edl"),
     "g1_vo_pickup": (
         "sound_design_vo_finalize",

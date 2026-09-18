@@ -9,12 +9,9 @@ pipeline runners. Live Pass-2 path:
 
 from __future__ import annotations
 
-import copy
 from typing import Any, Iterable
 
-from interview_mux.refinement_accept import accept_gap_recompose
 from interview_mux.refinement_champion import seed_champion
-from interview_mux.refinement_evidence import build_evidence_packet
 from interview_mux.refinement_flow_integrity import (
     DRAFT_REL,
     FINAL_REL,
@@ -22,7 +19,7 @@ from interview_mux.refinement_flow_integrity import (
     ensure_gap_report_authoritative,
     skip_copy_draft_to_final,
 )
-from interview_mux.refinement_gate import decide_pass, freeze_inputs
+from interview_mux.refinement_gate import decide_pass
 from interview_mux.refinement_identity import cfi_for_pass
 from interview_mux.refinement_ledger import record_call
 from interview_mux.refinement_outcome import append_listener_outcome
@@ -62,7 +59,7 @@ def persist_pass2_skip_stub(ctx: RunContext, stage: str, *, skip_reason: str) ->
 
 
 def persist_apply_refuse_stub(ctx: RunContext, *, reason: str) -> None:
-    """HF-1: missing/invalid selection is not apply-complete."""
+    """HF-1 / SFA-B2: missing/invalid selection is not apply-complete (no heal)."""
     ctx.write_json(
         APPLY_REL,
         {"skipped": False, "refused": True, "reason": str(reason or "refused")},
@@ -202,26 +199,6 @@ def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any
 
 
 def run_gap_framing_recompose(ctx: RunContext) -> None:
-    try:
-        from interview_mux.seat_authority import gate_seat_mutation
-
-        if not gate_seat_mutation(
-            ctx,
-            reason="gap_framing_recompose",
-            symptoms=["refinement"],
-        ):
-            ctx.log(
-                "gap_framing_recompose: seat freeze blocked (no-op)",
-                level="info",
-                stage="gap_framing_recompose",
-            )
-            persist_pass2_skip_stub(
-                ctx, "gap_framing_recompose", skip_reason="seat_freeze"
-            )
-            _heal_pass2(ctx, "gap_framing_recompose")
-            return
-    except Exception:
-        pass
     """Post-ranking gap VO recompose — or skip-copy for flow integrity.
 
     When the Nugget Layup System owns gap_report, this stage is a thin adapter:
@@ -291,165 +268,25 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             _finish_pass2(ctx, "gap_framing_recompose")
             return
 
+    # GFR-B3: legacy non-layup activate / deterministic-filter path retired.
+    # Full-auto default is layup authority above; otherwise skip-copy only.
     dual_write_draft_from_compose(ctx)
     if ctx.artifact_exists(FINAL_REL) and not ctx.artifact_exists(DRAFT_REL):
         dual_write_draft_from_compose(ctx)
 
     decision = decide_pass(ctx, "gap_framing_recompose")
-    if decision.get("status") != "activate":
-        skip_copy_draft_to_final(ctx, reason=str(decision.get("reason_code") or "skipped"))
-        maybe_write_shadow_score(ctx, "gap_framing_recompose")
-        append_listener_outcome(ctx, "gap_recompose_skipped", decision)
-        after_gap_recompose_or_skip(ctx)
-        _finish_pass2(ctx, "gap_framing_recompose")
-        return
-
-    row_paths = [
-        DRAFT_REL if ctx.artifact_exists(DRAFT_REL) else FINAL_REL,
-        "master/selection.json",
-        "master/narrative_plan.json",
-        "master/coverage_audit.json",
-    ]
-    row_paths = [p for p in row_paths if ctx.artifact_exists(p) or p.endswith("gap_report")]
-    digest = freeze_inputs(ctx, "gap_framing_recompose", [p for p in row_paths if ctx.artifact_exists(p)])
-    packet = build_evidence_packet(ctx, "gap_framing_recompose")
-
-    draft = packet.get("artifacts", {}).get("draft_gap_report") or {}
-    if not isinstance(draft, dict):
-        draft = ctx.read_json(DRAFT_REL) if ctx.artifact_exists(DRAFT_REL) else ensure_gap_report_authoritative(ctx)
-
-    ordered = []
-    sel = packet.get("artifacts", {}).get("selection")
-    if isinstance(sel, dict):
-        ordered = [str(x) for x in (sel.get("ordered_segment_ids") or [])]
-
-    # Deterministic recompose: drop lines targeting non-kept segments; keep operator pins
-    # Long tapes: process by act/chapter shards inside one CFI (mid-pass).
-    from interview_mux.refinement_midpass import run_sharded
-
-    chapters = None
-    narr = packet.get("artifacts", {}).get("narrative_plan")
-    if isinstance(narr, dict):
-        chapters = narr.get("chapters") if isinstance(narr.get("chapters"), list) else None
-
-    def _process_shard(shard: list[dict[str, Any]], _idx: int) -> dict[str, Any]:
-        kept: list[dict[str, Any]] = []
-        shard_decisions: list[dict[str, Any]] = []
-        for line in shard:
-            if not isinstance(line, dict):
-                continue
-            lid = str(line.get("line_id") or "")
-            tid = str(line.get("targets_segment_id") or "")
-            origin = str(line.get("origin") or "draft")
-            cat = str(line.get("line_category") or "")
-            if origin == "operator":
-                kept.append({**line, "origin": "operator", "recompose_action": "kept"})
-                shard_decisions.append({"line_id": lid, "action": "kept", "reason": "operator_pin"})
-                continue
-            if cat in ("episode_preface",) or line.get("cold_open"):
-                kept.append({**line, "origin": "recompose", "recompose_action": "kept"})
-                shard_decisions.append({"line_id": lid, "action": "kept", "reason": "preface_or_open"})
-                continue
-            if origin == "nugget_layup" or str(line.get("gap_type") or "") == "nugget_layup":
-                # Layups already target kept natives; never drop as off-selection recovery.
-                kept.append({**line, "origin": "nugget_layup", "recompose_action": "kept"})
-                shard_decisions.append({"line_id": lid, "action": "kept", "reason": "nugget_layup"})
-                continue
-            if oset is not None and tid and tid not in oset:
-                supports = [str(s) for s in (line.get("supports_segment_ids") or [])]
-                if not any(s in oset for s in supports):
-                    shard_decisions.append({"line_id": lid, "action": "dropped", "reason": "target_not_in_selection"})
-                    continue
-            kept.append({**line, "origin": "recompose", "recompose_action": "kept"})
-            shard_decisions.append({"line_id": lid, "action": "kept", "reason": "supports_kept_order"})
-        return {"ok": True, "accepted": True, "lines": kept, "decisions": shard_decisions}
-
-    candidate = copy.deepcopy(draft) if isinstance(draft, dict) else {"interviewer_lines": []}
-    lines_in = list(candidate.get("interviewer_lines") or [])
-    oset = set(ordered) if ordered else None
-    sharded = run_sharded(lines_in, _process_shard, chapters=chapters)
-    if sharded.get("quarantine"):
-        skip_copy_draft_to_final(ctx, reason=str(sharded.get("reason_code") or "shard_fail"))
-        append_listener_outcome(ctx, "gap_recompose_quarantine", sharded)
-        after_gap_recompose_or_skip(ctx)
-        _finish_pass2(ctx, "gap_framing_recompose")
-        return
-
-    kept_lines = list(sharded.get("lines") or [])
-    decisions: list[dict[str, Any]] = []
-    for sr in sharded.get("shard_results") or []:
-        if isinstance(sr, dict):
-            decisions.extend(list(sr.get("decisions") or []))
-
-    candidate["interviewer_lines"] = kept_lines
-    try:
-        from interview_mux.gap_vo_prior_context import (
-            load_ordered_and_segments,
-            prior_context_cfg,
-            stamp_lines_prior_provenance,
-            write_gap_vo_context_audit,
-        )
-
-        stamped = stamp_lines_prior_provenance(ctx, kept_lines)
-        ordered, by_id, chapters = load_ordered_and_segments(ctx)
-        settings = prior_context_cfg()
-        kept_lines = courtesy_rewrite_lines_if_sanitary(
-            ctx,
-            candidate,
-            stamped,
-            ordered=ordered,
-            by_id=by_id,
-            chapters=chapters,
-            settings=settings,
-        )
-        candidate["interviewer_lines"] = kept_lines
-        write_gap_vo_context_audit(ctx, kept_lines)
-    except Exception:
-        pass
-    try:
-        from interview_mux.artifact_repairs import repair_gap_report
-
-        repaired, notes = repair_gap_report(ctx, candidate)
-        if notes:
-            candidate = repaired
-            kept_lines = list(candidate.get("interviewer_lines") or [])
-            ctx.log(
-                f"gap_framing_recompose: post-merge repair ({len(notes)} note(s))",
-                level="info",
-                stage="gap_framing_recompose",
-            )
-    except Exception:
-        pass
-    from interview_mux.opening_orientation import ensure_episode_orientation
-
-    candidate, opening_actions = ensure_episode_orientation(ctx, candidate, ordered)
-    if opening_actions:
-        decisions.extend(opening_actions)
-        kept_lines = list(candidate.get("interviewer_lines") or [])
-    candidate["_meta"] = {
-        "producer": "gap_framing_recompose",
-        "producer_stage": "gap_framing_recompose",
-        "kill_dull": True,
-        "shard_count": sharded.get("shard_count"),
-    }
-    plan = None
-    if ctx.artifact_exists("understanding/gap_framing_plan.json"):
-        plan = ctx.read_json("understanding/gap_framing_plan.json")
-
-    result = accept_gap_recompose(ctx, candidate, plan if isinstance(plan, dict) else None)
-    ctx.write_json(
-        "understanding/gap_framing_recompose.json",
-        {"decisions": decisions, "accept": result, "input_hash": digest},
-    )
-    _record_refinement(
-        ctx,
-        "gap_framing_recompose",
-        "ok" if result.get("accepted") else str(result.get("reason_code") or "rejected"),
-        gate=str(decision.get("gate") or "deterministic"),
-        input_hash=digest,
-        detail={"accept": result.get("reason_code")},
-    )
-    append_listener_outcome(ctx, "gap_recompose", result)
+    skip_reason = str(decision.get("reason_code") or "skipped")
+    if decision.get("status") == "activate":
+        skip_reason = "legacy_activate_retired"
+        decision = {
+            **decision,
+            "status": "skip",
+            "reason_code": skip_reason,
+            "legacy_activate_retired": True,
+        }
+    skip_copy_draft_to_final(ctx, reason=skip_reason)
+    maybe_write_shadow_score(ctx, "gap_framing_recompose")
+    append_listener_outcome(ctx, "gap_recompose_skipped", decision)
     after_gap_recompose_or_skip(ctx)
     _finish_pass2(ctx, "gap_framing_recompose")
 

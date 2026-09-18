@@ -21,6 +21,11 @@ brain: 0.2.0 | target_status: draft
 | B1 | P1 | unambiguous | Assert non-empty prompt before done | incompleteness | 2 | no |
 | B2 | P2 | unambiguous | Contract soft meta | YAML | 7 | no |
 
+## Wave 2 applied
+
+- B1: `_episode_cover_prompt_craft_incompleteness` — empty `prompt` refuses heal/done
+- B2: dependency_data hard:[] + soft meta/brief/selection; bootstrap + seed allowlists
+
 ## Defaults inventory impact
 
 - none

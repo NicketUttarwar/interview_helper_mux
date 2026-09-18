@@ -1,5 +1,5 @@
 stage_id: connector_fuse_pass
-tier: process
+tier: llm_full
 lifecycle:
   phases:
   - prestage
@@ -11,20 +11,20 @@ lifecycle:
 outputs:
 - path: analysis/connector_fuse_audit.json
   schema: null
-  staging: false
+  staging: true
 - path: analysis/connector_seam_packets.json
   staging: true
 - path: segments/manifest.json
   staging: true
 inputs:
-  hard:
-  - path: analysis/low_conf_islands.json
-    producer: low_conf_island_scan
+  hard: []
   soft:
   - path: segments/manifest.json
     producer: segment_classification
   - path: transcript/full.json
     producer: transcribe
+  - path: analysis/low_conf_islands.json
+    producer: low_conf_island_scan
   - path: analysis/low_conf_must_keep.json
     producer: low_conf_island_scan
 sufficiency: []

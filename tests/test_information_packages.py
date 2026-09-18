@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from interview_mux.artifact_repairs import repair_sound_design_plan
 from interview_mux.information_packages import (
     AUDIT_REL,
@@ -466,3 +468,30 @@ def test_repair_drops_overlap_high_bed_cues():
     sdp_path.write_text(json.dumps(repaired), encoding="utf-8")
     errors = validate_post_sound_plan(ctx)
     assert not any("overlap_high" in e for e in errors)
+
+
+def test_ipp_b2_empty_corpus_refuses_done(monkeypatch):
+    """IPP-B2: require_corpus + empty corpus → incomplete (not warn-and-done)."""
+    ctx = RunContext("exec_info_pkg_empty_corpus", create=True)
+    ordered = [f"seg_{i:03d}" for i in range(1, 4)]
+    _seed_run(ctx, ordered=ordered)
+    ctx.write_json("understanding/nugget_corpus.json", {"nuggets": []})
+    from interview_mux import information_packages as ip
+
+    original = ip.information_packages_cfg
+
+    def _cfg(_c=None):
+        c = original(_c)
+        c["enable"] = True
+        c["require_corpus"] = True
+        c["mode"] = "shadow"
+        return c
+
+    monkeypatch.setattr(ip, "information_packages_cfg", _cfg)
+    with pytest.raises(RuntimeError, match="information_package_corpus_missing|corpus"):
+        run_information_package_plan(ctx)
+    assert not ctx.is_done("information_package_plan")
+    assert ctx.artifact_exists(CANDIDATES_REL)
+    assert ctx.artifact_exists(AUDIT_REL)
+    cand = ctx.read_json(CANDIDATES_REL)
+    assert "corpus_missing_or_empty" in (cand.get("warnings") or [])

@@ -225,7 +225,7 @@
   },
   {
     "action_id": "gui.sfx_prompts.approve_auto",
-    "description": "G1.5 auto-approve when prompt QA green",
+    "description": "G1.5 auto-approve: Full-auto (incl. soft warnings) or first_try when QA green",
     "implementation": "sfx_prompt_review.py#maybe_auto_approve_prompt_review",
     "stage": "sfx_prompt_craft",
     "origin": "pipeline",

@@ -18,7 +18,7 @@ brain: 0.2.0 | target_status: draft
 - refuse live incomplete cuts (junction_recut_precedes_mix)
 - incomplete unseated assembly
 - precise remaster without wipe EDL
-- auto_resolve_default g_listen for Full-auto only (needs_you)
+- auto_resolve_default g_listen for Full-auto only (shared helper; Partial keeps block)
 
 ## Complexity subtraction
 
@@ -39,8 +39,8 @@ brain: 0.2.0 | target_status: draft
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | B1 | P0 | unambiguous | Align contract hard: edl+SDP | dependency data | 7 | no |
 | B2 | P0 | unambiguous | Keep/assert junction-first incomplete-cut invariant | thrash tests | 1 | no |
-| B3 | P0 | needs_you | Full-auto g_listen auto-clear vs default warn | defaults inventory | 3,5 | yes |
-| B4 | P1 | needs_you | VO soft vs SFX hard under creative_delivery | completeness | 6 | yes |
+| B3 | P0 | done | Full-auto g_listen auto-clear vs default warn | shared helper after mix arm + finalize | 3,5 | no (Full-auto fixed; Partial keeps block) |
+| B4 | P1 | done | VO soft vs SFX hard under creative_delivery | keep as-is (operator) | 6 | no |
 | B5 | P1 | unambiguous | Drop llm_execute from mix lifecycle | YAML | 7 | no |
 
 ## Defaults inventory impact

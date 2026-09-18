@@ -15,7 +15,33 @@ from interview_mux.stage_completion import heal_or_refuse_mark, stage_artifact_i
 
 def run_interview_spine_build(ctx: RunContext) -> None:
     if not spine_enabled():
-        ctx.log("Interview spine disabled in config.", level="info", stage="interview_spine_build")
+        # ISB-B2 + ISB-B1 KEEP: schema-valid skip stub + heal; stay in seed (4B).
+        from datetime import datetime, timezone
+
+        stub = {
+            "schema_version": 1,
+            "derived_from": {
+                "normalized_wav": "ingest/normalized.wav",
+                "transcript": "transcript/full.json",
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "stage": "interview_spine_build",
+            },
+            "encoders": {"dsp": "skipped", "clap": None, "ssl": None},
+            "window_policy": {"window_sec": 8.0, "hop_sec": 4.0, "align_to": "words"},
+            "windows": [],
+            "boundary_events": [],
+            "retrieval": {"enabled": False, "model_id": None, "window_count": 0},
+            "speaker_stats": [],
+            "skipped": "spine_disabled",
+            "source": "stub",
+        }
+        ctx.write_json("understanding/interview_spine.json", stub, stage_key="interview_spine_build")
+        ctx.log(
+            "Interview spine disabled in config — wrote skip stub.",
+            level="info",
+            stage="interview_spine_build",
+            action_id="interview_spine.skip",
+        )
         heal_or_refuse_mark(ctx, "interview_spine_build", force=True)
         return
 

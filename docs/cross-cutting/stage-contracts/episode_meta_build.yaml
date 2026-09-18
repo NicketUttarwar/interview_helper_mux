@@ -16,7 +16,11 @@ inputs:
   hard:
   - path: master/selection.json
     producer: full_master_ranking
-  soft: []
+  soft:
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
 sufficiency:
 - path: title
   rule: non_empty_string

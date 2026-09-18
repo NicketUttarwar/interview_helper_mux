@@ -281,6 +281,35 @@ def test_gap_fill_skip_stub_incomplete_when_framing_enabled(tmp_path, monkeypatc
     assert reason and "skip stub" in reason
 
 
+def test_gfc_b2_zero_line_compose_incomplete_when_framing_yes(tmp_path, monkeypatch):
+    """CSP-05 / GFC-B2: framing Yes + zero compose lines → incomplete (not soft-done)."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_research.research_shape_core_thin",
+        lambda _ctx: False,
+    )
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [],
+            "gaps": [],
+            "_meta": {
+                "producer": "gap_framing_compose",
+                "producer_stage": "gap_framing_compose",
+            },
+        },
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "gap_framing_compose")
+    assert reason and "zero interviewer_lines" in reason
+    assert "OpenAI primary" in reason or "framing Yes" in reason
+
+
 def test_stale_required_artifact_is_incomplete(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext(create=True)

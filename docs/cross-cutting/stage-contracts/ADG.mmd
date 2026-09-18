@@ -22,12 +22,10 @@ flowchart LR
   boundary_detection -->|I| sonic_context_build
   boundary_detection -->|I| sound_design_palettes
   boundary_detection -->|I| missing_framing
-  boundary_detection -->|I| optimal_questions
   segment_classification -->|I| content_brief_reanchor
   segment_classification -->|I| sonic_context_build
   segment_classification -->|I| sound_design_palettes
   segment_classification -->|I| missing_framing
-  segment_classification -->|I| optimal_questions
   speaker_roles -->|I| content_context
   speaker_roles -->|I| boundary_detection
   speaker_roles -->|I| segment_classification
@@ -36,7 +34,6 @@ flowchart LR
   source_topology_build -->|I| boundary_detection
   source_topology_build -->|I| segment_classification
   source_topology_build -->|I| missing_framing
-  source_topology_build -->|I| optimal_questions
   source_topology_build -->|I| narrative_arc_plan
   source_topology_build -->|I| full_master_ranking
   source_topology_build -->|I| sound_design_plan
@@ -50,7 +47,6 @@ flowchart LR
   content_brief_reanchor -->|I| sonic_context_build
   content_brief_reanchor -->|I| sound_design_palettes
   content_brief_reanchor -->|I| missing_framing
-  content_brief_reanchor -->|I| optimal_questions
   boundary_topic_resplit -->|I| segment_classification
   boundary_topic_resplit -->|I| sonic_context_build
   boundary_topic_resplit -->|I| sound_design_palettes
@@ -87,7 +83,6 @@ flowchart LR
   narrative_arc_plan -->|I| transitions
   chapter_close_hitch -->|I| connector_fuse_pass_pre_ranking
   chapter_close_hitch -->|I| full_master_ranking
-  master_transcript_build -->|I| episode_meta_build
   master_transcript_build -->|I| podcast_publish
   full_master_ranking -->|I| nugget_corpus_mine
   full_master_ranking -->|I| nugget_layup_compose
@@ -106,6 +101,11 @@ flowchart LR
   nugget_layup_compose -->|I| vo_line_adjudicate
   nugget_layup_compose -->|I| vo_synthesize
   nugget_layup_compose -->|I| edl
+  gap_report_sanitize -->|I| vo_line_adjudicate
+  gap_report_sanitize -->|I| vo_synthesize
+  gap_report_sanitize -->|I| edl_narrative_audit
+  gap_report_sanitize -->|I| edl
+  gap_report_sanitize -->|I| assembly_preview
   transitions -->|I| sound_design_plan
   transitions -->|I| vo_line_adjudicate
   transitions -->|I| vo_synthesize

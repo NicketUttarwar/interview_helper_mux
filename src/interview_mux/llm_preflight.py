@@ -20,7 +20,12 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
     ),
     "narrative_arc_plan": ("master/coverage_audit.json",),
     "full_master_ranking": ("master/narrative_plan.json",),
-    "transitions": ("master/selection.json",),
+    # Stage Clinic transitions-B2: brief + gap match build_input hard reads.
+    "transitions": (
+        "master/selection.json",
+        "understanding/content_brief.json",
+        "understanding/gap_report.json",
+    ),
     "podcast_sfx_brief": ("master/selection.json",),
     "sound_design_plan": ("understanding/sound_design_plan.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
@@ -124,6 +129,11 @@ def _preflight_content_context(ctx: RunContext) -> list[str]:
     if not any(role_is_frame(r) for r in roles):
         errors.append(
             "speakers.json missing frame role (interviewer/moderator/co_host) — re-run Speaker roles"
+        )
+    # CC-B1: contract SEED_ORDER hard topology — match body refuse before LLM.
+    if not ctx.artifact_exists("understanding/source_topology.json"):
+        errors.append(
+            "understanding/source_topology.json missing — run Source topology first"
         )
     errors.extend(_spine_preflight(ctx))
     return errors
@@ -411,7 +421,15 @@ def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
 
 
 def _preflight_transitions(ctx: RunContext) -> list[str]:
-    return _check_upstream_artifacts(ctx, ("master/selection.json",))
+    # Stage Clinic transitions-B2: refuse when payload hard reads would crash.
+    return _check_upstream_artifacts(
+        ctx,
+        (
+            "master/selection.json",
+            "understanding/content_brief.json",
+            "understanding/gap_report.json",
+        ),
+    )
 
 
 def _preflight_topic_coverage(ctx: RunContext) -> list[str]:

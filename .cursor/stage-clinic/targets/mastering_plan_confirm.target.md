@@ -34,8 +34,8 @@ brain: 0.2.0 | target_status: draft
 
 ## Defaults inventory impact
 
-- Stage-local landmine: soft_gate.enable=false no-op
+- soft_gate.enable=false: Wave 2 MPC-B1 writes forced confirmed sparse (no silent no-op)
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied MPC-B1; B2 still `needs_you`

@@ -48,4 +48,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied MRRoll-B1/B3; MRRoll-B2 still `needs_you`

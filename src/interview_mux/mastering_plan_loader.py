@@ -288,10 +288,11 @@ def shape_llm_enabled(cfg: dict[str, Any] | None = None) -> bool:
 
 
 def soft_gate_may_claim_complete(cfg: dict[str, Any] | None = None) -> bool:
-    """A-03: soft_gate/heuristic is never authoritative — always False.
+    """A-03 / MPS-B1: soft_gate/heuristic is never authoritative — always False.
 
     Decoupled from research.llm / shape.llm: plan authority is Shape-LLM-only
     via claim_plan_complete(source=\"llm\"). Research flag only gates routing.
+    Do not flip this to True under defaults — consumers_bind stays advisory.
     """
     _ = cfg  # reserved for future policy; soft-gate never claims complete
     return False
@@ -302,7 +303,10 @@ def claim_plan_complete(
     source: Literal["llm", "soft_gate"],
     cfg: dict[str, Any] | None = None,
 ) -> PlanStatus:
-    """Authoritative complete only from LLM when shape.llm enabled; soft_gate always degraded."""
+    """Authoritative complete only from LLM when shape.llm enabled.
+
+    MPS-B1 / A-03: ``source=\"soft_gate\"`` is always ``degraded`` (never complete).
+    """
     if source == "llm":
         return "complete" if shape_llm_enabled(cfg) else "degraded"
     if source == "soft_gate":

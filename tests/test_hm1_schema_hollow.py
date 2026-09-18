@@ -21,6 +21,7 @@ from interview_mux.mastering_research import (
 )
 from interview_mux.mastering_shape_runtime import (
     ensure_schema_agenda,
+    run_mastering_plan_confirm,
     run_mastering_shape_agenda,
     run_mastering_shape_candidates,
 )
@@ -114,9 +115,12 @@ def test_hm1_waves_and_rollup_write_schema_and_mark(ctx: RunContext) -> None:
     assert isinstance(waves.get("waves"), list)
     assert ctx.is_done(_WAVES)
     rollup = ctx.read_json("mastering/research/rollup.json")
+    dossier = ctx.read_json("mastering/research_dossier.json")
     assert isinstance(rollup.get("fields"), dict)
     assert isinstance(rollup.get("field_reports"), list)
     assert isinstance(rollup.get("salience_map"), dict)
+    # MRRoll-B3: identical payload on both SSOT paths.
+    assert dossier == rollup
     assert ctx.is_done(_ROLLUP)
     assert stage_artifact_incompleteness(ctx, _ROLLUP) is None
 
@@ -143,6 +147,23 @@ def test_hm1_heuristic_agenda_maps_schema_and_marks(ctx: RunContext) -> None:
     assert seed_stage_complete(ctx, _AGENDA) is True
 
 
+def test_msa_soft_gate_disabled_writes_skip_stub(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MSA-B2: soft_gate off → schema skip stub + done (not hollow limbo)."""
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.soft_gate_enabled",
+        lambda: False,
+    )
+    run_mastering_shape_agenda(ctx)
+    agenda = ctx.read_json("mastering/shape/agenda.json")
+    assert agenda.get("source") == "stub"
+    assert agenda.get("skipped") == "soft_gate_disabled"
+    assert validate_mastering_shape_agenda(agenda) == []
+    assert ctx.is_done(_AGENDA)
+    assert stage_artifact_incompleteness(ctx, _AGENDA) is None
+
+
 def test_hm1_ensure_schema_agenda_fills_missing_keys() -> None:
     out = ensure_schema_agenda(
         {"version": 1, "mode_candidates": ["sparse_source"], "custom_steps": [{"id": "a", "goal": "g"}]}
@@ -162,10 +183,69 @@ def test_hm1_candidates_heuristic_marks(ctx: RunContext) -> None:
     assert stage_artifact_incompleteness(ctx, _CAND) is None
 
 
+def test_msc_b1_empty_modes_forced_sparse_survivor(ctx: RunContext) -> None:
+    """MSC-B1: explicit empty mode_candidates still yields ≥1 forced-sparse survivor + done."""
+    from interview_mux.prompt_validation import validate_mastering_shape_candidates
+
+    ctx.write_json(
+        "mastering/shape/agenda.json",
+        {
+            "version": 1,
+            "pass": "provisional",
+            "source": "heuristic",
+            "mode_candidates": [],
+            "steps": [{"step_id": "compete", "goal": "best listen"}],
+            "budgets": {"max_steps": 1, "max_prompt_edits": 0, "max_flagship_calls": 0},
+            "north_star_pillars": ["finishability"],
+            "generated_at": "2026-01-01T00:00:00+00:00",
+        },
+        stage_key="mastering_shape_agenda",
+    )
+    run_mastering_shape_candidates(ctx)
+    doc = ctx.read_json("mastering/shape/candidates.json")
+    cands = doc.get("candidates") or []
+    assert len(cands) >= 1
+    assert cands[0].get("candidate_id") == "cand_forced_sparse"
+    assert cands[0].get("narrative_mode") == "sparse_source"
+    assert doc.get("source") == "heuristic"
+    assert validate_mastering_shape_candidates(doc) == []
+    assert ctx.is_done(_CAND)
+    assert stage_artifact_incompleteness(ctx, _CAND) is None
+
+
 def test_hm1_skip_without_routing_refused(ctx: RunContext) -> None:
     with pytest.raises(RuntimeError, match="cannot skip"):
         skip_stage(ctx, _ROUTING, reason="conductor whim")
     assert not ctx.is_done(_ROUTING)
+
+
+def test_mpc_b1_soft_gate_disabled_writes_forced_confirmed(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MPC-B1: soft_gate off → forced confirmed sparse + done (not silent no-op)."""
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.soft_gate_enabled",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion._research_thin_late_refuse",
+        lambda *_a, **_k: None,
+    )
+    # Plant provisional so a silent return would leave confirm-hollow.
+    _plant_json(
+        ctx,
+        "mastering/mastering_plan.json",
+        '{"version": 1, "pass": "provisional", "plan_status": "degraded", '
+        '"narrative_mode": "conversational_host"}',
+    )
+    run_mastering_plan_confirm(ctx)
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    assert plan.get("pass") == "confirmed"
+    assert plan.get("confirmed_mode") == "sparse_source"
+    assert plan.get("plan_status") == "forced_sparse"
+    assert "soft_gate_disabled" in list(plan.get("degradation_reasons") or [])
+    assert stage_artifact_incompleteness(ctx, "mastering_plan_confirm") is None
+    assert ctx.is_done("mastering_plan_confirm")
 
 
 def test_hm1_provisional_plan_does_not_complete_confirm(ctx: RunContext) -> None:

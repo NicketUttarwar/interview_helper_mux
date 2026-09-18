@@ -10,7 +10,7 @@ lifecycle:
   - post_commit_validate
 outputs:
 - path: master/selection.json
-  schema: null
+  schema: master_selection_artifact.schema.json
   staging: false
 inputs:
   hard:

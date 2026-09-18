@@ -41,7 +41,6 @@ sufficiency: []
 propagation:
   invalidates_stages: []
 consumers:
-- missing_framing
 - gap_framing_compose
 - delivery_brief_build
 - soundscape_policy_build

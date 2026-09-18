@@ -20,6 +20,8 @@ inputs:
   hard:
   - path: mastering/vo_synthesize.json
     producer: vo_synthesize
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan
   soft: []
 sufficiency:
 - path: skipped
@@ -29,8 +31,6 @@ sufficiency:
   - refused
 propagation:
   invalidates_stages:
-  - vo_line_adjudicate
-  - vo_synthesize
   - edl_narrative_audit
   - edl
 consumers: []

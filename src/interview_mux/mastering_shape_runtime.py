@@ -413,25 +413,37 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                 max_attempts=2,
             )
             agenda = _agenda_from_llm(arts)
-            rubric = None
-            if agenda is not None:
-                rubric_arts = invoke_mastering_prompt(
-                    ctx,
-                    "mastering_shape_agenda",
-                    "mastering/eval-rubric-mint.system.txt",
-                    {**payload, "agenda": agenda},
-                    max_attempts=2,
-                )
-                rubric = _rubric_from_llm(rubric_arts)
-                if rubric is None:
-                    _, heuristic_rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=False)
-                    rubric = heuristic_rubric
-                    rubric["notes"] = list(rubric.get("notes") or []) + ["rubric_llm_failed"]
+            if agenda is None:
+                # CSP-05 / MSA: hollow agenda after ≤2 attempts — incomplete (no heuristic heal).
+                from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+                raise_hollow_openai_primary("mastering_shape_agenda", "agenda_llm_hollow")
+            rubric_arts = invoke_mastering_prompt(
+                ctx,
+                "mastering_shape_agenda",
+                "mastering/eval-rubric-mint.system.txt",
+                {**payload, "agenda": agenda},
+                max_attempts=2,
+            )
+            rubric = _rubric_from_llm(rubric_arts)
+            if rubric is None:
+                # CSP-05 / MSA: rubric LLM fail → incomplete (no soft heuristic heal-done).
                 ctx.write_json(AGENDA_REL, ensure_schema_agenda(agenda))
-                ctx.write_json(RUBRIC_REL, rubric)
-                _heal_shape_stage(ctx, "mastering_shape_agenda")
-                return
-            agenda, rubric = _heuristic_agenda_and_rubric(ctx, llm_failed=True)
+                ctx.write_json(
+                    RUBRIC_REL,
+                    {
+                        "version": 1,
+                        "source": "stub",
+                        "llm_failed": True,
+                        "notes": ["rubric_llm_failed"],
+                        "criteria": [],
+                        "style_axes": [],
+                        "generated_at": _now(),
+                    },
+                )
+                from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+                raise_hollow_openai_primary("mastering_shape_agenda", "rubric_llm_failed")
             ctx.write_json(AGENDA_REL, ensure_schema_agenda(agenda))
             ctx.write_json(RUBRIC_REL, rubric)
             _heal_shape_stage(ctx, "mastering_shape_agenda")
@@ -442,6 +454,17 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
         ctx.write_json(RUBRIC_REL, rubric)
         _heal_shape_stage(ctx, "mastering_shape_agenda")
     except Exception as exc:
+        from interview_mux.llm_simple import StageError
+        from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+        if isinstance(exc, StageError):
+            raise
+        if shape_llm_enabled():
+            # CSP-05: shape.llm on + invoke/exception → incomplete, not soft stub heal.
+            raise_hollow_openai_primary(
+                "mastering_shape_agenda",
+                f"agenda_exception:{type(exc).__name__}",
+            )
         ctx.write_json(
             AGENDA_REL,
             ensure_schema_agenda(
@@ -474,7 +497,12 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
 
 def _heuristic_candidates(ctx: RunContext, *, llm_failed: bool = False) -> dict[str, Any]:
     agenda = ctx.read_json(AGENDA_REL) if ctx.artifact_exists(AGENDA_REL) else {}
-    modes = list((agenda or {}).get("mode_candidates") or ["conversational_host", "sparse_source"])
+    agenda = agenda if isinstance(agenda, dict) else {}
+    # Explicit empty mode_candidates → forced sparse survivor (not the missing-key default).
+    if "mode_candidates" in agenda:
+        modes = [m for m in list(agenda.get("mode_candidates") or []) if m]
+    else:
+        modes = ["conversational_host", "sparse_source"]
     candidates = []
     for i, mode in enumerate(modes):
         grammar = list(prefer_forbid_volley_block(mode).get("prefer_grammar_moves") or [])[:3]
@@ -546,8 +574,9 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
         _persist_shape_candidates_skip(ctx, "soft_gate_disabled")
         _heal_shape_stage(ctx, "mastering_shape_candidates")
         return
+    llm_on = shape_llm_enabled()
     try:
-        if shape_llm_enabled():
+        if llm_on:
             from interview_mux.mastering_llm import invoke_mastering_prompt
 
             arts = invoke_mastering_prompt(
@@ -564,12 +593,25 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
                 ctx.write_json(CANDIDATES_REL, doc)
                 _heal_shape_stage(ctx, "mastering_shape_candidates")
                 return
-            ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=True))
-            _heal_shape_stage(ctx, "mastering_shape_candidates")
-            return
+            # MSC-B2 / CSP-05: shape.llm on → no heuristic soft-heal on hollow.
+            from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+            raise_hollow_openai_primary(
+                "mastering_shape_candidates", "candidates_llm_hollow"
+            )
         ctx.write_json(CANDIDATES_REL, _heuristic_candidates(ctx, llm_failed=False))
         _heal_shape_stage(ctx, "mastering_shape_candidates")
     except Exception as exc:
+        from interview_mux.llm_simple import StageError
+
+        if isinstance(exc, StageError):
+            raise
+        if llm_on:
+            from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+            raise_hollow_openai_primary(
+                "mastering_shape_candidates", f"candidates_llm_failed:{exc}"
+            )
         ctx.write_json(
             CANDIDATES_REL,
             {
@@ -698,7 +740,13 @@ def _plan_from_llm_artifacts(
 
 
 def run_mastering_plan_synthesize(ctx: RunContext) -> None:
-    """Pass1 synthesize → provisional plan."""
+    """Pass1 synthesize → provisional plan.
+
+    MPS-B1 / A-03: under defaults (``shape.llm`` off) always writes a degraded
+    provisional plan; soft_gate / heuristic paths never stamp
+    ``plan_status=complete``. Authoritative complete only via accepted Shape-LLM
+    artifacts (``claim_plan_complete(source=\"llm\")``).
+    """
     if not soft_gate_enabled():
         write_plan(ctx, forced_sparse_plan(reason="soft_gate_disabled"))
         return
@@ -733,7 +781,7 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
             write_plan(ctx, plan)
             return
         chosen = cands[0]
-        # A-03: soft_gate/heuristic never claims authoritative complete.
+        # MPS-B1 / A-03: soft_gate/heuristic never claims authoritative complete.
         status = claim_plan_complete(source="soft_gate")
         reasons = ["soft_gate_not_authoritative"]
         if shape_llm_enabled() and "llm_failed" not in reasons:
@@ -755,8 +803,14 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
 
 
 def run_mastering_plan_confirm(ctx: RunContext) -> None:
-    """Pass2 confirm after gap evaluations."""
+    """Pass2 confirm after gap evaluations.
+
+    MPC-B1: soft_gate off must not silent-return — write forced confirmed sparse
+    and heal (CSP-01 / synthesize soft_gate_disabled precedent).
+    """
     if not soft_gate_enabled():
+        write_plan(ctx, forced_sparse_plan(reason="soft_gate_disabled"))
+        _heal_shape_stage(ctx, "mastering_plan_confirm")
         return
     try:
         packet = compile_shape_evidence(ctx, consumer_id="shape_confirm_pass2", pass_name="confirmed")

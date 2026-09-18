@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from interview_mux.refinement_agenda import run_refinement_agenda
 from interview_mux.refinement_catalog import is_blacklisted, is_whitelisted
 from interview_mux.refinement_flow_integrity import (
     FINAL_REL,
@@ -25,6 +28,12 @@ from interview_mux.refinement_champion import load_champion
 from interview_mux.refinement_gate import freeze_inputs
 from interview_mux.refinement_succession import is_unlocked, mutex_blocked
 from run_fixtures import patch_executions_root, mark_done_raw
+
+
+def _raw_json(ctx: RunContext, rel: str, data: dict) -> None:
+    path = ctx.path(*rel.split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 @pytest.fixture
@@ -249,3 +258,191 @@ def test_accept_gap_recompose_promotes_champion_on_improvement(ctx: RunContext) 
     assert champion is not None
     assert champion["source"] == "gap_framing_recompose"
     assert champion["score_vector"] == result["candidate_scores"]
+
+
+def test_confirm_phase_injects_ranking_on_coverage_holes(ctx: RunContext) -> None:
+    """RA-B3: confirm opens ranking when coverage holes exist (even simple_tape)."""
+    _raw_json(
+        ctx,
+        "understanding/source_topology.json",
+        {"topology_class": "short_clean", "class": "short_clean"},
+    )
+    _raw_json(
+        ctx,
+        "understanding/source_acoustic_profile.json",
+        {"duration_sec": 300},
+    )
+    _raw_json(ctx, "understanding/gap_evaluations.json", {"evaluations": []})
+    _raw_json(
+        ctx,
+        "master/coverage_audit.json",
+        {"uncovered_topics": [{"topic": "origin story", "severity": "high"}]},
+    )
+
+    draft = run_refinement_agenda(ctx, phase="draft")
+    assert "ranking" not in (draft.get("eligible_classes") or [])
+
+    confirm = run_refinement_agenda(ctx, phase="confirm")
+    assert "ranking" in (confirm.get("eligible_classes") or [])
+    assert confirm.get("phase") == "confirm"
+    assert "post_gap_topic_holes_ranking" in (confirm.get("succession_hints") or [])
+    assert ctx.is_done("refinement_agenda")
+
+
+def test_refinement_agenda_blocks_when_gap_unsanitary(ctx: RunContext) -> None:
+    """RA-B2: present dirty gap_report refuses agenda (resume sanitize)."""
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        _raw_json(
+            ctx,
+            "understanding/gap_report.json",
+            {
+                "interviewer_lines": [
+                    {
+                        "line_id": "vo_a",
+                        "text": "Hello world enough words here.",
+                        "targets_segment_id": "seg_001",
+                    }
+                ],
+                "gaps": "unsanitary",
+            },
+        )
+    finally:
+        ctx._one_writer_raw = prev
+
+    with pytest.raises(RuntimeError, match="gap_unsanitary"):
+        run_refinement_agenda(ctx, phase="confirm")
+    assert not ctx.is_done("refinement_agenda")
+
+
+def test_gap_framing_recompose_layup_authority_accept_sidecar(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GFR-B4: Full-auto defaults → thin adapter writes accept sidecar (no LLM)."""
+    from interview_mux.nugget_layup import PLAN_REL
+    from interview_mux.refinement_passes import run_gap_framing_recompose
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.gate_seat_mutation",
+        lambda *_a, **_k: True,
+    )
+    ordered = ["seg_011", "seg_028"]
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ordered})
+    segments = []
+    start = 0
+    for sid in ordered:
+        segments.append(
+            {
+                "segment_id": sid,
+                "speaker_id": "spk_0",
+                "speaker_role": "interviewee",
+                "type": "interviewee_answer",
+                "topic_tags": [],
+                "text": f"Native content for {sid} with enough words to stay on air.",
+                "start_ms": start,
+                "end_ms": start + 9000,
+            }
+        )
+        start += 12_000
+    ctx.write_json("segments/manifest.json", {"segments": segments})
+    analysis = {
+        "target_beat": "The exit negotiation",
+        "listener_need_entering_T": "The prior clip ended before the buyer appeared",
+        "forward_unlock": "Why the snack pivot decided the price",
+    }
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            {
+                "target_segment_id": "seg_028",
+                "line_id": "vo_layup_seg_028",
+                "text": (
+                    "The employee pool reached shop-floor staff, not just senior "
+                    "managers. What did the buyer promise in writing?"
+                ),
+                "nugget_ids": ["nug_esop"],
+                "skip": False,
+                "forward_cue_ok": True,
+                **analysis,
+            }
+        ],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    # Prior gap so orientation/publish has a base document.
+    ctx.write_json(
+        FINAL_REL,
+        {
+            "interviewer_lines": [],
+            "nugget_layup_authority": True,
+        },
+        skip_handoff=True,
+    )
+
+    run_gap_framing_recompose(ctx)
+
+    sidecar = ctx.read_json("understanding/gap_framing_recompose.json")
+    assert sidecar.get("accept", {}).get("accepted") is True
+    assert sidecar.get("accept", {}).get("reason_code") == "nugget_layup_authority"
+    assert ctx.is_done("gap_framing_recompose")
+    gap = ctx.read_json(FINAL_REL)
+    assert gap.get("nugget_layup_authority") is True
+    assert any(
+        isinstance(ln, dict) and ln.get("origin") == "nugget_layup"
+        for ln in (gap.get("interviewer_lines") or [])
+    )
+
+
+def test_gap_framing_recompose_retires_legacy_activate(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GFR-B3: without layup authority, activate becomes skip-copy (no filter path)."""
+    from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+    from interview_mux.refinement_flow_integrity import SKIP_COPY_REL
+    from interview_mux.refinement_passes import run_gap_framing_recompose
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.gate_seat_mutation",
+        lambda *_a, **_k: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.refinement_passes.decide_pass",
+        lambda *_a, **_k: {
+            "status": "activate",
+            "reason_code": "would_have_activated",
+            "pass_id": "gap_framing_recompose",
+        },
+    )
+    stamped = stamp_sanitize_meta(
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_keep",
+                    "text": "Keep this line through skip-copy.",
+                    "targets_segment_id": "seg_001",
+                    "origin": "draft",
+                }
+            ],
+            "gaps": [],
+        },
+        ok=True,
+        source="gap_report_sanitize",
+        content_keys=["interviewer_lines", "gaps", "opening_orientation"],
+    )
+    _raw_json(ctx, FINAL_REL, stamped)
+
+    run_gap_framing_recompose(ctx)
+
+    assert ctx.artifact_exists(SKIP_COPY_REL)
+    skip = ctx.read_json(SKIP_COPY_REL)
+    assert skip.get("reason") == "legacy_activate_retired"
+    assert ctx.is_done("gap_framing_recompose")
+    gap = ctx.read_json(FINAL_REL)
+    assert any(
+        isinstance(ln, dict) and ln.get("line_id") == "vo_keep"
+        for ln in (gap.get("interviewer_lines") or [])
+    )

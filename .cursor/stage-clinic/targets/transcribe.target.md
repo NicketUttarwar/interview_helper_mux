@@ -62,7 +62,7 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 | TR-B1 | P1 | unambiguous | Align contract remediation: remove `volley_retry`; host local-STT rerun only | `transcribe.yaml` via dependency data + verify | 2 | no |
 | TR-B2 | P2 | unambiguous | Drop process-stage `llm_execute` lifecycle claim noise | contract generator / dependency data | 2 | no |
 | TR-B3 | P1 | unambiguous | Ownership: primary producer for `protected_zones` / `speaker_flows` → `audio_probe_build`; `diarization_repairs` → actual writer stage/helper | `artifact_ownership.py` + ownership tests | 2,7 | no |
-| TR-B4 | P1 | needs_you | Empty `words` after normalize: keep done (G0/downstream catch) vs incompleteness refuse? | host rule in `run_transcribe` + focused pytest with fixture empty full | 1,2 | yes if refuse loops forever without cap |
+| TR-B4 | P1 | confirmed | Empty `words` KEEP done (4B) — G0/downstream catch | `transcribe_local` mark_done after write | 1,2 | yes if refuse loops |
 
 ## Defaults inventory impact
 
@@ -70,4 +70,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied TR-B1–B3; TR-B4 confirmed KEEP empty-words done (4B)

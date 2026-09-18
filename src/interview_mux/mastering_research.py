@@ -15,6 +15,7 @@ from interview_mux.run_context import RunContext
 
 RESEARCH_DIR = "mastering/research"
 DOSSIER_REL = "mastering/research_dossier.json"
+ROLLUP_REL = "mastering/research/rollup.json"
 ROUTING_REL = "mastering/research/routing.json"
 
 WAVE_FIELDS: dict[int, tuple[str, ...]] = {
@@ -273,17 +274,21 @@ def _sequential_stub_routing(*, llm_failed: bool = False) -> dict[str, Any]:
         "fields": [],
         "source": "stub",
         "skipped": "llm_failed" if llm_failed else "research_llm_disabled",
+        "llm_failed": bool(llm_failed),
         "waves": sorted(WAVE_FIELDS.keys()),
         "field_count": sum(len(v) for v in WAVE_FIELDS.values()),
         "generated_at": _now(),
     }
     if llm_failed:
         routing["notes"] = ["llm_failed"]
+        # Explicit non-authoritative: empty fields + advisory mode (MRR-B2).
+        routing["authoritative"] = False
     return routing
 
 
 def run_research_routing(ctx: RunContext) -> None:
     if research_llm_enabled():
+        fail_reason = "invalid_or_empty_llm_artifacts"
         try:
             from interview_mux.mastering_llm import invoke_mastering_prompt
 
@@ -299,17 +304,43 @@ def run_research_routing(ctx: RunContext) -> None:
                 ctx.write_json(ROUTING_REL, routing)
                 _heal_research_stage(ctx, "mastering_research_routing")
                 return
-        except Exception:
-            pass
-        ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=True))
-        _heal_research_stage(ctx, "mastering_research_routing")
-        return
+        except Exception as exc:
+            fail_reason = f"invoke_exception:{type(exc).__name__}"
+            ctx.log(
+                f"mastering_research_routing: LLM invoke failed — {exc}",
+                level="warning",
+                stage="mastering_research_routing",
+                action_id="mastering_research_routing.llm_failed",
+                detail={"reason": fail_reason, "error": str(exc)[:240]},
+            )
+        else:
+            ctx.log(
+                "mastering_research_routing: LLM returned unusable routing artifacts",
+                level="warning",
+                stage="mastering_research_routing",
+                action_id="mastering_research_routing.llm_failed",
+                detail={"reason": fail_reason},
+            )
+        # CSP-05 / MRR: write diagnostic stub but do NOT heal-done after LLM fail/hollow.
+        stub = _sequential_stub_routing(llm_failed=True)
+        stub["fail_reason"] = fail_reason
+        ctx.write_json(ROUTING_REL, stub)
+        from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
+
+        raise_hollow_openai_primary("mastering_research_routing", fail_reason)
     ctx.write_json(ROUTING_REL, _sequential_stub_routing(llm_failed=False))
     _heal_research_stage(ctx, "mastering_research_routing")
 
 
 def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
-    """Ensure all wave fields exist, then write dossier rollup."""
+    """Ensure all wave fields exist, then write dossier rollup.
+
+    Intentionally re-probes every wave via ``run_research_wave`` even when
+    ``mastering_research_waves`` already wrote ``waves.json`` (MRW-B2). Seed
+    order may skip or stale the waves stage; rollup is the fail-open gather
+    step that refreshes field reports before Shape. Do not treat the duplicate
+    walk as accidental thrash — share the same ``run_research_wave`` helper.
+    """
     run_research_routing(ctx)
     wave_summaries = []
     fields_out: dict[str, Any] = {}
@@ -343,10 +374,19 @@ def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
         "shape_core": _shape_core_status_from_fields(fields_out),
         "generated_at": _now(),
     }
-    ctx.write_json(DOSSIER_REL, dossier)
-    ctx.write_json("mastering/research/rollup.json", dossier)
+    _persist_research_dossier(ctx, dossier)
     _heal_research_stage(ctx, "mastering_research_rollup")
     return dossier
+
+
+def _persist_research_dossier(ctx: RunContext, dossier: dict[str, Any]) -> None:
+    """Write the same dossier payload to both SSOT paths (MRRoll-B3).
+
+    ``mastering/research_dossier.json`` and ``mastering/research/rollup.json``
+    must stay byte-equivalent content; callers must not write one without the other.
+    """
+    ctx.write_json(DOSSIER_REL, dossier)
+    ctx.write_json(ROLLUP_REL, dossier)
 
 
 def load_dossier(ctx: RunContext) -> dict[str, Any] | None:
@@ -490,6 +530,14 @@ def run_mastering_research_routing(ctx: RunContext) -> None:
 
 
 def run_mastering_research_waves(ctx: RunContext) -> None:
+    """Probe WAVE_FIELDS and persist ``waves.json``.
+
+    Does not read ``mastering/research/routing.json`` — contract hard:[]
+    (MRW-B1; probes are soft-presence only). ``run_research_rollup`` will
+    re-run the same ``run_research_wave`` helpers later — intentional dual-run
+    (MRW-B2), not a bug; waves stage still owns the seed-order primary for
+    early Shape thinness.
+    """
     summaries = [run_research_wave(ctx, wave) for wave in sorted(WAVE_FIELDS.keys())]
     ctx.write_json(
         "mastering/research/waves.json",

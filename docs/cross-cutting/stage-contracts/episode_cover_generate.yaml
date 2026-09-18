@@ -1,5 +1,5 @@
 stage_id: episode_cover_generate
-tier: process
+tier: llm_full
 lifecycle:
   phases:
   - prestage
@@ -11,10 +11,12 @@ lifecycle:
 outputs:
 - path: publish/cover.jpg
   schema: null
-  staging: false
+  staging: true
 - path: publish/cover_pick.json
   staging: true
 - path: publish/cover_meta.json
+  staging: true
+- path: publish/cover_candidates/
   staging: true
 inputs:
   hard:

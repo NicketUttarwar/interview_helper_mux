@@ -508,12 +508,19 @@ def seal_adjudicate_stale_when_g1_green(ctx: RunContext) -> bool:
 def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
     """G8: Chatterbox batch waits for layup/transitions stability.
 
-    Operator *record* G1 holes still block (``g1_vo_open``). Synthesize-delivery
-    G1 holes do not — this stage is what closes them.
+    Operator *record* G1 holes still block (``g1_vo_open``) outside Full-auto.
+    Full-auto rewrites those lines to synthesize first (VS-B3). Synthesize-delivery
+    G1 holes do not block — this stage is what closes them.
 
     Returns a blocker token (may be a sentinel such as ``g1_vo_open``). Callers
     that need ``--from-stage`` must run :func:`resolve_vo_synth_seed_resume`.
     """
+    try:
+        from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+
+        rewrite_full_auto_record_lines_to_synth(ctx)
+    except Exception:
+        pass
     if _g1_record_open(ctx):
         return "g1_vo_open"
     if _layup_escalation_blocking(ctx):

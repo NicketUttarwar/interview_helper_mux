@@ -1,7 +1,9 @@
 # Stage clinic dossier — music_palette_compose
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+
+# MPC-B1/B2/B3 Wave 2 — B2 Q1A producer=sound_design_plan + body require SDP.
 
 ## §5.0 Evidence index card
 
@@ -9,8 +11,8 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - seed_position: 61 (delivery)
 - tier (contract claim): llm_full — verified OpenAI via `run_flow_llm_stage`
 - primary_artifact_path (SSOT claim): sound_design/music_palette_compose.json
-- immediate upstream producers (from code — L1): sound_design_plan / palettes (SDP soft in body); assembly_preview required for seed completeness; soft: edl/selection/delight/soundscape/delivery_brief
-- immediate downstream consumers (code + contract claim): mmaudio_sfx, mix (via SDP cues); sfx_prompt_craft reads SDP
+- immediate upstream producers (from code — L1): sound_design_plan hard (SDP required before LLM); assembly_preview required for seed completeness; soft: edl/selection/delight/soundscape/delivery_brief
+- immediate downstream consumers (code + contract claim): sfx_prompt_craft, mmaudio_sfx, mix (via SDP cues)
 - gate_adjacency: none (music epoch waits assembly_preview)
 - LLM?: OpenAI — sound_design/music-palette-compose.system.txt
 - thrash_hotspot: low alone; music-epoch seal / MusicGen re-entry adjacent

@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -15,6 +15,8 @@ outputs:
 - path: ingest/checksums.json
   staging: true
 - path: ingest/loudness.json
+  staging: true
+- path: ingest/waveform_peaks.json
   staging: true
 inputs:
   hard: []
@@ -34,5 +36,4 @@ consumers:
 - master_finalize
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

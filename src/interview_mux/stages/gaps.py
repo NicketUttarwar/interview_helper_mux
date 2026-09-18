@@ -792,6 +792,27 @@ def _trim_prior_contexts_to_ids(payload: dict[str, Any], segment_ids: list[str] 
     return payload
 
 
+def _heal_gap_framing_compose_if_complete(ctx: RunContext) -> None:
+    """Mark done only when artifacts are complete; else leave incomplete (B1)."""
+    if ctx.is_done("gap_framing_compose"):
+        return
+    try:
+        from interview_mux.stage_completion import (
+            StageArtifactsIncompleteError,
+            assert_stage_artifacts_complete,
+            heal_or_raise,
+        )
+
+        assert_stage_artifacts_complete(ctx, "gap_framing_compose")
+        heal_or_raise(ctx, "gap_framing_compose")
+    except StageArtifactsIncompleteError as exc:
+        ctx.log(
+            f"gap_framing_compose not marked done — {exc.reason}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
+
+
 def _merge_gap_report_parts(parts: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge sharded gap_framing_compose artifacts (lines + gaps + plan)."""
     lines_by_id: dict[str, dict[str, Any]] = {}
@@ -1150,6 +1171,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                     prompt_rel,
                     build_input,
                     persist,
+                    auto_complete=False,
                 )
             except Exception as exc:
                 ctx.log(
@@ -1167,6 +1189,8 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 applied: list[dict[str, Any]] = []
                 fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
                 persist(ctx, seed)
+            # CSP-05 / GFC-B1: assert completeness before done (zero lines under Yes → incomplete).
+            _heal_gap_framing_compose_if_complete(ctx)
             return
 
         batches = [
@@ -1256,24 +1280,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
             merged = seed
         persist(ctx, merged)
-        if not ctx.is_done("gap_framing_compose"):
-            try:
-                from interview_mux.stage_completion import (
-                    StageArtifactsIncompleteError,
-                    assert_stage_artifacts_complete,
-                    heal_or_refuse_mark,
-                )
-
-                assert_stage_artifacts_complete(ctx, "gap_framing_compose")
-                from interview_mux.stage_completion import heal_or_raise
-
-                heal_or_raise(ctx, "gap_framing_compose")
-            except StageArtifactsIncompleteError as exc:
-                ctx.log(
-                    f"gap_framing_compose not marked done — {exc.reason}",
-                    level="warning",
-                    stage="gap_framing_compose",
-                )
+        _heal_gap_framing_compose_if_complete(ctx)
         ctx.log(
             f"gap_framing_compose batched complete "
             f"({len(merged.get('interviewer_lines') or [])} lines)",

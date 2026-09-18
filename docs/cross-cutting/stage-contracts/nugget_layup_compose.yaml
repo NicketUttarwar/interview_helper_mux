@@ -21,8 +21,6 @@ outputs:
 - path: understanding/nugget_layup_qc.json
 inputs:
   hard:
-  - path: mastering/shape/information_packages_audit.json
-    producer: information_package_plan
   - path: master/selection.json
     producer: full_master_ranking
   - path: understanding/nugget_corpus.json
@@ -32,6 +30,8 @@ inputs:
     producer: segment_classification
   - path: understanding/talking_points.json
     producer: talking_points_compose
+  - path: mastering/shape/information_packages_audit.json
+    producer: information_package_plan
   - path: understanding/nugget_layup_plan.json
   - path: understanding/gap_report.json
     producer: gap_framing_compose

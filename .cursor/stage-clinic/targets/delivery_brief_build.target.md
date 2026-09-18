@@ -1,6 +1,6 @@
 # Target Spec — delivery_brief_build
 
-brain: 0.2.0 | target_status: draft
+brain: 0.2.0 | target_status: draft | L3: B1+B2 applied
 
 ## Ideal behavior
 

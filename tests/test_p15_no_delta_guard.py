@@ -79,13 +79,10 @@ def test_guard_is_inactive_when_nothing_is_known_about_the_inputs(tmp_path: Path
 
 
 def test_declared_and_fallback_hard_inputs_are_unioned(tmp_path: Path) -> None:
-    """`mix` declares its source tape; the fallback still supplies the rest.
+    """`mix` hard inputs union with FALLBACK_HARD_INPUTS for the delta set.
 
-    This used to assert that mix's contract was hollow. It is no longer: the only
-    read `mix` cannot survive is `load_audio(read_path("ingest",
-    "normalized.wav"))`, which raises, so that one path is declared hard. The
-    union with `FALLBACK_HARD_INPUTS` is what keeps the EDL in the delta set while
-    the rest of the contract is still soft.
+    MIX-B1 declares tape + selection + edl + SDP hard (matches `_check_mix`).
+    Fallback still supplies transitions / omit / stem globs the contract leaves soft.
     """
     from interview_mux.stage_contract import load_contract
 
@@ -95,6 +92,8 @@ def test_declared_and_fallback_hard_inputs_are_unioned(tmp_path: Path) -> None:
     assert [d.path for d in contract.inputs if d.hard] == [
         "ingest/normalized.wav",
         "master/selection.json",
+        "master/edl.json",
+        "understanding/sound_design_plan.json",
     ]
     paths = hard_input_paths(ctx, "mix")
     assert "ingest/normalized.wav" in paths

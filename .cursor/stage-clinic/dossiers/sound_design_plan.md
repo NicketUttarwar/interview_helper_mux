@@ -1,7 +1,8 @@
 # Stage clinic dossier — sound_design_plan
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# Wave 2 2026-09-17 — B2 applied (consumers); B1/B3 skipped.
 
 ## §5.0 Evidence index card
 

@@ -28,18 +28,21 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 
 def test_b02_fuse_zero_config_resolves_to_finite_defaults() -> None:
-    """DEEP-FUSE-01: config 0 → finite defaults, never unlimited."""
-    rounds = 0
-    fuses = 0
-    if rounds == 0:
-        rounds = _FINITE_DEFAULT_FUSE_ROUNDS
-    if fuses == 0:
-        fuses = _FINITE_DEFAULT_FUSES_PER_PASS
+    """DEEP-FUSE-01 / CFP-B3: config 0 → finite defaults, never unlimited."""
+    from interview_mux.segment_fuse import resolve_fuse_round_caps
+
+    rounds, fuses = resolve_fuse_round_caps(
+        {"max_fuse_rounds": 0, "max_fuses_per_pass": 0}
+    )
     assert rounds == _FINITE_DEFAULT_FUSE_ROUNDS == 8
     assert fuses == _FINITE_DEFAULT_FUSES_PER_PASS == 24
     conf = connector_fuse_cfg()
-    assert int(conf.get("max_fuse_rounds") or 0) in {0, 8, _FINITE_DEFAULT_FUSE_ROUNDS}
-    assert int(conf.get("max_fuses_per_pass") or 0) in {0, 24, _FINITE_DEFAULT_FUSES_PER_PASS}
+    # Shipped defaults may still store 0; runtime must resolve finite.
+    r2, f2 = resolve_fuse_round_caps(conf)
+    assert r2 == _FINITE_DEFAULT_FUSE_ROUNDS or int(conf.get("max_fuse_rounds") or 0) > 0
+    assert f2 == _FINITE_DEFAULT_FUSES_PER_PASS or int(conf.get("max_fuses_per_pass") or 0) > 0
+    assert r2 < 10_000
+    assert f2 < 10_000_000
 
 
 def test_a04_telemetry_waiver_not_music_delight_ok(ctx: RunContext) -> None:

@@ -1,5 +1,5 @@
 stage_id: connector_fuse_pass_pre_ranking
-tier: process
+tier: llm_full
 lifecycle:
   phases:
   - prestage
@@ -11,13 +11,11 @@ lifecycle:
 outputs:
 - path: analysis/connector_fuse_rounds.json
   schema: null
-  staging: false
+  staging: true
 - path: segments/manifest.json
   staging: true
 inputs:
-  hard:
-  - path: mastering/chapter_close_hitch.json
-    producer: chapter_close_hitch
+  hard: []
   soft:
   - path: segments/manifest.json
     producer: segment_classification
@@ -27,6 +25,8 @@ inputs:
     producer: low_conf_island_scan
   - path: analysis/connector_fuse_audit.json
     producer: connector_fuse_pass
+  - path: mastering/chapter_close_hitch.json
+    producer: chapter_close_hitch
 sufficiency: []
 propagation:
   invalidates_stages:

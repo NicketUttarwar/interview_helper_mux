@@ -72,9 +72,12 @@ def _copy_show_fallback(ctx: RunContext, dest: Path, *, reason: str) -> Path:
 
 
 def _build_meta_input(ctx: RunContext) -> dict[str, Any]:
+    # Contract hard: selection (EMB-B2). Caller must refuse before LLM when absent.
+    if not ctx.artifact_exists("master/selection.json"):
+        raise RuntimeError("selection required before episode_meta_build")
     brief = ctx.read_json("understanding/content_brief.json") if ctx.artifact_exists("understanding/content_brief.json") else {}
     narrative = ctx.read_json("master/narrative_plan.json") if ctx.artifact_exists("master/narrative_plan.json") else {}
-    selection = ctx.read_json("master/selection.json") if ctx.artifact_exists("master/selection.json") else {}
+    selection = ctx.read_json("master/selection.json")
     return {
         "content_brief": brief if isinstance(brief, dict) else {},
         "narrative_plan": {
@@ -86,13 +89,30 @@ def _build_meta_input(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def _is_placeholder_episode_title(title: str) -> bool:
+    """True for empty or Untitled* placeholders (EMB-B1)."""
+    cleaned = str(title or "").strip()
+    if not cleaned:
+        return True
+    low = cleaned.casefold()
+    if low in {"untitled", "untitled episode"}:
+        return True
+    return low.startswith("untitled ")
+
+
 def _persist_meta(ctx: RunContext, artifacts: dict[str, Any]) -> None:
     payload = artifacts if isinstance(artifacts, dict) else {}
     title = str(payload.get("title") or payload.get("title_suggestion") or "").strip()
     description = str(payload.get("description") or payload.get("description_markdown") or "").strip()
     if not title:
         brief = _build_meta_input(ctx).get("content_brief") or {}
-        title = str(brief.get("thesis") or "Untitled Episode")[:120]
+        title = str(brief.get("thesis") or "").strip()[:120]
+    # EMB-B1: refuse empty/Untitled — stage stays incomplete (no hollow done).
+    if _is_placeholder_episode_title(title):
+        raise RuntimeError(
+            "episode_meta_build incomplete: non-empty real title required "
+            "(refusing empty/Untitled)"
+        )
     if not description:
         description = title
     ctx.write_json(
@@ -106,6 +126,9 @@ def _persist_meta(ctx: RunContext, artifacts: dict[str, Any]) -> None:
 
 
 def run_episode_meta_build(ctx: RunContext) -> None:
+    # EMB-B2: match contract hard selection before any OpenAI call.
+    if not ctx.artifact_exists("master/selection.json"):
+        raise RuntimeError("selection required before episode_meta_build")
     run_llm_stage_simple(
         ctx,
         "episode_meta_build",
@@ -437,7 +460,11 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
         prompt = harvest
 
     from interview_mux.podcast_rss.cover_vision import local_fallback_pick, pick_cover_winner
-    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
+    from interview_mux.podcast_rss.openai_cover import (
+        ensure_square_cover,
+        require_cover_min_size,
+        resolve_cover_image_settings,
+    )
 
     settings = resolve_cover_image_settings(_podcast_cfg(ctx))
     vp = _vision_pick_cfg(ctx)
@@ -503,6 +530,8 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
             jpeg_quality=int(settings.get("jpeg_quality") or 90),
             dest=dest,
         )
+        # ECG-B3: Apple 1400×1400 floor at generate (not only podcast_publish).
+        require_cover_min_size(dest, min_px=1400)
         # Mirror into the committed tree so encode/publish invalidation cannot
         # lose the only copy that lived under .pending_writes/.
         final_cover = ctx.final_path("publish", cover_name)
@@ -685,9 +714,17 @@ def run_podcast_publish(ctx: RunContext) -> None:
 
 
 def run_podcast_publish_skip(ctx: RunContext) -> None:
-    """Mark publish skipped without packaging or uploading."""
+    """Mark publish skipped without packaging or uploading.
+
+    Clinic B1 / HPUB-2: write ``package_ready`` with ``ready:false`` +
+    ``skipped:true`` so seed-complete is honest (not hollow mark_done alone).
+    """
     from interview_mux.gates import clear_g_publish
 
     clear_g_publish(ctx, skipped=True)
+    ctx.write_json(
+        "publish/package_ready.json",
+        {"ready": False, "skipped": True},
+    )
     ctx.write_json("publish/publish_result.json", {"skipped": True})
     ctx.mark_done("podcast_publish")

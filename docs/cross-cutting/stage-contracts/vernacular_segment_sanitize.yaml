@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -18,9 +18,7 @@ outputs:
   staging: true
 - path: transcript/protected_zones.json
 inputs:
-  hard:
-  - path: segments/boundaries.json
-    producer: boundary_topic_resplit
+  hard: []
   soft:
   - path: transcript/protected_zones.json
     producer: audio_probe_build
@@ -29,7 +27,7 @@ inputs:
   - path: analysis/run_golden_facts.json
     producer: audio_probe_build
   - path: transcript/speaker_flows.json
-    producer: transcribe
+    producer: audio_probe_build
   - path: vernacular/audio_tags_by_flow.json
 sufficiency: []
 propagation:
@@ -42,5 +40,4 @@ consumers:
 - full_master_ranking
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

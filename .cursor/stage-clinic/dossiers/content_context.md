@@ -1,7 +1,9 @@
 # Stage clinic dossier — content_context
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+
+# CC-B2 + CC-B1 implemented 2026-09-18 (Q1A harden topology before LLM).
 
 ## §5.0 Evidence index card
 

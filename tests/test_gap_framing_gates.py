@@ -132,6 +132,42 @@ def test_homunculus_auto_resolve_accepts_framing_without_env(
     assert check_gap_framing_decision_pending(ctx) is False
 
 
+def test_full_auto_arms_homunculus_auto_path_without_features(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1: Full-auto + recommended auto_resolve arms gate path without env/features."""
+    monkeypatch.delenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", raising=False)
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    ctx.write_json(
+        "run_meta.json",
+        {
+            **(ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}),
+            "homunculus_version": "0.0.0",
+            "run_mode": "full-auto",
+            "full_auto": True,
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.9},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    idx = ANALYSIS_ORDER.index("missing_framing")
+    for sid in ANALYSIS_ORDER[:idx]:
+        mark_done_raw(ctx, sid)
+    assert check_gap_framing_decision_pending(ctx) is True
+    assert maybe_auto_accept_gap_gate_defaults(ctx) is True
+    assert gap_framing_enabled(ctx) is True
+    assert check_gap_framing_decision_pending(ctx) is False
+
+
 def test_operator_no_not_overwritten_by_auto_accept(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "1")
     from interview_mux.v2.config import ANALYSIS_ORDER
@@ -689,4 +725,83 @@ def test_preface_forward_cue_heal(ctx: RunContext) -> None:
     assert any(n.get("action") == "preface_forward_cue_heal" for n in notes) or has_forward_cue(
         str(line.get("text") or "")
     )
+
+
+def test_small_batch_llm_fail_refuses_hollow_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1: small-batch LLM fail + fill must assert completeness before done."""
+    from interview_mux.stages import gaps
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from run_fixtures import isolated_run_ctx, minimal_manifest
+
+    ctx = isolated_run_ctx(tmp_path, "gfc_small_batch_fail")
+    ctx.write_json(
+        "run_meta.json",
+        {
+            **(ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}),
+            "gap_framing_enabled": True,
+            "gap_fill_mode": "active",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_001"),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_001",
+                    "self_explanatory": False,
+                    "gap_type": "missing_setup",
+                    "severity": "high",
+                    "listener_confusion": "needs framing",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+
+    monkeypatch.setattr(gaps, "_gap_pass_batch_size", lambda _cfg=None: 40)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("simulated flagship fail")
+
+    monkeypatch.setattr(gaps, "run_analysis_llm_stage", _boom)
+    monkeypatch.setattr(
+        "interview_mux.high_gap_vo.fill_uncovered_high_gaps",
+        lambda *_a, **_k: 0,
+    )
+
+    # Force incompleteness after persist so heal cannot stamp done.
+    real_incompleteness = stage_artifact_incompleteness
+
+    def _partial(ctx_arg, stage_id, *a, **k):
+        if stage_id == "gap_framing_compose":
+            return "understanding/gap_report.json is partial"
+        return real_incompleteness(ctx_arg, stage_id, *a, **k)
+
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        _partial,
+    )
+
+    gaps.run_gap_framing_compose(ctx)
+    assert not ctx.is_done("gap_framing_compose")
+
+
+def test_gap_framing_compose_sufficiency_allows_empty_gaps() -> None:
+    """B3: contract min_rows for gaps is 0 (skip stubs write gaps: [])."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("gap_framing_compose")
+    assert contract is not None
+    rules = [r for r in contract.sufficiency if r.path == "gaps"]
+    assert len(rules) == 1
+    assert rules[0].rule == "min_rows"
+    assert rules[0].min_count == 0
 

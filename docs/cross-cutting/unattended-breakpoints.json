@@ -17,7 +17,7 @@
       "id": "contract:air_script_compose",
       "kind": "stage_contract",
       "stage": "air_script_compose",
-      "tier": "llm_full",
+      "tier": "process",
       "outputs": [
         "mastering/mastering_plan.json",
         "understanding/omit_ledger.json"
@@ -27,7 +27,7 @@
       "id": "contract:air_script_seams",
       "kind": "stage_contract",
       "stage": "air_script_seams",
-      "tier": "llm_full",
+      "tier": "process",
       "outputs": [
         "mastering/mastering_plan.json",
         "understanding/gap_framing_plan.json"
@@ -107,7 +107,7 @@
       "id": "contract:connector_fuse_pass",
       "kind": "stage_contract",
       "stage": "connector_fuse_pass",
-      "tier": "process",
+      "tier": "llm_full",
       "outputs": [
         "analysis/connector_fuse_audit.json",
         "analysis/connector_seam_packets.json",
@@ -118,7 +118,7 @@
       "id": "contract:connector_fuse_pass_pre_ranking",
       "kind": "stage_contract",
       "stage": "connector_fuse_pass_pre_ranking",
-      "tier": "process",
+      "tier": "llm_full",
       "outputs": [
         "analysis/connector_fuse_rounds.json",
         "segments/manifest.json"
@@ -190,11 +190,12 @@
       "id": "contract:episode_cover_generate",
       "kind": "stage_contract",
       "stage": "episode_cover_generate",
-      "tier": "process",
+      "tier": "llm_full",
       "outputs": [
         "publish/cover.jpg",
         "publish/cover_pick.json",
-        "publish/cover_meta.json"
+        "publish/cover_meta.json",
+        "publish/cover_candidates/"
       ]
     },
     {
@@ -277,13 +278,7 @@
       "tier": "deterministic",
       "outputs": [
         "understanding/gap_framing_recompose.json",
-        "understanding/gap_framing_plan.json",
-        "understanding/gap_report.draft.json",
-        "understanding/gap_vo_context_audit.json",
         "understanding/nugget_layup_plan.json",
-        "understanding/cold_open_audition.json",
-        "understanding/listener_outcome_trajectory.json",
-        "understanding/refinement_plan.json",
         "understanding/refinement_skip_copy.json"
       ]
     },
@@ -335,7 +330,8 @@
       "outputs": [
         "ingest/normalized.wav",
         "ingest/checksums.json",
-        "ingest/loudness.json"
+        "ingest/loudness.json",
+        "ingest/waveform_peaks.json"
       ]
     },
     {
@@ -572,8 +568,7 @@
       "stage": "nugget_corpus_mine",
       "tier": "llm_full",
       "outputs": [
-        "understanding/nugget_corpus.json",
-        "understanding/nugget_layup_qc.json"
+        "understanding/nugget_corpus.json"
       ]
     },
     {
@@ -671,10 +666,7 @@
       "tier": "deterministic",
       "outputs": [
         "understanding/selection_framing_apply.json",
-        "understanding/gap_report.json",
-        "understanding/gap_report.draft.json",
-        "understanding/refinement_plan.json",
-        "understanding/refinement_skip_copy.json"
+        "understanding/gap_report.json"
       ]
     },
     {
@@ -773,8 +765,7 @@
       "stage": "source_acoustic_profile",
       "tier": "deterministic",
       "outputs": [
-        "understanding/source_acoustic_profile.json",
-        "understanding/source_readiness.json"
+        "understanding/source_acoustic_profile.json"
       ]
     },
     {

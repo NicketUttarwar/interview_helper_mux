@@ -169,3 +169,45 @@ def test_hs5_heal_forward_marks_after_skip_stub(ctx: RunContext) -> None:
     assert not ctx.is_done(_STAGE)
     driver._heal_mark(ctx, _STAGE)
     assert ctx.is_done(_STAGE)
+
+
+def test_vss_b3_write_fail_fail_open_error_stub_and_marks(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VSS-B3: fail_open write failure must not bare-return limbo."""
+    from interview_mux.stages import audio_probes as ap
+
+    _plant_zones(ctx)
+    ctx.write_json("segments/manifest.json", minimal_manifest(), skip_handoff=True)
+
+    monkeypatch.setattr(
+        ap,
+        "sanitize_manifest_with_zones",
+        lambda *a, **k: {
+            "manifest": minimal_manifest(),
+            "resplit_report": {"version": 1, "rows": [{"pattern": "test"}]},
+            "must_keep_segment_ids": ["seg_001"],
+        },
+    )
+
+    real_write = ctx.write_json
+    fail_budget = {"n": 2}
+
+    def flaky_write(rel: str, data, **kwargs):  # type: ignore[no-untyped-def]
+        if (
+            fail_budget["n"] > 0
+            and rel in {_REPORT, "segments/manifest.json"}
+            and not (isinstance(data, dict) and data.get("error"))
+        ):
+            fail_budget["n"] -= 1
+            raise OSError("simulated sanitize write fail")
+        return real_write(rel, data, **kwargs)
+
+    monkeypatch.setattr(ctx, "write_json", flaky_write)
+    run_vernacular_segment_sanitize(ctx)
+    report = ctx.read_json(_REPORT)
+    assert isinstance(report.get("error"), str)
+    assert "write_failed" in report["error"]
+    assert isinstance(report.get("rows"), list)
+    assert ctx.is_done(_STAGE)
+    assert stage_artifact_incompleteness(ctx, _STAGE) is None

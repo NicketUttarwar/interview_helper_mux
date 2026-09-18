@@ -198,13 +198,16 @@ def episode_close_music_required(ctx: Any) -> bool:
         return True
 
 
-def reserved_theme_asset_ids(ctx: Any) -> set[str]:
+def reserved_theme_asset_ids(ctx: Any, *, include_omitted: bool = False) -> set[str]:
     """Asset ids that must be generated before mix may reserve their air.
 
     Includes:
     - non-skipped cues already targeting speech-free roles
     - preferred cold_open when EDL has opening_music (or cold_open cue expected)
     - preferred outro when episode_close requires music
+
+    By default omitted beds are discarded (mix completeness excludes them).
+    Pass ``include_omitted=True`` for omit-all ship-bar checks (MSFX-B2).
     """
     ids: set[str] = set()
     sdp = _sdp(ctx)
@@ -245,8 +248,9 @@ def reserved_theme_asset_ids(ctx: Any) -> set[str]:
         if close_id:
             ids.add(close_id)
 
-    for aid in music_omitted_asset_ids(ctx):
-        ids.discard(aid)
+    if not include_omitted:
+        for aid in music_omitted_asset_ids(ctx):
+            ids.discard(aid)
     return ids
 
 
@@ -270,6 +274,26 @@ def music_omitted_asset_ids(ctx: Any) -> set[str]:
     except Exception:
         pass
     return ids
+
+
+def reserved_themes_all_omitted(ctx: Any) -> bool:
+    """True when creative delivery expects theme beds and every reserved id is omitted.
+
+    Clinic MSFX-B2: omit-all is not ship-legal under creative_delivery — callers
+    must fail delight / block mix (honest fail, not hollow ship).
+    """
+    try:
+        from interview_mux.creative_delivery import creative_delivery_required
+
+        if not creative_delivery_required():
+            return False
+    except Exception:
+        return False
+    planned = reserved_theme_asset_ids(ctx, include_omitted=True)
+    if not planned:
+        return False
+    omitted = music_omitted_asset_ids(ctx)
+    return planned <= omitted
 
 
 def refuse_silent_theme_overlay(
@@ -499,6 +523,15 @@ def assert_theme_bookends_ready_for_mix(ctx: Any) -> None:
     """Fail closed when mix would invent or pad speech-free theme air."""
     omitted = music_omitted_asset_ids(ctx)
     required = reserved_theme_asset_ids(ctx)
+    # MSFX-B2: omit-all under creative_delivery is not ship-legal.
+    if reserved_themes_all_omitted(ctx):
+        planned = reserved_theme_asset_ids(ctx, include_omitted=True)
+        raise RuntimeError(
+            "mix: all reserved theme beds omitted (omit-all) — not ship-legal "
+            "under creative_delivery; regenerate MusicGen beds or remutate "
+            "sonic_weave (honest fail, not hollow ship): "
+            + ", ".join(sorted(planned)[:8])
+        )
     missing = sorted(a for a in required if a not in omitted and not theme_asset_audible(ctx, a))
     if missing:
         raise RuntimeError(
@@ -522,7 +555,8 @@ def assert_theme_bookends_ready_for_mix(ctx: Any) -> None:
         )
         # Asset planned but cue never seeded in music epoch — do not invent at mix.
         if has_outro_asset and not has_outro_cue:
-            # If all outro assets omitted, OK.
+            # If all outro assets omitted, OK only when creative_delivery is off
+            # (omit-all already refused above when creative required).
             outro_ids = {
                 str(a.get("asset_id"))
                 for a in (sdp.get("assets") or [])

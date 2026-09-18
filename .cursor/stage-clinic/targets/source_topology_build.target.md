@@ -75,4 +75,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied STB-B1–B5; STB-B6 still `needs_you`

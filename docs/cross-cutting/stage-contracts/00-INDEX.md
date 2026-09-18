@@ -69,16 +69,16 @@ records what has to be defused before switching them on.
 | Stage | Tier | Outputs |
 |-------|------|---------|
 | `air_contract_sanitize` | process | mastering/mastering_plan.json, understanding/omit_ledger.json |
-| `air_script_compose` | llm_full | mastering/mastering_plan.json, understanding/omit_ledger.json |
-| `air_script_seams` | llm_full | mastering/mastering_plan.json, understanding/gap_framing_plan.json |
+| `air_script_compose` | process | mastering/mastering_plan.json, understanding/omit_ledger.json |
+| `air_script_seams` | process | mastering/mastering_plan.json, understanding/gap_framing_plan.json |
 | `assembly_preview` | process | master/assembly_preview.wav |
 | `audio_preclean` | process | preclean/isolated.wav, preclean/provider.json, preclean/lineage.json, preclean/skip.json |
 | `audio_probe_build` | process | analysis/run_golden_facts.json, transcript/protected_zones.json, transcript/speaker_flows.json, vernacular/probe_report.json, vernacular/audio_tags_by_flow.json |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
 | `chapter_close_hitch` | process | mastering/chapter_close_hitch.json, mastering/chapter_close_hitch/intent_plan.json, mastering/chapter_close_hitch/remap.json, understanding/episode_structure_compact.txt, segments/boundaries.json, mastering/chapter_close_hitch/hitch_keepers.json, mastering/chapter_close_hitch/pre_keepers.json, mastering/chapter_close_hitch/omit_ledger.json, mastering/chapter_close_hitch/vo_snapshot.json, master/narrative_plan.qc.json |
-| `connector_fuse_pass` | process | analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, segments/manifest.json |
-| `connector_fuse_pass_pre_ranking` | process | analysis/connector_fuse_rounds.json, segments/manifest.json |
+| `connector_fuse_pass` | llm_full | analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, segments/manifest.json |
+| `connector_fuse_pass_pre_ranking` | llm_full | analysis/connector_fuse_rounds.json, segments/manifest.json |
 | `connector_seam_adjudicate` | meta | analysis/connector_seam_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
@@ -86,7 +86,7 @@ records what has to be defused before switching them on.
 | `edl` | process | master/edl.json, master/transitions/ |
 | `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
 | `edl_narrative_refine` | meta | — |
-| `episode_cover_generate` | process | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json |
+| `episode_cover_generate` | llm_full | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json, publish/cover_candidates/ |
 | `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |
 | `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | understanding/episode_structure.json, understanding/episode_structure_compact.txt |
@@ -94,12 +94,12 @@ records what has to be defused before switching them on.
 | `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/order_reconcile.json, master/story_health.json, mastering/media_ip_cta.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, analysis/stt_lexicon_islands.json |
 | `g1_vo_pickup` | gate | — |
 | `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, understanding/speaker_delivery_plan.json |
-| `gap_framing_recompose` | deterministic | understanding/gap_framing_recompose.json, understanding/gap_framing_plan.json, understanding/gap_report.draft.json, understanding/gap_vo_context_audit.json, understanding/nugget_layup_plan.json, understanding/cold_open_audition.json, understanding/listener_outcome_trajectory.json, understanding/refinement_plan.json, understanding/refinement_skip_copy.json |
+| `gap_framing_recompose` | deterministic | understanding/gap_framing_recompose.json, understanding/nugget_layup_plan.json, understanding/refinement_skip_copy.json |
 | `gap_report_sanitize` | process | understanding/gap_report.json |
 | `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json, understanding/ideal_cuts_selection_seed.json, segments/boundaries.json |
 | `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
 | `information_package_plan` | process | mastering/shape/information_packages_audit.json, mastering/shape/information_package_candidates.json, mastering/mastering_plan.json |
-| `ingest` | process | ingest/normalized.wav, ingest/checksums.json, ingest/loudness.json |
+| `ingest` | process | ingest/normalized.wav, ingest/checksums.json, ingest/loudness.json, ingest/waveform_peaks.json |
 | `interview_spine_build` | deterministic | understanding/interview_spine.json |
 | `island_cluster_structure_adjudicate` | meta | analysis/island_cluster_structure_verdicts.json, analysis/island_cluster_structure_packets.json |
 | `junction_feel_audit` | meta | master/junction_feel_audit.json |
@@ -122,7 +122,7 @@ records what has to be defused before switching them on.
 | `music_palette_compose` | llm_full | sound_design/music_palette_compose.json, understanding/sound_design_plan.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | meta | — |
-| `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json, understanding/nugget_layup_qc.json |
+| `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json |
 | `nugget_layup_compose` | llm_full | understanding/nugget_layup_plan.json, understanding/gap_report.json, mastering/mastering_plan.json, understanding/native_comprehension_masks.json, understanding/nugget_comprehension_index.json, understanding/nugget_layup_qc.json |
 | `optimal_questions` | meta | understanding/gap_report.json |
 | `podcast_encode_mp3` | process | publish/audio.mp3, publish/master.wav |
@@ -132,7 +132,7 @@ records what has to be defused before switching them on.
 | `refinement_agenda` | deterministic | understanding/refinement_agenda.json |
 | `sdp_intent_refine` | meta | — |
 | `segment_classification` | llm_full | segments/manifest.json |
-| `selection_framing_apply` | deterministic | understanding/selection_framing_apply.json, understanding/gap_report.json, understanding/gap_report.draft.json, understanding/refinement_plan.json, understanding/refinement_skip_copy.json |
+| `selection_framing_apply` | deterministic | understanding/selection_framing_apply.json, understanding/gap_report.json |
 | `selection_order_sanitize` | process | master/selection.json |
 | `sfx_brief` | meta | REMOVED_flow2/sfx_brief.json |
 | `sfx_prompt_craft` | llm_full | sound_design/sfx_prompts.json |
@@ -143,7 +143,7 @@ records what has to be defused before switching them on.
 | `sound_design_plan_init` | meta | — |
 | `sound_design_vo_finalize` | deterministic | mastering/sound_design_vo_finalize.json, understanding/sound_design_plan.json, vo_pickup/ |
 | `soundscape_policy_build` | process | understanding/soundscape_policy.json |
-| `source_acoustic_profile` | deterministic | understanding/source_acoustic_profile.json, understanding/source_readiness.json |
+| `source_acoustic_profile` | deterministic | understanding/source_acoustic_profile.json |
 | `source_topology_build` | process | understanding/source_topology.json, understanding/flow_adaptation.json, glob:understanding/speaker_samples/*.wav |
 | `speaker_roles` | llm_full | understanding/speakers.json |
 | `synthetic_framing_plan` | meta | — |

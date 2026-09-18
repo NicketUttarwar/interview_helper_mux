@@ -1,7 +1,8 @@
 # Stage clinic dossier — sonic_context_build
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# SCB-B1 implemented 2026-09-17 — contract hard matches input_checks.
 
 ## §5.0 Evidence index card
 
@@ -9,7 +10,7 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - seed_position: 22 (analysis)
 - tier (contract claim): deterministic — verified
 - primary_artifact_path (SSOT claim): understanding/sonic_context.json
-- immediate upstream producers (from code — fill in L1): content_brief + manifest (input_checks); contract claims fuse audit hard
+- immediate upstream producers (from code — fill in L1): content_brief + manifest + source_acoustic_profile (input_checks + contract hard)
 - immediate downstream consumers (code + contract claim): sound_design_palettes, soundscape, episode_structure, SDP/mix family
 - gate_adjacency: none
 - LLM?: no
@@ -38,4 +39,4 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 
 discovery_status: complete  
 §5.8 gate satisfied (index + body/rails + declared-vs-actual + flags + TEST_GAP).  
-Open questions: align hard inputs contract vs checks
+Open questions: none (SCB-B1 closed)

@@ -39,7 +39,9 @@ LOGGER_NAME = "interview_mux.ship_reachability"
 
 # The verified clean measurement — see finding 6. Pinned so the collapse-to-empty
 # failure mode fails a test instead of passing quietly.
-EXPECTED_REQUIREMENTS = 22
+# CSP-02 Wave 2 bootstrap: hard-edge honesty (seed promotions + empty-hard
+# allowlists) expands the critical-path requirement set; keep pin in lockstep.
+EXPECTED_REQUIREMENTS = 34
 SELECTION_CHAIN = ("master/selection.json", "master/edl.json", "master/transitions.json")
 
 

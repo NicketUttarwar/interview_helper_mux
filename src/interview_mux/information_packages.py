@@ -413,7 +413,8 @@ def run_information_package_plan(ctx: RunContext) -> None:
     """Score seams, audit, optionally commit ≤2 packages onto mastering_plan."""
     cfg = information_packages_cfg()
     candidates = build_candidates(ctx)
-    if cfg.get("require_corpus") and not _corpus_nuggets(ctx):
+    corpus_missing = bool(cfg.get("require_corpus") and not _corpus_nuggets(ctx))
+    if corpus_missing:
         for c in candidates.get("candidates") or []:
             if isinstance(c, dict):
                 c["would_commit"] = False
@@ -439,6 +440,30 @@ def run_information_package_plan(ctx: RunContext) -> None:
                 "mode": "disabled",
                 "would_commit": [],
                 "committed": [],
+                "episode_close": plan.get("episode_close"),
+            },
+        )
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, "information_package_plan")
+        return
+
+    # IPP-B2: still write audit evidence, but refuse done when require_corpus + empty.
+    if corpus_missing and cfg.get("enable", True):
+        plan = ensure_episode_close_on_plan(
+            ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+        )
+        plan["information_packages"] = []
+        ctx.write_json(PLAN_REL, plan)
+        ctx.write_json(
+            AUDIT_REL,
+            {
+                "version": 1,
+                "generated_at": _now(),
+                "mode": str(cfg.get("mode") or "shadow"),
+                "would_commit": [],
+                "committed": [],
+                "warnings": ["corpus_missing_or_empty"],
                 "episode_close": plan.get("episode_close"),
             },
         )

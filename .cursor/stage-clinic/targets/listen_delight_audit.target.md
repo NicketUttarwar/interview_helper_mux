@@ -1,6 +1,6 @@
 # Target Spec — listen_delight_audit
 
-brain: 0.2.0 | target_status: draft
+brain: 0.2.0 | target_status: applied | L3: B1/B2 KEEP (notes); B3 remutate cap applied
 
 ## Ideal behavior
 
@@ -8,15 +8,19 @@ brain: 0.2.0 | target_status: draft
 |-------------|------------------|----------------------|
 | pass | audit + heal | Completes |
 | fail + fail_early=false | persist; continue; ship recheck | Continues |
-| fail + fail_early=true | remutate ≤cap then loud_fail | Hard stop |
+| fail + fail_early=true | remutate ≤N then loud_fail | Hard stop |
+| remutate budget exhausted | sticky exhaust; pick-best; refuse | No thrash |
 | aspirational | advisory unless catastrophic | Soft |
 
 ## Rules set
 
 - admit / passed or advisory persist
-- refuse / loud_fail when blocking
-- incomplete / remutate applied needing rewind
+- refuse / loud_fail when blocking or remutate budget exhausted under authoritative
+- incomplete / remutate applied needing rewind (attempt ≤ N)
 - auto_resolve_default / fail_early=false under Full-auto
+- remutate terminate / after N attempts: ship-best then refuse (no infinite thrash)
+- **B1 KEEP:** `fail_early_at_audit_stage=false`
+- **B2 KEEP:** authoritative ship re-run at `master_finalize`
 
 ## Complexity subtraction
 
@@ -24,7 +28,7 @@ brain: 0.2.0 | target_status: draft
 
 ## Contract / dependency deltas (proposed)
 
-- Note remutate side effects despite invalidates []
+- Note remutate side effects despite invalidates [] — applied via remutate_note on contract
 
 ## Non-goals
 
@@ -32,20 +36,21 @@ brain: 0.2.0 | target_status: draft
 
 ## Acceptance checks
 
-- fail_early default; authoritative ship path; remutate exhaust
+- fail_early default; authoritative ship path; remutate exhaust at N=3 from defaults
 
 ## Upgrade backlog
 
-| id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
-|----|----------|------------------------|---------|-----------------|-----|---------------------------|
-| B1 | P0 | unambiguous | Keep fail_early=false default | config | 5,6 | yes |
-| B2 | P0 | unambiguous | Keep authoritative ship re-run | master_finalize | 6 | yes |
-| B3 | P1 | needs_you | Remutate cap / contract invalidates honesty | intent | 1,7 | yes |
+| id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK | status |
+|----|----------|------------------------|---------|-----------------|-----|---------------------------|--------|
+| B1 | P0 | answered | KEEP fail_early=false default | notes only | 5,6 | n/a kept | applied |
+| B2 | P0 | answered | KEEP authoritative ship re-run | notes only | 6 | n/a kept | applied |
+| B3 | P1 | needs_you→answered | Remutate cap then ship-best/refuse; contract remutate honesty | intent | 1,7 | overridden | applied |
 
 ## Defaults inventory impact
 
 - listen_delight.mode=authoritative; fail_early=false; floors; aspirational
+- listen_delight.max_remutate_attempts=**3** (finite remutate budget)
 
 ## target_status
 
-`draft`
+`applied` — B1/B2 KEEP (notes); B3 remutate cap applied

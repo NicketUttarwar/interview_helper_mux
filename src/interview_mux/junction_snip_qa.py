@@ -90,10 +90,17 @@ def _now() -> str:
 
 
 def junction_snip_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shipped defaults for junction snip QA.
+
+    JSQ-B1: ``mode`` default is ``advisory``, but critical incomplete-cut residuals
+    always hard-block (EM8 in ``run_junction_snip_qa``). ``authoritative`` also
+    blocks other residual families; ``off`` skips the stage.
+    """
     raw = (cfg or merged_config()).get("mastering") or {}
     block = raw.get("junction_snip_qa") if isinstance(raw.get("junction_snip_qa"), dict) else {}
     defaults: dict[str, Any] = {
-        "mode": "advisory",  # off | advisory | authoritative
+        # off | advisory | authoritative — see JSQ-B1 dual-meaning note above.
+        "mode": "advisory",
         "micro_nudge_ms": 2500,
         "phrase_extend_max_ms": 8000,
         "impact_hold_ms_min": 1200,
@@ -2597,8 +2604,9 @@ def remaster_mix_only(ctx: RunContext) -> None:
 def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bool, int]:
     """Gate every remaster_mix_only through gen budget + sticky oscillation halt.
 
-    Returns ``(remastered, used_count)``. On refuse, hard-pins needs_operator when
-    budget/osc exhausted (no soft residuals for naked/critical paths).
+    Returns ``(remastered, used_count)``. On refuse, hard-pins classified
+    budget/osc exhaust (no ``needs_operator`` hang; no soft residuals for
+    naked/critical paths — terminal raise_loud_failure refuses).
 
     End-D: ``path=commitment`` always reseats assembly — bypasses low_gain and
     remaster budget/oscillation. Cosmetic/feel paths stay gated.
@@ -3213,7 +3221,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             try:
                 remastered, used = _budgeted_remaster_mix(ctx, path="repair")
                 if not remastered:
-                    # EM2: budget/osc exhaust → hard pin + needs_operator.
+                    # EM2 / JSQ-B3: budget/osc exhaust → classified pin + refuse
+                    # terminate (no needs_operator hang).
                     residual_findings = detect_junction_findings(
                         ctx, current_edl, cfg=conf
                     )
@@ -3234,8 +3243,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                     if naked_or_critical:
                         ctx.log(
                             "junction_snip_qa: remaster budget exhausted "
-                            f"(used={used}) — needs_operator "
-                            "(no e2e soft-pass for naked/critical seams)",
+                            f"(used={used}) — classified refuse terminate "
+                            "(no e2e soft-pass for naked/critical seams; "
+                            "no needs_operator hang)",
                             level="error",
                             stage=STAGE_ID,
                         )

@@ -166,6 +166,51 @@ def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
     assert all(str(c.get("asset_id") or "") in asset_ids for c in cues if isinstance(c, dict))
 
 
+def test_sfx_prompt_craft_refuses_default_sdp_empty_assets(tmp_path, monkeypatch):
+    """SPC-B3: default/empty SDP must not reach LLM craft."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("exec_sfx_craft_empty_sdp", create=True)
+    ctx._one_writer_raw = True
+    ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
+
+    def fail_llm(*_a, **_k):
+        raise AssertionError("LLM must not run on empty SDP")
+
+    monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fail_llm)
+    with pytest.raises(RuntimeError, match="SDP assets\\[\\] empty"):
+        sound_design_stages.run_sfx_prompt_craft(ctx)
+
+
+def test_sfx_prompt_craft_contract_consumers_mmaudio_sfx() -> None:
+    """SPC-B1: primary consumer is mmaudio_sfx, not self."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("sfx_prompt_craft")
+    assert contract is not None
+    assert "mmaudio_sfx" in (contract.consumers or [])
+    assert "sfx_prompt_craft" not in (contract.consumers or [])
+
+
+def test_mmaudio_sfx_contract_lifecycle_is_non_llm() -> None:
+    """MSFX-B1: MusicGen-first host — contract must not claim llm_execute."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("mmaudio_sfx")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
+def test_mmaudio_sfx_stageinfo_musicgen_first() -> None:
+    """MSFX-B3: GUI StageInfo must label MusicGen-first, not MMAudio-only."""
+    from interview_mux.web.stages import STAGE_BY_ID
+
+    info = STAGE_BY_ID["mmaudio_sfx"]
+    assert "MusicGen" in info.description
+    assert "MMAudio text-to-audio" not in info.description
+
+
 def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("exec_sdp_persist_assets", create=True)
@@ -346,3 +391,52 @@ def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypat
     assert sdp["palettes"][0]["palette_id"] == "origin_story"
     assert validate_sound_design_plan(sdp) == []
     assert ctx.is_done("sound_design_palettes")
+
+
+def test_sound_design_palettes_defaults_defer_empty_palettes(tmp_path, monkeypatch):
+    """Shipped default early_palettes_llm=false heals without early LLM (SDP-B1)."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("exec_sdp_deferred", create=True)
+    ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Test thesis"))
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_1", text="hello", start_ms=0, end_ms=2000)
+        ),
+    )
+    ctx.write_json("understanding/analysis_state.json", default_analysis_state(ctx.run_id))
+    ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
+    _seed_source_acoustic_profile(ctx)
+
+    monkeypatch.setattr(
+        "interview_mux.stages.sound_design_stages.merged_config",
+        lambda: {"sound_design": {"early_palettes_llm": False, "enabled": True}},
+    )
+    sound_design_stages.run_sound_design_palettes(ctx)
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    assert sdp.get("coherence", {}).get("deferred_early_palettes") is True
+    assert ctx.is_done("sound_design_palettes")
+
+    from interview_mux.artifact_completeness import _gaps_sound_design_plan
+
+    # Completeness treats deferred plans as OK even if repair seeded a placeholder palette.
+    assert "palettes" not in _gaps_sound_design_plan(
+        {
+            "coherence": {"sonic_identity": "x", "deferred_early_palettes": True},
+            "palettes": [],
+        }
+    )
+    assert "palettes" not in _gaps_sound_design_plan(sdp)
+
+
+def test_sound_design_palettes_sufficiency_gated_on_early_llm() -> None:
+    """Contract does not claim blocking palettes≥1 unconditionally (SDP-B1)."""
+    from interview_mux.stage_contract import evaluate_when, load_contract
+
+    contract = load_contract("sound_design_palettes")
+    assert contract is not None
+    rules = [r for r in contract.sufficiency if r.path == "palettes"]
+    assert len(rules) == 1
+    assert rules[0].min_count == 1
+    assert rules[0].when.get("early_palettes_llm") is True
+    assert evaluate_when(rules[0].when, None) is False

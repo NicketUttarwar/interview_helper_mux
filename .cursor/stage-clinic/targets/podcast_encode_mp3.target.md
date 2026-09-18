@@ -20,6 +20,10 @@ brain: 0.2.0 | target_status: draft
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | B1 | P1 | unambiguous | incompleteness for missing/empty mp3 | stage_completion | 2 | no |
 
+## Applied (Wave 2)
+
+- B1: `_podcast_encode_mp3_incompleteness` — missing/≤1024-byte `publish/audio.mp3` refuses heal/done (`encode_missing`)
+
 ## Defaults inventory impact
 
 - none

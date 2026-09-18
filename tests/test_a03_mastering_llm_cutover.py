@@ -92,6 +92,121 @@ def test_research_llm_invokes_router_prompt(ctx: RunContext, monkeypatch: pytest
     assert consumers_bind_enabled() is False
 
 
+def test_a03_research_routing_llm_fail_refuses_heal(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CSP-05 / MRR: LLM fail → diagnostic stub + refuse (not heal-done)."""
+    from interview_mux.llm_simple import StageError
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_research.research_llm_enabled",
+        lambda: True,
+    )
+    logs: list[dict] = []
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("forced_routing_llm_fail")
+
+    def _capture_log(msg, **kwargs):
+        logs.append({"msg": msg, **kwargs})
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        _boom,
+    )
+    monkeypatch.setattr(ctx, "log", _capture_log)
+    with pytest.raises(StageError, match="hollow/invalid OpenAI primary"):
+        run_mastering_research_routing(ctx)
+    routing = ctx.read_json("mastering/research/routing.json")
+    assert routing.get("source") == "stub"
+    assert routing.get("llm_failed") is True
+    assert routing.get("skipped") == "llm_failed"
+    assert routing.get("authoritative") is False
+    assert routing.get("fields") == []
+    assert "invoke_exception" in str(routing.get("fail_reason") or "")
+    assert any(
+        e.get("action_id") == "mastering_research_routing.llm_failed" for e in logs
+    )
+    assert not ctx.is_done("mastering_research_routing")
+    reason = stage_artifact_incompleteness(ctx, "mastering_research_routing")
+    assert reason and (
+        "llm_failed" in reason
+        or "OpenAI primary" in reason
+        or "invoke_exception" in reason
+    )
+
+
+def test_a03_research_routing_llm_hollow_arts_refuses_heal(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CSP-05 / MRR: null/unusable LLM arts → refuse heal-done."""
+    from interview_mux.llm_simple import StageError
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_research.research_llm_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        lambda *_a, **_k: {"fields": []},
+    )
+    with pytest.raises(StageError, match="hollow/invalid OpenAI primary"):
+        run_mastering_research_routing(ctx)
+    routing = ctx.read_json("mastering/research/routing.json")
+    assert routing.get("llm_failed") is True
+    assert routing.get("fail_reason") == "invalid_or_empty_llm_artifacts"
+    assert routing.get("source") == "stub"
+    assert not ctx.is_done("mastering_research_routing")
+
+
+def test_msa_b1_rubric_llm_fail_incomplete(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CSP-05 / MSA-B1: agenda LLM ok + rubric hollow → incomplete (no soft heal)."""
+    from interview_mux.llm_simple import StageError
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.soft_gate_enabled",
+        lambda: True,
+    )
+
+    def _fake_invoke(_ctx, stage_key, prompt_rel, user_payload, *, max_attempts=2):
+        if "meta-architect" in prompt_rel:
+            return {
+                "version": 1,
+                "pass": "provisional",
+                "primary_mode_hypothesis": "conversational_host",
+                "mode_candidates": ["conversational_host", "sparse_source"],
+                "steps": [{"step_id": "compete", "goal": "best listen"}],
+                "budgets": {"max_steps": 4, "max_prompt_edits": 2, "max_flagship_calls": 2},
+                "north_star_pillars": ["finishability"],
+                "generated_at": "2026-01-01T00:00:00+00:00",
+            }
+        if "eval-rubric" in prompt_rel:
+            return {"version": 1}  # hollow — no criteria/style_axes
+        return {}
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        _fake_invoke,
+    )
+    with pytest.raises(StageError, match="rubric_llm_failed"):
+        run_mastering_shape_agenda(ctx)
+    agenda = ctx.read_json("mastering/shape/agenda.json")
+    rubric = ctx.read_json("mastering/shape/eval_rubric.json")
+    assert agenda.get("source") == "llm"
+    assert "rubric_llm_failed" in (rubric.get("notes") or [])
+    assert not ctx.is_done("mastering_shape_agenda")
+    reason = stage_artifact_incompleteness(ctx, "mastering_shape_agenda")
+    assert reason and "rubric_llm_failed" in reason
+
+
 def test_shape_llm_happy_path_invokes_flagship(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "interview_mux.mastering_plan_loader.shape_llm_enabled",
@@ -161,9 +276,12 @@ def test_shape_llm_happy_path_invokes_flagship(ctx: RunContext, monkeypatch: pyt
     assert consumers_bind_enabled() is False
 
 
-def test_shape_llm_fail_open_degraded_not_complete(
+def test_shape_llm_fail_refuses_incomplete(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """CSP-05 / MSA: shape.llm on + hollow invoke → StageError incomplete (no soft degrade heal)."""
+    from interview_mux.llm_simple import StageError
+
     monkeypatch.setattr(
         "interview_mux.mastering_plan_loader.shape_llm_enabled",
         lambda _cfg=None: True,
@@ -180,19 +298,56 @@ def test_shape_llm_fail_open_degraded_not_complete(
         "understanding/content_brief.json",
         {"thesis": "t", "topics": [{"name": "a", "summary": "b"}]},
     )
-    run_mastering_shape_agenda(ctx)
-    run_mastering_shape_candidates(ctx)
-    run_mastering_plan_synthesize(ctx)
-    plan = ctx.read_json("mastering/mastering_plan.json")
-    assert plan.get("plan_status") == "degraded"
-    assert plan.get("plan_status") != "complete"
-    reasons = list(plan.get("degradation_reasons") or [])
-    assert any("soft_gate" in r or "llm" in r for r in reasons)
+    with pytest.raises(StageError, match="hollow/invalid OpenAI primary"):
+        run_mastering_shape_agenda(ctx)
+    assert not ctx.is_done("mastering_shape_agenda")
     defaults = json.loads(Path("config/app.defaults.json").read_text(encoding="utf-8"))
     assert defaults["mastering"]["shape"]["soft_gate"]["consumers_bind"] is False
     assert defaults["mastering"]["research"]["llm"]["enabled"] is False
     assert defaults["mastering"]["shape"]["llm"]["enabled"] is False
     assert consumers_bind_enabled() is False
+
+
+def test_msc_b2_shape_llm_hollow_refuses_no_heuristic(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MSC-B2: shape.llm on + hollow candidates → StageError (no heuristic heal-done)."""
+    from interview_mux.llm_simple import StageError
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_plan_loader.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        lambda *_a, **_k: None,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "t", "topics": [{"name": "a", "summary": "b"}]},
+    )
+    # Seed a valid agenda so candidates is the stage under test.
+    ctx.write_json(
+        "mastering/shape/agenda.json",
+        {
+            "version": 1,
+            "pass": "provisional",
+            "source": "heuristic",
+            "mode_candidates": ["conversational_host"],
+            "steps": [{"step_id": "compete", "goal": "best listen"}],
+            "budgets": {"max_steps": 1, "max_prompt_edits": 0, "max_flagship_calls": 0},
+            "north_star_pillars": ["finishability"],
+            "generated_at": "2026-01-01T00:00:00+00:00",
+        },
+        stage_key="mastering_shape_agenda",
+    )
+    with pytest.raises(StageError, match="hollow/invalid OpenAI primary"):
+        run_mastering_shape_candidates(ctx)
+    assert not ctx.is_done("mastering_shape_candidates")
 
 
 def test_a03_claim_plan_complete_policy(monkeypatch: pytest.MonkeyPatch) -> None:

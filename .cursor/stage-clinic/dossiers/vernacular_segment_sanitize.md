@@ -1,7 +1,8 @@
 # Stage clinic dossier — vernacular_segment_sanitize
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: not_started | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# VSS-B1–B4 implemented 2026-09-17; VSS-B5 needs_you (fail_open default) open.
 
 ## §5.0 Evidence index card
 

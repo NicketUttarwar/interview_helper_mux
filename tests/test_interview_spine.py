@@ -124,3 +124,19 @@ def test_can_skip_rebuild_when_derived_from_matches(tmp_path, monkeypatch):
     )
     run_interview_spine_build(ctx)
     assert ctx.is_done("interview_spine_build")
+
+
+def test_interview_spine_disabled_writes_skip_stub(tmp_path, monkeypatch):
+    """ISB-B2: disabled path must write primary stub before heal."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.stages.interview_spine_stage.spine_enabled",
+        lambda: False,
+    )
+    ctx = RunContext("exec_spine_disabled", create=True)
+    run_interview_spine_build(ctx)
+    doc = ctx.read_json("understanding/interview_spine.json")
+    assert doc.get("skipped") == "spine_disabled"
+    assert doc.get("windows") == []
+    assert validate_interview_spine(doc) == []
+    assert ctx.is_done("interview_spine_build")

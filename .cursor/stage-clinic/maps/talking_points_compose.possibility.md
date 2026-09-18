@@ -18,8 +18,8 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| all hard present | contract hard transcript+content_brief; body reads transcript; brief soft-attach | CODE_DOC_CONFLICT | `_talking_points_base_payload` |
-| hard missing | may still LLM with thin packet if brief absent | CODE_DOC_CONFLICT | |
+| all hard present | contract hard transcript+content_brief; body requires brief before LLM (TPC-B1) | IN_CODE | `_talking_points_base_payload` + pre-LLM gate |
+| hard missing | RuntimeError — no thin OpenAI packet | IN_CODE | |
 | ideal_cuts disabled | writes stub talking_points + heal_or_refuse_mark force | IN_CODE | `ideal_cuts_cfg().enable` |
 | hollow | schema strategy_summary + min talking_points | IN_CODE | |
 | long text | shard merge_talking_points_artifacts | IN_CODE | |
@@ -61,7 +61,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard transcript+brief | brief not hard-raised | CODE_DOC_CONFLICT |
+| hard transcript+brief | brief required before LLM (TPC-B1) | IN_CODE |
 | soft speakers+probes | optional | IN_CODE |
 | outputs talking_points schema | matches | IN_CODE |
 | invalidates [] | true | IN_CODE |

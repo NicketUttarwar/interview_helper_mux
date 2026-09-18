@@ -1,6 +1,6 @@
 # Artifact ownership — ALLOW / DENY
 
-matrix_version: `8f5b9a53a9932b4a`
+matrix_version: `e435525aaceb4a19`
 
 ## Primary paths (live stages)
 
@@ -114,4 +114,3 @@ matrix_version: `8f5b9a53a9932b4a`
 - Owner re-execute is ALLOW; consumer re-execute never becomes owner.
 - Nested VO staging under EDL is ALLOW; flushing `vo_pickup` from non-owner pending is DENY.
 - Empty heal pin must not execute (no delivery rewind / no music_palette_compose coalesce).
-

@@ -29,6 +29,39 @@ class StageError(RuntimeError):
         super().__init__(message)
 
 
+def _is_retryable_persist_runtime(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return (
+        "span coverage" in msg
+        or "clustered early" in msg
+        or "redistribute across" in msg
+    )
+
+
+def _handle_persist_runtime_error(
+    ctx: "RunContext",
+    stage_key: str,
+    exc: RuntimeError,
+    *,
+    attempt: int,
+) -> bool:
+    """Span/quality persist gates: retry once, then StageError (ICP-B4).
+
+    Returns True when the caller should ``continue`` the attempt loop.
+    """
+    msg = str(exc)
+    if _is_retryable_persist_runtime(exc) and attempt < 2:
+        ctx.log(
+            f"{msg} — retrying LLM (attempt {attempt + 1})",
+            level="warning",
+            stage=stage_key,
+        )
+        return True
+    if _is_retryable_persist_runtime(exc):
+        raise StageError(stage_key, msg) from exc
+    raise
+
+
 def _is_locked_order_rerun_need(need: Any) -> bool:
     """Transitions cannot rerun ranking; locked ordered_segment_ids is air authority."""
     if not isinstance(need, dict):
@@ -455,7 +488,15 @@ def run_llm_stage_simple(
                             stage=stage_key,
                         )
                         _warn_only_lint(ctx, stage_key, envelope)
-                        persist_artifacts(ctx, artifacts)
+                        try:
+                            persist_artifacts(ctx, artifacts)
+                        except RuntimeError as exc:
+                            # Attempt 2 only here — wrap span gates as StageError (ICP-B4).
+                            if _handle_persist_runtime_error(
+                                ctx, stage_key, exc, attempt=attempt
+                            ):
+                                last_schema_errors = [str(exc)]
+                                continue
                         if sync_fn is not None:
                             sync_fn(ctx, envelope)
                         if auto_complete:
@@ -529,21 +570,10 @@ def run_llm_stage_simple(
             # Persist-time quality gates (e.g. ideal_cuts span coverage) should
             # consume the same one-retry budget as schema errors — not abort the
             # whole analysis batch and force an e2e clear_from rewind.
-            msg = str(exc)
-            retryable = (
-                "span coverage" in msg.lower()
-                or "clustered early" in msg.lower()
-                or "redistribute across" in msg.lower()
-            )
-            if retryable and attempt < 2:
-                last_schema_errors = [msg]
-                ctx.log(
-                    f"{msg} — retrying LLM (attempt {attempt + 1})",
-                    level="warning",
-                    stage=stage_key,
-                )
+            # After attempt 2: raise StageError (ICP-B4) — never fail-open ideal_cuts.
+            if _handle_persist_runtime_error(ctx, stage_key, exc, attempt=attempt):
+                last_schema_errors = [str(exc)]
                 continue
-            raise
         if sync_fn is not None:
             sync_fn(ctx, envelope)
         if auto_complete:

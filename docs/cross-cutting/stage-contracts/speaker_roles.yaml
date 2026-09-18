@@ -16,15 +16,13 @@ inputs:
   hard:
   - path: transcript/full.json
     producer: transcribe
+  soft:
   - path: understanding/interview_spine.json
     producer: interview_spine_build
-    when:
-      spine_enabled: true
-  soft:
   - path: transcript/speakers.json
     producer: transcribe
   - path: transcript/diarization_repairs.json
-    producer: transcribe
+    producer: interview_spine_build
 sufficiency:
 - path: speakers
   rule: min_rows

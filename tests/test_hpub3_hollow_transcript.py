@@ -1,7 +1,9 @@
 """HPUB-3: empty cues / header-only VTT cannot complete or package.
 
-Schema still allows cue_count 0. Seed and package treat 0 / header-only as
-incomplete and pin master_transcript_build. Cover/package_ready (HPUB-2) stays.
+JSON schema still allows cue_count 0 (hollow pack evidence). Contract
+sufficiency documents min_rows≥1 (clinic B1). Seed and package treat
+0 / header-only as incomplete and pin master_transcript_build.
+Cover/package_ready (HPUB-2) stays.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from interview_mux.stage_completion import (
     producer_pin_for_token,
     stage_artifact_incompleteness,
 )
+from interview_mux.stage_contract import load_contract
 from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
@@ -139,3 +142,13 @@ def test_hpub3_hollow_done_unmarks_and_pins(ctx: RunContext) -> None:
     heal = heal_or_refuse_mark(ctx, "master_transcript_build")
     assert heal.get("refused") is True
     assert producer_pin_for_token("header_only_vtt") == "master_transcript_build"
+
+
+def test_mtb_b1_contract_sufficiency_min_cues_one() -> None:
+    """Clinic B1: contract sufficiency documents cues min_rows≥1 (HPUB-3)."""
+    contract = load_contract("master_transcript_build")
+    assert contract is not None
+    rules = [r for r in contract.sufficiency if r.path == "cues"]
+    assert len(rules) == 1
+    assert rules[0].rule == "min_rows"
+    assert rules[0].min_count == 1

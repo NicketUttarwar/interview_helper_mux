@@ -325,6 +325,8 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "selection_framing_apply",
         "vo_line_adjudicate",
         "gap_report_sanitize",
+        # VS-B3: Full-auto record→synth rewrite persists delivery under vo_synthesize.
+        "vo_synthesize",
         mode="one_writer",
         end="A",
         fields=(
@@ -481,6 +483,14 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("publish/cover_prompt.json", "episode_cover_prompt_craft", end="ops"),
     _row("publish/audio.mp3", "podcast_encode_mp3", mode="binary", end="ops"),
     _row("publish/cover.jpg", "episode_cover_generate", mode="binary", end="ops"),
+    # ECG-B1: cascade writes batch_*/ + flat 0..n under staging (ctx.path);
+    # without a catalog row promote/audit treat them as unknown_path.
+    _row(
+        "publish/cover_candidates/**",
+        "episode_cover_generate",
+        mode="binary",
+        end="ops",
+    ),
     _row("publish/package_ready.json", "podcast_publish", end="ops"),
     # Operational / homunculus
     _row("run_meta.json", "ops", mode="operational", end="ops"),
@@ -614,9 +624,9 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("ingest/waveform_peaks.json", "ingest", mode="operational", end="ops"),
     _row("transcript/speakers.json", "transcribe", "speaker_roles", end="ops"),
     _row("transcript/corrections.json", "transcript_review_build", "transcribe", mode="operational", end="ops"),
-    _row("transcript/diarization_repairs.json", "transcribe", mode="operational", end="ops"),
-    _row("transcript/protected_zones.json", "transcribe", mode="operational", end="ops"),
-    _row("transcript/speaker_flows.json", "transcribe", mode="operational", end="ops"),
+    _row("transcript/diarization_repairs.json", "interview_spine_build", mode="operational", end="ops"),
+    _row("transcript/protected_zones.json", "audio_probe_build", "vernacular_segment_sanitize", mode="operational", end="ops"),
+    _row("transcript/speaker_flows.json", "audio_probe_build", mode="operational", end="ops"),
     _row("segments/nle_edits.json", "ops", mode="operational", end="ops"),
     _row("segments/boundary_review_queue.json", "boundary_detection", mode="operational", end="ops"),
     _row("segments/split_plan.json", "boundary_topic_resplit", mode="operational", end="ops"),
@@ -662,8 +672,8 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/refinement_skip_copy.json", "gap_framing_recompose", mode="operational", end="C"),
     _row("understanding/source_readiness.json", "ops", mode="operational", end="ops"),
     _row("understanding/value_features.json", "ops", mode="operational", end="ops"),
-    _row("vernacular/audio_tags_by_flow.json", "vernacular_segment_sanitize", mode="operational"),
-    _row("vernacular/probe_report.json", "vernacular_segment_sanitize", mode="operational"),
+    _row("vernacular/audio_tags_by_flow.json", "audio_probe_build", "vernacular_segment_sanitize", mode="operational"),
+    _row("vernacular/probe_report.json", "audio_probe_build", "vernacular_segment_sanitize", mode="operational"),
     _row("analysis_complete.json", "ops", mode="operational", end="ops"),
     _row("transcripts/index.json", "ops", mode="operational", end="ops"),
     # Per-segment asset transcript sidecars: derived text mirrors kept in sync by

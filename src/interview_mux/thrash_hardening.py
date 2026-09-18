@@ -36,6 +36,7 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
         "assembly_preview",
         "master_finalize",
         # A-01: key meaning producers — no hollow force-done.
+        # (Not a thrash-oscillation hotspot list; SAP-B5 Q2B: SAP stays here for HU-1.)
         "content_context",
         "source_acoustic_profile",
         "sonic_context_build",
@@ -3185,11 +3186,16 @@ def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
 
 
 def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
-    """On budget exhaust: pin junction + needs_operator — never soft-pass naked seams.
+    """On budget/osc exhaust: classified refuse-terminate — never soft-pass naked seams.
+
+    Clinic JSQ-B3 (2026-09-17 CONTINUE): do **not** stamp ``needs_operator``.
+    Exhaustion is a classified remediation / refuse-terminate edge — caller
+    continues to terminal ``raise_loud_failure`` when critical residuals remain,
+    or completes when residuals are observational-only.
 
     EM2: do **not** set ``e2e_soft_junction_residuals`` here. That flag is e2e-only
-    for non-naked observational residuals; budget exhaust with naked seams must
-    halt for operator, not greenwash finalize.
+    for non-naked observational residuals; budget exhaust must not greenwash
+    finalize.
     """
     reason = "junction_remaster_budget_exhausted"
     try:
@@ -3197,6 +3203,43 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
             reason = "junction_oscillation_halt"
     except Exception:
         pass
+
+    def _stamp_classified(meta: dict[str, Any]) -> None:
+        meta["junction_remaster_budget_exhausted"] = True
+        meta["junction_budget_exhaust_classified"] = True
+        meta["junction_budget_exhaust_reason"] = reason
+        # Never soft-pass naked via e2e flag on budget exhaust.
+        meta.pop("e2e_soft_junction_residuals", None)
+        # JSQ-B3: clear any prior operator hang from this exhaust path.
+        if str(meta.get("needs_operator_stage") or "") == "junction_snip_qa":
+            reason_prev = str(meta.get("needs_operator_reason") or "").lower()
+            if (
+                "junction_remaster_budget" in reason_prev
+                or "junction_oscillation" in reason_prev
+                or not reason_prev
+            ):
+                meta.pop("needs_operator", None)
+                meta.pop("needs_operator_stage", None)
+                meta.pop("needs_operator_reason", None)
+
+    # Always stamp classified exhaust before ESR wait/halt — flags must land even
+    # when remaster disk is still advancing (may_hard_halt False).
+    try:
+        if not ctx.artifact_exists("run_meta.json"):
+            ctx.write_json(
+                "run_meta.json",
+                {
+                    "junction_remaster_budget_exhausted": True,
+                    "junction_budget_exhaust_classified": True,
+                    "junction_budget_exhaust_reason": reason,
+                },
+                skip_handoff=True,
+            )
+        else:
+            ctx.mutate_run_meta(_stamp_classified)
+    except Exception:
+        pass
+
     # ESR: budget counter may fire while remaster disk still advances — wait.
     try:
         from interview_mux.execution_status import may_hard_halt, wait_vs_halt
@@ -3210,33 +3253,8 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
             )
             return "junction_snip_qa"
     except Exception:
-        # a8 fail-closed for HARD: do not stamp needs_operator on ESR error
+        # a8 fail-closed for HARD: classified flags already stamped above
         return "junction_snip_qa"
-    try:
-        if not ctx.artifact_exists("run_meta.json"):
-            ctx.write_json(
-                "run_meta.json",
-                {
-                    "junction_remaster_budget_exhausted": True,
-                    "needs_operator": True,
-                    "needs_operator_stage": "junction_snip_qa",
-                    "needs_operator_reason": reason,
-                },
-                skip_handoff=True,
-            )
-        else:
-
-            def _mark(meta: dict[str, Any]) -> None:
-                meta["junction_remaster_budget_exhausted"] = True
-                # Never soft-pass naked via e2e flag on budget exhaust.
-                meta.pop("e2e_soft_junction_residuals", None)
-                meta["needs_operator"] = True
-                meta["needs_operator_stage"] = "junction_snip_qa"
-                meta["needs_operator_reason"] = reason
-
-            ctx.mutate_run_meta(_mark)
-    except Exception:
-        pass
     try:
         from interview_mux.delivery_guardrails import record_delivery_residual, record_wasted_work
 
@@ -3244,14 +3262,26 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
             ctx,
             event="junction_budget_exhaust",
             stage="junction_snip_qa",
-            detail={"pin": "junction_snip_qa", "soft_pass": False, "reason": reason},
+            detail={
+                "pin": "junction_snip_qa",
+                "soft_pass": False,
+                "reason": reason,
+                "needs_operator": False,
+                "terminate": "classified_refuse",
+            },
         )
         record_delivery_residual(
             ctx,
             kind="junction_budget_exhaust",
             severity="critical",
             stage="junction_snip_qa",
-            detail={"pin": "junction_snip_qa", "soft_pass": False, "reason": reason},
+            detail={
+                "pin": "junction_snip_qa",
+                "soft_pass": False,
+                "reason": reason,
+                "needs_operator": False,
+                "terminate": "classified_refuse",
+            },
         )
     except Exception:
         pass

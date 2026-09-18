@@ -3,8 +3,8 @@
   "status": "PASS",
   "tier": "D1",
   "notes": [
-    "incompleteness_ok:publish/audio.mp3 is pending"
+    "incompleteness_ok:encode_missing \u2014 resume podcast_encode_mp3: publish/audio.mp3 missing"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-17T06:15:06Z"
+  "executed_at": "2026-09-18T14:28:08Z"
 }

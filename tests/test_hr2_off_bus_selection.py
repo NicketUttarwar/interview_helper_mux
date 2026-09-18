@@ -1,6 +1,7 @@
-"""HR-2: Pass A omits and layup CTA prune must use the selection commit bus.
+"""HR-2 / ASC-B3: Pass A air omits leave selection alone; layup CTA uses commit bus.
 
-Refuse pins the writer, never W1/edl. Freeze keeps commit's no-op.
+ASC-B3: Pass A records omits on plan/ledger only — never shrinks selection.
+Layup CTA prune still goes through commit_selection_mutation (refuse pins writer).
 Do not start a run. F1 restamp-on-read and HR-4 mute-mark stay.
 """
 
@@ -11,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from interview_mux.air_script import compose_pass_a, run_air_script_compose
-from interview_mux.delivery_guardrails import seed_stage_complete
 from interview_mux.heal_routing import classify_heal_error
 from interview_mux.mastering_plan_loader import forced_sparse_plan, write_plan
 from interview_mux.run_context import RunContext
@@ -93,9 +93,10 @@ def _seed_meander(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> list[str]
     return ordered
 
 
-def test_hr2_pass_a_omits_go_through_commit(
+def test_asc_b3_pass_a_omits_leave_selection_unchanged(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """ASC-B3: air omits on plan/ledger; selection.json order stays intact."""
     _seed_meander(ctx, monkeypatch)
     writes: list[str] = []
     real_write = ctx.write_json
@@ -107,7 +108,6 @@ def test_hr2_pass_a_omits_go_through_commit(
 
     monkeypatch.setattr(ctx, "write_json", _spy_write)
     commits: list[str] = []
-    real_commit = None
     from interview_mux import air_order_boundary as boundary
 
     real_commit = boundary.commit_selection_mutation
@@ -123,17 +123,21 @@ def test_hr2_pass_a_omits_go_through_commit(
     omitted = {row["subject_id"] for row in (plan["air_script"]["omits"] or [])}
     assert omitted
     after = list(ctx.read_json("master/selection.json")["ordered_segment_ids"])
-    assert after != before
-    assert "seg_001" in after
-    assert commits == ["air_script_compose"]
+    assert after == before
+    assert commits == []
     assert writes == []
-    meta = (ctx.read_json("master/selection.json").get("_meta") or {}).get("sanitize")
-    assert isinstance(meta, dict) and meta.get("hash")
+    assert ctx.artifact_exists("understanding/omit_ledger.json")
+    ledger = ctx.read_json("understanding/omit_ledger.json")
+    entries = ledger.get("entries") if isinstance(ledger, dict) else []
+    assert any(
+        isinstance(e, dict) and e.get("reason_code") == "pass_a_padding" for e in entries
+    )
 
 
-def test_hr2_pass_a_commit_refuse_pins_compose_not_w1(
+def test_asc_b3_pass_a_ignores_selection_commit_bus(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """ASC-B3: Pass A does not call selection commit — boom on bus is irrelevant."""
     _seed_meander(ctx, monkeypatch)
     before = list(ctx.read_json("master/selection.json")["ordered_segment_ids"])
 
@@ -144,38 +148,13 @@ def test_hr2_pass_a_commit_refuse_pins_compose_not_w1(
         "interview_mux.air_order_boundary.commit_selection_mutation",
         _boom,
     )
-    with pytest.raises(RuntimeError, match="selection_commit_refused") as caught:
-        compose_pass_a(ctx)
-    reason = str(caught.value)
-    assert parse_resume_stage_from_reason(reason) == "air_script_compose"
-    assert parse_resume_stage_from_reason(reason) != "selection_order_sanitize"
-    assert parse_resume_stage_from_reason(reason) != "edl"
-    assert producer_pin_for_token(reason, ctx=ctx) == "air_script_compose"
-    assert producer_pin_for_token(reason, ctx=ctx) != "selection_order_sanitize"
+    plan = compose_pass_a(ctx)
+    assert plan.get("air_script", {}).get("omits")
     assert ctx.read_json("master/selection.json")["ordered_segment_ids"] == before
-    assert ctx.artifact_exists("understanding/omit_ledger.json")
-    ledger = ctx.read_json("understanding/omit_ledger.json")
-    entries = ledger.get("entries") if isinstance(ledger, dict) else []
-    assert any(
-        isinstance(e, dict) and e.get("reason_code") == "pass_a_padding" for e in entries
+    run_air_script_compose(ctx)
+    assert ctx.is_done("air_script_compose") or ctx.artifact_exists(
+        "mastering/mastering_plan.json"
     )
-    with pytest.raises(RuntimeError, match="selection_commit_refused"):
-        run_air_script_compose(ctx)
-    assert not ctx.is_done("air_script_compose")
-    mark_done_raw(ctx, "air_script_compose")
-    inc = stage_artifact_incompleteness(ctx, "air_script_compose")
-    assert inc is not None
-    assert "selection_commit_refused" in inc
-    assert seed_stage_complete(ctx, "air_script_compose") is False
-    assert incompleteness_resume_stage(ctx, "air_script_compose") == (
-        "air_script_compose"
-    )
-    nav = heal_navigate(ctx, error=reason, stage="air_script_compose")
-    assert nav["from_stage"] == "air_script_compose"
-    assert nav["from_stage"] != "edl"
-    route = classify_heal_error(reason, ctx, stage="air_script_compose")
-    assert route is not None
-    assert route.from_stage == "air_script_compose"
 
 
 def test_hr2_pass_a_freeze_noops_without_write_json(

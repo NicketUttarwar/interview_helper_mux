@@ -153,3 +153,18 @@ def test_build_sonic_context_dense_jargon_bucket(tmp_path, monkeypatch):
     doc = build_sonic_context(ctx)
     assert doc["scenario"]["atlas_bucket"] == "dense_jargon"
     assert doc["mix_policy"]["adaptive_max_assets_flow1"] <= 3
+
+
+def test_sonic_context_contract_hard_matches_input_checks() -> None:
+    """SCB-B1: contract hard inputs track `_check_sonic_context_build`, not fuse audit."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("sonic_context_build")
+    assert contract is not None
+    hard = {d.path for d in contract.inputs if d.hard and d.path}
+    assert hard == {
+        "understanding/content_brief.json",
+        "segments/manifest.json",
+        "understanding/source_acoustic_profile.json",
+    }
+    assert "analysis/connector_fuse_audit.json" not in hard

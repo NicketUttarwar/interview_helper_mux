@@ -37,7 +37,8 @@ code_is_king: true | prior_exec: ignored_by_default
 |------|---------|-----|--------------|
 | G1.5 required + not approved | Blocks mmaudio (`can_run_sfx_generation`) | IN_CODE | sfx_prompt_review |
 | first_try + QA green | `maybe_auto_approve_prompt_review` | IN_CODE | first_try.enabled=true default |
-| QA warnings | No auto-approve — **human/driver** | IN_CODE | FULL_AUTO_REGRESSION_RISK |
+| Full-auto + QA soft warnings | Auto-approve `auto_full_auto` | IN_CODE | SPC-B2 operator binding |
+| Partial/manual + QA warnings | No auto-approve — GUI | IN_CODE | |
 | Not in PARTIAL_MUST_ACT | Partial may still stall on G1.5 GUI | IN_CODE | |
 
 ## 4. Execution outcomes
@@ -56,7 +57,7 @@ code_is_king: true | prior_exec: ignored_by_default
 ## 6. Complexity traps
 
 - Contract consumers: [sfx_prompt_craft] self — `CODE_DOC_CONFLICT`
-- G1.5 default true + first_try auto only if warnings empty — `IN_CODE`
+- G1.5 default true; Full-auto auto-approve always; first_try auto only if warnings empty — `IN_CODE`
 - Local heavy ML: N/A
 
 ## 7. Contract honesty
@@ -79,12 +80,11 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | Full-auto + first_try + green QA | Auto-approve → mmaudio | IN_CODE | |
-| Full-auto + QA warnings | Stall until approve (GUI) or driver | IN_CODE | FULL_AUTO_REGRESSION_RISK |
-| Product seed walk alone | Does not call approve API | IN_CODE | landmine |
-| tools/full_auto_driver | `approve_sfx_prompts()` on block | IN_CODE | driver-only |
-| human stall? | Yes when G1.5 pending | IN_CODE | |
-| GUI-only? | Approve panel when required | IN_CODE | |
-| partial-only fix risk | Disabling G1.5 for Full-auto only is OK if documented | | |
+| Full-auto + QA soft warnings | Auto-approve `auto_full_auto` → mmaudio | IN_CODE | SPC-B2 |
+| Product seed walk + Full-auto meta | `maybe_auto_approve_prompt_review` in craft persist | IN_CODE | |
+| tools/full_auto_driver | `approve_sfx_prompts()` safety net if still blocked | IN_CODE | |
+| human stall? | Partial/manual when G1.5 pending + warnings | IN_CODE | |
+| GUI-only? | Approve panel when required (non-Full-auto) | IN_CODE | |
 
 ## Flags (§5.5)
 
@@ -96,8 +96,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## TEST_GAP
 
-- Full-auto product path without driver when QA warnings present
-- Contract consumer typo xcheck
+- (closed) Full-auto soft-warning auto-approve — `test_g1_5_prompt_review.py`
 
 ## DoD threats
 
@@ -105,7 +104,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## Open questions
 
-1. Should Full-auto auto-approve G1.5 even with soft warnings?
+(none — B2 binding: Full-auto auto-approve incl. soft warnings)
 
 ## discovery_status
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.hard_keep import hard_keep_segment_ids
-from interview_mux.mastering_plan_loader import load_plan_raw, write_plan
+from interview_mux.mastering_plan_loader import forced_sparse_plan, load_plan_raw, write_plan
 from interview_mux.run_context import RunContext
 
 AIR_SCRIPT_MOVES: tuple[str, ...] = (
@@ -81,6 +81,50 @@ def empty_air_script(*, pass_name: str = "pass_a") -> dict[str, Any]:
         },
         "generated_at": _now(),
     }
+
+
+def persist_air_script_disabled_skip(
+    ctx: RunContext,
+    *,
+    stage: str,
+    pass_name: str,
+) -> dict[str, Any]:
+    """CSP-01: enable=false writes an honest skip latch on mastering_plan.
+
+    Seed walk must not stall pending when ``mastering.air_script.enable`` is off.
+    Caller heals after this write.
+    """
+    sid = str(stage or "").strip() or "air_script_compose"
+    plan = load_plan_raw(ctx)
+    if not isinstance(plan, dict):
+        plan = forced_sparse_plan(reason="mastering.air_script.enable=false")
+    else:
+        plan = dict(plan)
+    script = empty_air_script(pass_name=pass_name)
+    script["enabled"] = False
+    script["skip_reason"] = "air_script_disabled"
+    script["note"] = "mastering.air_script.enable=false"
+    plan["air_script"] = script
+    write_plan(ctx, plan)
+    if sid == "air_script_compose":
+        try:
+            from interview_mux.omit_ledger import OMIT_LEDGER_REL, empty_omit_ledger
+
+            if not ctx.artifact_exists(OMIT_LEDGER_REL):
+                ledger = empty_omit_ledger()
+                ledger["skip_reason"] = "air_script_disabled"
+                ctx.write_json(
+                    OMIT_LEDGER_REL, ledger, stage_key="air_script_compose"
+                )
+        except Exception:
+            pass
+    ctx.log(
+        f"{sid} skipped (mastering.air_script.enable=false) — wrote skip latch",
+        level="info",
+        stage=sid,
+        action_id="air_script.disabled_skip",
+    )
+    return plan
 
 
 def load_air_script(plan: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -801,22 +845,8 @@ def compose_pass_a(ctx: RunContext) -> dict[str, Any]:
         except Exception:
             pass
 
-    if omit_ids and ctx.artifact_exists("master/selection.json"):
-        sel = ctx.read_json("master/selection.json")
-        if isinstance(sel, dict):
-            proposed = enforce_air_script_omits(ctx, sel)
-            prev_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
-            new_ids = [str(s) for s in (proposed.get("ordered_segment_ids") or []) if s]
-            if new_ids != prev_ids:
-                from interview_mux.air_order_boundary import commit_selection_or_refuse
-
-                commit_selection_or_refuse(
-                    ctx,
-                    proposed,
-                    producer="air_script_compose",
-                    stage_key="air_script_compose",
-                    checkpoint_mode="detect",
-                )
+    # ASC-B3: air omits stay on the plan / omit ledger only — never shrink
+    # master/selection.json. Later packs may still call enforce_air_script_omits.
     return plan
 
 
@@ -1642,6 +1672,16 @@ def paper_edit_scores(ctx: RunContext) -> dict[str, Any]:
 def run_air_script_compose(ctx: RunContext) -> None:
     """Pass A after ranking. Heal-gate: refuse done unless a Pass A script exists."""
     if not air_script_enabled():
+        # ASC-B2 / CSP-01: skip latch + heal so seed does not stall pending.
+        persist_air_script_disabled_skip(
+            ctx, stage="air_script_compose", pass_name="pass_a"
+        )
+        try:
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            heal_or_refuse_mark(ctx, "air_script_compose", force=True)
+        except Exception:
+            pass
         return
     try:
         compose_pass_a(ctx)
@@ -1706,6 +1746,16 @@ def _clear_seams_contract_drift(ctx: RunContext) -> None:
 def run_air_script_seams(ctx: RunContext) -> None:
     """Pass B + sonic opportunity hunt after layup freeze."""
     if not air_script_enabled():
+        # ASS-B2 / CSP-01: skip latch + heal so seed does not stall pending.
+        persist_air_script_disabled_skip(
+            ctx, stage="air_script_seams", pass_name="pass_b"
+        )
+        try:
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            heal_or_refuse_mark(ctx, "air_script_seams", force=True)
+        except Exception:
+            pass
         return
     prior_plan = _snapshot_mastering_plan(ctx)
     try:

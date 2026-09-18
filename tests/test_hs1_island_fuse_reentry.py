@@ -91,10 +91,6 @@ def test_hs1_wrapper_fuse_skip_heals_analysis_pass(
         "interview_mux.segment_fuse.connector_fuse_cfg",
         lambda cfg=None: {"enabled": False, "max_fuses_per_pass": 24, "max_fuse_rounds": 8},
     )
-    monkeypatch.setattr(
-        "interview_mux.stages.low_conf_fuse_stages.connector_fuse_cfg",
-        lambda cfg=None: {"enabled": False, "max_fuses_per_pass": 24, "max_fuse_rounds": 8},
-    )
     wrapper_fuse_pass(ctx)
     assert ctx.artifact_exists("analysis/connector_fuse_audit.json")
     assert ctx.is_done("connector_fuse_pass")

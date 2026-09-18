@@ -49,9 +49,6 @@ sufficiency: []
 propagation:
   invalidates_stages: []
 consumers:
-- mastering_plan_synthesize
-- mastering_plan_confirm
-- gap_framing_compose
 - narrative_arc_plan
 - chapter_close_hitch
 - full_master_ranking

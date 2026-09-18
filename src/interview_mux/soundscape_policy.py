@@ -878,6 +878,18 @@ def run_soundscape_policy_build(ctx: RunContext) -> None:
         if errors:
             raise ValueError("soundscape_policy invalid: " + "; ".join(errors[:8]))
         ctx.write_json(POLICY_PATH, policy)
+        # SSP-B1 (5A): fail_closed + invent blocked → incomplete (no soft heal-done).
+        if fail_closed() and str(policy.get("invent_gate") or "") == "blocked":
+            ctx.log(
+                "soundscape_policy_build incomplete: invent_gate=blocked under fail_closed",
+                level="warning",
+                stage="soundscape_policy_build",
+                detail={"invent_obligation": policy.get("invent_obligation")},
+            )
+            raise RuntimeError(
+                "soundscape_policy_build incomplete: invent_gate=blocked "
+                "(unpaid invent obligation) — resume sound_design_plan or waive invent"
+            )
         ctx.log(
             f"soundscape_policy: underscore={policy.get('underscore_policy')} "
             f"pace={policy.get('pace_class')} slots={len(policy.get('cue_slots') or [])} "

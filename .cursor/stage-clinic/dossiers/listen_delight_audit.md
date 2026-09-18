@@ -1,7 +1,7 @@
 # Stage clinic dossier — listen_delight_audit
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: applied | L3_patch: done
 
 ## §5.0 Evidence index card
 
@@ -13,8 +13,10 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - immediate downstream consumers: master_finalize (authoritative re-run); remutate from_stage
 - gate_adjacency: listen_delight / G-Listen family
 - LLM?: no (deterministic dimensions; OpenAI N/A here)
-- thrash_hotspot: yes — remutate loops; fail_early vs ship-at-finalize
+- thrash_hotspot: yes — remutate capped at N=3 (`max_remutate_attempts`); fail_early vs ship-at-finalize
 - test_gravity: solid (`test_listen_delight.py`, aspirational, PMQ)
+
+## Wave 2 2026-09-17 — B3 remutate cap N=3; B1/B2 KEEP fail_early=false + finalize authoritative re-run (CONTINUE notes only).
 
 ## Evidence checklist (§5.1–5.6)
 

@@ -267,6 +267,19 @@ def test_i17_vo_line_adjudicate_and_shadow_ownership(ctx: RunContext) -> None:
     assert reason2 == "operational"
 
 
+def test_vs_b3_vo_synthesize_may_rewrite_gap_delivery(ctx: RunContext) -> None:
+    """VS-B3: vo_synthesize ALLOW to persist delivery rewrite on gap_report."""
+    ok, reason = write_permitted(
+        ctx,
+        "understanding/gap_report.json",
+        "vo_synthesize",
+        role="producer",
+        verb="persist",
+        fields=("interviewer_lines[].delivery",),
+    )
+    assert ok is True, reason
+
+
 def test_i23_sound_design_plan_cue_writers_allowed(tmp_path, monkeypatch) -> None:
     """music_palette_compose / sfx_prompt_craft / vo_finalize seat cues into the SDP.
 

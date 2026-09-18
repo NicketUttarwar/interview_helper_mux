@@ -25,10 +25,9 @@ inputs:
 sufficiency:
 - path: cues
   rule: min_rows
-  min_count: 0
+  min_count: 1
 propagation:
   invalidates_stages:
-  - episode_meta_build
   - podcast_publish
 consumers:
 - podcast_publish

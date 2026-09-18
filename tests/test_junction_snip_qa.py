@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from interview_mux.junction_snip_qa import (
     _clip_end_text,
     _find_phrase_end_ms,
@@ -1131,3 +1133,149 @@ def test_sync_edl_speech_bounds_from_nle_overrides(tmp_path):
     out, changed = _sync_edl_speech_bounds_from_nle(ctx, edl)
     assert changed is True
     assert int(out["clips"][0]["source_end_ms"]) == 5000
+
+
+def test_jsq_b1_advisory_mode_still_blocks_critical_incomplete(tmp_path, monkeypatch):
+    """JSQ-B1: shipped mode is advisory, but incomplete-cut residuals always hard-block."""
+    from interview_mux import junction_snip_qa
+    from interview_mux.loud_fail import LoudStageFailure
+    from interview_mux.order_hash import stamp_order_hash
+
+    assert junction_snip_qa.junction_snip_cfg().get("mode") == "advisory"
+
+    ctx = isolated_run_ctx(tmp_path, "exec_jsq_b1_advisory")
+    finding = {
+        "kind": "incomplete_clause",
+        "severity": "critical",
+        "segment_id": "seg_a",
+        "clip_index": 0,
+        "action": "extend_later",
+        "detail": {"unrecoverable_within_clip": True},
+        "evidence": "test",
+    }
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_a",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "text": "We started the thought but never",
+                    "topic_tags": [],
+                    "flags": [],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("transcript/full.json", {"words": []}, skip_handoff=True)
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_a"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_a",
+                    "source_start_ms": 0,
+                    "source_end_ms": 4000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 4000,
+                }
+            ],
+            "timeline_duration_ms": 4000,
+        }
+    )
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_a"], "chapters": []}),
+        skip_handoff=True,
+    )
+    ctx.write_json("master/edl.json", edl, skip_handoff=True)
+    asm = ctx.path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + (b"\0" * 256))
+
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "junction_snip_cfg",
+        lambda cfg=None: {
+            "mode": "advisory",
+            "feel_audit_enabled": False,
+            "apply_repairs": True,
+            "max_remaster_rounds": 2,
+            "micro_nudge_ms": 2500,
+            "phrase_extend_max_ms": 8000,
+            "impact_hold_ms_min": 1200,
+            "impact_hold_ms_max": 3500,
+            "music_soft_crossfade_ms": 180,
+            "dead_air_clamp_ms": 2500,
+            "pace_multipliers": {"balanced": 1.0},
+        },
+    )
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "detect_junction_findings",
+        lambda ctx_, edl_, cfg=None: [dict(finding)],
+    )
+    monkeypatch.setattr(
+        "interview_mux.thought_complete_recut.enrich_thought_complete_findings",
+        lambda ctx_, edl_, findings, cfg=None, allow_llm=False: (list(findings), 0),
+    )
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "apply_junction_repairs",
+        lambda ctx_, edl_, findings_, cfg=None: (edl_, [], False),
+    )
+    monkeypatch.setattr(junction_snip_qa, "remaster_mix_only", lambda ctx_: None)
+    monkeypatch.setattr(junction_snip_qa, "apply_feel_directives", lambda *a, **k: False)
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "run_junction_feel_audit",
+        lambda ctx_, report, cfg=None: {
+            "version": 1,
+            "verdict": "pass",
+            "llm_calls": 0,
+            "directives": [],
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.failure_recovery.identify_all_failures",
+        lambda ctx_, **kwargs: {"run_index": kwargs.get("run_index", 1), "broken_pieces": []},
+    )
+    monkeypatch.setattr(
+        "interview_mux.failure_recovery.plan_all_fixes", lambda ctx_, review: {}
+    )
+    monkeypatch.setattr(
+        "interview_mux.seam_autopsy.build_autopsy",
+        lambda ctx_, **kwargs: {
+            "version": 1,
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "phase": "post_junction",
+            "seams": [],
+            "blocking_reasons": [],
+            "scores": {"finishability": 1.0},
+            "commitment": {"status": "committed", "reasons": []},
+        },
+    )
+    monkeypatch.setattr("interview_mux.seam_autopsy.write_autopsy", lambda ctx_, doc: None)
+    monkeypatch.setattr(
+        "interview_mux.seam_autopsy.enrich_ledger", lambda ctx_, doc: None
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_order.assert_consumer", lambda ctx_, stage: None
+    )
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: False,
+    )
+
+    with pytest.raises(LoudStageFailure, match="critical_incomplete_cut_residuals"):
+        junction_snip_qa.run_junction_snip_qa(ctx)
+    report = ctx.read_json("master/junction_snip_qa.json")
+    assert report.get("mode") == "advisory"
+    assert "critical_incomplete_cut_residuals" in (report.get("blocking_reasons") or [])

@@ -1,7 +1,8 @@
 # Stage clinic dossier — mastering_research_routing
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# MRR-B2 implemented; MRR-B1 confirmed KEEP stub-on-LLM-fail (2B).
 
 ## §5.0 Evidence index card
 
@@ -38,4 +39,4 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 
 discovery_status: complete  
 §5.8 gate satisfied (index + body/rails + declared-vs-actual + flags + TEST_GAP).  
-Open questions: LLM fail → stub vs refuse
+Open questions: none (MRR-B1 KEEP stub confirmed 2B)

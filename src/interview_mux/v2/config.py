@@ -110,6 +110,8 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "content_brief_reanchor",
         "framing_posture_decide",
         "boundary_topic_resplit",
+        "connector_fuse_pass",
+        "connector_fuse_pass_pre_ranking",
         "connector_seam_adjudicate",
         "sound_design_palettes",
         "missing_framing",
@@ -128,6 +130,9 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "vo_line_adjudicate",
         "episode_meta_build",
         "episode_cover_prompt_craft",
+        # ECG-B2: OpenAI Images ×3 + vision pick — contract tier llm_full
+        # (was default process; CODE_DOC_CONFLICT vs Images+Vision body).
+        "episode_cover_generate",
     }
 )
 

@@ -10,4 +10,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied TPC-B1 (body requires content_brief before LLM; disabled stub unchanged)

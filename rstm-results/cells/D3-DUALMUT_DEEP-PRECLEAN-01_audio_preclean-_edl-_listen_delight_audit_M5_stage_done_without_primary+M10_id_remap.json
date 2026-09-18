@@ -3,9 +3,9 @@
   "status": "PASS",
   "tier": "D3-DUALMUT",
   "notes": [
-    "incompleteness_ok:preclean/isolated.wav is pending",
+    "incompleteness_ok:audio_preclean incomplete \u2014 resume audio_preclean: preclean/isolated.wav or prec",
     "seed_block_other:topic_coverage_audit"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-17T06:15:45Z"
+  "executed_at": "2026-09-18T14:28:48Z"
 }

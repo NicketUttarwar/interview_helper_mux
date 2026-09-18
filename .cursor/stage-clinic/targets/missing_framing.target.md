@@ -1,6 +1,6 @@
 # Target Spec — missing_framing
 
-brain: 0.2.0 | target_status: draft
+brain: 0.2.0 | target_status: wave2_partial
 
 ## Ideal behavior
 
@@ -36,10 +36,10 @@ brain: 0.2.0 | target_status: draft
 
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
-| B1 | P0 | needs_you | Confirm Full-auto Start always arms homunculus_auto for G-Framing | inventory + StartTab | 3,5 | yes if broken |
-| B2 | P0 | unambiguous | Keep batch_fill incomplete | HG-3 | 2 | no |
-| B3 | P1 | needs_you | auto_skip_when_ineligible default? | intent | 3 | yes |
-| B4 | P1 | unambiguous | Document AUTO_ACCEPT env vs gap_fill.auto_accept_defaults=false | inventory | 5 | no |
+| B1 | P0 | unambiguous | Full-auto arms homunculus_auto path — **Wave 2 applied** | inventory + StartTab | 3,5 | yes if broken |
+| B2 | P0 | unambiguous | Keep batch_fill incomplete — **Wave 2 applied** (docstring pin) | HG-3 | 2 | no |
+| B3 | P1 | unambiguous | KEEP `auto_skip_when_ineligible=false` (document) — **Wave 2 applied** | intent | 3 | yes |
+| B4 | P1 | unambiguous | Document AUTO_ACCEPT env vs gap_fill.auto_accept_defaults=false — **Wave 2 applied** | inventory | 5 | no |
 
 ## Defaults inventory impact
 
@@ -48,4 +48,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`done` — Wave 2 applied B1–B4

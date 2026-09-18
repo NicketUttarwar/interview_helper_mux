@@ -3,6 +3,10 @@
 LD5: axis-scoped producers — sonic→music/SFX, mode→Shape/plan, conversation→VO/transitions.
 B-07: recommendability maps to argmax of other failing dims; apply uses
 ``apply_bounded_invalidation(delight_axis_*)`` so predicates flip.
+
+Finite budget: ``mastering.listen_delight.max_remutate_attempts`` (default 3).
+After N remutates, plan sticks exhausted — callers must ship-best or refuse
+(no infinite remutate thrash).
 """
 
 from __future__ import annotations
@@ -12,7 +16,21 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 REMUTATE_REL = "mastering/listen_delight_remutate.json"
+# Fallback when config missing; SSOT knob is mastering.listen_delight.max_remutate_attempts.
 MAX_ATTEMPTS = 3
+
+
+def max_remutate_attempts() -> int:
+    """Finite remutate budget N (default 3). Cap then ship-best / refuse."""
+    try:
+        from interview_mux.listen_delight import listen_delight_cfg
+
+        raw = listen_delight_cfg().get("max_remutate_attempts")
+        if raw is None:
+            return MAX_ATTEMPTS
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return MAX_ATTEMPTS
 
 _DIM_STAGES: dict[str, list[str]] = {
     "nugget_retention": [
@@ -116,12 +134,32 @@ def _expand_recommendability(ctx: RunContext, failed_dimensions: list[str]) -> l
 def plan_listen_delight_remutate(
     ctx: RunContext, *, failed_dimensions: list[str]
 ) -> dict[str, Any]:
+    cap = max_remutate_attempts()
     prior = (
         ctx.read_json(REMUTATE_REL)
         if ctx.artifact_exists(REMUTATE_REL)
         else {}
     )
-    attempt = int((prior or {}).get("attempt") or 0) + 1
+    prior = prior if isinstance(prior, dict) else {}
+    prior_attempt = int(prior.get("attempt") or 0)
+    # Sticky exhausted — do not climb forever once the remutate budget is spent.
+    if prior.get("exhausted") and prior_attempt >= cap:
+        plan = {
+            "version": 1,
+            "attempt": prior_attempt,
+            "max_attempts": cap,
+            "failed_dimensions": list(
+                prior.get("failed_dimensions") or failed_dimensions or []
+            ),
+            "expanded_dimensions": list(prior.get("expanded_dimensions") or []),
+            "from_stages": list(prior.get("from_stages") or []),
+            "from_stage": prior.get("from_stage"),
+            "exhausted": True,
+            "terminate": "remutate_budget_exhausted",
+        }
+        ctx.write_json(REMUTATE_REL, plan)
+        return plan
+    attempt = prior_attempt + 1
     expanded = _expand_recommendability(ctx, list(failed_dimensions or []))
     stages: list[str] = []
     for dim in expanded:
@@ -180,16 +218,23 @@ def plan_listen_delight_remutate(
             else "transitions"
         )
         stages = [preferred] + [s for s in stages if s != preferred]
+    exhausted = attempt > cap or not stages
     plan = {
         "version": 1,
         "attempt": attempt,
-        "max_attempts": MAX_ATTEMPTS,
+        "max_attempts": cap,
         "failed_dimensions": list(failed_dimensions or []),
         "expanded_dimensions": expanded,
         "from_stages": stages,
         "from_stage": stages[0] if stages else None,
-        "exhausted": attempt > MAX_ATTEMPTS or not stages,
+        "exhausted": exhausted,
     }
+    if exhausted:
+        plan["terminate"] = (
+            "no_stages"
+            if not stages
+            else "remutate_budget_exhausted"
+        )
     ctx.write_json(REMUTATE_REL, plan)
     return plan
 
@@ -493,12 +538,10 @@ def apply_listen_delight_remutate(
         ).hexdigest()[:16]
         doc["dims_fingerprint"] = dim_fp
         doc["expanded_dimensions"] = expanded
-        if (
-            int(doc.get("attempt") or 0) >= int(doc.get("max_attempts") or MAX_ATTEMPTS)
-            and prior_fp
-            and prior_fp == dim_fp
-        ):
+        cap = int(doc.get("max_attempts") or max_remutate_attempts())
+        if int(doc.get("attempt") or 0) >= cap and prior_fp and prior_fp == dim_fp:
             doc["exhausted"] = True
+            doc["terminate"] = "unchanged_dims_at_cap"
             notes.append("exhausted_unchanged_dims")
         ctx.write_json(REMUTATE_REL, doc, skip_handoff=True)
     except Exception:

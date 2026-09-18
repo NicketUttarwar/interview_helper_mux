@@ -57,7 +57,7 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
 | ING-B1 | P1 | unambiguous | Align contract remediation: remove `volley_retry`; host ffmpeg rerun only | `ingest.yaml` via `contract_dependency_data` + verify script | 2 | no |
 | ING-B2 | P2 | unambiguous | Drop or retarget process-stage `llm_execute` lifecycle claim noise on ingest contract | contract generator / dependency data | 2 | no |
-| ING-B3 | P2 | needs_you | `ingest/waveform_peaks.json` ownership producer=`ingest` vs GUI `load_or_generate_peaks` — reassign producer or document dual writer | ownership ALLOW + waveform_peaks.py | 2,7 | no if docs-only; yes if deleting GUI write path |
+| ING-B3 | P2 | answered→applied | ingest-only `waveform_peaks.json`; GUI load never writes (1B) | `persist_normalized_peaks` + StageInfo/contract | 2,7 | no |
 
 ## Defaults inventory impact
 
@@ -65,4 +65,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied ING-B1/B2; ING-B3 **1B** applied (ingest-only peaks)

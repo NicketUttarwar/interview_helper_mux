@@ -31,7 +31,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | NLC-B1 | P0 | unambiguous | Incompleteness if mid-shard crash | stage_completion | 2 | no |
-| NLC-B2 | P1 | needs_you | Compose-time hard nugget-air floor? | floors | 5,6 | yes |
+| NLC-B2 | P1 | answered | Compose-time hard nugget-air floor ON | floors | 5,6 | yes (accepted) | applied |
 | NLC-B3 | P1 | unambiguous | Contract hard=selection+corpus; audit soft if shadow | YAML | 7 | no |
 
 ## Defaults inventory impact
@@ -40,4 +40,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 CONTINUE: NLC-B2 applied (compose hard floor)

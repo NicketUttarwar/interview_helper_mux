@@ -1,7 +1,7 @@
 # Stage clinic dossier — content_brief_reanchor
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: not_started | L3_patch: not_started
+wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 
 ## §5.0 Evidence index card
 

@@ -38,7 +38,12 @@ def stage_required_artifact_paths(stage_id: str) -> list[str]:
 
 
 def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
-    """Skip-producer gap_report is not complete once G-Framing is Yes."""
+    """Skip-producer / empty-seed gap_report is not complete once G-Framing is Yes.
+
+    GRS-B2: sanitize must not hollow-complete on an empty stub when framing Yes.
+    Intentional framing-skip (gap_fill_was_skipped) still allows empty skip stubs.
+    Missing gap_report is not incompleteness for upstream stages (compose writes it).
+    """
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return None
     try:
@@ -51,7 +56,15 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
         return None
     if not isinstance(doc, dict):
         return None
-    producer = str((doc.get("_meta") or {}).get("producer") or "")
+    meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+    producer = str(meta.get("producer") or "")
+    lines = [
+        row
+        for row in (doc.get("interviewer_lines") or [])
+        if isinstance(row, dict)
+    ]
+    gaps = [row for row in (doc.get("gaps") or []) if isinstance(row, dict)]
+    empty_body = not lines and not gaps
     if producer == "gap_fill_skip":
         try:
             from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
@@ -63,7 +76,73 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
         return (
             "understanding/gap_report.json is a skip stub while framing is enabled"
         )
+    # GRS-B2: sanitize-seeded empty stub (missing-file path) while framing Yes.
+    if empty_body and (
+        producer in {"gap_report_sanitize_empty_seed", "gap_report_sanitize"}
+        or meta.get("empty_stub") is True
+    ):
+        return (
+            "understanding/gap_report.json is an empty stub while framing is enabled — "
+            "resume nugget_layup_compose"
+        )
+    # CSP-05 / GFC: framing Yes + compose zero/hollow lines → incomplete (not soft-done).
+    try:
+        from interview_mux.openai_primary_honesty import gap_compose_zero_lines_while_framing
+
+        compose_hollow = gap_compose_zero_lines_while_framing(doc, framing_enabled=True)
+        if compose_hollow:
+            return compose_hollow
+    except Exception:
+        pass
     return None
+
+
+def _nugget_corpus_empty_incompleteness(ctx: RunContext) -> str | None:
+    """NCM-B2: enabled mine with zero nuggets must not hollow-complete."""
+    try:
+        from interview_mux.nugget_layup import CORPUS_REL, nugget_layup_enabled
+    except Exception:
+        return None
+    if not nugget_layup_enabled():
+        return None
+    if not ctx.artifact_exists(CORPUS_REL):
+        return f"{CORPUS_REL} is pending"
+    try:
+        doc = ctx.read_json(CORPUS_REL)
+    except Exception:
+        return f"{CORPUS_REL} unreadable"
+    if not isinstance(doc, dict):
+        return f"{CORPUS_REL} unreadable"
+    nuggets = [n for n in (doc.get("nuggets") or []) if isinstance(n, dict)]
+    if nuggets:
+        return None
+    return (
+        "nugget_corpus_empty — resume nugget_corpus_mine: "
+        "enabled mine produced zero nuggets"
+    )
+
+
+def _information_package_corpus_incompleteness(ctx: RunContext) -> str | None:
+    """IPP-B2: require_corpus + empty corpus must not warn-and-done."""
+    try:
+        from interview_mux.information_packages import (
+            CORPUS_REL,
+            _corpus_nuggets,
+            information_packages_cfg,
+        )
+    except Exception:
+        return None
+    cfg = information_packages_cfg()
+    if not cfg.get("enable", True):
+        return None
+    if not cfg.get("require_corpus", True):
+        return None
+    if _corpus_nuggets(ctx):
+        return None
+    return (
+        "information_package_corpus_missing — resume nugget_corpus_mine: "
+        f"{CORPUS_REL} empty while require_corpus"
+    )
 
 
 BATCH_FILL_BY = "missing_framing_batch_coverage"
@@ -73,7 +152,12 @@ _BATCH_FILL_BY = BATCH_FILL_BY
 
 
 def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
-    """HG-3 2B: default ok_with_light_bridge coverage fills are not LLM-scored — refuse done."""
+    """HG-3 2B / Stage Clinic missing_framing B2: unscored batch_fill rows refuse done.
+
+    Default ``ok_with_light_bridge`` coverage fills are not LLM-scored. Persist is allowed;
+    heal must not mark ``missing_framing`` complete until a leftover re-volley scores them
+    or the in-invoke coverage CAP seals leftovers.
+    """
     rel = "understanding/gap_evaluations.json"
     if not ctx.artifact_exists(rel):
         return None
@@ -287,6 +371,9 @@ def _research_dossier_stale_incompleteness(ctx: RunContext) -> str | None:
 def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
     """A-01: Shape/gap consumers always late for shape-core thin (flags OFF OK).
 
+    Never soft-done thin when Shape is about to bind (MRRoll-B1) — incompleteness
+    must pin consumers (and late rollup) until probes refresh.
+
     Rollup stays advisory until Shape about-to-bind. Do not refuse on global
     majority thin (W4–W8 expected thin at Pass1).
 
@@ -365,6 +452,30 @@ def _junction_commitment_incompleteness(ctx: RunContext) -> str | None:
     )
 
 
+def _episode_cover_prompt_craft_incompleteness(ctx: RunContext) -> str | None:
+    """ECPC-B1: cover_prompt.json with empty prompt must not hollow-complete.
+
+    Fail-open harvest (F7) stays done when the assembled prompt is non-empty.
+    Empty prompt after craft/harvest is incomplete — honest reject, not seed-done.
+    """
+    rel = "publish/cover_prompt.json"
+    if not ctx.artifact_exists(rel):
+        return f"{rel} is pending"
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return f"{rel} is pending"
+    if not isinstance(doc, dict):
+        return f"{rel} is pending"
+    prompt = str(doc.get("prompt") or "").strip()
+    if prompt:
+        return None
+    return (
+        "cover_prompt empty — resume episode_cover_prompt_craft: "
+        "publish/cover_prompt.json prompt is empty"
+    )
+
+
 def _episode_cover_incompleteness(ctx: RunContext) -> str | None:
     """HPUB-2: cover generate is hollow without publish/cover.jpg."""
     if ctx.artifact_exists("publish/cover.jpg"):
@@ -372,8 +483,28 @@ def _episode_cover_incompleteness(ctx: RunContext) -> str | None:
     return "cover_missing — resume episode_cover_generate: publish/cover.jpg missing"
 
 
+def _podcast_encode_mp3_incompleteness(ctx: RunContext) -> str | None:
+    """PEM-B1: missing/empty publish/audio.mp3 must not hollow-complete.
+
+    Binary status already treats ≤1024-byte mp3 as partial; pin token
+    ``encode_missing`` keeps resume routing aligned with producer_pin map.
+    """
+    rel = "publish/audio.mp3"
+    st = artifact_status_for_stage(rel, ctx, "podcast_encode_mp3")
+    if st == "complete":
+        return None
+    if st == "pending":
+        return f"encode_missing — resume podcast_encode_mp3: {rel} missing"
+    return f"encode_missing — resume podcast_encode_mp3: {rel} empty or incomplete"
+
+
 def _podcast_publish_package_ready_incompleteness(ctx: RunContext) -> str | None:
-    """HPUB-2: publish seed requires package_ready with ready:true, not chapters.json."""
+    """HPUB-2: publish seed requires package_ready ready:true, or honest skip.
+
+    Clinic B1: ``ready:false`` + ``skipped:true`` is seed-complete (operator
+    Skip). Bare ``ready:false`` / chapters-only / missing package_ready stay
+    hollow.
+    """
     if not ctx.artifact_exists("publish/package_ready.json"):
         return (
             "package_ready — resume podcast_publish: "
@@ -386,12 +517,19 @@ def _podcast_publish_package_ready_incompleteness(ctx: RunContext) -> str | None
             "package_ready — resume podcast_publish: "
             "publish/package_ready.json unreadable"
         )
-    if not isinstance(doc, dict) or doc.get("ready") is not True:
+    if not isinstance(doc, dict):
         return (
             "package_ready — resume podcast_publish: "
-            "publish/package_ready.json ready is not true"
+            "publish/package_ready.json unreadable"
         )
-    return None
+    if doc.get("ready") is True:
+        return None
+    if doc.get("skipped") is True:
+        return None
+    return (
+        "package_ready — resume podcast_publish: "
+        "publish/package_ready.json ready is not true"
+    )
 
 
 def _master_transcript_incompleteness(ctx: RunContext) -> str | None:
@@ -507,6 +645,18 @@ def _gap_tail_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
     errs = validator(doc)
     if errs:
         return f"{rel} schema-hollow — resume {stage_id}: {errs[0]}"
+    # SSP-B1: invent_gate blocked under fail_closed must not count as done.
+    if stage_id == "soundscape_policy_build":
+        try:
+            from interview_mux.soundscape_policy import fail_closed as _sc_fail_closed
+
+            if _sc_fail_closed() and str(doc.get("invent_gate") or "") == "blocked":
+                return (
+                    f"{rel} invent_gate=blocked — resume soundscape_policy_build "
+                    "(unpaid invent / sound_design_plan)"
+                )
+        except Exception:
+            pass
     return None
 
 
@@ -755,10 +905,20 @@ def stage_artifact_incompleteness(
         heard = _assembly_preview_heard_wav_incompleteness(ctx)
         if heard:
             return heard
+    if stage_id == "episode_cover_prompt_craft":
+        empty_prompt = _episode_cover_prompt_craft_incompleteness(ctx)
+        if empty_prompt:
+            return empty_prompt
+        return None
     if stage_id == "episode_cover_generate":
         cover = _episode_cover_incompleteness(ctx)
         if cover:
             return cover
+        return None
+    if stage_id == "podcast_encode_mp3":
+        enc = _podcast_encode_mp3_incompleteness(ctx)
+        if enc:
+            return enc
         return None
     if stage_id == "podcast_publish":
         pkg = _podcast_publish_package_ready_incompleteness(ctx)
@@ -783,6 +943,62 @@ def stage_artifact_incompleteness(
         confirm = _mastering_plan_confirm_incompleteness(ctx)
         if confirm:
             return confirm
+    if stage_id == "mastering_research_routing":
+        # CSP-05 / MRR: llm_failed stub must not heal-done.
+        try:
+            from interview_mux.openai_primary_honesty import (
+                research_routing_llm_failed_incompleteness,
+            )
+
+            rel = _MASTERING_SCHEMA_STAGES.get(stage_id)
+            if rel and ctx.artifact_exists(rel):
+                rdoc = ctx.read_json(rel)
+                llm_failed = research_routing_llm_failed_incompleteness(
+                    rdoc if isinstance(rdoc, dict) else None
+                )
+                if llm_failed:
+                    return llm_failed
+        except Exception:
+            pass
+    if stage_id == "mastering_shape_agenda":
+        # CSP-05 / MSA: rubric/agenda LLM fail notes must not heal-done.
+        try:
+            from interview_mux.openai_primary_honesty import (
+                shape_agenda_rubric_llm_failed_incompleteness,
+            )
+
+            agenda = (
+                ctx.read_json("mastering/shape/agenda.json")
+                if ctx.artifact_exists("mastering/shape/agenda.json")
+                else None
+            )
+            rubric = (
+                ctx.read_json("mastering/shape/eval_rubric.json")
+                if ctx.artifact_exists("mastering/shape/eval_rubric.json")
+                else None
+            )
+            msa_fail = shape_agenda_rubric_llm_failed_incompleteness(
+                agenda if isinstance(agenda, dict) else None,
+                rubric if isinstance(rubric, dict) else None,
+            )
+            if msa_fail:
+                return msa_fail
+        except Exception:
+            pass
+    if stage_id == "topic_coverage_audit":
+        # CSP-05 / TCA: soft-fail LLM hollow audit must not heal-done.
+        try:
+            from interview_mux.openai_primary_honesty import coverage_audit_hollow_incompleteness
+
+            if ctx.artifact_exists("master/coverage_audit.json"):
+                cdoc = ctx.read_json("master/coverage_audit.json")
+                hollow_cov = coverage_audit_hollow_incompleteness(
+                    cdoc if isinstance(cdoc, dict) else None
+                )
+                if hollow_cov:
+                    return hollow_cov
+        except Exception:
+            pass
     if stage_id in _MASTERING_SCHEMA_STAGES:
         hollow = _mastering_schema_hollow_incompleteness(ctx, stage_id)
         if hollow or stage_id != "mastering_research_rollup":
@@ -866,7 +1082,12 @@ def stage_artifact_incompleteness(
         fin = _sound_design_vo_finalize_incompleteness(ctx)
         if fin:
             return fin
-    if stage_id in {"missing_framing", "gap_framing_compose", "optimal_questions"}:
+    if stage_id in {
+        "missing_framing",
+        "gap_framing_compose",
+        "optimal_questions",
+        "gap_report_sanitize",
+    }:
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:
             return stub
@@ -874,6 +1095,14 @@ def stage_artifact_incompleteness(
     thin_reason = _research_thin_late_refuse(ctx, stage_id)
     if thin_reason:
         return thin_reason
+    if stage_id == "nugget_corpus_mine":
+        empty_corpus = _nugget_corpus_empty_incompleteness(ctx)
+        if empty_corpus:
+            return empty_corpus
+    if stage_id == "information_package_plan":
+        ip_corpus = _information_package_corpus_incompleteness(ctx)
+        if ip_corpus:
+            return ip_corpus
     if stage_id == "missing_framing":
         filled = _missing_framing_batch_fill_incompleteness(ctx)
         if filled:
@@ -898,6 +1127,29 @@ def stage_artifact_incompleteness(
                 "selection_unsanitary — resume selection_order_sanitize: "
                 + "; ".join(sel_errs[:3])
             )
+        # NLC-B1: mid-shard intermediate plan must not hollow-complete.
+        try:
+            from interview_mux.nugget_layup import PLAN_REL
+
+            if ctx.artifact_exists(PLAN_REL):
+                plan_doc = ctx.read_json(PLAN_REL)
+                meta = (
+                    plan_doc.get("_meta")
+                    if isinstance(plan_doc, dict) and isinstance(plan_doc.get("_meta"), dict)
+                    else {}
+                )
+                if meta.get("compose_shards_pending"):
+                    idx = meta.get("compose_shard_index")
+                    total = meta.get("compose_shard_total")
+                    tail = ""
+                    if idx is not None and total is not None:
+                        tail = f" (shard {idx}/{total})"
+                    return (
+                        "layup_compose_shards_pending — resume nugget_layup_compose:"
+                        + tail
+                    )
+        except Exception:
+            pass
         try:
             from interview_mux.nugget_layup import layup_freshness_errors
 
@@ -1108,6 +1360,11 @@ def stage_artifact_incompleteness(
             "master/assembly_preview.wav"
         ):
             return "assembly audio missing — theme/SFX wait for assembly_preview"
+    if stage_id == "music_palette_compose":
+        # MPC-B1: cue_count=0 with theme assets is hollow — not seed-complete.
+        hollow_cues = _music_palette_hollow_cues_incompleteness(ctx)
+        if hollow_cues:
+            return hollow_cues
     if stage_id == "mmaudio_sfx":
         try:
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
@@ -1387,6 +1644,8 @@ def _pass2_hollow_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
             return None
         return f"{rel} is pending"
     if stage_id == "selection_framing_apply":
+        # SFA-B2: refused APPLY sidecars (missing/invalid selection, gap_unsanitary)
+        # never seed-complete — even after mark_done_raw / force heal.
         rel = "understanding/selection_framing_apply.json"
         if not ctx.artifact_exists(rel):
             return f"{rel} is pending"
@@ -1441,6 +1700,58 @@ def _pass2_gap_unsanitary_incompleteness(ctx: RunContext, stage_id: str) -> str 
     if not errs:
         return None
     return f"gap_unsanitary — resume {sid}: " + "; ".join(errs[:3])
+
+
+def _music_palette_hollow_cues_incompleteness(ctx: RunContext) -> str | None:
+    """MPC-B1: cue_count=0 with SDP theme assets must not hollow-complete.
+
+    Zero assets → zero cues is honest sparse. Compose primary missing stays on
+    the generic pending path.
+    """
+    compose_rel = "sound_design/music_palette_compose.json"
+    if not ctx.artifact_exists(compose_rel):
+        return None
+    asset_n = 0
+    sdp_cue_n = 0
+    if ctx.artifact_exists("understanding/sound_design_plan.json"):
+        try:
+            sdp = ctx.read_json("understanding/sound_design_plan.json")
+        except Exception:
+            sdp = None
+        if isinstance(sdp, dict):
+            asset_n = sum(
+                1
+                for a in (sdp.get("assets") or [])
+                if isinstance(a, dict) and a.get("asset_id")
+            )
+            flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+            podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+            sdp_cue_n = sum(
+                1 for c in (podcast.get("cues") or []) if isinstance(c, dict)
+            )
+    if asset_n < 1:
+        return None
+    try:
+        compose = ctx.read_json(compose_rel)
+    except Exception:
+        return None
+    if not isinstance(compose, dict):
+        return None
+    try:
+        if compose.get("cue_count") is not None:
+            cue_count = int(compose.get("cue_count"))
+        elif isinstance(compose.get("cues"), list):
+            cue_count = len(compose.get("cues") or [])
+        else:
+            cue_count = sdp_cue_n
+    except (TypeError, ValueError):
+        cue_count = sdp_cue_n
+    if cue_count >= 1:
+        return None
+    return (
+        "music_palette_compose hollow cues — resume music_palette_compose: "
+        "cue_count=0 with theme assets present"
+    )
 
 
 def _sound_design_vo_finalize_incompleteness(ctx: RunContext) -> str | None:
@@ -1845,7 +2156,7 @@ def voice_ref_heal_resume_stage(
     error: str = "",
     stage: str = "",
 ) -> str | None:
-    """HG-4: open voice-ref pins missing_framing, never topic_coverage_audit / edl."""
+    """HG-4 / Stage Clinic TCA-B2: open voice-ref pins missing_framing, never topic_coverage_audit / edl."""
     blob = f"{error} {stage}".strip().lower()
     if (
         "voice_reference_pending" in blob

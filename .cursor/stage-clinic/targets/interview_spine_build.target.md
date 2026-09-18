@@ -24,7 +24,7 @@ brain: 0.2.0 | target_status: draft
 
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD check | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
-| B1 | P0 | needs_you | Choose skip-stub schema vs remove from seed when disabled | operator intent | 1,2,5 | no if stub |
+| B1 | P0 | confirmed | KEEP skip-stub in seed when disabled (4B) | stub + heal; stay in seed | 1,2,5 | no if stub |
 | B2 | P1 | unambiguous | Until B1: disabled path must not call refuse-heal without writing stub | unit test disabled path marks done | 1,2 | no |
 
 ## Defaults inventory impact
@@ -33,4 +33,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied ISB-B2 (disabled skip stub); ISB-B1 still `needs_you`

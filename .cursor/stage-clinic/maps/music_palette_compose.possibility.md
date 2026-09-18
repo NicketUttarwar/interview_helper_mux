@@ -12,7 +12,7 @@ code_is_king: true | prior_exec: ignored_by_default
 - tier: llm_full | OpenAI cue placement | **delivery** seed #61
 - primary: `sound_design/music_palette_compose.json`
 - module: `stages/music_palette_compose.py::run_music_palette_compose`
-- hard (contract): SDP from sound_design_palettes | body: SDP soft/optional + `_default_cues`
+- hard (contract): SDP from sound_design_plan | body: require SDP before LLM (MPC-B2)
 - gate: none | music epoch: MUSIC_REQUIRES_ASSEMBLY incompleteness
 - thrash: low | tests: solid (host)
 
@@ -67,7 +67,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard SDP from palettes | Body soft-loads SDP; plan stage also writes | CODE_DOC_CONFLICT |
+| hard SDP from sound_design_plan | Body refuses without SDP before LLM (MPC-B2) | IN_CODE |
 | soft episode_structure | Code leans narrative_plan chapters | CODE_DOC_CONFLICT |
 | consumers mmaudio+mix | Also sfx_prompt_craft via SDP | CODE_DOC_CONFLICT |
 | sufficiency ≥1 cue | Fallback may emit 0 | IN_CODE |

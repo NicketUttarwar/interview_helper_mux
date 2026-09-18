@@ -31,7 +31,7 @@ brain: 0.2.0 | target_status: draft
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | B1 | P1 | unambiguous | Verify ADG invalidates vs contract list | ADG test | 7 | no |
 | B2 | P0 | unambiguous | Keep HG-4 voice_ref → missing_framing | existing | 3 | no |
-| B3 | P1 | needs_you | Soft-fail LLM path honesty | intent | 2,4 | yes |
+| B3 | P1 | confirmed | Soft-fail LLM → incomplete/refuse (Q2A CSP-05; reverses 2B) | `test_csp05_*` + auto_complete=False | 2,4 | med (LLM path only; det-first OK) |
 
 ## Defaults inventory impact
 
@@ -39,4 +39,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — TCA-B3 Q2A CSP-05 soft-fail → incomplete/refuse

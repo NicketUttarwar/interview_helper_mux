@@ -15,9 +15,9 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD check | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
 | B1 | P0 | unambiguous | Ownership producers for protected_zones/speaker_flows/probe_report/audio_tags include audio_probe_build (keep operational if needed) | ownership xcheck | 2,7 | no |
-| B2 | P1 | needs_you | fail_open empty golden_facts: keep vs refuse | ship bar intent | 2 | yes if refuse |
+| B2 | P1 | confirmed | fail_open empty golden_facts KEEP (4B) | empty + heal | 2 | yes if refuse |
 | B3 | P2 | unambiguous | Drop unused soft inputs (master/edl/…) from contract | dependency data | 2 | no |
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied APB-B1/B3; APB-B2 confirmed KEEP fail_open empties (4B)

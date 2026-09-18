@@ -40,13 +40,13 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD check | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
-| B1 | P1 | needs_you | LLM fail: refuse vs explicit degraded stub? | operator pick | 2,4 | yes if refuse stalls unexpected |
+| B1 | P1 | confirmed | LLM fail/hollow → refuse incomplete (Q2A CSP-05; reverses 2B) | pytest a03 refuse + csp05 | 2,4 | low (llm default off) |
 | B2 | P2 | unambiguous | Log+stamp llm_failed clearly; avoid empty except | unit with llm forced on | 2,4 | no |
 
 ## Defaults inventory impact
 
-- research.llm.enabled=false row
+- research.llm.enabled=false row (unchanged — disabled stub still heals)
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 MRR-B2 + Q2A CSP-05 refuse on LLM fail (not heal stub)

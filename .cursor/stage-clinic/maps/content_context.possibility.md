@@ -18,7 +18,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| all hard present | contract hard: speakers+transcript+topology; body reads transcript always; speakers/topology soft-attach if exist | CODE_DOC_CONFLICT | `_content_context_base_payload` vs contract |
+| all hard present | contract hard: speakers+transcript+topology; body refuses without topology before LLM (CC-B1) | IN_CODE | `_content_context_base_payload` + early refuse |
 | hard missing | PRESTAGE hard_input_strict default **off** — may run without topology | IN_CODE | `artifact_lifecycle.hard_input_strict` |
 | soft missing | quality/spine/adaptation optional | IN_CODE | |
 | hollow brief | schema + sufficiency thesis/topics | IN_CODE | |
@@ -65,8 +65,8 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard speakers+transcript+topology | topology/speakers not hard-raised in body | CODE_DOC_CONFLICT |
-| soft review_queue duplicated twice in YAML | duplicate soft rows | CODE_DOC_CONFLICT |
+| hard speakers+transcript+topology | topology refused in body+preflight; speakers via preflight | IN_CODE |
+| soft review_queue once via transcript_quality_reads (CC-B2) | no duplicate | IN_CODE |
 | outputs content_brief schema | matches | IN_CODE |
 | remediation volley_retry | ≤2 | IN_CODE |
 

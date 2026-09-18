@@ -145,9 +145,20 @@ def resolve_g1_vo_gate(
     if gap_fill_was_skipped(ctx):
         return GateOperatorView(gate_id="g1_vo_pickup", open=False, stage_status="done")
 
+    # VS-B3: Full-auto rewrites record→synth before G1 severity so unattended
+    # owns the line (partial-auto still hard_blocks record — HV-5).
+    rewritten: list[str] = []
+    try:
+        from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+
+        rewritten = list(rewrite_full_auto_record_lines_to_synth(ctx) or [])
+    except Exception:
+        rewritten = []
+
     # Callers that already paid for check_g1_vo (GUI snapshot) must pass missing=
     # — that path runs speech QA per VO wav and must not re-run per delivery stage.
-    if missing is None:
+    # After a Full-auto record→synth rewrite, refresh so all_synthesize sees synth.
+    if missing is None or rewritten:
         missing = check_g1_vo(ctx)
     if not missing:
         return GateOperatorView(gate_id="g1_vo_pickup", open=False, stage_status="done")

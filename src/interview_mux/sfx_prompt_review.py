@@ -124,16 +124,20 @@ def set_prompt_review_approved(
 
 
 def maybe_auto_approve_prompt_review(ctx: RunContext) -> bool:
-    """Auto-approve G1.5 when prompt completeness QA is green (first_try)."""
+    """Auto-approve G1.5 for Full-auto (incl. soft warnings) or first_try when QA green.
+
+    Partial / manual still require GUI approve when completeness warnings are present.
+    """
+    from interview_mux.automation_run import is_full_auto_run
     from interview_mux.first_try import first_try_mode_enabled
 
-    if not first_try_mode_enabled():
-        return False
     if not g15_required():
         return False
     if not ctx.artifact_exists(PROMPTS_PATH):
         return False
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
     review = meta.get("sfx_prompt_review")
     if isinstance(review, dict) and review.get("approved"):
         return False
@@ -142,6 +146,30 @@ def maybe_auto_approve_prompt_review(ctx: RunContext) -> bool:
     if not isinstance(prompts, list):
         prompts = data if isinstance(data, list) else []
     warnings = prompt_completeness_warnings(ctx, prompts)
+
+    if is_full_auto_run(meta):
+        approved_by = "auto_full_auto"
+        set_prompt_review_approved(ctx, approved=True, approved_by=approved_by)
+        msg = (
+            f"G1.5 auto-approved (full_auto): {len(warnings)} soft warning(s)."
+            if warnings
+            else "G1.5 auto-approved (full_auto): prompt completeness QA green."
+        )
+        ctx.log(
+            msg,
+            level="success",
+            stage="sfx_prompt_craft",
+            action_id="gui.sfx_prompts.approve_auto",
+            detail={
+                "event": "g15_auto_approve",
+                "approved_by": approved_by,
+                "soft_warnings": warnings,
+            },
+        )
+        return True
+
+    if not first_try_mode_enabled():
+        return False
     if warnings:
         return False
     set_prompt_review_approved(ctx, approved=True, approved_by="auto_qa_green")

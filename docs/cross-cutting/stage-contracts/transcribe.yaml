@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -32,5 +32,4 @@ consumers:
 - segment_classification
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

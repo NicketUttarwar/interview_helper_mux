@@ -44,6 +44,11 @@ AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
     "selection_edl_order_drift",
     "opening_slot_conflict",
     "air_script",
+    # JSQ-B3: osc/budget exhaust is classified refuse — not a journey gate.
+    "junction_remaster_budget",
+    "junction_oscillation",
+    "junction_budget_exhaust",
+    "junction_quality_blocked",
 )
 
 

@@ -113,8 +113,42 @@ def check_g_listen_pending(ctx: RunContext) -> bool:
     return False
 
 
+def maybe_auto_clear_g_listen_for_full_auto(
+    ctx: RunContext, *, stage: str, reason: str = "full_auto"
+) -> bool:
+    """Full-auto only: clear pending G-Listen so remaster/finalize do not stall.
+
+    Shared by mix (after successful mix / remaster listen_critic arm) and
+    ``require_g_listen_clear`` (master_finalize). Partial and manual keep
+    warn/block posture until operator continue/skip.
+    """
+    from interview_mux.automation_run import is_full_auto_run
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not is_full_auto_run(meta if isinstance(meta, dict) else None):
+        return False
+    if not check_g_listen_pending(ctx):
+        return False
+    clear_g_listen(ctx, skipped=False)
+    ctx.log(
+        f"G-Listen auto-cleared ({reason})",
+        level="info",
+        stage=stage,
+        action_id="gate.g_listen.auto_clear",
+        detail={"event": "g_listen_auto_clear", "reason": reason},
+    )
+    return True
+
+
 def require_g_listen_clear(ctx: RunContext, *, stage: str) -> None:
-    """Soft-block master_finalize only when g_listen_mode=block."""
+    """Block master_finalize when g_listen_mode=block|block_mix (Partial/manual).
+
+    Full-auto auto-clears pending before the block check (product path; not
+    driver-only).
+    """
+    maybe_auto_clear_g_listen_for_full_auto(
+        ctx, stage=stage, reason="full_auto_before_finalize"
+    )
     sound_cfg = merged_config().get("sound_design") or {}
     mode = str(sound_cfg.get("g_listen_mode", "warn")).lower()
     if mode not in {"block", "block_mix"}:
@@ -561,9 +595,25 @@ def check_narrative_qc(
     stage: str,
     require_selection: bool = False,
 ) -> None:
-    """Warn or block on narrative QC before ranking or EDL."""
+    """Warn or block on narrative QC before ranking or EDL.
+
+    FMR-B2: Full-auto softens a strict QC fail to advisory continue (does not
+    flip config when already soft). Manual/partial keep ``narrative_qc.strict``.
+    """
     errors = validate_flow1_narrative(ctx, require_selection=require_selection)
     strict = narrative_qc_strict_enabled()
+    effective_strict = strict
+    full_auto_softened = False
+    if strict:
+        try:
+            from interview_mux.automation_run import is_full_auto_run
+
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            if is_full_auto_run(meta if isinstance(meta, dict) else None):
+                effective_strict = False
+                full_auto_softened = True
+        except Exception:
+            pass
     if not errors:
         ctx.log(
             "Narrative QC passed",
@@ -574,7 +624,13 @@ def check_narrative_qc(
         record_qc_summary(
             ctx,
             "narrative_qc",
-            {"passed": True, "errors": [], "strict": strict, "at_stage": stage},
+            {
+                "passed": True,
+                "errors": [],
+                "strict": strict,
+                "effective_strict": effective_strict,
+                "at_stage": stage,
+            },
         )
         return
 
@@ -583,16 +639,23 @@ def check_narrative_qc(
         summary += f" (+{len(errors) - 6} more)"
     ctx.log(
         f"Narrative QC failed ({len(errors)} issue(s)): {summary}",
-        level="error" if strict else "warn",
+        level="error" if effective_strict else "warn",
         stage=stage,
-        detail="narrative_qc_fail",
+        detail="narrative_qc_fail_full_auto_soft" if full_auto_softened else "narrative_qc_fail",
     )
     record_qc_summary(
         ctx,
         "narrative_qc",
-        {"passed": False, "errors": errors[:12], "strict": strict, "at_stage": stage},
+        {
+            "passed": False,
+            "errors": errors[:12],
+            "strict": strict,
+            "effective_strict": effective_strict,
+            "full_auto_softened": full_auto_softened,
+            "at_stage": stage,
+        },
     )
-    if strict:
+    if effective_strict:
         raise SystemExit(
             f"narrative_qc strict: {len(errors)} issue(s) before {stage}. "
             f"Fix coverage_audit / selection or set narrative_qc.strict=false. "
@@ -754,6 +817,15 @@ def check_g_publish_pending(ctx: RunContext) -> bool:
         return False
     if meta.get("g_publish_skipped") or meta.get("g_publish_cleared"):
         return False
+    # PPUB-B2: Full-auto local-done + honest remote refuse must not hang journey.
+    if meta.get("g_publish_remote_refused") and ctx.is_done("podcast_publish"):
+        try:
+            from interview_mux.automation_run import is_full_auto_run
+
+            if is_full_auto_run(meta):
+                return False
+        except Exception:
+            pass
     if meta.get("g_publish_pending"):
         return True
     # Pending once a committed master exists and local package not finalized.

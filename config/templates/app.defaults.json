@@ -709,7 +709,8 @@
       }
     },
     "listen_delight": {
-      "mode": "authoritative"
+      "mode": "authoritative",
+      "max_remutate_attempts": 3
     }
   },
   "thrash_spine": {

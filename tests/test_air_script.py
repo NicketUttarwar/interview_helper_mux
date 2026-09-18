@@ -75,6 +75,71 @@ def test_delivery_order_places_air_script_passes():
     assert DELIVERY_ORDER.index("air_script_seams") < DELIVERY_ORDER.index("edl")
 
 
+def test_air_script_compose_contract_tier_is_process():
+    """ASC-B1: Pass A is deterministic — contract must not claim llm_full."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("air_script_compose")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
+def test_air_script_seams_contract_tier_is_process():
+    """ASS-B1: Pass B is deterministic — contract must not claim llm_full."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("air_script_seams")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
+def test_air_script_compose_disabled_writes_skip_and_marks_done(tmp_path, monkeypatch):
+    """ASC-B2 / CSP-01: enable=false must write skip latch + heal."""
+    from interview_mux.air_script import run_air_script_compose
+
+    ctx = isolated_run_ctx(tmp_path, "exec_air_compose_disabled")
+    monkeypatch.setattr("interview_mux.air_script.air_script_enabled", lambda: False)
+    run_air_script_compose(ctx)
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    script = plan.get("air_script") or {}
+    assert script.get("skip_reason") == "air_script_disabled"
+    assert script.get("enabled") is False
+    assert script.get("pass") == "pass_a"
+    assert ctx.is_done("air_script_compose")
+    omit = ctx.read_json("understanding/omit_ledger.json")
+    assert omit.get("skip_reason") == "air_script_disabled"
+
+
+def test_air_script_seams_disabled_writes_skip_and_marks_done(tmp_path, monkeypatch):
+    """ASS-B2 / CSP-01: enable=false must write skip latch + heal."""
+    from interview_mux.air_script import run_air_script_seams
+
+    ctx = isolated_run_ctx(tmp_path, "exec_air_seams_disabled")
+    monkeypatch.setattr("interview_mux.air_script.air_script_enabled", lambda: False)
+    run_air_script_seams(ctx)
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    script = plan.get("air_script") or {}
+    assert script.get("skip_reason") == "air_script_disabled"
+    assert script.get("enabled") is False
+    assert script.get("pass") == "pass_b"
+    assert ctx.is_done("air_script_seams")
+
+
+def test_air_contract_sanitize_contract_lifecycle_is_non_llm():
+    """ACS-B2: commit/heal host — contract must not claim llm_execute."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("air_contract_sanitize")
+    assert contract is not None
+    assert contract.tier == "process"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+
+
 def test_pass_a_does_not_omit_setup_or_hard_keeps(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "exec_air_setup")
     ordered = [f"seg_{i:03d}" for i in range(1, 13)]

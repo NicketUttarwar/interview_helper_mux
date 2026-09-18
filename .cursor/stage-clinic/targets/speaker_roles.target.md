@@ -19,4 +19,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied SR-B1/B2 (spine soft; fallback documented)

@@ -14,9 +14,9 @@ brain: 0.2.0 | target_status: draft
 
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD check | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----------|---------------------------|
-| B1 | P0 | needs_you | Hard topology: enforce in body vs soften contract | intent | 2,4 | yes if enforce mid-flight |
+| B1 | P0 | unambiguous | Hard topology: enforce in body (SEED_ORDER SSOT) | refuse before LLM | 2,4 | no (seed already requires topology) |
 | B2 | P2 | unambiguous | Deduplicate soft review_queue rows in contract YAML | dependency data | 2 | no |
 
 ## target_status
 
-`draft`
+`applied` — Wave 2 CC-B2 + CC-B1 (Q1A harden topology body/preflight)

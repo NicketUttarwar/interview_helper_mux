@@ -459,6 +459,13 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
         _mark_skipped(ctx, "sfx_prompt_craft")
         return
 
+    # SPC-B3: refuse default/empty SDP before LLM — no soft-hollow craft spend.
+    # Missing plan soft-defaults to empty assets via `_load_sound_design_plan`;
+    # both paths must refuse here (preflight already mirrors the empty check).
+    sdp_probe = _load_sound_design_plan(ctx)
+    if not (sdp_probe.get("assets") or []):
+        raise RuntimeError("SDP assets[] empty before prompt craft")
+
     _repair_sdp_asset_durations(ctx)
 
     def build_input(c: RunContext) -> dict:

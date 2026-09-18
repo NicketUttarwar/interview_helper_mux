@@ -264,16 +264,20 @@ def test_master_transcript_hard_requires_edl_and_master(tmp_path: Path) -> None:
     assert "edl.json" in msgs
 
 
-def test_cover_prompt_hard_requires_episode_meta(tmp_path: Path) -> None:
+def test_cover_prompt_soft_admits_missing_episode_meta(tmp_path: Path) -> None:
+    """ECPC-B2: missing episode_meta is soft harvest — not a PRESTAGE hard refuse."""
     ctx = _ctx(tmp_path, "cover_prompt")
     with pytest.raises(RuntimeError, match="cannot skip episode_meta_build"):
         skip_stage(ctx, "episode_meta_build", reason="skip meta")
-    # The requirement survives; the shape changed. An absent hard input is now a
-    # recorded refusal (see tests/test_prestage_hard_input_refusal.py), because a
-    # declaration on a conditionally produced artifact must not crash a live run.
-    # `MUX_CONTRACT_HARD_INPUT_STRICT=1` still returns the fatal message.
     from interview_mux.defect_ledger import read_defect_ledger
+    from interview_mux.stage_contract import load_contract
 
+    contract = load_contract("episode_cover_prompt_craft")
+    assert contract is not None
+    hard_paths = {d.path for d in contract.inputs if d.hard and d.path}
+    soft_paths = {d.path for d in contract.inputs if not d.hard and d.path}
+    assert "publish/episode_meta.json" not in hard_paths
+    assert "publish/episode_meta.json" in soft_paths
     assert run_phase_checks(ctx, "episode_cover_prompt_craft", LifecyclePhase.PRESTAGE) == []
     refusals = [
         row
@@ -281,7 +285,7 @@ def test_cover_prompt_hard_requires_episode_meta(tmp_path: Path) -> None:
         if row.get("stage") == "episode_cover_prompt_craft"
         and "episode_meta.json" in str(row.get("artifact") or "")
     ]
-    assert refusals, "the missing episode_meta must still refuse the stage"
+    assert refusals == [], "soft meta must not refuse PRESTAGE when episode_meta is absent"
 
 
 def test_listen_delight_fail_early_default_is_false() -> None:

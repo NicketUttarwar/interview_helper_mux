@@ -54,6 +54,43 @@ def test_hf1_apply_missing_selection_refuses_done(ctx: RunContext) -> None:
     assert seed_stage_complete(ctx, "selection_framing_apply") is False
 
 
+def test_sfa_b2_invalid_selection_refuses_seed_complete(ctx: RunContext) -> None:
+    """SFA-B2: invalid selection refuse stub never seed-completes."""
+    import json
+
+    from interview_mux.refinement_passes import run_selection_framing_apply
+
+    path = ctx.path("master", "selection.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(["not-a-dict"]), encoding="utf-8")
+    run_selection_framing_apply(ctx)
+    doc = ctx.read_json(APPLY_REL)
+    assert doc.get("refused") is True
+    assert doc.get("reason") == "invalid_selection"
+    assert not ctx.is_done("selection_framing_apply")
+    assert seed_stage_complete(ctx, "selection_framing_apply") is False
+    reason = stage_artifact_incompleteness(ctx, "selection_framing_apply")
+    assert reason is not None
+    assert "refused" in reason
+
+
+def test_sfa_b1_contract_execute_lifecycle_honest_outputs() -> None:
+    """SFA-B1: no llm_execute; no draft/plan/skip_copy outputs."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("selection_framing_apply")
+    assert contract is not None
+    assert contract.tier == "deterministic"
+    assert "llm_execute" not in contract.lifecycle_phases
+    assert "execute" in contract.lifecycle_phases
+    out_paths = {o.path for o in contract.outputs}
+    assert "understanding/selection_framing_apply.json" in out_paths
+    assert "understanding/gap_report.json" in out_paths
+    assert "understanding/gap_report.draft.json" not in out_paths
+    assert "understanding/refinement_plan.json" not in out_paths
+    assert "understanding/refinement_skip_copy.json" not in out_paths
+
+
 def test_hf1_apply_freeze_writes_stub_and_marks(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

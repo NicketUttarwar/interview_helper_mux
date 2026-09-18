@@ -1,6 +1,6 @@
 # Target Spec — music_palette_compose
 
-brain: 0.2.0 | target_status: draft
+brain: 0.2.0 | target_status: applied
 
 ## Ideal behavior
 
@@ -32,7 +32,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | B1 | P0 | unambiguous | Hollow cue_count=0 with assets → incomplete | incompleteness helper | 2 | no |
-| B2 | P1 | needs_you | Contract hard producer palettes vs plan | dependency data | 7 | no |
+| B2 | P1 | unambiguous | Contract hard producer = sound_design_plan + body require | dependency data + refuse | 7 | no |
 | B3 | P2 | unambiguous | Fix consumers to include sfx_prompt_craft | YAML via data | 7 | no |
 
 ## Defaults inventory impact
@@ -41,4 +41,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`applied` — Wave 2 MPC-B1/B3 prior; MPC-B2 Q1A producer=plan + body require SDP

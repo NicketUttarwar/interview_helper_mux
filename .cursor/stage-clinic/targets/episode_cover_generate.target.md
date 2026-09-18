@@ -24,6 +24,12 @@ brain: 0.2.0 | target_status: draft
 | B2 | P1 | unambiguous | Contract tier reflect OpenAI | YAML | 7 | no |
 | B3 | P2 | unambiguous | Assert min size at generate | body | 2 | no |
 
+## Applied (Wave 2)
+
+- B1: `publish/cover_candidates/**` ALLOW + `publish/cover_candidates/` StageInfo flush
+- B2: `ALL_LLM_STAGES` → contract `llm_full` via bootstrap
+- B3: `require_cover_min_size(dest, min_px=1400)` after square on OpenAI winner path
+
 ## Defaults inventory impact
 
 - cover_image candidate_count=3 spend landmine (cost not stall)

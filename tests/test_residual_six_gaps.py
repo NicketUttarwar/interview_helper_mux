@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from interview_mux.delivery_guardrails import (
     critical_delivery_residual_count,
     record_delivery_residual,
@@ -22,6 +24,7 @@ from interview_mux.soundscape_policy import (
     build_policy,
     invent_obligation_status,
     load_policy,
+    run_soundscape_policy_build,
     save_operator_overrides,
 )
 from interview_mux.thrash_hardening import note_authority_undo_attempt
@@ -326,6 +329,20 @@ def test_f03_invent_gate_blocks_heuristic_beds(tmp_path, monkeypatch):
     assert cov is not None and float(cov) == 0.0
     assert policy.get("cue_slots") == []
     assert policy.get("musical_direction_complete") is False
+
+
+def test_ssp_b1_fail_closed_invent_blocked_incomplete(tmp_path, monkeypatch):
+    """SSP-B1: fail_closed + invent blocked → run refuses heal-done."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.soundscape_policy.fail_closed",
+        lambda _cfg=None: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "ssp_b1_invent")
+    _seed_unpaid_invent_policy_inputs(ctx)
+    with pytest.raises(RuntimeError, match="invent_gate=blocked"):
+        run_soundscape_policy_build(ctx)
+    assert not ctx.is_done("soundscape_policy_build")
 
 
 def test_f03_operator_override_cannot_bypass_invent_gate(tmp_path, monkeypatch):

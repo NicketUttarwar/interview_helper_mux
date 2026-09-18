@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -20,9 +20,9 @@ inputs:
   hard:
   - path: understanding/speakers.json
     producer: speaker_roles
-  soft:
   - path: transcript/full.json
     producer: transcribe
+  soft:
   - path: ingest/normalized.wav
     producer: ingest
 sufficiency: []
@@ -32,7 +32,6 @@ propagation:
   - boundary_detection
   - segment_classification
   - missing_framing
-  - optimal_questions
   - narrative_arc_plan
   - full_master_ranking
   - sound_design_plan
@@ -47,5 +46,4 @@ consumers:
 - sound_design_plan
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

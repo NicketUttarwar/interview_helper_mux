@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -13,9 +13,6 @@ outputs:
   schema: null
   staging: false
 - path: understanding/gap_report.json
-- path: understanding/gap_report.draft.json
-- path: understanding/refinement_plan.json
-- path: understanding/refinement_skip_copy.json
 inputs:
   hard:
   - path: master/selection.json
@@ -55,5 +52,4 @@ propagation:
 consumers: []
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

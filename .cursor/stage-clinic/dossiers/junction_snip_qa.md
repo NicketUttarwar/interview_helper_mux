@@ -1,7 +1,7 @@
 # Stage clinic dossier — junction_snip_qa
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: applied | L3_patch: done
 
 ## §5.0 Evidence index card
 
@@ -28,6 +28,8 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - Notes: `.cursor/stage-clinic/notes/junction_snip_qa.decisions.md`
 - Module (L1): `junction_snip_qa.py::run_junction_snip_qa`
 - Tests (L1): test_junction_snip_qa.py + thrash suites
+
+## Wave 2 2026-09-17 — B3 rebind: osc/budget → classified refuse (no needs_operator); B1/B2/B4 prior.
 
 ## Pack completeness
 

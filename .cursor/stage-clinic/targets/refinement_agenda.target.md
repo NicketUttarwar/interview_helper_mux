@@ -7,7 +7,8 @@ brain: 0.2.0 | target_status: draft
 | Permutation | Required outcome | Full-auto + defaults |
 |-------------|------------------|----------------------|
 | confirm phase | Always persist agenda; empty OK | Completes |
-| gap unsanitary | Continue (or refuse if decided) | Documented |
+| gap unsanitary | Refuse agenda (dirty present) | Honest refuse |
+| missing gap | Soft continue (RA-B1) | Completes |
 
 ## Rules set
 
@@ -28,7 +29,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | RA-B1 | P1 | unambiguous | Demote gap_report to soft | YAML | 7 | no |
-| RA-B2 | P2 | needs_you | Block agenda when gap unsanitary? | honesty | 2,7 | yes |
+| RA-B2 | P2 | unambiguous | Block agenda when gap unsanitary — **Wave 2 applied** | honesty | 2,7 | yes |
 | RA-B3 | P2 | unambiguous | Test confirm ranking hole injection | pytest | 5 | no |
 
 ## Defaults inventory impact
@@ -37,4 +38,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`done` — Wave 2 applied RA-B1 + RA-B2 + RA-B3

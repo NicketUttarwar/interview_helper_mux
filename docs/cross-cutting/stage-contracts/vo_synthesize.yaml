@@ -20,6 +20,8 @@ inputs:
   hard:
   - path: understanding/gap_report.json
     producer: gap_framing_compose
+  - path: master/transitions.json
+    producer: transitions
   soft: []
 sufficiency: []
 propagation:

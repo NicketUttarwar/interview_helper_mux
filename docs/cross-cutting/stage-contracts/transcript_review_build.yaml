@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -20,11 +20,11 @@ inputs:
   hard:
   - path: transcript/full.json
     producer: transcribe
+  - path: ingest/normalized.wav
+    producer: ingest
   soft:
   - path: transcript/speakers.json
     producer: transcribe
-  - path: ingest/normalized.wav
-    producer: ingest
 sufficiency: []
 propagation:
   invalidates_stages: []
@@ -32,5 +32,4 @@ consumers:
 - transcript_review
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

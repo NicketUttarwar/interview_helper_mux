@@ -64,7 +64,7 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 | SAP-B2 | P2 | unambiguous | Drop `llm_execute` lifecycle noise on deterministic SAP | contract generator | 2 | no |
 | SAP-B3 | P1 | unambiguous | Remove unused soft `interview_spine.json` from SAP contract inputs | dependency data + stage_input_checks unchanged | 2 | no |
 | SAP-B4 | P2 | unambiguous | Align readiness: drop from SAP `outputs` **or** ownership primary if stage must own post-commit write | ownership + contract verify | 2,7 | no |
-| SAP-B5 | P3 | needs_you | Keep SAP in `thrash_hardening` set or remove as false hotspot? | thrash_hardening.py + heal logs | 7 | no if remove-only |
+| SAP-B5 | P3 | answered | Not a thrash hotspot (2B); KEEP in FORCE_DONE_GUARDED for HU-1 hollow honesty | comment + dossier | 7 | no |
 
 ## Defaults inventory impact
 
@@ -72,4 +72,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied SAP-B1–B4; SAP-B5 **2B** (false thrash hotspot; KEEP FORCE_DONE)

@@ -16,12 +16,12 @@ inputs:
   hard:
   - path: master/coverage_audit.json
     producer: topic_coverage_audit
+  - path: understanding/content_brief.json
+    producer: content_context
   soft:
   - path: master/narrative_plan.json
   - path: mastering/mastering_plan.json
     producer: mastering_plan_synthesize
-  - path: understanding/content_brief.json
-    producer: content_context
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/source_topology.json

@@ -117,3 +117,24 @@ def test_maybe_finalize_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert maybe_finalize_shared_analysis(ctx)
     assert ctx.artifact_exists("analysis_complete.json")
     assert maybe_finalize_shared_analysis(ctx)
+
+
+def test_maybe_finalize_withholds_when_gap_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ESC-B1: do not stamp analysis_complete while gap compose is still pending."""
+    from interview_mux.stages.gaps import gap_compose_stage_done
+
+    ctx = isolated_run_ctx(tmp_path, "gap_finalize_withhold")
+    ctx.write_json(
+        "run_meta.json",
+        {"gap_framing_enabled": True, "gap_fill_mode": "active"},
+        skip_handoff=True,
+    )
+    mark_done_raw(ctx, "episode_structure_compose")
+
+    assert shared_analysis_chain_complete(ctx)
+    assert not gap_fill_was_skipped(ctx)
+    assert not gap_compose_stage_done(ctx)
+    assert maybe_finalize_shared_analysis(ctx) is False
+    assert not ctx.artifact_exists("analysis_complete.json")

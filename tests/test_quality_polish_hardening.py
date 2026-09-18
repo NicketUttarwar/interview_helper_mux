@@ -828,6 +828,11 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
         "apply_feel_directives",
         lambda *a, **k: True,
     )
+    # Force feel remaster past low_gain so GEN_CAP / hard_pin is exercised.
+    monkeypatch.setattr(
+        "interview_mux.timeline_reopen_meta_gate.decide_timeline_reopen",
+        lambda *a, **k: {"allow": True, "reason": "unit_test"},
+    )
     monkeypatch.setattr(
         junction_snip_qa,
         "run_junction_feel_audit",
@@ -876,11 +881,15 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
 
     junction_snip_qa.run_junction_snip_qa(ctx)
     report = ctx.read_json("master/junction_snip_qa.json")
-    assert remasters == [], "feel+commitment must not remaster past GEN_CAP"
+    # Feel path must refuse past GEN_CAP; End-D commitment reseat still bypasses
+    # budget/osc so assembly can match live EDL (exactly one remaster expected).
     assert report.get("feel_remaster_refused") is True
+    assert remasters == ["mix"], "commitment remaster bypasses GEN_CAP (End-D)"
     meta = ctx.read_json("run_meta.json")
-    assert meta.get("needs_operator") is True
+    # JSQ-B3: classified refuse — no needs_operator hang on budget exhaust.
+    assert meta.get("needs_operator") is not True
     assert meta.get("junction_remaster_budget_exhausted") is True
+    assert meta.get("junction_budget_exhaust_classified") is True
 
 
 def test_third_gen_remaster_forbidden(tmp_path: Path) -> None:

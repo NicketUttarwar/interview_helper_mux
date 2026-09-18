@@ -1,19 +1,19 @@
 # Stage clinic dossier — air_script_seams
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
 
 ## §5.0 Evidence index card
 
 - stage_id: `air_script_seams`
 - seed_position: 50 (delivery)
-- tier (contract claim): llm_full — **body is deterministic Pass B** (CODE_DOC_CONFLICT)
+- tier (contract claim): process (ASS-B1) — matches deterministic Pass B
 - primary_artifact_path (SSOT claim): mastering/mastering_plan.json
 - immediate upstream producers (from code — L1): air_script_compose (+ layup/gap softs)
 - immediate downstream consumers: transitions, air_contract_sanitize, edl (contract)
 - gate_adjacency: none (soft seat freeze can no-op compose_pass_b)
 - LLM?: no OpenAI in Pass B / sonic hunt (port-manifest non_llm)
-- thrash_hotspot: yes — VO contract drift stamp + restore plan
+- thrash_hotspot: VO contract drift stamp + restore plan (enable=false skip latch ASS-B2 done)
 - test_gravity: solid (`test_air_script.py`, HV1 vo contract)
 
 ## Evidence checklist (§5.1–5.6)

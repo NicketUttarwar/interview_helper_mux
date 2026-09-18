@@ -21,16 +21,20 @@ outputs:
 - path: analysis/stt_lexicon_islands.json
 inputs:
   hard:
-  - path: analysis/connector_fuse_rounds.json
-    producer: connector_fuse_pass_pre_ranking
   - path: master/narrative_plan.json
     producer: narrative_arc_plan
-  - path: master/coverage_audit.json
-    producer: topic_coverage_audit
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
   soft:
   - path: master/selection.json
   - path: understanding/reorder_bridges.json
   - path: understanding/speaker_delivery_plan.json
+  - path: analysis/connector_fuse_rounds.json
+    producer: connector_fuse_pass_pre_ranking
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
   - path: analysis/run_golden_facts.json
     producer: audio_probe_build
   - path: master/transitions.json
@@ -39,8 +43,6 @@ inputs:
     producer: mastering_plan_synthesize
   - path: mastering/media_ip_cta.json
     producer: full_master_ranking
-  - path: segments/manifest.json
-    producer: segment_classification
   - path: segments/boundaries.json
     producer: boundary_detection
   - path: segments/nle_edits.json
@@ -57,8 +59,6 @@ inputs:
   - path: understanding/flow_adaptation.json
     producer: source_topology_build
   - path: understanding/gap_framing_plan.json
-    producer: gap_framing_compose
-  - path: understanding/gap_report.json
     producer: gap_framing_compose
   - path: understanding/ideal_cuts.json
     producer: ideal_cuts_propose

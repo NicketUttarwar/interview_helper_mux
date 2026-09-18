@@ -6,7 +6,6 @@ from typing import Any
 
 from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
-from interview_mux.stage_input_helpers import transcript_quality_for_ctx
 from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
@@ -60,57 +59,78 @@ def run_boundaries(ctx: RunContext) -> None:
         and conf.get("skip_boundary_llm_when_bound", True)
         and boundaries_already_from_ideal_cuts(ctx)
     ):
-        doc = ctx.read_json("segments/boundaries.json")
-        report = evaluate_boundary_quality(
-            doc if isinstance(doc, dict) else {},
-            duration_ms=_transcript_duration_ms(ctx),
-        )
-        if not report.get("reject") and bool(segmentation_cfg().get("reject_coarse_fallback", True)):
-            if not ctx.is_done("boundary_detection"):
-                heal_or_refuse_mark(ctx, "boundary_detection", force=True)
+        # BD-B4: bind stamp without a readable boundaries.json → LLM / no crash.
+        doc: dict | None = None
+        try:
+            if not ctx.artifact_exists("segments/boundaries.json"):
+                raise FileNotFoundError("segments/boundaries.json")
+            raw = ctx.read_json("segments/boundaries.json")
+            if not isinstance(raw, dict):
+                raise ValueError("segments/boundaries.json is not an object")
+            doc = raw
+        except Exception as exc:
             ctx.log(
-                "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries "
-                f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')})",
-                level="info",
+                "boundary_detection: ideal_cuts bind present but boundaries "
+                f"missing/unreadable ({exc}) — running LLM segmentation",
+                level="warning",
                 stage="boundary_detection",
             )
-            try:
-                from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
-
-                apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
-            except Exception as exc:
+            doc = None
+        if doc is not None:
+            report = evaluate_boundary_quality(
+                doc,
+                duration_ms=_transcript_duration_ms(ctx),
+            )
+            if not report.get("reject") and bool(
+                segmentation_cfg().get("reject_coarse_fallback", True)
+            ):
+                if not ctx.is_done("boundary_detection"):
+                    heal_or_refuse_mark(ctx, "boundary_detection", force=True)
                 ctx.log(
-                    f"boundary edge confidence pass skipped: {exc}",
-                    level="warning",
+                    "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries "
+                    f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')})",
+                    level="info",
                     stage="boundary_detection",
                 )
-            return
-        if not report.get("reject") and not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
-            if not ctx.is_done("boundary_detection"):
-                heal_or_refuse_mark(ctx, "boundary_detection", force=True)
+                try:
+                    from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+                    apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
+                except Exception as exc:
+                    ctx.log(
+                        f"boundary edge confidence pass skipped: {exc}",
+                        level="warning",
+                        stage="boundary_detection",
+                    )
+                return
+            if not report.get("reject") and not bool(
+                segmentation_cfg().get("reject_coarse_fallback", True)
+            ):
+                if not ctx.is_done("boundary_detection"):
+                    heal_or_refuse_mark(ctx, "boundary_detection", force=True)
+                ctx.log(
+                    "boundary_detection: skipped LLM — ideal_cuts bind (reject_coarse_fallback=false)",
+                    level="info",
+                    stage="boundary_detection",
+                )
+                try:
+                    from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+                    apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
+                except Exception as exc:
+                    ctx.log(
+                        f"boundary edge confidence pass skipped: {exc}",
+                        level="warning",
+                        stage="boundary_detection",
+                    )
+                return
             ctx.log(
-                "boundary_detection: skipped LLM — ideal_cuts bind (reject_coarse_fallback=false)",
-                level="info",
+                "boundary_detection: ideal_cuts bind too coarse "
+                f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')} "
+                f"expected_min≈{report.get('expected_min_segments')}) — running LLM segmentation",
+                level="warning",
                 stage="boundary_detection",
             )
-            try:
-                from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
-
-                apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
-            except Exception as exc:
-                ctx.log(
-                    f"boundary edge confidence pass skipped: {exc}",
-                    level="warning",
-                    stage="boundary_detection",
-                )
-            return
-        ctx.log(
-            "boundary_detection: ideal_cuts bind too coarse "
-            f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')} "
-            f"expected_min≈{report.get('expected_min_segments')}) — running LLM segmentation",
-            level="warning",
-            stage="boundary_detection",
-        )
 
     def build_input(c: RunContext) -> dict:
         transcript = compact_transcript_for_boundaries(c.read_json("transcript/full.json"))
@@ -127,9 +147,6 @@ def run_boundaries(ctx: RunContext) -> None:
             payload["ideal_cuts_materialized"] = c.read_json(
                 "understanding/ideal_cuts_materialized.json"
             )
-        quality = transcript_quality_for_ctx(c)
-        if quality:
-            payload["transcript_quality"] = quality
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
         pace = pace_class_from_sap(c)
         raw_hints = payload["pause_ladder_hints"]
@@ -504,8 +521,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             wrote_then_lost = False
         if wrote_then_lost:
             # HS-2: this invoke (or a prior one) wrote then lost the primary —
-            # do not hollow-stamp a hole we created. True empty-at-start skip
-            # still completes below.
+            # do not hollow-stamp a hole we created.
             ctx.log(
                 "boundary_topic_resplit refused hollow skip after own write — "
                 "segments/boundaries.json is pending",
@@ -513,15 +529,14 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
                 stage="boundary_topic_resplit",
             )
             return
-        ctx.log("boundary_topic_resplit skipped — no boundaries", level="warning", stage="boundary_topic_resplit")
-        # Intentional skip: nothing to resplit. Hollow-stamp done — heal_or_refuse
-        # would refuse on pending boundaries.json incompleteness.
-        prev_raw = getattr(ctx, "_mark_done_raw", False)
-        ctx._mark_done_raw = True
-        try:
-            ctx.mark_done("boundary_topic_resplit", force=True)
-        finally:
-            ctx._mark_done_raw = prev_raw
+        # B1: missing primary at entry → incomplete (seed retries producer).
+        # Do not raw-stamp done; heal_or_refuse would also refuse pending primary.
+        ctx.log(
+            "boundary_topic_resplit incomplete — segments/boundaries.json missing; "
+            "refusing hollow done",
+            level="warning",
+            stage="boundary_topic_resplit",
+        )
         return
 
     boundaries = ctx.read_json("segments/boundaries.json")
@@ -740,6 +755,62 @@ def _patch_brief_ids_after_resplit(ctx: RunContext) -> None:
         )
 
 
+def _classification_post_hooks(
+    ctx: RunContext,
+    *,
+    specialists_payload: dict[str, Any] | None = None,
+) -> None:
+    """Shared post-pass after deterministic or LLM classification (SC-B4)."""
+    if specialists_payload is not None:
+        with logged_step(
+            "segment_classification/post_specialists",
+            ctx=ctx,
+            stage="segment_classification",
+        ):
+            maybe_run_post_stage_specialists(
+                ctx, "segment_classification", specialists_payload
+            )
+    with logged_step(
+        "segment_classification/topic_bootstrap",
+        ctx=ctx,
+        stage="segment_classification",
+    ):
+        from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
+
+        patched = bootstrap_manifest_topic_tags(ctx)
+        if patched:
+            ctx.log(
+                f"Deterministic topic-tag bootstrap patched {patched} segment(s) after classification.",
+                level="info",
+                stage="segment_classification",
+                action_id="classification.topic_tag_bootstrap",
+            )
+    with logged_step(
+        "segment_classification/ideal_cuts_seed",
+        ctx=ctx,
+        stage="segment_classification",
+    ):
+        from interview_mux.ideal_cuts import refresh_selection_seed_from_boundaries
+
+        seed = refresh_selection_seed_from_boundaries(ctx)
+        if seed and seed.get("ordered_segment_ids"):
+            ctx.log(
+                f"ideal_cuts selection seed refreshed ({len(seed['ordered_segment_ids'])} ids)",
+                level="info",
+                stage="segment_classification",
+            )
+    try:
+        from interview_mux.asset_transcripts import sync_speech_sidecars
+
+        sync_speech_sidecars(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"speech sidecar sync after classification skipped: {exc}",
+            level="warning",
+            stage="segment_classification",
+        )
+
+
 def run_classification(ctx: RunContext) -> None:
     from interview_mux.artifact_writes import write_validated_artifact
     from interview_mux.boundary_enrich import restamp_run_span_speakers
@@ -767,16 +838,18 @@ def run_classification(ctx: RunContext) -> None:
         )
         if not ctx.is_done("segment_classification"):
             heal_or_refuse_mark(ctx, "segment_classification", force=True)
+        # SC-B4: share topic bootstrap + selection-seed refresh with LLM path.
+        # Specialists only when classification payload can be built (hard deps).
+        specialists_payload: dict[str, Any] | None = None
         try:
-            from interview_mux.asset_transcripts import sync_speech_sidecars
-
-            sync_speech_sidecars(ctx)
-        except Exception as exc:
+            specialists_payload = build_classification_payload(ctx)
+        except ValueError as exc:
             ctx.log(
-                f"speech sidecar sync after classification skipped: {exc}",
-                level="warning",
+                f"segment_classification: specialists skipped after det ({exc})",
+                level="info",
                 stage="segment_classification",
             )
+        _classification_post_hooks(ctx, specialists_payload=specialists_payload)
         return
 
     def build_input(c: RunContext) -> dict:
@@ -932,40 +1005,4 @@ def run_classification(ctx: RunContext) -> None:
                 stage="segment_classification",
             )
 
-    with logged_step("segment_classification/post_specialists", ctx=ctx, stage="segment_classification"):
-        maybe_run_post_stage_specialists(ctx, "segment_classification", build_input(ctx))
-    with logged_step("segment_classification/topic_bootstrap", ctx=ctx, stage="segment_classification"):
-        from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
-
-        patched = bootstrap_manifest_topic_tags(ctx)
-        if patched:
-            ctx.log(
-                f"Deterministic topic-tag bootstrap patched {patched} segment(s) after classification.",
-                level="info",
-                stage="segment_classification",
-                action_id="classification.topic_tag_bootstrap",
-            )
-    with logged_step(
-        "segment_classification/ideal_cuts_seed",
-        ctx=ctx,
-        stage="segment_classification",
-    ):
-        from interview_mux.ideal_cuts import refresh_selection_seed_from_boundaries
-
-        seed = refresh_selection_seed_from_boundaries(ctx)
-        if seed and seed.get("ordered_segment_ids"):
-            ctx.log(
-                f"ideal_cuts selection seed refreshed ({len(seed['ordered_segment_ids'])} ids)",
-                level="info",
-                stage="segment_classification",
-            )
-    try:
-        from interview_mux.asset_transcripts import sync_speech_sidecars
-
-        sync_speech_sidecars(ctx)
-    except Exception as exc:
-        ctx.log(
-            f"speech sidecar sync after classification skipped: {exc}",
-            level="warning",
-            stage="segment_classification",
-        )
+    _classification_post_hooks(ctx, specialists_payload=build_input(ctx))

@@ -16,7 +16,6 @@ from interview_mux.low_conf_islands import (
 )
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.segment_fuse import connector_fuse_cfg
 from interview_mux.segment_fuse import fuse_writer_stage
 from interview_mux.segment_fuse import run_connector_fuse_pass as fuse_pass
 
@@ -97,14 +96,6 @@ def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
     """Economy-LLM seam adjudication + fuse rewrite for one pass."""
     stage = "connector_fuse_pass"
     pass_id = str(kwargs.get("pass_id") or DEFAULT_FUSE_PASS_ID)
-    conf = connector_fuse_cfg()
-    if not conf.get("enabled", True):
-        ctx.log(
-            "connector_fuse_pass skipped (analysis.connector_fuse.enabled=false)",
-            stage=stage,
-            action_id="connector_fuse.skip",
-            detail={"pass_id": pass_id},
-        )
 
     with logged_step(f"{stage}/{pass_id}", ctx=ctx, stage=stage):
         result = fuse_pass(
@@ -113,20 +104,33 @@ def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
             force_readjudicate=bool(kwargs.get("force_readjudicate")),
         )
 
-    ctx.log(
-        f"Connector fuse pass '{pass_id}' complete — {result.get('total_applied')} fuse(s), "
-        f"fixed_point={result.get('fixed_point')}, "
-        f"hv_cluster={((result.get('high_value_cluster_fuse') or {}).get('total_applied'))}",
-        stage=stage,
-        action_id="connector_fuse.complete",
-        detail={
-            "pass_id": pass_id,
-            "total_applied": result.get("total_applied"),
-            "rounds": len(result.get("rounds") or []),
-            "hv_cluster": result.get("high_value_cluster_fuse"),
-            "skip_reason": result.get("skip_reason"),
-        },
-    )
+    skip_reason = result.get("skip_reason")
+    if skip_reason:
+        # Inner fuse_pass is SSOT for disabled/missing_manifest (CFP-B4).
+        ctx.log(
+            f"Connector fuse pass '{pass_id}' skipped — {skip_reason}",
+            stage=stage,
+            action_id="connector_fuse.skip",
+            detail={
+                "pass_id": pass_id,
+                "skip_reason": skip_reason,
+                "total_applied": result.get("total_applied"),
+            },
+        )
+    else:
+        ctx.log(
+            f"Connector fuse pass '{pass_id}' complete — {result.get('total_applied')} fuse(s), "
+            f"fixed_point={result.get('fixed_point')}, "
+            f"hv_cluster={((result.get('high_value_cluster_fuse') or {}).get('total_applied'))}",
+            stage=stage,
+            action_id="connector_fuse.complete",
+            detail={
+                "pass_id": pass_id,
+                "total_applied": result.get("total_applied"),
+                "rounds": len(result.get("rounds") or []),
+                "hv_cluster": result.get("high_value_cluster_fuse"),
+            },
+        )
     _heal_island_stage(ctx, fuse_writer_stage(pass_id))
 
 

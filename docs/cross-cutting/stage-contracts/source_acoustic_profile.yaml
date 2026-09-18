@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -12,7 +12,6 @@ outputs:
 - path: understanding/source_acoustic_profile.json
   schema: null
   staging: false
-- path: understanding/source_readiness.json
 inputs:
   hard:
   - path: ingest/normalized.wav
@@ -22,7 +21,6 @@ inputs:
   soft:
   - path: preclean/isolated.wav
     producer: audio_preclean
-  - path: understanding/interview_spine.json
 sufficiency: []
 propagation:
   invalidates_stages: []
@@ -34,5 +32,4 @@ consumers:
 - mastering_plan_synthesize
 remediation:
   strategies:
-  - volley_retry
   - full_stage_rerun

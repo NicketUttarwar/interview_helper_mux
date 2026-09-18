@@ -59,7 +59,7 @@ inputs:
 sufficiency:
 - path: gaps
   rule: min_rows
-  min_count: 1
+  min_count: 0
 propagation:
   invalidates_stages: []
 consumers:

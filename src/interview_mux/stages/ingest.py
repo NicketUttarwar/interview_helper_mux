@@ -180,6 +180,11 @@ def run_ingest(ctx: RunContext) -> Path:
             checksums["preclean_sha256"] = _sha256(preclean, ctx=ctx, label="preclean")
         ctx.log("Ingest: writing ingest/checksums.json", level="info", stage="ingest", detail={"journey_kind": "execute"}, origin="pipeline")
         ctx.write_json("ingest/checksums.json", checksums)
+    with logged_step("ingest/waveform_peaks", ctx=ctx, stage="ingest"):
+        from interview_mux.waveform_peaks import persist_normalized_peaks
+
+        touch_job_message(ctx, "Ingest: computing waveform peaks…")
+        persist_normalized_peaks(ctx)
     touch_job_message(ctx, "Ingest: finishing…")
     ctx.log(
         f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono"

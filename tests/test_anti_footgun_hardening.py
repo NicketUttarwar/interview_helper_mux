@@ -116,10 +116,30 @@ def test_air_order_freeze_blocks_optimizer_until_unlock(ctx):
 
 
 def test_junction_budget_exhaust_pins_not_soft_pass(ctx):
+    """JSQ-B3: exhaust pins classified refuse — never needs_operator hang."""
     pin = junction_budget_exhaust_hard_pin(ctx)
     assert pin == "junction_snip_qa"
     meta = ctx.read_json("run_meta.json")
     assert meta.get("junction_remaster_budget_exhausted") is True
+    assert meta.get("junction_budget_exhaust_classified") is True
+    assert meta.get("needs_operator") is not True
+    assert not meta.get("needs_operator_stage")
+
+
+def test_junction_budget_exhaust_is_classified_not_operator_gate():
+    """JSQ-B3: unattended must not stamp needs_operator for budget/osc reasons."""
+    from interview_mux.operator_gates import should_stamp_needs_operator
+
+    meta = {"full_auto": True, "homunculus_version": "0.2.0"}
+    for reason in (
+        "junction_remaster_budget_exhausted",
+        "junction_oscillation_halt",
+        "junction_budget_exhaust",
+        "junction_quality_blocked",
+    ):
+        assert should_stamp_needs_operator(
+            "junction_snip_qa", reason, meta=meta
+        ) is False
 
 
 def test_avoidance_is_not_true_waste():

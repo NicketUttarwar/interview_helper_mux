@@ -227,6 +227,13 @@ def evaluate_when(when: dict[str, Any], ctx: Any) -> bool:
 
         if str(get_production_style(ctx)) != str(when["production_style"]):
             return False
+    if "early_palettes_llm" in when:
+        from interview_mux.config import merged_config
+
+        sd_cfg = merged_config().get("sound_design") or {}
+        enabled = bool(sd_cfg.get("early_palettes_llm", False))
+        if bool(when["early_palettes_llm"]) != enabled:
+            return False
     return True
 
 def _interview_duration_ms(ctx: Any) -> int:

@@ -316,6 +316,7 @@ def sync_ready_packages(
             from interview_mux.run_context import RunContext
 
             if publish_blocked_by_advisories(RunContext(eid)):
+                refuse_reason = "publish_blocked_quality_advisories"
                 result.errors.append(
                     {
                         "error": (
@@ -323,9 +324,19 @@ def sync_ready_packages(
                             "G-Publish consent (Upload or Prepare), then retry sync"
                         ),
                         "execution_id": eid,
-                        "reason": "publish_blocked_quality_advisories",
+                        "reason": refuse_reason,
                     }
                 )
+                # PPUB-B2: stamp honest refuse-remote (Full-auto clears pending hang).
+                try:
+                    from interview_mux.aspirational_quality import note_remote_publish_refused
+
+                    note_remote_publish_refused(
+                        RunContext(eid),
+                        reason=refuse_reason,
+                    )
+                except Exception:
+                    pass
                 return result
             from interview_mux.delivery_guardrails import remote_publish_allowed
 

@@ -102,6 +102,9 @@ def run_speaker_roles(ctx: RunContext) -> None:
 
 
 def _content_context_base_payload(c: RunContext, transcript_text: str) -> dict[str, Any]:
+    # Contract hard: topology (SEED_ORDER). Refuse before LLM — no thin packet (CC-B1).
+    if not c.artifact_exists("understanding/source_topology.json"):
+        raise RuntimeError("source_topology required before content_context")
     payload: dict[str, Any] = {"transcript": transcript_text}
     if c.artifact_exists("understanding/speakers.json"):
         payload["speakers"] = c.read_json("understanding/speakers.json")
@@ -118,12 +121,14 @@ def _content_context_base_payload(c: RunContext, transcript_text: str) -> dict[s
 
 
 def _talking_points_base_payload(c: RunContext, transcript_text: str) -> dict[str, Any]:
+    # Contract hard: content_brief (SEED_ORDER). Refuse before LLM — no thin packet (TPC-B1).
+    if not c.artifact_exists("understanding/content_brief.json"):
+        raise RuntimeError("content_brief required before talking_points_compose")
     payload: dict[str, Any] = {
         "transcript_text": transcript_text,
         "transcript_samples": {"opening": transcript_text},
+        "content_brief": c.read_json("understanding/content_brief.json"),
     }
-    if c.artifact_exists("understanding/content_brief.json"):
-        payload["content_brief"] = c.read_json("understanding/content_brief.json")
     if c.artifact_exists("understanding/speakers.json"):
         payload["speakers"] = c.read_json("understanding/speakers.json")
     quality = transcript_quality_for_ctx(c)
@@ -149,6 +154,10 @@ def run_content_context(ctx: RunContext) -> None:
     transcript = ctx.read_json("transcript/full.json")
     full_text = str(transcript.get("text") or "")
     words = [w for w in (transcript.get("words") or []) if isinstance(w, dict)]
+
+    # Match contract hard topology before any OpenAI call (CC-B1).
+    if not ctx.artifact_exists("understanding/source_topology.json"):
+        raise RuntimeError("source_topology required before content_context")
 
     with logged_step("content_context/llm_stage", ctx=ctx, stage="content_context"):
         if not needs_transcript_sharding(full_text):
@@ -281,6 +290,10 @@ def run_talking_points_compose(ctx: RunContext) -> None:
     transcript = ctx.read_json("transcript/full.json")
     full_text = str(transcript.get("text") or "")
     words = [w for w in (transcript.get("words") or []) if isinstance(w, dict)]
+
+    # Match contract hard content_brief before any OpenAI call (TPC-B1).
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        raise RuntimeError("content_brief required before talking_points_compose")
 
     with logged_step(
         "talking_points_compose/llm_stage", ctx=ctx, stage="talking_points_compose"

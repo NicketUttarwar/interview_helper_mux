@@ -35,6 +35,8 @@ sufficiency:
 - path: palettes
   rule: min_rows
   min_count: 1
+  when:
+    early_palettes_llm: true
 propagation:
   invalidates_stages:
   - missing_framing

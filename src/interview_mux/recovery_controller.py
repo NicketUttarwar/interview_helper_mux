@@ -537,6 +537,13 @@ _OMIT_PLAYBOOKS = frozenset(
 
 
 def recovery_attempt_budget(error_class: str | None) -> int:
+    if error_class in {"listen_delight_floors", "pmq_incomplete_ship_walk"}:
+        try:
+            from interview_mux.listen_delight_remutate import max_remutate_attempts
+
+            return max_remutate_attempts()
+        except Exception:
+            return 3
     if error_class in TRANSIENT_ERROR_CLASSES:
         return 3
     return 1
@@ -695,6 +702,7 @@ def playbook_hitch_listen_restage(ctx: RunContext) -> list[str]:
 def playbook_listen_delight_remutate(ctx: RunContext) -> list[str]:
     from interview_mux.listen_delight import evaluate_listen_delight
     from interview_mux.listen_delight_remutate import (
+        REMUTATE_REL,
         apply_listen_delight_remutate,
         plan_listen_delight_remutate,
     )
@@ -704,6 +712,24 @@ def playbook_listen_delight_remutate(ctx: RunContext) -> list[str]:
         ctx, failed_dimensions=list(result.get("failed_dimensions") or [])
     )
     if plan.get("exhausted"):
+        # Cap reached: restore best archived candidate when present, then refuse
+        # further remutate (caller escalates — no infinite thrash).
+        try:
+            from interview_mux.aspirational_quality import (
+                apply_best_quality_candidate,
+                is_aspirational_enabled,
+            )
+
+            pick: dict[str, Any] = {"ok": False, "reason": "aspirational_off"}
+            if is_aspirational_enabled(ctx):
+                pick = apply_best_quality_candidate(ctx, family="listen_delight")
+            doc = dict(plan)
+            doc["terminate"] = doc.get("terminate") or "remutate_budget_exhausted"
+            doc["pick_best"] = pick
+            doc["status"] = "exhausted_terminated"
+            ctx.write_json(REMUTATE_REL, doc)
+        except Exception:
+            pass
         return []
     applied = apply_listen_delight_remutate(ctx, plan)
     if applied.get("ok"):
@@ -1423,6 +1449,32 @@ def handle_stage_failure(
                     resume_on_budget = (
                         "junction_snip_qa" if mix_assembly_seated(ctx) else "edl"
                     )
+            except Exception:
+                pass
+        elif error_class in {"listen_delight_floors", "pmq_incomplete_ship_walk"}:
+            # Remutate cap spent: ship-best then escalate (honest refuse / no thrash).
+            resume_on_budget = stage_id
+            try:
+                from interview_mux.aspirational_quality import (
+                    apply_best_quality_candidate,
+                    is_aspirational_enabled,
+                )
+                from interview_mux.listen_delight_remutate import REMUTATE_REL
+
+                pick: dict[str, Any] = {"ok": False, "reason": "aspirational_off"}
+                if is_aspirational_enabled(ctx):
+                    pick = apply_best_quality_candidate(ctx, family="listen_delight")
+                prior = (
+                    ctx.read_json(REMUTATE_REL)
+                    if ctx.artifact_exists(REMUTATE_REL)
+                    else {}
+                )
+                doc = dict(prior) if isinstance(prior, dict) else {}
+                doc["exhausted"] = True
+                doc["terminate"] = "recovery_budget_exhausted"
+                doc["pick_best"] = pick
+                doc["status"] = "exhausted_terminated"
+                ctx.write_json(REMUTATE_REL, doc)
             except Exception:
                 pass
         else:

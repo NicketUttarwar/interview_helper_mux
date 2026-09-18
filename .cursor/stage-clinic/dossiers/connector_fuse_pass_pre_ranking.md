@@ -1,15 +1,16 @@
 # Stage clinic dossier — connector_fuse_pass_pre_ranking
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# CFP-B1/B2 implemented 2026-09-17 (hard:[]; llm_full via ALL_LLM_STAGES).
 
 ## §5.0 Evidence index card
 
 - stage_id: `connector_fuse_pass_pre_ranking`
 - seed_position: 39 (delivery)
-- tier (contract claim): process — verified vs body in map
+- tier (contract claim): llm_full (CFP-B2) — OpenAI economy seams
 - primary_artifact_path (SSOT claim): analysis/connector_fuse_rounds.json
-- immediate upstream producers (from code — L1): chapter_close_hitch (contract); code: segments/manifest
+- immediate upstream producers (from code — L1): soft hitch+audit; body gates on manifest/enabled
 - immediate downstream consumers (code + contract claim): full_master_ranking, nugget_corpus_mine, nugget_layup_compose
 - gate_adjacency: none
 - LLM?: OpenAI economy seam (same as fuse_pass)

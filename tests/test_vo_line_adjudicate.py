@@ -236,3 +236,70 @@ def test_nuke_synth_wavs_selective_line_ids(tmp_path: Path) -> None:
     assert removed >= 1
     assert not ctx.path("vo_pickup/vo_layup_seg_002.wav").is_file()
     assert ctx.path("vo_pickup/vo_layup_seg_009.wav").is_file()
+
+
+def test_adjudicate_fail_open_default_true() -> None:
+    """VLA-B2: product default warn+continue on coverage shortfall."""
+    from interview_mux.vo_line_adjudicate import adjudicate_cfg
+
+    cfg = adjudicate_cfg({"analysis": {"gap_vo": {}}})
+    assert cfg["adjudicate_fail_open"] is True
+
+
+def test_adjudicate_coverage_fail_open_warns_not_loud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.vo_line_adjudicate import run_vo_line_adjudicate_stage
+
+    ctx = isolated_run_ctx(tmp_path, "adj_fail_open")
+    ctx.write_json("run_meta.json", {"homunculus_version": "0.2.0"}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        _gap_with_body_line(),
+        skip_handoff=True,
+    )
+    ctx.write_json("understanding/nugget_corpus.json", _corpus(), skip_handoff=True)
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.lines_needing_adjudication",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.run_intro_compose",
+        lambda ctx, gap, **_k: (gap, []),
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.persist_allocation_plan",
+        lambda *_a, **_k: {},
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.collect_waived_nugget_ids",
+        lambda *_a, **_k: set(),
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.evaluate_nugget_air_coverage",
+        lambda *_a, **_k: {
+            "ok": False,
+            "nugget_air_coverage": 0.1,
+            "errors": ["below_floor"],
+            "min_nugget_air_coverage": 0.85,
+        },
+    )
+    loud: list[str] = []
+
+    def _loud(*_a, **_k):
+        loud.append("raised")
+        raise RuntimeError("loud_fail")
+
+    monkeypatch.setattr("interview_mux.loud_fail.raise_loud_failure", _loud)
+    warnings: list[str] = []
+
+    def _log(msg: str, *a, level: str = "info", **k):
+        if level == "warning":
+            warnings.append(str(msg))
+
+    monkeypatch.setattr(ctx, "log", _log)
+    run_vo_line_adjudicate_stage(ctx)
+    assert loud == []
+    assert any("coverage below floor" in w.lower() for w in warnings)
+    assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    assert ctx.is_done("vo_line_adjudicate")

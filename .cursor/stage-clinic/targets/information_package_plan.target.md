@@ -29,7 +29,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | IPP-B1 | P1 | unambiguous | Drop llm_execute from lifecycle | YAML | 7 | no |
-| IPP-B2 | P1 | needs_you | Incomplete vs warn on empty corpus | require_corpus | 2,5 | yes |
+| IPP-B2 | P1 | answered | Incomplete on empty corpus | require_corpus | 2,5 | yes (accepted) | applied |
 | IPP-B3 | P2 | unambiguous | Document commit_music_vo Full-auto default | contract/docs | 7 | no |
 
 ## Defaults inventory impact
@@ -38,4 +38,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 CONTINUE: IPP-B2 applied (empty→incomplete)

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from interview_mux.soundscape_policy import (
     POLICY_PATH,
     build_policy,
@@ -118,6 +120,18 @@ def test_run_soundscape_policy_build_persists(tmp_path) -> None:
     contract = resolve_mix_contract(ctx)
     assert "bed_level_db_range" in contract
     assert contract["underscore_policy"] in {"normal", "sparse", "skip"}
+
+
+def test_run_soundscape_policy_build_missing_delivery_brief_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SPB-B2: enabled + no delivery_brief → RuntimeError (honest refuse)."""
+    patch_mix_test_config(monkeypatch, disable_soundscape=False, disable_creative_delivery=True)
+    ctx = isolated_run_ctx(tmp_path, "run_sp_no_brief")
+    assert not ctx.artifact_exists("understanding/delivery_brief.json")
+    with pytest.raises(RuntimeError, match="requires understanding/delivery_brief.json"):
+        run_soundscape_policy_build(ctx)
+    assert not ctx.artifact_exists(POLICY_PATH)
 
 
 def test_operator_override_skip(tmp_path) -> None:

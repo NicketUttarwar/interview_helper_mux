@@ -1,7 +1,8 @@
 # Stage clinic dossier — sfx_prompt_craft
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: done | L3_patch: done
+# Wave 2 2026-09-17 — B1+B2+B3 applied (B2: Full-auto auto-approve incl. soft warnings).
 
 ## §5.0 Evidence index card
 
@@ -10,7 +11,7 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - tier (contract claim): llm_full — verified OpenAI
 - primary_artifact_path (SSOT claim): sound_design/sfx_prompts.json
 - immediate upstream producers (from code — L1): SDP (`_load_sound_design_plan`); soft acoustic/sonic/soundscape/delivery_brief
-- immediate downstream consumers (code + contract claim): mmaudio_sfx (contract wrongly lists self)
+- immediate downstream consumers (code + contract claim): mmaudio_sfx (SPC-B1)
 - gate_adjacency: G1.5 prompt approval (`g1_5_require_prompt_approval` default **true**)
 - LLM?: OpenAI sfx prompt craft
 - thrash_hotspot: re-craft duplicate prompts (fixed merge_from_disk=False)

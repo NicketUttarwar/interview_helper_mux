@@ -37,12 +37,12 @@ inputs:
     producer: air_script_compose
   - path: understanding/nugget_layup_plan.json
     producer: nugget_layup_compose
-  - path: understanding/sound_design_plan.json
-    producer: sound_design_palettes
   - path: mastering/mastering_plan.json
     producer: mastering_plan_synthesize
   - path: mastering/media_ip_cta.json
     producer: full_master_ranking
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan
 sufficiency: []
 propagation:
   invalidates_stages: []

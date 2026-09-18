@@ -583,12 +583,25 @@ def run_gap_report_sanitize(ctx: Any) -> None:
     with sanitize_reentry_guard(ctx) as nested:
         if nested:
             return
+        framing_yes = False
+        try:
+            from interview_mux.gap_vo_gates import gap_framing_enabled
+
+            framing_yes = bool(gap_framing_enabled(ctx))
+        except Exception:
+            framing_yes = False
         if not ctx.artifact_exists(REL):
-            # Allow empty after framing skip — write minimal sanitary stub
+            # Framing skip: empty sanitary stub may complete.
+            # GRS-B2: framing Yes → seed empty stub for evidence but refuse done.
             doc: dict[str, Any] = {
                 "version": 1,
                 "interviewer_lines": [],
                 "gaps": [],
+                "_meta": {
+                    "producer": "gap_report_sanitize_empty_seed",
+                    "empty_stub": True,
+                    "framing_enabled": framing_yes,
+                },
             }
             before_hash = ""
         else:

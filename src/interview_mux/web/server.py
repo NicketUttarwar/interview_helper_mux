@@ -2078,6 +2078,15 @@ def create_app() -> FastAPI:
             "apple_podcasts_passthrough_url": apple_podcasts_passthrough_url(feed_url) or None,
             "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
             "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
+            "remote_refused": bool(
+                isinstance(meta, dict) and meta.get("g_publish_remote_refused")
+            ),
+            "remote_refuse_reason": (
+                str(meta.get("g_publish_remote_refuse_reason") or "")
+                if isinstance(meta, dict)
+                else ""
+            )
+            or None,
             "package_ready": bool(isinstance(package_ready, dict) and package_ready.get("ready")),
             "has_master": committed_master_wav(ctx),
             "publish_result": result if isinstance(result, dict) else {},

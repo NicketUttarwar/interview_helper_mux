@@ -104,13 +104,26 @@ _PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
     "chapter_close_hitch": [
         {"path": "status", "rule": "non_empty_string", "min_length": 1},
     ],
-    "master_transcript_build": [{"path": "cues", "rule": "min_rows", "min_count": 0}],
+    # HPUB-3 / clinic B1: empty cues refuse ship-complete; contract docs min≥1.
+    # JSON schema still allows cue_count 0 so hollow packs can be written then refused.
+    "master_transcript_build": [{"path": "cues", "rule": "min_rows", "min_count": 1}],
 }
 
 _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
-    "sound_design_palettes": [{"path": "palettes", "rule": "min_rows", "min_count": 1}],
+    # Defaults: early_palettes_llm=false → deferred empty palettes OK (SDP invents).
+    # Completeness SSOT: artifact_completeness._gaps_sound_design_plan (SDP-B1).
+    "sound_design_palettes": [
+        {
+            "path": "palettes",
+            "rule": "min_rows",
+            "min_count": 1,
+            "when": {"early_palettes_llm": True},
+        }
+    ],
     "missing_framing": [{"path": "evaluations", "rule": "min_rows", "min_count": 1}],
-    "gap_framing_compose": [{"path": "gaps", "rule": "min_rows", "min_count": 1}],
+    # Skip stubs (`ensure_gap_fill_skipped`) legitimately write `gaps: []`.
+    # min_count 1 conflicted with that empty-ok path (clinic B3 / CODE_DOC_CONFLICT).
+    "gap_framing_compose": [{"path": "gaps", "rule": "min_rows", "min_count": 0}],
     "topic_coverage_audit": [{"path": "topics", "rule": "min_rows", "min_count": 1}],
     "narrative_arc_plan": [{"path": "chapters", "rule": "min_rows", "min_count": 1}],
     "full_master_ranking": [{"path": "ranked_segments", "rule": "min_rows", "min_count": 1}],
@@ -123,7 +136,7 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "music_palette_compose": [{"path": "cues", "rule": "min_rows", "min_count": 1}],
     # Lay-up mining/composing may legitimately return zero rows (no recoverable
     # nuggets), so the rule is presence of the collection, not a row floor.
-    "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 0}],
+    "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 1}],
     "nugget_layup_compose": [{"path": "layups", "rule": "min_rows", "min_count": 0}],
     "framing_posture_decide": [
         {"path": "recommended_framing", "rule": "non_empty_string", "blocking": "progression"},
@@ -180,6 +193,8 @@ _OUTPUT_PATH_OVERRIDES = {
 }
 _OUTPUT_SCHEMA_OVERRIDES = {
     "chapter_close_hitch": "chapter_close_hitch.schema.json",
+    # SOS-B1: co-writer of master/selection.json — same schema as full_master_ranking.
+    "selection_order_sanitize": "master_selection_artifact.schema.json",
 }
 
 _CONSUMER_OVERRIDES = {
@@ -200,6 +215,28 @@ _CONSUMER_OVERRIDES = {
     ],
     "master_transcript_build": ["podcast_publish"],
 }
+
+# Stages whose contract hard inputs are fully owned by dependency_data (do not
+# inject LLM_UPSTREAM_STAGE primary as hard). Runtime flow-hardening upstream
+# resolution is unchanged.
+_SKIP_LLM_UPSTREAM_HARD: frozenset[str] = frozenset(
+    {
+        # FMR-B1: hard = narrative+manifest+gap per `_check_full_master_ranking`;
+        # fuse rounds stay soft enrichment.
+        "full_master_ranking",
+        # NCM-B3: air_script mastering_plan stays soft; selection hard via
+        # _EXTRA_INPUTS (body never refuses on plan).
+        "nugget_corpus_mine",
+        # NLC-B3: IP audit soft (shadow/budget enrichment); hard = selection+corpus
+        # via _EXTRA_INPUTS (body soft-admits missing audit).
+        "nugget_layup_compose",
+        # ENA-B2: hard = brief+coverage+narrative+selection (build_input /
+        # preflight); SDP is optional soft — do not inject LLM_UPSTREAM SDP hard.
+        "edl_narrative_audit",
+        # ECPC-B2: episode_meta soft-harvest only; hard:[] via dependency_data.
+        "episode_cover_prompt_craft",
+    }
+)
 
 # Extra declared inputs for stages whose reads are not derivable from
 # LLM_UPSTREAM_STAGE alone.
@@ -298,6 +335,11 @@ _PROCESS_STAGES = [
     "soundscape_policy_build",
     "source_topology_build",
     "chapter_close_hitch",
+    # Deterministic Pass A (ASC-B1) — not in ALL_LLM_STAGES; schema alone
+    # previously forced llm_full via STAGE_ARTIFACT_SCHEMAS.
+    "air_script_compose",
+    # Deterministic Pass B (ASS-B1) — same schema landmine as Pass A.
+    "air_script_seams",
     "master_transcript_build",
     "_arbiter",
 ]
@@ -359,6 +401,9 @@ def _merge_declared_deps(stage_id: str, doc: dict) -> None:
         items = (declared.get("inputs") or {}).get(kind) or []
         known = {i["path"] for i in doc["inputs"][kind]}
         doc["inputs"][kind].extend(i for i in items if i["path"] not in known)
+    # Explicit empty hard from dependency data wins over seed-predecessor fill.
+    if "hard" in (declared.get("inputs") or {}) and not (declared.get("inputs") or {}).get("hard"):
+        doc["inputs"]["hard"] = []
     if declared.get("consumers"):
         doc["consumers"] = list(declared["consumers"])
     if declared.get("propagation"):
@@ -366,6 +411,10 @@ def _merge_declared_deps(stage_id: str, doc: dict) -> None:
     for item in declared.get("outputs") or []:
         if item["path"] not in {o["path"] for o in doc["outputs"]}:
             doc["outputs"].append(item)
+    if declared.get("remediation"):
+        doc["remediation"] = {"strategies": list(declared["remediation"])}
+    if declared.get("lifecycle_phases"):
+        doc["lifecycle"] = {"phases": list(declared["lifecycle_phases"])}
 
 
 def _all_stage_ids() -> list[str]:
@@ -446,7 +495,7 @@ def _contract_for(stage_id: str) -> dict:
         row for row in _registry_outputs(stage_id, rel) if row["path"] not in known_outputs
     )
 
-    upstream = LLM_UPSTREAM_STAGE.get(stage_id)
+    upstream = None if stage_id in _SKIP_LLM_UPSTREAM_HARD else LLM_UPSTREAM_STAGE.get(stage_id)
     if upstream:
         up_rel = STAGE_ARTIFACT_DISK_PATHS.get(upstream) or _OUTPUT_PATH_OVERRIDES.get(
             upstream

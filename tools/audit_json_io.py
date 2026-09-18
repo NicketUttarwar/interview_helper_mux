@@ -25,7 +25,6 @@ ALLOWLIST = {
     "vo_pickup_trim.py": set(),
     "placement_qa.py": set(),
     "mmaudio_asset_qa.py": set(),
-    "waveform_peaks.py": set(),
 }
 
 PATTERNS = [

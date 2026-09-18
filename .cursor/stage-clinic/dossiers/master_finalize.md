@@ -1,7 +1,7 @@
 # Stage clinic dossier — master_finalize
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: applied | L3_patch: done
 
 ## §5.0 Evidence index card
 
@@ -28,6 +28,8 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 - Notes: `.cursor/stage-clinic/notes/master_finalize.decisions.md`
 - Module (L1): `stages/mastering.py::run_master_finalize` → master_wav + `run_post_master_quality`
 - Tests (L1): test_mastering.py, test_listen_delight.py, test_post_master_quality.py
+
+## Wave 2 2026-09-17 — B3 Advisory=ship OK (campaign bar); B1/B2/B4 prior.
 
 ## Pack completeness
 

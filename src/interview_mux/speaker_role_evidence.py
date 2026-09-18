@@ -262,7 +262,13 @@ def dominant_roles_from_talk_stats(talk_stats: Any) -> list[dict[str, Any]]:
 
 
 def fallback_speakers_artifact(talk_stats: Any, *, notes: str = "") -> dict[str, Any] | None:
-    """Legal speakers artifact when LLM refuses mixed-diarization IDs."""
+    """Legal speakers artifact when LLM refuses mixed-diarization IDs.
+
+    Intentional Full-auto honesty path (SR-B2): after ≤2 OpenAI attempts, when
+    the model asks for a locked diarization re-run, persist dominant roles from
+    talk stats so the seed walk continues with a schema-valid primary instead of
+    hollow stalling. Not a quality substitute for clean labels.
+    """
     speakers = dominant_roles_from_talk_stats(talk_stats)
     if not speakers:
         return None

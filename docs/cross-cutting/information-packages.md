@@ -15,7 +15,7 @@ Never call mid-body packages “soft start” or “cold open.” Episode-level 
 ## Information packages (optional, fail-closed)
 
 - Cap: **0–2** per episode (`mastering.shape.information_packages.max_per_episode`).
-- Modes: `shadow` (audit only, default) → `commit_music_vo` → `commit_with_regroup` (`allow_regroup` stays false until Phase 2).
+- Modes: `shadow` (audit only) → `commit_music_vo` (shipped Full-auto default; binds plan + SDP/layup) → `commit_with_regroup` (`allow_regroup` stays false until Phase 2).
 - Objective gates: novelty, necessity, magnitude, uplift; final seam reserved for episode close.
 - Music: `theme_chapter_resolve` face-out after `after_segment_id` (never mid-body `theme_outro` / `theme_cold_open`).
 - VO: single before-line per target via Nugget Layup; seam_glue placeholders suppressed when layup present.

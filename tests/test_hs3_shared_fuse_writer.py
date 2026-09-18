@@ -90,9 +90,6 @@ def test_hs3_wrapper_disabled_writes_stub_not_empty(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("interview_mux.segment_fuse.connector_fuse_cfg", _disabled_cfg)
-    monkeypatch.setattr(
-        "interview_mux.stages.low_conf_fuse_stages.connector_fuse_cfg", _disabled_cfg
-    )
     wrapper_fuse_pass(ctx)
     assert ctx.artifact_exists(FUSE_AUDIT_PATH)
     assert ctx.artifact_exists(FUSE_ROUNDS_PATH)

@@ -3,9 +3,9 @@
   "status": "PASS",
   "tier": "D2-SEED",
   "notes": [
-    "incompleteness_ok:publish/audio.mp3 is pending",
+    "incompleteness_ok:encode_missing \u2014 resume podcast_encode_mp3: publish/audio.mp3 missing",
     "seed_block_other:topic_coverage_audit"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-17T06:15:09Z"
+  "executed_at": "2026-09-18T14:28:11Z"
 }

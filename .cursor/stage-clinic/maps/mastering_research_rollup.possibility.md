@@ -21,7 +21,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | all hard present | Re-route + re-wave + write dossier/rollup; heal | IN_CODE | `run_research_rollup` |
-| hard missing waves.json | Still rebuilds waves from probes | CODE_DOC_CONFLICT | body vs contract hard |
+| hard missing waves.json | Still rebuilds waves from probes; hard:[] (CSP-02) | IN_CODE | body vs contract |
 | soft missing | Thin fields in dossier | IN_CODE | |
 | hollow dossier | HM-1 schema incompleteness | IN_CODE | `_mastering_schema_hollow_incompleteness` |
 | shape-core majority thin / required missing | `shape_core.ready=false`; consumers refused late | IN_CODE | `_shape_core_status_from_fields` / `_research_thin_late_refuse` |
@@ -60,15 +60,15 @@ code_is_king: true | prior_exec: ignored_by_default
 ## 6. Complexity traps
 
 - OpenAI: optional routing only (`mastering.research.llm.enabled` default **false**)
-- A-01 thin/stale latch complexity — `IN_CODE` stage_completion
-- Dual write dossier + rollup same payload — `IN_CODE`
+- Dual write dossier + rollup same payload — `IN_CODE` (**MRRoll-B3**: `_persist_research_dossier`)
+- A-01 thin/stale latch — `IN_CODE` (**MRRoll-B1**: never soft-done when Shape about to bind)
 - Local heavy ML: N/A
 
 ## 7. Contract honesty
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard waves.json | Rebuilt anyway | CODE_DOC_CONFLICT |
+| hard waves.json | hard:[] — rebuilt anyway | IN_CODE |
 | outputs rollup + dossier + glob | Matches (+ rewrites routing) | IN_CODE |
 | consumers shape/synthesize/confirm | Also missing_framing/gap via RESEARCH_CONSUMER | CODE_DOC_CONFLICT |
 

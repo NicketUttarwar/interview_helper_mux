@@ -38,7 +38,16 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def auto_accept_gap_gate_defaults_enabled(cfg: dict[str, Any] | None = None) -> bool:
-    """True for unattended / E2E runs that may apply product defaults without a human."""
+    """True when env/config may apply gap gate product defaults without a human.
+
+    Shipped default: ``analysis.gap_fill.auto_accept_defaults=false``. Unattended
+    drivers set ``INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`` (OR with the config flag).
+
+    Separate from (1) homunculus 0.2.0 ``recommended_framing_action`` auto_resolve
+    and (2) Full-auto arming that same path (B1) — both can still auto-Yes
+    G-Framing when this flag and the env are off
+    (``maybe_auto_accept_gap_gate_defaults``).
+    """
     env = os.environ.get("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "").strip().lower()
     if env in {"1", "true", "yes", "on"}:
         return True
@@ -131,6 +140,80 @@ def resolve_gap_vo_delivery(ctx: RunContext) -> GapVoDelivery:
 
     default = str(gap_vo_cfg().get("default_delivery", "chatterbox")).lower()
     return "chatterbox" if default == "chatterbox" else "record"
+
+
+def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
+    """Full-auto owns formerly record-required gap lines via synthesize (VS-B3).
+
+    Persists ``delivery: synthesize`` on open record lines so G1 does not stall
+    for a human take and ``vo_synthesize`` / ensure_g1 can close the WAVs.
+    No-op outside Full-auto; partial-auto keeps HV-5 record hard_block.
+    """
+    from interview_mux.automation_run import is_full_auto_run
+
+    meta = _run_meta(ctx)
+    if not is_full_auto_run(meta):
+        return []
+    if gap_fill_was_skipped(ctx):
+        return []
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return []
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return []
+    if not isinstance(gap, dict):
+        return []
+    lines = gap.get("interviewer_lines")
+    if not isinstance(lines, list):
+        return []
+
+    rewritten: list[str] = []
+    changed = False
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped_optional") or row.get("air_script_omit"):
+            continue
+        delivery = str(row.get("delivery") or "").strip().lower()
+        if delivery != "record":
+            continue
+        lid = str(row.get("line_id") or "").strip()
+        if not lid:
+            continue
+        row["delivery"] = "synthesize"
+        row["full_auto_record_rewritten"] = True
+        rewritten.append(lid)
+        changed = True
+    if not changed:
+        return []
+    try:
+        ctx.write_json(
+            "understanding/gap_report.json",
+            gap,
+            stage_key="vo_synthesize",
+        )
+    except Exception as exc:
+        ctx.log(
+            f"full-auto record→synth rewrite persist failed: {exc}",
+            level="warning",
+            stage="vo_synthesize",
+        )
+        return []
+    try:
+        from interview_mux.delivery_invariants import sync_vo_line_owners
+
+        sync_vo_line_owners(ctx)
+    except Exception:
+        pass
+    ctx.log(
+        "Full-auto rewrote record-required VO lines to synthesize: "
+        + ", ".join(rewritten[:12]),
+        level="warning",
+        stage="vo_synthesize",
+        detail={"rewritten_line_ids": rewritten},
+    )
+    return rewritten
 
 
 def set_gap_vo_delivery(ctx: RunContext, delivery: str) -> None:
@@ -287,18 +370,42 @@ def require_clone_consent_clear(ctx: RunContext) -> None:
 
 
 def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
-    """Apply product defaults for unattended / E2E / Homunculus auto-resolve Yes."""
+    """Apply product defaults for unattended / E2E / Homunculus auto-resolve Yes.
+
+    B1: Full-auto arms the same path as homunculus ``auto_resolve`` when the
+    recommended framing action is ``auto_resolve`` (independent of
+    ``has_homunculus_features`` and of ``auto_accept_defaults`` / env).
+    """
     homunculus_auto = False
+    full_auto_arms = False
     try:
         from interview_mux.homunculus.gates import recommended_framing_action
         from interview_mux.homunculus.runtime import has_homunculus_features
 
-        homunculus_auto = (
-            has_homunculus_features(ctx) and recommended_framing_action(ctx) == "auto_resolve"
-        )
+        rec = recommended_framing_action(ctx)
+        homunculus_auto = has_homunculus_features(ctx) and rec == "auto_resolve"
+        if rec == "auto_resolve":
+            try:
+                from interview_mux.automation_run import is_full_auto_run
+
+                meta = (
+                    ctx.read_json("run_meta.json")
+                    if ctx.artifact_exists("run_meta.json")
+                    else {}
+                )
+                full_auto_arms = is_full_auto_run(
+                    meta if isinstance(meta, dict) else None
+                )
+            except Exception:
+                full_auto_arms = False
     except Exception:
         homunculus_auto = False
-    if not auto_accept_gap_gate_defaults_enabled() and not homunculus_auto:
+        full_auto_arms = False
+    if (
+        not auto_accept_gap_gate_defaults_enabled()
+        and not homunculus_auto
+        and not full_auto_arms
+    ):
         return False
 
     applied = False
@@ -340,6 +447,8 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
                 "kind": "gate",
                 "action_id": "auto.gap_framing.accept_defaults",
                 "gap_framing_enabled": enabled,
+                "full_auto_arms": full_auto_arms,
+                "homunculus_auto": homunculus_auto,
             },
         )
 

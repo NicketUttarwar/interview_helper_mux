@@ -1141,6 +1141,15 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                         level="warning",
                         stage="mix",
                     )
+                    # Full-auto: clear after successful mix (incl. remaster remux).
+                    # Partial keeps pending so finalize can block.
+                    from interview_mux.gates import maybe_auto_clear_g_listen_for_full_auto
+
+                    maybe_auto_clear_g_listen_for_full_auto(
+                        ctx,
+                        stage="mix",
+                        reason="full_auto_after_successful_mix",
+                    )
             if critic.get("verdict") == "warn":
                 ctx.log(
                     f"listen_critic warn: {critic.get('warning_count')} issue(s)",

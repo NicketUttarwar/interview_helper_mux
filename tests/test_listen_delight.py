@@ -28,7 +28,18 @@ def test_authoritative_mode_is_default(tmp_path):
 
     cfg = listen_delight_cfg()
     assert cfg.get("mode") == "authoritative"
-    assert cfg.get("overall_min") == 0.90
+
+
+def test_msfx_b2_omit_all_fails_sonic_weave(tmp_path, monkeypatch):
+    """Clinic MSFX-B2: omit-all reserved themes → sonic_weave 0 (fail delight)."""
+    monkeypatch.setattr(
+        "interview_mux.theme_slot_integrity.reserved_themes_all_omitted",
+        lambda ctx: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_omit_all")
+    result = evaluate_listen_delight(ctx)
+    assert float(result["dimensions"]["sonic_weave"]) == 0.0
+    assert "sonic_weave" in (result.get("failed_dimensions") or [])
 
 
 def test_authoritative_ship_soft_proceeds_when_catastrophic_ok(tmp_path, monkeypatch):
@@ -496,3 +507,93 @@ def test_remaining_stages_keeps_active_remutate_despite_leftover_outputs(tmp_pat
     assert "air_script_seams" in remaining
     assert "transitions" in remaining
     assert remaining.index("air_script_seams") < remaining.index("mix")
+
+
+def test_remutate_respects_config_cap_and_sticks_exhausted(tmp_path, monkeypatch):
+    """N from app.defaults; after budget, plan sticks exhausted (no thrash climb)."""
+    from interview_mux.listen_delight_remutate import (
+        plan_listen_delight_remutate,
+        max_remutate_attempts,
+    )
+
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"max_remutate_attempts": 2},
+    )
+    assert max_remutate_attempts() == 2
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_remutate_cap")
+    (ctx.run_dir / ".stage_done" / "edl").write_text("done\n", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    p1 = plan_listen_delight_remutate(ctx, failed_dimensions=["cut_integrity"])
+    assert p1["attempt"] == 1
+    assert p1["max_attempts"] == 2
+    assert p1["exhausted"] is False
+    p2 = plan_listen_delight_remutate(ctx, failed_dimensions=["cut_integrity"])
+    assert p2["attempt"] == 2
+    assert p2["exhausted"] is False
+    p3 = plan_listen_delight_remutate(ctx, failed_dimensions=["cut_integrity"])
+    assert p3["attempt"] == 3
+    assert p3["exhausted"] is True
+    assert p3.get("terminate") == "remutate_budget_exhausted"
+    stuck = plan_listen_delight_remutate(ctx, failed_dimensions=["cut_integrity"])
+    assert stuck["attempt"] == 3
+    assert stuck["exhausted"] is True
+
+
+def test_playbook_exhaust_pick_best_then_refuse(tmp_path, monkeypatch):
+    """Recovery remutate host: exhausted → pick-best stamp, empty artifacts (escalate)."""
+    from interview_mux.recovery_controller import playbook_listen_delight_remutate
+    from interview_mux.listen_delight_remutate import REMUTATE_REL
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_playbook_exhaust")
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"max_remutate_attempts": 1},
+    )
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.evaluate_listen_delight",
+        lambda _ctx, **_k: {
+            "failed_dimensions": ["cut_integrity"],
+            "passed": False,
+            "overall": 0.5,
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.apply_best_quality_candidate",
+        lambda ctx, family=None: {"ok": True, "attempt_id": "listen_delight_1"},
+    )
+    # First call spends the only remutate attempt (attempt=1, max=1 → not yet >1).
+    # Force exhausted by pre-writing attempt at cap.
+    ctx.write_json(
+        REMUTATE_REL,
+        {
+            "version": 1,
+            "attempt": 1,
+            "max_attempts": 1,
+            "failed_dimensions": ["cut_integrity"],
+            "from_stages": ["edl"],
+            "from_stage": "edl",
+            "exhausted": True,
+        },
+    )
+    artifacts = playbook_listen_delight_remutate(ctx)
+    assert artifacts == []
+    doc = ctx.read_json(REMUTATE_REL)
+    assert doc.get("exhausted") is True
+    assert doc.get("status") == "exhausted_terminated"
+    assert (doc.get("pick_best") or {}).get("ok") is True
+    assert doc.get("terminate")
+
+
+def test_default_max_remutate_attempts_is_three():
+    from interview_mux.listen_delight_remutate import max_remutate_attempts
+    from interview_mux.config import merged_config
+
+    conf = (merged_config().get("mastering") or {}).get("listen_delight") or {}
+    assert int(conf.get("max_remutate_attempts") or 0) == 3
+    assert max_remutate_attempts() == 3

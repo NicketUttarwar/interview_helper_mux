@@ -16,6 +16,7 @@ from interview_mux.theme_slot_integrity import (
     ensure_cold_open_cue,
     refuse_silent_theme_overlay,
     reserved_theme_asset_ids,
+    reserved_themes_all_omitted,
     shrink_theme_reservations_for_omit,
     theme_asset_audible,
     wav_is_audible,
@@ -242,6 +243,50 @@ def test_assert_mix_ready_passes_with_audible_wavs(tmp_path) -> None:
     _write_tone_wav(assets / "show_theme_v1_full_bed_close.wav", seconds=1.5)
     assert theme_asset_audible(ctx, "show_theme_v1_full_bed_close")
     assert_theme_bookends_ready_for_mix(ctx)
+
+
+def test_msfx_b2_omit_all_blocks_mix_under_creative_delivery(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clinic MSFX-B2: omit-all reserved themes is not ship-legal — block mix."""
+    monkeypatch.setattr(
+        "interview_mux.creative_delivery.creative_delivery_required",
+        lambda cfg=None: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "theme_omit_all")
+    _write_sdp(
+        ctx,
+        _base_sdp(
+            cues=[
+                {
+                    "cue_id": "open",
+                    "role": "theme_cold_open",
+                    "asset_id": "show_theme_v1_full_bed_open",
+                    "preserve_full_duration": True,
+                },
+                {
+                    "cue_id": "theme_outro_seed",
+                    "role": "theme_outro",
+                    "asset_id": "show_theme_v1_full_bed_close",
+                    "preserve_full_duration": True,
+                },
+            ]
+        ),
+    )
+    required = reserved_theme_asset_ids(ctx, include_omitted=True)
+    assert required
+    ctx.write_json(
+        "operator/music_omitted.json",
+        {
+            "omitted": [
+                {"asset_id": aid, "reason": "fail_closed_stub_exhaustion"} for aid in sorted(required)
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert reserved_themes_all_omitted(ctx) is True
+    with pytest.raises(RuntimeError, match="omit-all"):
+        assert_theme_bookends_ready_for_mix(ctx)
 
 
 def test_shrink_omit_clears_opening_music_and_skips_cues(tmp_path) -> None:

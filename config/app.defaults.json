@@ -1024,7 +1024,8 @@
       "skip_topic_resplit_when_bound": true,
       "skip_classification_llm_when_bound": true,
       "prefer_seed_over_ranking": true,
-      "prefer_seed_over_shape": true
+      "prefer_seed_over_shape": true,
+      "min_span_coverage_ratio": 0.45
     },
     "talking_points_authority": {
       "deterministic_coverage": true,
@@ -1292,7 +1293,7 @@
       "adjudicate_before_synth": true,
       "adjudicate_batch_size": 5,
       "adjudicate_llm_tier": "economy",
-      "adjudicate_fail_open": false,
+      "adjudicate_fail_open": true,
       "adjudicate_flow_threshold": 0.55,
       "full_resynth_on_adjudicate_change": true,
       "intro_compose_llm_tier": "flagship",
@@ -1673,6 +1674,7 @@
       "next_keeper_eps_ms": 80
     },
     "junction_snip_qa": {
+      "_comment_mode": "JSQ-B1: default advisory is a label — critical incomplete-cut residuals always hard-block (EM8). authoritative also blocks non-incomplete residual families; off skips.",
       "mode": "advisory",
       "micro_nudge_ms": 2500,
       "phrase_extend_max_ms": 24000,
@@ -1759,7 +1761,9 @@
       },
       "require_mode_consistency": true,
       "fail_early_at_audit_stage": false,
-      "_comment_fail_early": "When false (default), listen_delight_audit is pre-mix advisory; authoritative block runs at master_finalize after master.wav"
+      "_comment_fail_early": "When false (default), listen_delight_audit is pre-mix advisory; authoritative block runs at master_finalize after master.wav",
+      "max_remutate_attempts": 3,
+      "_comment_max_remutate": "Finite remutate budget N then ship-best (aspirational) or refuse — no infinite thrash"
     },
     "homunculus": {
       "default_version": "latest",

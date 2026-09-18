@@ -96,9 +96,9 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
 | `mix.missing_vo_retry_once` | `sound_design.mix` | Last-chance generate-once for missing seated VO (default true). |
 | `autopilot_enabled` / `operator.autopilot_enabled` | — | **Inert.** Autopilot removed; no code reads these keys |
-| `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
+| `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until prompts approved. Full-auto auto-approves (incl. soft completeness warnings); first_try auto-approves only when QA green; Partial/manual wait for GUI when warnings present |
 | `g1_5_require_music_listen` | `music_listen_review`, `mix`, GUI music listen | Default `false`: automated candidate selection + underbed A/B QC gate mix; set `true` to additionally require operator listening |
-| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
+| `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures for manual/partial (production default `true`). **FMR-B2:** Full-auto softens fail to advisory continue without flipping the config flag |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
 | `edl_narrative_qc.require_synthesized_vo` | `edl_narrative_qc._validate_gap_placements` | When `true`, requires synthesized gap lines to have WAV on vo_pickup clips (default `false`) |
@@ -178,6 +178,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Duration QC + speech QA; `max_ms_per_word` / `min_ms_per_word` hard-fail TTS stutter vs script |
 | `analysis.gap_vo.adjudicate_before_synth` | `vo_line_adjudicate` | Require smart adjudicate before `vo_synthesize` on homunculus 0.1.0+ (default **true**) |
+| `analysis.gap_vo.adjudicate_fail_open` | `vo_line_adjudicate` | On nugget air coverage below floor after adjudicate+intro: warn+continue when **true** (default **true**); loud_fail when false |
 | `analysis.gap_vo.adjudicate_batch_size` | `vo_line_adjudicate` | Lines per economy adjudicate volley (default **5**) |
 | `analysis.gap_vo.adjudicate_llm_tier` | `vo_line_adjudicate` | OpenAI tier for body adjudicate batches (default **economy**) |
 | `analysis.gap_vo.adjudicate_flow_threshold` | `vo_line_adjudicate` | Pre-score below → LLM adjudicate (default **0.55**) |
@@ -405,8 +406,8 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO �
 | `analysis.gap_fill.enabled` | `true` | Eligibility never evaluated; gap stages always run |
 | `analysis.gap_fill.default_framing_enabled` | `true` | G-Framing recommends No; product default is Yes + voice-cloned least-spoken host |
 | `analysis.gap_fill.require_explicit_opt_in` | `true` | Framing decision may be treated as settled without operator confirm |
-| `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / cloned host / Chatterbox without human input. Homunculus 0.1.0 auto-Yes for hosted 1:1 even when this is false. |
-| `analysis.gap_fill.auto_skip_when_ineligible` | `false` | When false (default), ineligible framing with G-Framing Yes hard-stops; set true for legacy silent skip |
+| `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / cloned host / Chatterbox without human input. Homunculus **0.2.0** can still auto-Yes G-Framing via `recommended_framing_action` even when this is false and the env is unset. |
+| `analysis.gap_fill.auto_skip_when_ineligible` | `false` | When false (default, **KEEP**), ineligible framing with G-Framing Yes hard-stops; set true only for legacy silent skip |
 | `analysis.gap_fill.frame_confidence_min` | `0.65` | Clone **auto-approve** floor (voice-ref / consent). Does not skip G-Framing eligibility. Below this, Homunculus still auto-Yes but will not auto-approve a non-frame or low-confidence clone. |
 | `analysis.gap_fill.min_synthetic_vo_lines` | `3` | Post-layup / EDL / G1 ship bar for hosted 1:1 with G-Framing Yes (capped by native count). Not enforced at `gap_framing_compose`. Panels / sparse-host are auto-Yes without this floor. |
 | `analysis.gap_fill.hide_gui_stages_when_skipped` | `false` | If `true`, skipped gap stages are hidden from the step list (legacy v2 behavior; Refinement Pass keeps the full step list always visible) |
@@ -959,7 +960,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.shape.soft_gate.consumers_bind` | `false` | Global switch downstream consumers would check before trusting Shape's emitted order | **Plan 6:** stays `false` until the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop (capability mutations → critics → auditions → Pareto → hard delight) end-to-end and `shape_order_bind.resolve_air_order` has shadow-compare evidence across a corpus. Per-run hybrid bind (`resolve_air_order`) already prefers Shape order when the plan is complete and `story_health` passes — this flag does not gate that; see `mastering-integration-backlog.md` H7 |
 | `mastering.shape.soft_gate.two_pass` | `true` | Pass1 provisional (pre-`missing_framing`) + Pass2 confirm (post-gap-eval) | `false` unused by current runtime; two-pass is the only shipped path |
 | `mastering.shape.information_packages.enable` | `true` | Mid-episode information package planner | `false` skips packages; does **not** disable episode_close |
-| `mastering.shape.information_packages.mode` | `commit_music_vo` | `shadow` / `commit_music_vo` / `commit_with_regroup` | Shadow audits only; commit modes bind plan + SDP/layup |
+| `mastering.shape.information_packages.mode` | `commit_music_vo` | `shadow` / `commit_music_vo` / `commit_with_regroup` | **Full-auto default** commits packages onto `mastering_plan` (not shadow); shadow audits only; `commit_with_regroup` needs `allow_regroup` |
 | `mastering.shape.information_packages.max_per_episode` | `2` | Hard cap on committed packages | — |
 | `mastering.shape.information_packages.allow_regroup` | `false` | Phase-2 kept-native regroup | Keep false until order preflight tests pass |
 | `mastering.shape.episode_close.require_music` | `true` | Always seed `theme_outro` after last native | Independent of package mode |
@@ -1039,7 +1040,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.chapter_close_hitch.enabled` | `true` | One-shot `chapter_close_hitch` after the first `narrative_arc_plan` | `false` writes a committed skip latch and leaves first-pass cuts |
 | `mastering.chapter_close_hitch.max_cut_ms` | `180000` | Ceiling on last-listen-complete search from a keeper open | Too small chops chapter/TP closes; too large can wander |
 | `mastering.chapter_close_hitch.next_keeper_eps_ms` | `80` | Interior keepers stop this far before the next keeper start | `0` can swallow the next keeper |
-| `mastering.junction_snip_qa.mode` | `authoritative` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | Non-authoritative modes do not block finalize on unresolved critical joins |
+| `mastering.junction_snip_qa.mode` | `advisory` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | **Dual meaning (JSQ-B1):** default label is `advisory`, but critical incomplete-cut residuals (`on_a_roll` / `incomplete_clause` / `chapter_bleed_incomplete`) always hard-block regardless of mode (EM8). `authoritative` additionally blocks other residual families; `off` skips the stage |
 | `mastering.junction_snip_qa.micro_nudge_ms` | `2500` | Energy/word micro search window (scaled by pace) | Too small misses valleys; too large over-trims |
 | `mastering.junction_snip_qa.phrase_extend_max_ms` | `24000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search; unresolved critical clauses hard-stop after two runs |
 | `mastering.junction_snip_qa.impact_hold_ms_min` / `max` | `1200` / `3500` | Music-only sit after impact native close | Scaled by pace class |
@@ -1057,7 +1058,8 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.post_master_quality.block_on_feel_unavailable` | `true` | Fail publish when feel audit verdict is unavailable after retry | `false` ignores missing feel judgment |
 | `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
 | `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
-| `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | Default hard-blocks ship after ≤3 remutate attempts; set `advisory` to soft-ship with PMQ advisories |
+| `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | Default hard-blocks ship after ≤N remutate attempts (`max_remutate_attempts`); set `advisory` to soft-ship with PMQ advisories |
+| `mastering.listen_delight.max_remutate_attempts` | `3` | `listen_delight_remutate.max_remutate_attempts` / recovery budget for `listen_delight_floors` | Cap remutate cycles then ship-best (aspirational) or refuse — no infinite thrash |
 | `mastering.aspirational_quality.enabled` | `true` | Rubric gates (delight, PMQ scorecard, listenability, junction feel) | `false` restores authoritative blocking on rubrics |
 | `mastering.aspirational_quality.max_attempts_per_family` | `3` | Remutate / heal budget per rubric family before pick-best | Lower = faster fallback to best candidate |
 | `mastering.aspirational_quality.always_produce_master` | `true` | `master_finalize` completes with best structurally sound candidate | `false` not recommended |

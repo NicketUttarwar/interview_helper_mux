@@ -20,7 +20,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | all hard present | Probe WAVE_FIELDS; write waves + field reports; heal | IN_CODE | `run_mastering_research_waves` |
-| hard missing (`routing.json`) | Still runs — body ignores routing | CODE_DOC_CONFLICT | contract hard vs body |
+| hard missing (`routing.json`) | Still runs — hard:[] (MRW-B1) | IN_CODE | contract soft probes only |
 | soft missing (delivery artifacts) | Field `skipped_or_thin`; stage succeeds | IN_CODE | `_probe` / `FIELD_PROBES` |
 | soft stale | No freshness refuse | IN_CODE | |
 | hollow primary | HM-1 schema incompleteness blocks done | IN_CODE | `_mastering_schema_hollow_incompleteness` |
@@ -62,14 +62,14 @@ code_is_king: true | prior_exec: ignored_by_default
 ## 6. Complexity traps
 
 - OpenAI: none
-- Dual SSOT / duplicate work: rollup re-runs all waves — `IN_CODE`
+- Dual SSOT / duplicate work: rollup re-runs all waves — `IN_CODE` (**MRW-B2 documented** in `run_mastering_research_waves` / `run_research_rollup` docstrings — intentional fail-open refresh, shared `run_research_wave`)
 - Local heavy ML: N/A
 
 ## 7. Contract honesty
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard routing.json | Not read | CODE_DOC_CONFLICT |
+| hard routing.json | hard:[] — not read | IN_CODE |
 | soft delivery paths | Probe-only thin | IN_CODE |
 | outputs waves + research/ | Matches | IN_CODE |
 | remediation volley_retry | No LLM | CODE_DOC_CONFLICT |
@@ -96,8 +96,8 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## TEST_GAP (§5.6)
 
-- routing hard-input ignored vs contract
-- intentional duplicate probe with rollup undocumented in tests
+- routing hard-input ignored vs contract (MRW-B1 needs_you)
+- intentional duplicate probe with rollup — documented in code docstrings (MRW-B2)
 
 ## DoD threats
 

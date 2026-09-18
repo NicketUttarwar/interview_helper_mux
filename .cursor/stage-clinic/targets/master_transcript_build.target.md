@@ -35,6 +35,11 @@ brain: 0.2.0 | target_status: draft
 
 - none
 
+## Wave 2 apply log
+
+- B1 applied: `_PROCESS_SUFFICIENCY` min_count 0→1 + bootstrap YAML; pin `test_mtb_b1_contract_sufficiency_min_cues_one`
+- B2 skipped: needs_you
+
 ## target_status
 
 `draft`

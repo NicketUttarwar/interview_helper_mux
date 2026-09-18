@@ -483,3 +483,102 @@ def test_default_cues_prefers_placement_hint_close_bed() -> None:
     close = next(c for c in cues if c.get("cue_id") == "compose_close_bed")
     assert close["asset_id"] == "show_theme_v1_full_bed_close"
     assert close["after_segment_id"] == "seg_b"
+
+
+def test_music_palette_hollow_cues_with_assets_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MPC-B1: cue_count=0 with theme assets must not seed-complete."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from run_fixtures import isolated_run_ctx, sound_design_plan_with
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "mpc_hollow_cues")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[{"asset_id": "theme_motif", "role": "theme_cold_open", "palette_kind": "motif"}],
+            flow_plans={"podcast": {"profile": "podcast", "cues": []}},
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "sound_design/music_palette_compose.json",
+        {"version": 1, "cue_count": 0, "asset_ids_used": [], "notes": ""},
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "music_palette_compose")
+    assert reason is not None
+    assert "hollow cues" in reason
+    assert "cue_count=0" in reason
+
+
+def test_music_palette_zero_cues_without_assets_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MPC-B1: zero assets → zero cues is honest sparse."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from run_fixtures import isolated_run_ctx, sound_design_plan_with
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "mpc_sparse_ok")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[],
+            flow_plans={"podcast": {"profile": "podcast", "cues": []}},
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "sound_design/music_palette_compose.json",
+        {"version": 1, "cue_count": 0, "asset_ids_used": [], "notes": ""},
+        skip_handoff=True,
+    )
+    assert stage_artifact_incompleteness(ctx, "music_palette_compose") is None
+
+
+def test_music_palette_contract_consumers_include_sfx_prompt_craft() -> None:
+    """MPC-B3: sfx_prompt_craft reads SDP after compose."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("music_palette_compose")
+    assert contract is not None
+    assert "sfx_prompt_craft" in (contract.consumers or [])
+
+
+def test_music_palette_compose_requires_sound_design_plan(tmp_path, monkeypatch) -> None:
+    """MPC-B2: hard SDP from sound_design_plan — refuse before LLM when missing."""
+    from interview_mux.run_context import RunContext
+    from interview_mux.stages.music_palette_compose import run_music_palette_compose
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    llm_calls: list[str] = []
+
+    def _boom(*_a, **_k):
+        llm_calls.append("llm")
+        raise AssertionError("LLM must not run without sound_design_plan")
+
+    monkeypatch.setattr(
+        "interview_mux.stages.music_palette_compose.run_flow_llm_stage",
+        _boom,
+    )
+    ctx = RunContext(str(tmp_path / "mpc_no_sdp"), create=True)
+    with pytest.raises(RuntimeError, match="sound_design_plan required"):
+        run_music_palette_compose(ctx)
+    assert llm_calls == []
+    assert not ctx.is_done("music_palette_compose")
+
+
+def test_music_palette_contract_hard_sdp_producer_is_plan() -> None:
+    """MPC-B2: hard SDP producer = sound_design_plan (not analysis palettes)."""
+    from interview_mux.stage_contract import load_contract
+
+    contract = load_contract("music_palette_compose")
+    assert contract is not None
+    hard = {d.path: d.producer for d in contract.inputs if d.hard and d.path}
+    assert hard.get("understanding/sound_design_plan.json") == "sound_design_plan"

@@ -17,7 +17,7 @@ outputs:
 inputs:
   hard:
   - path: understanding/sound_design_plan.json
-    producer: sound_design_palettes
+    producer: sound_design_plan
   soft:
   - path: understanding/music_brief.json
     producer: sound_design_plan
@@ -34,6 +34,7 @@ sufficiency:
 propagation:
   invalidates_stages: []
 consumers:
+- sfx_prompt_craft
 - mmaudio_sfx
 - mix
 remediation:

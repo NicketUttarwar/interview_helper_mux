@@ -1,13 +1,14 @@
 # Stage clinic dossier — connector_fuse_pass
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: not_started | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# CFP-B1–B4 implemented 2026-09-17; CFP-B5/B6 needs_you open.
 
 ## §5.0 Evidence index card
 
 - stage_id: `connector_fuse_pass`
 - seed_position: 21 (analysis)
-- tier (contract claim): process contract / OpenAI seams in code
+- tier (contract claim): llm_full (OpenAI economy seams)
 - primary_artifact_path (SSOT claim): analysis/connector_fuse_audit.json
 - immediate upstream producers (from code — fill in L1): low_conf_island_scan; manifest
 - immediate downstream consumers (code + contract claim): pre_ranking, topic/narrative, ranking, nuggets, transitions, edl (claim)
@@ -38,4 +39,4 @@ wave: analysis | L1_map: complete | L2_target: not_started | L3_patch: not_start
 
 discovery_status: complete  
 §5.8 gate satisfied (index + body/rails + declared-vs-actual + flags + TEST_GAP).  
-Open questions: 
+Open questions: CFP-B5 (incomplete_thought_only / no seam GUI); CFP-B6 (invalidates fan-out)

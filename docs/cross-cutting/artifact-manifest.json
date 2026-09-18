@@ -425,6 +425,7 @@
         "episode_structure_compose",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "information_package_plan",
         "mastering_plan_confirm",
@@ -477,11 +478,11 @@
       ],
       "consumers": [
         "connector_fuse_pass",
-        "delivery_brief_build",
         "episode_structure_compose",
         "framing_posture_decide",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "information_package_plan",
         "mastering_plan_confirm",
@@ -617,7 +618,7 @@
     "master/selection.json": {
       "schemas_by_producer": {
         "full_master_ranking": "master_selection_artifact.schema.json",
-        "selection_order_sanitize": null
+        "selection_order_sanitize": "master_selection_artifact.schema.json"
       },
       "producers": [
         "full_master_ranking",
@@ -755,6 +756,7 @@
         "episode_structure_compose",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
@@ -780,6 +782,7 @@
         "framing_posture_decide",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
@@ -798,6 +801,7 @@
       ],
       "consumers": [
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize"
       ],
       "has_write_validator": true
@@ -814,6 +818,7 @@
         "audio_preclean",
         "framing_posture_decide",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
@@ -845,7 +850,6 @@
         "edl_narrative_audit"
       ],
       "consumers": [
-        "edl_narrative_audit",
         "full_master_ranking",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
@@ -870,9 +874,11 @@
         "air_script_compose",
         "air_script_seams",
         "connector_fuse_pass",
+        "edl_narrative_audit",
         "episode_structure_compose",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "information_package_plan",
         "mastering_plan_confirm",
@@ -913,6 +919,7 @@
         "edl",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "ingest",
         "junction_feel_audit",
@@ -960,11 +967,12 @@
       ],
       "consumers": [
         "full_master_ranking",
+        "music_palette_compose",
         "narrative_arc_plan",
         "selection_order_sanitize",
-        "sfx_prompt_craft",
         "sonic_context_build",
         "sound_design_palettes",
+        "sound_design_plan",
         "soundscape_policy_build"
       ],
       "has_write_validator": true
@@ -978,6 +986,7 @@
       ],
       "consumers": [
         "music_palette_compose",
+        "sfx_prompt_craft",
         "sound_design_plan"
       ],
       "has_write_validator": true
@@ -997,6 +1006,7 @@
         "episode_structure_compose",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "ingest",
         "junction_snip_qa",
@@ -1052,6 +1062,7 @@
         "edl",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
         "gap_report_sanitize",
         "ingest",
         "junction_feel_audit",

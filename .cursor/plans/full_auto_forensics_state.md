@@ -1,17 +1,17 @@
 # Forensics loop state
 
 - **campaign_mode:** fresh_campaign_continue_on_bug
-- **campaign_kind:** seed-walk forensics (authority retired)
-- **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.wav
-- **run_id:** exec_13149_d19c15b58ab4_20260917T165154Z
+- **campaign_kind:** clinic Q8C live Full-auto confirmation (post Stage Clinic)
+- **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
+- **run_id:** exec_13155_d19c15b58ab4_20260918T163214Z
 - **fresh_launches:** 1
 - **driver_restarts:** 0
-- **started_at:** 2026-09-17T16:51:54Z
-- **stopped_at:** 2026-09-17T17:18:00Z
-- **last_progress_at:** 2026-09-17T17:10:50Z
-- **driver_alive:** false
-- **stages_done:** 7/72 (last seen)
-- **current_stage:** — (stopped)
+- **started_at:** 2026-09-18T16:32:14Z
+- **stopped_at:**
+- **last_progress_at:** 2026-09-18T16:36:00Z
+- **driver_alive:** true
+- **stages_done:** 2/72 (audio_preclean, ingest; transcribe running)
+- **current_stage:** transcribe
 - **g1_complete:** false
 - **intervention_count:** 0
 - **last_predicate:** null
@@ -19,11 +19,7 @@
 - **resume_from_stage:** null
 - **open_blockers:** []
 - **patches_this_session:** []
-- **hard_blocker:** { reason: "operator STOP", evidence: "user message 2026-09-17T17:18Z" }
-- **monitor_loop:** stopped (PID 93913 killed)
+- **hard_blocker:** null
+- **monitor_loop:** stopped (PID 85937 terminated_by_user)
 - **ship:** false
-- **d14_checks_at_stop:**
-  - authority retired (no solver-decision)
-  - contract_observed.json present
-  - run_meta.homunculus_version=0.2.0
-- **notes:** Operator STOP. Authority removed from product. Resume any incomplete exec without authority env; forensics Continue stays `MUX_FORENSICS=1` + `MUX_FRESH=0` + same run_id.
+- **notes:** Nudge killed by user 2026-09-18T16:38Z. Driver still on transcribe. Re-arm §3.0a only if operator wants agent auto-wake ticks again.

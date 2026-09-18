@@ -38,7 +38,7 @@ brain: 0.2.0 | target_status: draft
 
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
-| B1 | P1 | needs_you | Align routing hard claim | contract or body | 7 | no |
+| B1 | P1 | unambiguous | Align routing hard claim → soft (body ignores) | hard:[] + allowlist | 7 | no |
 | B2 | P2 | unambiguous | Note dual-run with rollup | comment/map | 7 | no |
 
 ## Defaults inventory impact
@@ -47,4 +47,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`applied` — Wave 2 MRW-B2 + MRW-B1 (Q1A demote routing hard)

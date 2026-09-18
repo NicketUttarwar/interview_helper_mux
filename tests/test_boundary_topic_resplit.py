@@ -36,12 +36,13 @@ def test_analysis_order_places_resplit_after_reanchor() -> None:
     )
 
 
-def test_boundary_topic_resplit_skips_when_no_boundaries(
+def test_boundary_topic_resplit_incomplete_when_no_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Missing primary at entry must not hollow-stamp done (clinic B1)."""
     ctx = isolated_run_ctx(tmp_path, "resplit_empty")
     run_boundary_topic_resplit(ctx)
-    assert ctx.is_done("boundary_topic_resplit")
+    assert not ctx.is_done("boundary_topic_resplit")
 
 
 def test_boundary_topic_resplit_marks_done_when_not_overloaded(

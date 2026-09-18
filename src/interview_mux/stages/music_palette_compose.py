@@ -425,12 +425,20 @@ def _apply_cues(sdp: dict[str, Any], cues: list[dict[str, Any]]) -> dict[str, An
 def run_music_palette_compose(ctx: RunContext) -> None:
     """Place existing palette WAVs into the master shape — no new stems."""
 
+    # MPC-B2: contract hard SDP from sound_design_plan — refuse before LLM.
+    if not ctx.artifact_exists(_SOUND_DESIGN_PLAN_REL):
+        raise RuntimeError("sound_design_plan required before music_palette_compose")
+
     def build_input(c: RunContext) -> dict[str, Any]:
-        sdp = _optional_json(c, _SOUND_DESIGN_PLAN_REL)
+        if not c.artifact_exists(_SOUND_DESIGN_PLAN_REL):
+            raise RuntimeError("sound_design_plan required before music_palette_compose")
+        sdp = c.read_json(_SOUND_DESIGN_PLAN_REL)
+        if not isinstance(sdp, dict):
+            raise RuntimeError("sound_design_plan required before music_palette_compose")
         brief = _optional_json(c, "understanding/music_brief.json")
         counts = analysis_palette_counts(c)
         # Ensure inventory is exact before compose.
-        if isinstance(sdp, dict) and brief:
+        if brief:
             sdp = harden_palette_inventory(sdp, brief, counts=counts)
         assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
         palette = [

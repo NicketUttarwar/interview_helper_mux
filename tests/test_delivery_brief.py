@@ -4,9 +4,72 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from interview_mux import artifact_lifecycle as al
+from interview_mux.artifact_lifecycle import LifecyclePhase, run_phase_checks
+from interview_mux.defect_ledger import read_defect_ledger
 from interview_mux.delivery_brief import build_delivery_brief, compact_delivery_brief_for_volley
 from interview_mux.prompt_validation import validate_delivery_brief
 from interview_mux.run_context import RunContext
+from interview_mux.stage_contract import load_contract
+from run_fixtures import isolated_run_ctx
+
+
+_GAP_REPORT = "understanding/gap_report.json"
+_BRIEF_STAGE = "delivery_brief_build"
+
+
+def test_delivery_brief_contract_drops_circular_gap_compose_consumer() -> None:
+    """DBB-B1: gap_framing_compose seeds before brief — not a downstream consumer."""
+    contract = load_contract(_BRIEF_STAGE)
+    assert contract is not None
+    assert "gap_framing_compose" not in (contract.consumers or [])
+
+
+def test_delivery_brief_missing_gap_report_prestage_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DBB-B2: hard gap_report absent → recorded prestage refusal, not a crash."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.delenv("MUX_CONTRACT_HARD_INPUT_STRICT", raising=False)
+    ctx = isolated_run_ctx(tmp_path, "dbb_missing_gap")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.2.0", "run_mode": "full-auto"},
+        skip_handoff=True,
+    )
+    assert not ctx.artifact_exists(_GAP_REPORT)
+
+    contract = load_contract(_BRIEF_STAGE)
+    assert contract is not None
+    hard_gap = [
+        d
+        for d in contract.inputs
+        if d.hard and d.path == _GAP_REPORT and not d.when
+    ]
+    assert hard_gap, "delivery_brief_build must hard-require gap_report"
+    assert hard_gap[0].producer == "gap_framing_compose"
+
+    errors = run_phase_checks(ctx, _BRIEF_STAGE, LifecyclePhase.PRESTAGE)
+    assert errors == [], "absent hard input must refuse, not raise via PRESTAGE errors"
+
+    refusals = al.prestage_refusals(ctx, _BRIEF_STAGE)
+    assert any(
+        r.get("blocker") == al.MISSING_HARD_INPUT_BLOCKER
+        and r.get("artifact") == _GAP_REPORT
+        for r in refusals
+    ), refusals
+
+    defects = (read_defect_ledger(ctx).get("defects") or {}).values()
+    rows = [
+        row
+        for row in defects
+        if row.get("blocker") == al.MISSING_HARD_INPUT_BLOCKER
+        and row.get("artifact") == _GAP_REPORT
+        and row.get("stage") == _BRIEF_STAGE
+    ]
+    assert rows, "missing hard gap_report must leave a defect row"
 
 
 def test_build_delivery_brief_from_words_when_duration_ms_missing(

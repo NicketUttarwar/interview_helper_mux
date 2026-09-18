@@ -23,7 +23,28 @@ def load_agenda(ctx: RunContext) -> dict[str, Any] | None:
     return doc if isinstance(doc, dict) else None
 
 
+def _gap_unsanitary_block(ctx: RunContext) -> None:
+    """RA-B2: do not seed agenda while present gap_report is W1-unsanitary.
+
+    Missing gap stays soft (RA-B1); only a dirty present report blocks.
+    """
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return
+    try:
+        from interview_mux.artifact_sanitize.registry import gap_sanitary_errors
+
+        errs = [str(e) for e in (gap_sanitary_errors(ctx) or []) if str(e).strip()]
+    except Exception:
+        return
+    if not errs:
+        return
+    raise RuntimeError(
+        "gap_unsanitary — resume gap_report_sanitize: " + "; ".join(errs[:4])
+    )
+
+
 def run_refinement_agenda(ctx: RunContext, *, phase: Literal["draft", "confirm"] = "draft") -> dict[str, Any]:
+    _gap_unsanitary_block(ctx)
     characters = detect_tape_character(ctx)
     pack = resolve_policy_pack(ctx, characters)
     eligible = list(pack.get("eligible_class_defaults") or [])

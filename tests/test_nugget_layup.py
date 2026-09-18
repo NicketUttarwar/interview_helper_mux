@@ -578,8 +578,9 @@ def test_evaluate_nugget_air_coverage_body_intro_waived():
     assert at_floor["ok"] is True
 
 
-def test_evaluate_nugget_air_coverage_soft_in_qc():
-    ctx = RunContext("exec_nugget_air_qc_soft", create=True)
+def test_evaluate_nugget_air_coverage_hard_in_qc():
+    """NLC-B2: compose QC hard-fails below min_nugget_air_coverage."""
+    ctx = RunContext("exec_nugget_air_qc_hard", create=True)
     corpus = {
         "nuggets": [
             {"nugget_id": f"nug_{i}", "salience": "high", "in_selection": False}
@@ -605,8 +606,9 @@ def test_evaluate_nugget_air_coverage_soft_in_qc():
     }
     qc = evaluate_layup_qc(ctx, plan, corpus)
     assert qc["nugget_air_coverage"] == pytest.approx(0.2, rel=1e-3)
-    assert qc["ok"] is True or not any("nugget_air_coverage" in e for e in (qc.get("errors") or []))
-    assert any("min_nugget_air_coverage" in w for w in (qc.get("warnings") or []))
+    assert qc["ok"] is False
+    assert any("min_nugget_air_coverage" in e for e in (qc.get("errors") or []))
+    assert not any("min_nugget_air_coverage" in w for w in (qc.get("warnings") or []))
 
 
 def test_exec_1579_shaped_recovery_mapping():
@@ -1092,6 +1094,57 @@ def test_merge_layup_plan_parts_preserves_air_order():
     assert [r["target_segment_id"] for r in merged["layups"]] == ordered
     assert merged["discharged_nugget_ids"] == ["n1", "n2"]
     assert merged["open_high_salience_nugget_ids"] == ["n3"]
+
+
+def test_mid_shard_pending_plan_is_incomplete(tmp_path):
+    """NLC-B1: compose_shards_pending must refuse hollow done."""
+    from interview_mux.stage_completion import (
+        heal_or_refuse_mark,
+        stage_artifact_incompleteness,
+    )
+    from run_fixtures import isolated_run_ctx, mark_done_raw
+
+    ctx = isolated_run_ctx(tmp_path, "nlc_mid_shard_pending")
+    ordered = [f"seg_{i:03d}" for i in range(1, 5)]
+    _seed_air_order(
+        ctx,
+        ordered,
+        {sid: f"Native text for {sid}." for sid in ordered},
+    )
+    ctx.write_json(
+        CORPUS_REL,
+        {"nuggets": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ordered,
+            "layups": [
+                {
+                    "target_segment_id": ordered[0],
+                    "text": "Partial shard layup covering first native only.",
+                    "nugget_ids": [],
+                    "target_beat": "beat",
+                    "setup_from_nuggets": "setup",
+                    "forward_unlock": "unlock next",
+                }
+            ],
+            "_meta": {
+                "compose_shards_pending": True,
+                "compose_shard_index": 1,
+                "compose_shard_total": 2,
+            },
+        },
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "nugget_layup_compose")
+    assert reason is not None
+    assert "layup_compose_shards_pending" in reason
+    mark_done_raw(ctx, "nugget_layup_compose")
+    out = heal_or_refuse_mark(ctx, "nugget_layup_compose", force=True)
+    assert out.get("unmarked") or not ctx.is_done("nugget_layup_compose")
+    assert not ctx.is_done("nugget_layup_compose")
 
 
 def test_canned_hinge_rejected_under_authority():
@@ -2533,3 +2586,34 @@ def test_park_open_high_salience_on_orientation_clears_qc():
     qc = evaluate_layup_qc(ctx, parked)
     assert "nug_park" not in (qc.get("open_high_salience_nugget_ids") or [])
     assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+
+
+def test_ncm_b2_empty_enabled_corpus_incomplete(monkeypatch):
+    """NCM-B2: enabled mine with zero nuggets refuses done."""
+    from interview_mux.nugget_layup import CORPUS_REL
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    ctx = RunContext("exec_ncm_b2_empty", create=True)
+    ctx.write_json(CORPUS_REL, {"nuggets": [], "warnings": []})
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "nugget_corpus_mine")
+    assert reason is not None
+    assert "nugget_corpus_empty" in reason
+    assert not ctx.is_done("nugget_corpus_mine")
+
+
+def test_ncm_b2_disabled_empty_corpus_ok(monkeypatch):
+    """Disabled layup may leave empty corpus (heal path)."""
+    from interview_mux.nugget_layup import CORPUS_REL
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    ctx = RunContext("exec_ncm_b2_disabled", create=True)
+    ctx.write_json(CORPUS_REL, {"nuggets": [], "warnings": ["nugget_layup_disabled"]})
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: False,
+    )
+    assert stage_artifact_incompleteness(ctx, "nugget_corpus_mine") is None

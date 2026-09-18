@@ -624,7 +624,11 @@ def vtt_has_cue_bodies(text: str) -> bool:
 
 
 def master_transcript_ship_incompleteness(ctx: RunContext) -> str | None:
-    """HPUB-3: cue_count 0 / header-only VTT are not ship-complete (schema still allows 0)."""
+    """HPUB-3: cue_count 0 / header-only VTT are not ship-complete.
+
+    JSON schema still allows cue_count 0 (hollow pack evidence). Stage contract
+    sufficiency documents cues min_rows≥1 (clinic B1).
+    """
     if not ctx.artifact_exists(MASTER_JSON_REL):
         return (
             "cue_count_zero — resume master_transcript_build: "

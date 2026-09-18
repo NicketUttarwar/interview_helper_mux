@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -20,17 +20,16 @@ inputs:
     producer: ingest
   - path: master/selection.json
     producer: full_master_ranking
-  soft:
   - path: master/edl.json
     producer: edl
-    correctness: true
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan
+  soft:
   - path: master/transitions.json
     producer: transitions
   - path: master/junction_snip_qa.json
     producer: junction_snip_qa
   - path: master/seam_autopsy.json
-  - path: understanding/sound_design_plan.json
-    producer: sound_design_palettes
   - path: understanding/omit_ledger.json
     producer: air_script_compose
   - path: understanding/gap_report.json

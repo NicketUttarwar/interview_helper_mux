@@ -9,7 +9,7 @@ brain: 0.2.0 | target_status: draft
 | layup authority | Republish only; accept sidecar; heal | Completes |
 | seat freeze | Skip stub done | Completes |
 | gap unsanitary | Refuse done | Honest |
-| legacy activate | Deterministic filter or retire | Documented |
+| legacy activate | Retired → skip-copy | Completes |
 
 ## Rules set
 
@@ -31,7 +31,7 @@ brain: 0.2.0 | target_status: draft
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | GFR-B1 | P0 | unambiguous | Fix contract outputs/consumers/lifecycle | YAML | 7 | no |
 | GFR-B2 | P1 | unambiguous | Remove duplicate seat-gate / dead docstring | code | 1 | no |
-| GFR-B3 | P1 | needs_you | Retire legacy activate path? | intent | 5,7 | yes |
+| GFR-B3 | P1 | unambiguous | Retire legacy activate path — **Wave 2 applied** | intent | 5,7 | yes |
 | GFR-B4 | P2 | unambiguous | Pytest authority path | pytest | 2 | no |
 
 ## Defaults inventory impact
@@ -40,4 +40,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`done` — Wave 2 applied GFR-B1/B2/B3/B4

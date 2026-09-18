@@ -380,6 +380,30 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
             )
             if not fail_open:
                 raise
+            # HS-5 / VSS-B3: never bare-return limbo under fail_open. Prefer an
+            # honest error stub + heal; if even the stub cannot land, leave
+            # unmarked so incompleteness pins resume.
+            try:
+                ctx.write_json(
+                    "vernacular/resplit_report.json",
+                    {
+                        "version": 1,
+                        "rows": [],
+                        "must_keep_segment_ids": [],
+                        "error": f"write_failed: {str(exc)[:280]}",
+                    },
+                    stage_key=stage,
+                )
+            except Exception as stub_exc:  # noqa: BLE001
+                ctx.log(
+                    f"Sanitize write-fail stub also failed: {stub_exc}",
+                    level="error",
+                    stage=stage,
+                    action_id="vernacular.sanitize.write_fail_stub",
+                    detail={"error": str(stub_exc)[:300]},
+                )
+                return
+            _heal_vernacular_done(ctx)
             return
 
         mode = enforcement_mode_for_ctx(ctx)

@@ -24,7 +24,7 @@ sufficiency:
 propagation:
   invalidates_stages: []
 consumers:
-- sfx_prompt_craft
+- mmaudio_sfx
 remediation:
   strategies:
   - volley_retry

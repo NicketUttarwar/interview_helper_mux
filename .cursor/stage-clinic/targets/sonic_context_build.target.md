@@ -48,4 +48,4 @@ Wave 2 may implement `unambiguous` rows without further operator input.
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 applied SCB-B1 (hard = brief+manifest+acoustic; fuse soft-carved)

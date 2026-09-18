@@ -1,7 +1,8 @@
 # Stage clinic dossier — sound_design_palettes
 
 brain: 0.2.0 | mode_focus: partially_accelerated | campaign_goal: full_auto_defaults
-wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
+wave: remediation | L1_map: complete | L2_target: draft | L3_patch: done
+# SDP-B1 implemented 2026-09-17 — sufficiency gated on early_palettes_llm.
 
 ## §5.0 Evidence index card
 
@@ -38,4 +39,4 @@ wave: analysis | L1_map: complete | L2_target: draft | L3_patch: not_started
 
 discovery_status: complete  
 §5.8 gate satisfied (index + body/rails + declared-vs-actual + flags + TEST_GAP).  
-Open questions: fix contract sufficiency for deferred
+Open questions: none (SDP-B1 closed)

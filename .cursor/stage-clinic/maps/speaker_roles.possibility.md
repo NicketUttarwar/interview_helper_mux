@@ -20,7 +20,7 @@ code_is_king: true | prior_exec: ignored_by_default
 |------|---------|-----|--------------|
 | all hard present | reads transcript/full + transcript/speakers samples | IN_CODE | `run_speaker_roles` build_input |
 | hard missing | read_json fails | IN_CODE | |
-| contract hard spine when enabled | **body does not require spine**; optional attach absent here | CODE_DOC_CONFLICT | contract vs `understanding.py` |
+| contract hard spine when enabled | **body does not require spine**; optional attach absent here | CODE_DOC_CONFLICT → **fixed SR-B1** (spine soft) | contract vs `understanding.py` |
 | soft diarization_repairs | optional attach | IN_CODE | |
 | hollow speakers | schema + sufficiency min_rows / not_all_unknown (contract claim; validate_stage_artifacts) | IN_CODE | |
 | semantic junk | schema-valid wrong roles poison topology | IN_CODE | |
@@ -67,8 +67,9 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Declared | Actual (code) | Tag |
 |----------|---------------|-----|
-| hard transcript + spine(when) | spine not enforced in body | CODE_DOC_CONFLICT |
-| soft transcript speakers + repairs | used | IN_CODE |
+| hard transcript + spine(when) | spine soft only (SR-B1) | IN_CODE |
+| soft transcript speakers + repairs + spine | used / optional | IN_CODE |
+| fallback_speakers_artifact after LLM diarization-need | intentional Full-auto honesty (SR-B2) — schema-valid dominant roles, not hollow | IN_CODE |
 | outputs speakers.json schema | matches | IN_CODE |
 | sufficiency speakers rules | schema path via prompt_validation | IN_CODE |
 | remediation volley_retry | matches ≤2 | IN_CODE |
@@ -99,7 +100,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## Open questions for operator
 
-1. Should spine remain a hard contract input when the body never reads it?
+1. _(closed SR-B1)_ Spine is soft enrichment; body never hard-requires it.
 
 ## discovery_status
 

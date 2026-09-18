@@ -29,7 +29,7 @@ brain: 0.2.0 | target_status: draft
 | id | priority | unambiguous\|needs_you | summary | acceptance_hint | DoD | FULL_AUTO_REGRESSION_RISK |
 |----|----------|------------------------|---------|-----------------|-----|---------------------------|
 | GRS-B1 | P0 | unambiguous | Fix contract hard+consumers | YAML | 7 | no |
-| GRS-B2 | P1 | needs_you | Empty stub incomplete when framing Yes? | honesty | 2,6 | yes |
+| GRS-B2 | P1 | answered | Empty stub incomplete when framing Yes | honesty | 2,6 | yes (accepted) | applied |
 | GRS-B3 | P2 | unambiguous | Document invalidate cascade in contract | YAML | 7 | no |
 
 ## Defaults inventory impact
@@ -38,4 +38,4 @@ brain: 0.2.0 | target_status: draft
 
 ## target_status
 
-`draft`
+`draft` — Wave 2 CONTINUE: GRS-B2 applied (empty stub incomplete framing Yes)

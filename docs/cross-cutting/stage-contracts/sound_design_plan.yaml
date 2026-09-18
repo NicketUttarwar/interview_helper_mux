@@ -58,7 +58,7 @@ propagation:
   - vo_synthesize
   - edl
 consumers:
-- sound_design_palettes
+- sfx_prompt_craft
 - mmaudio_sfx
 - music_palette_compose
 remediation:

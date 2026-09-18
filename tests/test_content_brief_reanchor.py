@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from interview_mux.artifact_completeness import compute_gaps
 from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.prompt_validation import validate_content_brief
+from interview_mux.stage_contract import load_contract
 from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manifest_segment
 
 
@@ -111,3 +114,95 @@ def test_content_brief_reanchor_build_input(tmp_path, monkeypatch):
     assert captured["stage_key"] == "content_brief_reanchor"
     assert "content_brief" in captured["payload"]
     assert "segments" in captured["payload"]
+
+
+def test_content_brief_reanchor_contract_hard_speakers_no_oq() -> None:
+    """CBR-B1/B2: speakers hard; soft boundaries only; no optimal_questions invalidates."""
+    contract = load_contract("content_brief_reanchor")
+    assert contract is not None
+    hard = {d.path for d in contract.inputs if d.hard and d.path}
+    soft = {d.path for d in contract.inputs if not d.hard and d.path}
+    assert "understanding/speakers.json" in hard
+    assert "understanding/speakers.json" not in soft
+    assert "understanding/content_brief.json" in hard
+    assert "segments/manifest.json" in hard
+    assert soft == {"segments/boundaries.json"}
+    assert "optimal_questions" not in (contract.propagation or [])
+
+
+def test_hollow_persist_cannot_mark_done(tmp_path, monkeypatch):
+    """CBR-B3: post-persist status≠complete raises; done marker never lands.
+
+    Artifact repairs can synthesize topics/relationships for schema-thin payloads,
+    so force status to partial after write to pin the RuntimeError gate itself
+    (do not soften that gate).
+    """
+    from interview_mux import artifact_completeness as ac
+    from interview_mux.stages import understanding
+
+    ctx = isolated_run_ctx(tmp_path, "run_reanchor_hollow")
+    ctx.write_json(
+        "understanding/content_brief.json",
+        minimal_content_brief(
+            topics=[
+                {
+                    "name": "Topic A",
+                    "summary": "Summary here.",
+                    "segment_ids": ["seg_001"],
+                }
+            ],
+            topic_relationships=[
+                {
+                    "from_topic": "Topic A",
+                    "to_topic": "Topic B",
+                    "relation": "supports",
+                }
+            ],
+        ),
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {"segments": [minimal_manifest_segment(segment_id="seg_001")]},
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {
+                    "speaker_id": "spk_001",
+                    "role": "interviewer",
+                    "confidence": 0.9,
+                    "evidence": ["asks questions"],
+                }
+            ]
+        },
+    )
+
+    monkeypatch.setattr(ac, "artifact_status_for_stage", lambda *_a, **_k: "partial")
+
+    def fake_run(_ctx, stage_key, _prompt, _build_input, persist, *_args, **_kwargs):
+        with pytest.raises(RuntimeError, match="must persist a complete brief"):
+            persist(
+                _ctx,
+                minimal_content_brief(
+                    topics=[
+                        {
+                            "name": "Topic A",
+                            "summary": "Summary here.",
+                            "segment_ids": ["seg_001"],
+                        }
+                    ],
+                    topic_relationships=[
+                        {
+                            "from_topic": "Topic A",
+                            "to_topic": "Topic B",
+                            "relation": "supports",
+                        }
+                    ],
+                ),
+            )
+        assert not _ctx.is_done("content_brief_reanchor")
+
+    monkeypatch.setattr(understanding, "run_analysis_llm_stage", fake_run)
+    understanding.run_content_brief_reanchor(ctx)
+    assert not ctx.is_done("content_brief_reanchor")

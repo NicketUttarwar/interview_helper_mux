@@ -14,19 +14,33 @@ outputs:
   staging: true
 inputs:
   hard:
+  - path: understanding/content_brief.json
+    producer: content_context
+  - path: master/coverage_audit.json
+    producer: topic_coverage_audit
+  - path: master/narrative_plan.json
+    producer: narrative_arc_plan
+  - path: master/selection.json
+    producer: full_master_ranking
+  soft:
   - path: understanding/sound_design_plan.json
     producer: sound_design_plan
-  soft: []
+  - path: master/transitions.json
+    producer: transitions
+  - path: understanding/gap_report.json
+    producer: gap_framing_compose
+  - path: segments/nle_edits.json
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
 sufficiency:
 - path: findings
   rule: min_rows
   min_count: 0
 propagation:
   invalidates_stages:
-  - vo_synthesize
   - edl
 consumers:
-- edl_narrative_audit
+- edl
 remediation:
   strategies:
   - volley_retry
