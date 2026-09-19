@@ -333,6 +333,82 @@ def test_repair_edl_audit_demotes_stale_meta_question(tmp_path, monkeypatch: pyt
     assert any(row.get("action") == "demote_stale_audit_vs_disk" for row in applied)
 
 
+def test_repair_edl_audit_demotes_stale_duplicate_vo_transition(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After framing dedupe drops the transition, LLM duplicate-bridge fails demote."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_dup_bridge")
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_023", "seg_025", "seg_026"], "chapters": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_025",
+                    "text": "What changed when the lab report reached the clinic?",
+                    "delivery": "synthesize",
+                    "placement": "before",
+                    "prior_segment_id": "seg_023",
+                    "targets_segment_id": "seg_025",
+                    "required": True,
+                    "gap_type": "missing_setup",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    # Transition for 023→025 already removed; only an unrelated pair remains.
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "type": "transition",
+                    "after_segment_id": "seg_025",
+                    "before_segment_id": "seg_026",
+                    "text": "From evolving tests to the report clinicians receive.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    doc = {
+        "verdict": "fail",
+        "blocking_issues": [
+            {
+                "issue": (
+                    "Two spoken bridges are scheduled for the same selected adjacency: "
+                    "the transition after seg_023/before seg_025 and required rendered "
+                    "VO vo_layup_seg_025, which is also placed before seg_025 after "
+                    "seg_023. This creates duplicate framing at the Chapter 3-to-4 "
+                    "handoff."
+                ),
+                "evidence": [
+                    "selection.ordered_segment_ids: seg_023 → seg_025",
+                    "transitions.transitions[after_segment_id=seg_023,before_segment_id=seg_025]",
+                    "gap_report.interviewer_lines[line_id=vo_layup_seg_025,"
+                    "prior_segment_id=seg_023,targets_segment_id=seg_025]",
+                    "vo_coverage[line_id=vo_layup_seg_025,coverage=rendered]",
+                ],
+                "recommended_action": (
+                    "rerun transitions and remove or consolidate the seg_023 → "
+                    "seg_025 transition; retain the rendered required VO layup."
+                ),
+            }
+        ],
+        "warnings": [],
+    }
+    patched, applied = repair_edl_audit(ctx, doc)
+    assert patched["verdict"] in ("pass", "warn")
+    assert not patched.get("blocking_issues")
+    assert any(row.get("action") == "demote_stale_audit_vs_disk" for row in applied)
+
+
 def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_cov")

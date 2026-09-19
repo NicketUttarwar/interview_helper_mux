@@ -580,16 +580,38 @@ def junction_recut_precedes_mix(ctx: RunContext) -> bool:
     pins junction_snip_qa, but seed order / preflight / hardening all placed mix
     first, so nobody could recut (predicate x3 halt). The ladder needs only
     master/edl.json — the remaster it drives is what mints assembly.wav.
+
+    exec_13159: after criticals are healed, mix still refuses
+    ``assembly_not_rendered_from_current_edl`` while junction preflight demands
+    ``master/assembly.wav`` — accept preview/stale-missing so remaster can land.
     """
     try:
-        if not live_incomplete_cut_critical_findings(ctx):
+        live = live_incomplete_cut_critical_findings(ctx)
+        assembly_missing = not ctx.artifact_exists("master/assembly.wav")
+        assembly_stale = False
+        try:
+            from interview_mux.air_order import mix_stale_versus_live
+
+            assembly_stale = bool(mix_stale_versus_live(ctx))
+        except Exception:
+            # Fall back: preview-only counts as not yet mix-landed.
+            assembly_stale = assembly_missing or (
+                ctx.artifact_exists("master/assembly_preview.wav")
+                and not ctx.artifact_exists("master/assembly.wav")
+            )
+        if not live and not assembly_missing and not assembly_stale:
             return False
         # A *stale* assembly.wav from an earlier mix does not clear the residual:
         # mix is still not done and still refuses, while the seed-order gate held
         # junction behind mix — exec_11871 ping-ponged mix ⇄ junction_snip_qa every
         # 5 minutes on seg_014 chapter_bleed_incomplete. Only a mix that actually
         # landed (done + assembly) hands the ladder back its post-mix position.
-        if ctx.is_done("mix") and ctx.artifact_exists("master/assembly.wav"):
+        if (
+            ctx.is_done("mix")
+            and ctx.artifact_exists("master/assembly.wav")
+            and not live
+            and not assembly_stale
+        ):
             return False
         return True
     except Exception:
@@ -2580,6 +2602,9 @@ def remaster_mix_only(ctx: RunContext) -> None:
     write_render_ledger(ctx)
     # EDL/assembly are owned by edl/mix for invalidation — promote as side effects
     # so junction flush does not delete the remastered render.
+    # Mix QC artifacts (coverage / listen_critic / bed presence) are written while
+    # junction staging is active; StageInfo does not claim them, so flush would
+    # drop them and PMQ then fails planned_music_preserved / episode_close_outro.
     promote_staged_side_effects(
         ctx,
         (
@@ -2589,6 +2614,11 @@ def remaster_mix_only(ctx: RunContext) -> None:
             "master/assembly_ledger.json",
             "master/render_ledger.json",
             "master/bridge_completeness.json",
+            "master/music_cue_coverage.json",
+            "master/listen_critic.json",
+            "master/bed_presence_qc.json",
+            "master/underbed_ab_qc.json",
+            "master/listenability_contract.json",
             "sound_design/placement_adjustments.json",
             "understanding/sound_design_plan.json",
             "master/transitions/",
@@ -3219,7 +3249,27 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         prior_applied_sig = applied_sig
         if needs:
             try:
-                remastered, used = _budgeted_remaster_mix(ctx, path="repair")
+                # Critical incomplete-cut repairs must not hit the cosmetic
+                # low_gain gate (bare path="repair" → used=0 mislabeled as
+                # budget exhaust — exec_13159).
+                critical_kinds = {
+                    "naked_seam",
+                    "incomplete_clause",
+                    "on_a_roll",
+                    "chapter_bleed_incomplete",
+                }
+                needs_critical = any(
+                    isinstance(f, dict)
+                    and (
+                        str(f.get("severity") or "") == "critical"
+                        or str(f.get("kind") or "") in critical_kinds
+                    )
+                    for f in residual_findings
+                )
+                remaster_path = (
+                    "repair_incomplete_clause" if needs_critical else "repair"
+                )
+                remastered, used = _budgeted_remaster_mix(ctx, path=remaster_path)
                 if not remastered:
                     # EM2 / JSQ-B3: budget/osc exhaust → classified pin + refuse
                     # terminate (no needs_operator hang).
@@ -3240,7 +3290,27 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                         )
                         for f in residual_findings
                     )
-                    if naked_or_critical:
+                    budget_open = True
+                    try:
+                        from interview_mux.thrash_hardening import (
+                            junction_remaster_budget_ok,
+                        )
+
+                        budget_open, _n = junction_remaster_budget_ok(ctx)
+                    except Exception:
+                        budget_open = True
+                    if naked_or_critical and budget_open and int(used or 0) == 0:
+                        ctx.log(
+                            "junction_snip_qa: critical remaster refused "
+                            f"without budget burn (path={remaster_path}) — "
+                            "retry commitment seating",
+                            level="warning",
+                            stage=STAGE_ID,
+                        )
+                        remastered, used = _budgeted_remaster_mix(
+                            ctx, path="commitment_incomplete_clause"
+                        )
+                    if not remastered and naked_or_critical:
                         ctx.log(
                             "junction_snip_qa: remaster budget exhausted "
                             f"(used={used}) — classified refuse terminate "
@@ -3249,7 +3319,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                             level="error",
                             stage=STAGE_ID,
                         )
-                    else:
+                        break
+                    if not remastered:
                         # Observational-only residuals: quality waivers only
                         # (CFG-01 — e2e_soft is gate auto-progress, not quality).
                         try:
@@ -3268,7 +3339,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                             level="warning",
                             stage=STAGE_ID,
                         )
-                    break
+                        break
             except Exception as exc:
                 from interview_mux.loud_fail import raise_loud_failure
 

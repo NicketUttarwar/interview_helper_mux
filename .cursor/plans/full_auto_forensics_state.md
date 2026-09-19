@@ -1,25 +1,30 @@
 # Forensics loop state
 
-- **campaign_mode:** stopped
-- **campaign_kind:** clinic optional revisit — **Q7C no live run**
+- **campaign_mode:** fresh_campaign_continue_on_bug
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_13155_d19c15b58ab4_20260918T163214Z (historical; not resumed)
+- **run_id:** exec_13159_d19c15b58ab4_20260918T235157Z
 - **fresh_launches:** 1
-- **driver_restarts:** 0
-- **started_at:** 2026-09-18T16:32:14Z
-- **stopped_at:** 2026-09-18 (Q8C STOP; Q7C confirms no relaunch)
-- **last_progress_at:** 2026-09-18T16:36:00Z
+- **driver_restarts:** 14
+- **started_at:** 2026-09-18T23:51:57Z
+- **last_progress_at:** 2026-09-19T03:15:52Z
+- **ship:** true
+- **shipped_at:** 2026-09-19T03:15:52Z
 - **driver_alive:** false
-- **stages_done:** 2/72 (historical)
-- **current_stage:** stopped
-- **g1_complete:** false
-- **intervention_count:** 0
-- **last_predicate:** null
-- **last_predicate_flipped:** null
-- **resume_from_stage:** null
+- **stages_done:** 72/72
+- **current_stage:** (complete)
+- **g1_complete:** true
+- **intervention_count:** 11
+- **last_predicate:** PMQ ship-bar + missing music_cue_coverage after junction remaster
+- **last_predicate_flipped:** true
+- **resume_from_stage:** —
 - **open_blockers:** []
-- **patches_this_session:** [Q3B voice_ref gate, Q4B auto_accept, Q5B TCA soft stub, Q6B GFC allow empty]
+- **patches_this_session:** [i1–i9; i9 mix QC promote + defect reconcile]
 - **hard_blocker:** null
-- **monitor_loop:** stopped (do not re-arm)
-- **ship:** false
-- **notes:** Operator Q7C — no live Full-auto for now. MPS/MRR architecture deferred to explanation only (flags unchanged).
+- **monitor_loop:** stopped (was PID 34728)
+- **notes:** Independent of family ledgers. Local ship complete; S3 sync deferred (quality advisories / G-Publish consent). Rubric advisories remain: scorecard_dimension_floors, planned_music_preserved, episode_close_outro_present (coverage still missing — remaster blocked by live on_a_roll seg_057).
+
+### i9 — junction remaster drops mix QC; stale ship-bar defects (2026-09-19T03:15Z)
+- **failure:** remaster staged `music_cue_coverage` under junction → flush dropped; stale ship-bar defects on done stages (incl. listen_delight_audit) blocked PMQ structurally.
+- **patch:** promote mix QC side-effects; mix owns coverage; mark_done + PMQ reconcile open ship-bar stages that are done.
+- **cascade:** `tests/test_i9_junction_remaster_promotes_mix_qc.py` — passed.
+- **continue:** publish_allowed=true → encode/cover/publish; ship complete.

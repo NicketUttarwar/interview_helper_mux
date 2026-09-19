@@ -94,6 +94,16 @@ THRASH_WINDOW_SEC = 15 * 60
 THRASH_HIT_THRESHOLD = 6
 # Same pin + unchanged predicate: hard-stop heal re-execute (exec_5409 thrash).
 STICKY_HEAL_HALT_AFTER = 3
+FAIL_CLASS_INCOMPLETE_AFTER_CONDUCTOR = "incomplete_after_conductor"
+FAIL_CLASS_MASTERING_SHAPE_HOLLOW = "mastering_shape_llm_hollow"
+MASTERING_SHAPE_LLM_STAGES = frozenset(
+    {
+        "mastering_shape_agenda",
+        "mastering_shape_candidates",
+        "mastering_plan_synthesize",
+        "mastering_plan_confirm",
+    }
+)
 
 
 def premature_fail_class(resume: str) -> str:
@@ -103,6 +113,10 @@ def premature_fail_class(resume: str) -> str:
     r = str(resume or "").strip()
     if not r:
         return "unknown"
+    if r == FAIL_CLASS_INCOMPLETE_AFTER_CONDUCTOR:
+        return FAIL_CLASS_INCOMPLETE_AFTER_CONDUCTOR
+    if r in MASTERING_SHAPE_LLM_STAGES:
+        return FAIL_CLASS_MASTERING_SHAPE_HOLLOW
     if r in MUSIC_BEFORE_MIX:
         return FAIL_CLASS_MUSIC_EPOCH
     if r in {"mix", "junction_snip_qa"}:
@@ -123,6 +137,35 @@ def premature_fail_class(resume: str) -> str:
     }:
         return FAIL_CLASS_PHASE_A_EDL
     return f"stage:{r}"
+
+
+def resume_producer(ctx: RunContext, pin: str) -> str:
+    """Return the live producer for a resume pin, never a blocked consumer."""
+    candidate = str(pin or "").strip()
+    if candidate == "edl":
+        try:
+            from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
+
+            # Missing audit is a hard producer gate (exec_13159 hollow EDL finish).
+            if not ctx.artifact_exists("master/edl_narrative_audit.json"):
+                return "edl_narrative_audit"
+            if narrative_audit_blocks_edl(ctx):
+                return "edl_narrative_audit"
+        except Exception:
+            pass
+    return candidate
+
+
+def infrastructure_interrupt_resume_pin(ctx: RunContext) -> str:
+    """Furthest safe producer after an infrastructure interruption."""
+    try:
+        from interview_mux.delivery_invariants import committed_master_integrity_ok
+
+        if committed_master_integrity_ok(ctx):
+            return "podcast_publish" if ctx.is_done("master_finalize") else "master_finalize"
+    except Exception:
+        pass
+    return path_to_master_pin(ctx)
 
 
 def premature_fail_key(label: str, resume: str) -> str:
@@ -577,9 +620,13 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
                 continue
             if not seed_stage_complete(ctx, sid):
                 return sid
-        return hint_s or "edl"
+        return resume_producer(ctx, hint_s or "edl")
 
-    if intent_l in {"delivery_blocked", FAIL_CLASS_DELIVERY_BLOCKED}:
+    if intent_l in {
+        "delivery_blocked",
+        FAIL_CLASS_DELIVERY_BLOCKED,
+        FAIL_CLASS_INCOMPLETE_AFTER_CONDUCTOR,
+    }:
         from interview_mux.delivery_guardrails import (
             delivery_stable_for_music,
             music_epoch_complete,
@@ -614,7 +661,7 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
             )
             if hard_upstream:
                 if reason == "edl_incomplete":
-                    return "edl"
+                    return resume_producer(ctx, "edl")
                 if reason == "assembly_missing":
                     return "assembly_preview"
                 if reason == "listen_delight_incomplete":
@@ -642,7 +689,7 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
 
     if hint_s:
         return premature_cap_via_intent(ctx, hint_s)
-    return hint_s or "edl"
+    return resume_producer(ctx, hint_s or "edl")
 
 
 def premature_cap_via_intent(ctx: RunContext, resume: str) -> str:
@@ -979,8 +1026,13 @@ def infer_heal_intent(*, error: str = "", stage: str = "", intent: str = "") -> 
     text = f"{error} {stage}".lower()
     # Structural / conductor phrases FIRST.
     if (
+        "incomplete after conductor" in text
+        or "incomplete-after-conductor" in text
+        or "incomplete_after_conductor" in text
+    ):
+        return FAIL_CLASS_INCOMPLETE_AFTER_CONDUCTOR
+    if (
         "filter empty" in text
-        or "incomplete after conductor" in text
         or "delivery blocked" in text
         or "delivery incomplete" in text
     ):
@@ -1393,6 +1445,16 @@ def heal_navigate(
     intent: str = "",
 ) -> dict[str, str]:
     """Single heal navigator: error/stage → intent → canonical pin."""
+    # A refused soft pre-EDL shortcut is itself not a producer. Route to the
+    # product QC writer and let normal attempt accounting begin there.
+    soft_refuse = f"{error} {stage}".lower()
+    if "pre-edl delivery qc incomplete" in soft_refuse or "e2e_stub" in soft_refuse:
+        pin = "nugget_layup_compose"
+        return {
+            "intent": "pre_edl_qc_producer",
+            "from_stage": pin,
+            "mode": "delivery",
+        }
     # HG-4: voice-ref is G-Framing ladder — never topic_coverage / research rewind.
     try:
         from interview_mux.stage_completion import voice_ref_heal_resume_stage
@@ -1839,7 +1901,7 @@ def heal_navigate(
                 FAIL_CLASS_FINALIZE,
                 FAIL_CLASS_DELIVERY_BLOCKED,
             } or music_epoch_complete(ctx):
-                pin = path_to_master_pin(ctx)
+                pin = resume_producer(ctx, path_to_master_pin(ctx))
                 return {
                     "intent": intent_l,
                     "from_stage": pin,
@@ -1847,7 +1909,7 @@ def heal_navigate(
                 }
     except Exception:
         pass
-    pin = canonical_resume_pin(ctx, intent_l, hint=stage)
+    pin = resume_producer(ctx, canonical_resume_pin(ctx, intent_l, hint=stage))
     # Prefer path-to-master over narrative only when narrative is already seed-complete
     # (or absent). Real incomplete/stale narrative still gets a pin.
     if pin == "edl_narrative_audit":
@@ -1865,7 +1927,7 @@ def heal_navigate(
                 and seed_stage_complete(ctx, "edl_narrative_audit")
                 and narrative_hole is None
             ):
-                pin = path_to_master_pin(ctx)
+                pin = resume_producer(ctx, path_to_master_pin(ctx))
         except Exception:
             pass
     try:
@@ -2726,7 +2788,7 @@ def path_to_master_pin(ctx: RunContext) -> str:
         } or (isinstance(reason, str) and reason.startswith("stale_upstream:"))
         if hard_upstream:
             if reason == "edl_incomplete":
-                return "edl"
+                return resume_producer(ctx, "edl")
             if reason == "assembly_missing":
                 return "assembly_preview"
             if reason == "listen_delight_incomplete":
@@ -2765,7 +2827,7 @@ def path_to_master_pin(ctx: RunContext) -> str:
             if pin == "edl" and not ctx.artifact_exists("master/edl.json"):
                 ensure_finalize_inputs_present(ctx)
                 if not ctx.artifact_exists("master/edl.json"):
-                    return "edl"
+                    return resume_producer(ctx, "edl")
             if pin == "edl":
                 return "junction_snip_qa"
             return pin if pin in PATH_TO_MASTER else "master_finalize"

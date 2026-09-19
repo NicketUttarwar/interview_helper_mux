@@ -200,11 +200,18 @@ def snap_cut_to_word_boundary(
     margin_ms: int = 50,
     max_shift_ms: int = 400,
 ) -> int:
-    """Nudge a cut end toward the nearest word boundary to avoid mid-word slices."""
+    """Nudge a cut end toward the nearest word boundary to avoid mid-word slices.
+
+    When the nearest hinge is a word *end* and the next word starts later, park
+    at the midpoint of that pause (not flush on the STT end / fixed margin) so
+    the release stays audible through mix crossfades.
+    """
     if not words or end_ms <= 0:
         return end_ms
     best = end_ms
     best_dist = max_shift_ms + 1
+    best_key = ""
+    best_boundary = end_ms
     for word in words:
         if not isinstance(word, dict):
             continue
@@ -214,8 +221,19 @@ def snap_cut_to_word_boundary(
                 continue
             dist = abs(boundary - end_ms)
             if dist <= max_shift_ms and dist < best_dist:
+                best_boundary = boundary
+                best_key = key
                 best = boundary + (margin_ms if key == "end_ms" else -margin_ms)
                 best_dist = dist
+    if best_key == "end_ms":
+        try:
+            from interview_mux.cut_edge_refine import pad_end_into_following_pause
+
+            padded = pad_end_into_following_pause(best_boundary, words)
+            if padded > best_boundary:
+                best = padded
+        except Exception:
+            pass
     return max(0, best)
 
 

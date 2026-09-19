@@ -176,7 +176,8 @@
       "stage": "edl_narrative_audit",
       "tier": "llm_full",
       "outputs": [
-        "master/edl_narrative_audit.json"
+        "master/edl_narrative_audit.json",
+        "master/selection.json"
       ]
     },
     {

@@ -23,7 +23,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | soft_gate disabled | Schema stub skip; heal | IN_CODE | `_persist_shape_agenda_skip` |
 | rollup thin / shape-core thin | Seed admit refused (consumer) | IN_CODE | `_research_thin_late_refuse` |
 | hollow agenda | HM-1 incompleteness | IN_CODE | schema validator |
-| LLM malformed | Fallback heuristic `llm_failed` | IN_CODE | `_heuristic_agenda_and_rubric` |
+| LLM malformed / wrong artifact / empty | One typed remutate, then hard incomplete | IN_CODE | `invoke_mastering_prompt` |
 
 ## 2. Upstream freshness
 
@@ -44,8 +44,8 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | clean heuristic (defaults) | Agenda+rubric; heal | IN_CODE | `shape_llm_enabled` false |
-| shape.llm on success | LLM agenda; rubric LLM or heuristic | IN_CODE | two `invoke_mastering_prompt` ≤2 each |
-| exception | Degraded stub agenda; heal | IN_CODE | except branch |
+| shape.llm on success | Schema-bound LLM agenda + schema-bound rubric | IN_CODE | one invoke + one typed remutate maximum each |
+| shape.llm on exception/exhaustion | CSP-05 hard incomplete; no stub heal-done | IN_CODE | typed remutate halt |
 | done-without-primary | HM-1 refuse | IN_CODE | |
 
 ## 5. Side effects
@@ -55,8 +55,8 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## 6. Complexity traps
 
-- OpenAI as optional control when `mastering.shape.llm.enabled` (default **false**)
-- Fail-open stubs always heal — risk of weak agendas — `IN_CODE`
+- OpenAI control is enabled by default at `mastering.shape.llm.enabled`
+- CSP-05: enabled LLM paths never soft-heal hollow agenda/rubric output — `IN_CODE`
 - Local heavy ML: N/A
 
 ## 7. Contract honesty
@@ -71,16 +71,16 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| N/A default (shape.llm false) | Heuristic | IN_CODE | app.defaults |
-| malformed / schema / ≤2 exhaust | Heuristic fallback + heal | IN_CODE | |
+| shape.llm false | Heuristic | IN_CODE | app.defaults override |
+| wrong envelope / schema-invalid / empty | One typed remutate, then hard incomplete | IN_CODE | |
 | hollow persist | Schema + HM-1 | IN_CODE | |
 
 ## 9. Full-auto / defaults path (REQUIRED)
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| Full-auto + defaults | soft_gate on, shape.llm off → heuristic agenda; no human | IN_CODE | `soft_gate.enable=true` |
-| human stall? | No (unless research thin blocks admit) | IN_CODE | |
+| Full-auto + defaults | soft_gate on, shape.llm on → schema-bound agenda/rubric | IN_CODE | |
+| human stall? | Only after typed remutate exhausts; driver hard-halts identical Finished-lie | IN_CODE | |
 | GUI-only? | No | IN_CODE | |
 | landmine | Research thin refuse blocks unattended Shape | IN_CODE | A-01 |
 | partial-only fix risk | Enabling shape.llm-only without fail-open would stall Full-auto | FULL_AUTO_REGRESSION_RISK | |
@@ -90,7 +90,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | flag | default | effect |
 |------|---------|--------|
 | `mastering.shape.soft_gate.enable` | true | skip stub if false |
-| `mastering.shape.llm.enabled` | false | OpenAI vs heuristic |
+| `mastering.shape.llm.enabled` | true | OpenAI vs heuristic |
 | soft_gate max_mode_candidates / skip_diversity / prefer_talking_points | 2 / true / true | heuristic knobs |
 
 ## TEST_GAP

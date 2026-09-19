@@ -60,7 +60,6 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/ideal_cuts.json
     producer: ideal_cuts_propose
   - path: understanding/interview_spine.json

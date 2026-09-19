@@ -43,8 +43,8 @@ def air_script_cfg() -> dict[str, Any]:
         "enable": True,
         # Default True for Manual; full-auto/homunculus override below.
         "fail_open": True,
-        "bed_coverage_aim_lo": 0.55,
-        "bed_coverage_aim_hi": 0.88,
+        "bed_coverage_aim_lo": 0.40,
+        "bed_coverage_aim_hi": 0.85,
     }
     if isinstance(raw, dict):
         out = {**defaults, **raw}

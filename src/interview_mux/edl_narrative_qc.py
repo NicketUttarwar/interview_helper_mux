@@ -814,9 +814,14 @@ def _validate_audit_artifact(ctx: RunContext, errors: list[str]) -> None:
     if not ctx.artifact_exists("master/edl_narrative_audit.json"):
         return
     audit = ctx.read_json("master/edl_narrative_audit.json")
-    verdict = _as_id(audit.get("verdict")).casefold()
-    blocking = audit.get("blocking_issues") or []
-    if verdict == "fail" or blocking:
+    from interview_mux.edl_narrative_remutate import (
+        effective_narrative_blocking_issues,
+    )
+
+    blocking = effective_narrative_blocking_issues(
+        ctx, audit if isinstance(audit, dict) else {}
+    )
+    if blocking:
         labels: list[str] = []
         for item in blocking[:4] if isinstance(blocking, list) else []:
             if isinstance(item, dict):

@@ -702,12 +702,13 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             except Exception:
                 pass
             # Hollow/incomplete — keep in candidates so quality can finish.
-        # Never enqueue edl while narrative audit verdict is fail.
+        # Never enqueue edl while narrative audit is missing or still blocking.
         if sid == "edl":
             try:
                 from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
 
-                if narrative_audit_blocks_edl(ctx):
+                audit_missing = not ctx.artifact_exists("master/edl_narrative_audit.json")
+                if audit_missing or narrative_audit_blocks_edl(ctx):
                     if "edl_narrative_audit" not in out and not seed_stage_complete(
                         ctx, "edl_narrative_audit"
                     ):

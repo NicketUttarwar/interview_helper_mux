@@ -295,7 +295,7 @@
       "host_vo_duration_max_ratio": 0.45,
       "host_vo_quartile_presence_min_ratio": 0.5,
       "bed_coverage_min_ratio": 0.4,
-      "bed_coverage_max_ratio": 0.88,
+      "bed_coverage_max_ratio": 0.85,
       "bed_quartile_presence_min_ratio": 0.5,
       "hinge_stinger_coverage_min_ratio": 0.3,
       "hinge_stinger_coverage_max_ratio": 1.0,
@@ -1017,6 +1017,9 @@
       "semantic_edge_buffer_ms": 5000,
       "acoustic_edge_refine": true,
       "acoustic_search_ms": 120,
+      "pause_midpoint_end": true,
+      "pause_midpoint_min_gap_ms": 80,
+      "pause_midpoint_max_pad_ms": 1000,
       "anchor_max_delta_ms": 8000,
       "word_index_max_delta_ms": 2000,
       "reject_unresolved_must_keep_anchors": true,
@@ -1547,8 +1550,8 @@
     "air_script": {
       "enable": true,
       "fail_open": true,
-      "bed_coverage_aim_lo": 0.55,
-      "bed_coverage_aim_hi": 0.88,
+      "bed_coverage_aim_lo": 0.4,
+      "bed_coverage_aim_hi": 0.85,
       "_comment": "Shape realization on mastering_plan \u2014 docs/cross-cutting/air-script.md. Fail-open only if plan absent."
     },
     "air_order_integrity": {

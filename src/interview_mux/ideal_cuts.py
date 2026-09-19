@@ -34,6 +34,10 @@ def ideal_cuts_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "semantic_edge_buffer_ms": 5_000,
         "acoustic_edge_refine": True,
         "acoustic_search_ms": 120,
+        # When a keep ends on a word and the next word is later, cut at mid-pause.
+        "pause_midpoint_end": True,
+        "pause_midpoint_min_gap_ms": 80,
+        "pause_midpoint_max_pad_ms": 1000,
         # Max |anchored_ms - approx_ms| before treating the pair as mismatched.
         "anchor_max_delta_ms": 8_000,
         # Word indexes are exact when correct; keep a tight disagreement budget so
@@ -719,6 +723,9 @@ def snap_ideal_cuts(
             search_ms=acoustic_search,
             apply_exact_words=True,
             apply_acoustic=acoustic_on,
+            pause_midpoint_end=bool(conf.get("pause_midpoint_end", True)),
+            pause_midpoint_min_gap_ms=int(conf.get("pause_midpoint_min_gap_ms") or 80),
+            pause_midpoint_max_pad_ms=int(conf.get("pause_midpoint_max_pad_ms") or 1000),
         )
         if end - start < min_ms:
             end = start + min_ms
@@ -1716,6 +1723,9 @@ def resolve_keeper_air_bounds(
             search_ms=acoustic_search,
             apply_exact_words=bool(words),
             apply_acoustic=acoustic_on,
+            pause_midpoint_end=bool(conf.get("pause_midpoint_end", True)),
+            pause_midpoint_min_gap_ms=int(conf.get("pause_midpoint_min_gap_ms") or 80),
+            pause_midpoint_max_pad_ms=int(conf.get("pause_midpoint_max_pad_ms") or 1000),
         )
         meta["edge_refine"] = edge_meta
         if edge_meta.get("steps"):

@@ -661,21 +661,18 @@ def validate_mastering_shape_agenda(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("mastering_shape_agenda.schema.json", data)
 
 
+def validate_mastering_eval_rubric(data: dict[str, Any]) -> list[str]:
+    """Shape L0 rubric must satisfy its published ingest contract."""
+    return _validate_by_artifact_schema("mastering_eval_rubric.schema.json", data)
+
+
 def validate_mastering_shape_candidates(data: dict[str, Any]) -> list[str]:
-    """HM-1: candidates.json is complete only with version + candidates list (not {})."""
-    if not isinstance(data, dict):
-        return ["(root): candidates document must be an object"]
-    body = {k: v for k, v in data.items() if k != "_meta"}
-    if not body:
-        return ["(root): empty candidates document"]
-    errs: list[str] = []
-    if "version" not in body:
-        errs.append("version: required")
-    if not isinstance(body.get("candidates"), list):
-        errs.append("candidates: must be an array")
-    if not body.get("generated_at"):
-        errs.append("generated_at: required")
-    return errs
+    """HM-1: candidates.json against the published non-empty contract."""
+    if isinstance(data, dict) and data.get("skipped") and data.get("candidates") == []:
+        return [] if data.get("version") == 1 and data.get("generated_at") else [
+            "version/generated_at: required for skipped candidates"
+        ]
+    return _validate_by_artifact_schema("mastering_shape_candidates.schema.json", data)
 
 
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).

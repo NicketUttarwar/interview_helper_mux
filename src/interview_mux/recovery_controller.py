@@ -1044,24 +1044,22 @@ def playbook_post_master_quality_missing(ctx: RunContext) -> list[str]:
 
 def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
     from interview_mux.artifact_repairs import repair_gap_report
-    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+    from interview_mux.high_gap_vo import resolve_seats
 
     written: list[str] = []
     repaired: dict[str, Any] | None = None
     if ctx.artifact_exists("understanding/gap_report.json"):
         doc = ctx.read_json("understanding/gap_report.json")
         if isinstance(doc, dict):
-            repaired, _notes = repair_gap_report(ctx, doc)
+            repaired, _notes = repair_gap_report(
+                ctx, doc, resolve_high_gap_seats=False
+            )
             ctx.write_json("understanding/gap_report.json", repaired)
             written.append("understanding/gap_report.json")
     if repaired is None:
         return written
-    # Compose persist already demotes leftovers after fill. Heal must do the
-    # same so lint can commit when fill cannot cover (no key / exhausted).
-    demoted = demote_uncovered_high_gaps(
-        ctx, gap_report=repaired, origin="uncovered_after_fill"
-    )
-    if demoted and ctx.artifact_exists("understanding/gap_evaluations.json"):
+    resolution = resolve_seats(ctx, intent="playbook", gap_report=repaired)
+    if resolution.demoted and ctx.artifact_exists("understanding/gap_evaluations.json"):
         written.append("understanding/gap_evaluations.json")
     return written
 

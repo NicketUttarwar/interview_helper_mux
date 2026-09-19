@@ -577,12 +577,13 @@ def constrain_conductor_to_seed_front(
             return remaining
     front = earliest_incomplete_seed_stage(ctx, phase, set(remaining))
     if front:
-        # Never pin EDL while narrative audit is still fail — re-audit / remutate first.
+        # Never pin EDL while narrative audit is missing or still fail.
         if phase == "delivery" and front == "edl":
             try:
                 from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
 
-                if narrative_audit_blocks_edl(ctx):
+                audit_missing = not ctx.artifact_exists("master/edl_narrative_audit.json")
+                if audit_missing or narrative_audit_blocks_edl(ctx):
                     front = "edl_narrative_audit"
             except Exception:
                 pass
@@ -1977,6 +1978,30 @@ def _walk_sequence(ctx: RunContext, walk_stages: list[str], *, reason: str):
     return iter(walk_stages)
 
 
+def _constrain_delivery_walk_for_sticky(
+    ctx: RunContext, stages: list[str]
+) -> list[str]:
+    """While sticky HARD is active, permit its producer pin and nothing else."""
+    try:
+        sticky = (
+            ctx.read_json("operator/sticky_heal.json")
+            if ctx.artifact_exists("operator/sticky_heal.json")
+            else {}
+        )
+    except Exception:
+        return list(stages)
+    active = sticky.get("active_halt") if isinstance(sticky, dict) else None
+    if not isinstance(active, dict):
+        return list(stages)
+    pin = str(active.get("pin") or "").strip()
+    if pin and pin in stages:
+        return [pin]
+    raise RuntimeError(
+        "Delivery incomplete after conductor — sticky halt refuses multi-stage "
+        f"walk; resume={pin or (stages[0] if stages else 'delivery')}"
+    )
+
+
 def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None:
     """Explicit logged fallback — not a silent linear fall-through."""
     append_ledger(
@@ -2152,6 +2177,14 @@ def run_homunculus_phase(
     if phase == "delivery" and prior:
         first = prior[0]
         start_idx = seed.index(first) if first in seed else 0
+        # Resume at edl with no narrative audit must re-include the audit producer
+        # (exec_13159: from_stage=edl sliced audit out → hollow Finished EDL).
+        if first == "edl" and "edl_narrative_audit" in seed:
+            try:
+                if not ctx.artifact_exists("master/edl_narrative_audit.json"):
+                    start_idx = min(start_idx, seed.index("edl_narrative_audit"))
+            except Exception:
+                pass
         forward = set(seed[start_idx:])
         holes = prepare_delivery_guardrails(ctx, forward)
         allow = set(prior) | (set(holes) & forward)
@@ -2350,6 +2383,10 @@ def run_homunculus_phase(
         except Exception:
             filtered = list(still)
         if filtered:
+            # A sticky HARD halt owns the only legal resume producer. Walking a
+            # multi-stage remainder while it is active hides the halt and burns
+            # unrelated producers.
+            filtered = _constrain_delivery_walk_for_sticky(ctx, filtered)
             # Cap narrative-audit-only cycles — force music/producer pin after N.
             try:
                 from interview_mux.thrash_hardening import (

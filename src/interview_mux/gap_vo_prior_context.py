@@ -8,6 +8,7 @@ courteous after mic-drop moments instead of interruptive density stock.
 from __future__ import annotations
 
 import re
+import zlib
 from typing import Any
 
 from interview_mux.config import merged_config
@@ -1592,14 +1593,46 @@ def repair_last_sentence_layup(
     target_text: str = "",
     category: str = "framing_question",
     target_segment_id: str | None = None,
+    max_words: int | None = None,
 ) -> str:
-    """Rewrite only the last sentence into a unique forward unlock from prior+target context."""
+    """Rewrite only the last sentence into a unique forward unlock from prior+target context.
+
+    When ``max_words`` is set, keep body+cue within that budget (exec_13159: trim then
+    blind cue append re-bloomed past context_setup max 20 → post-commit fail).
+    """
     stripped = str(text or "").strip()
     parts = re.split(r"(?<=[.!?…])\s+", stripped) if stripped else []
     parts = [p.strip() for p in parts if p.strip()]
     body = " ".join(parts[:-1]) if len(parts) > 1 else ""
 
-    from interview_mux.spoken_copy_guard import spoken_copy_violations
+    from interview_mux.spoken_copy_guard import shorten_spoken_text, spoken_copy_violations
+
+    def _word_n(s: str) -> int:
+        return len(re.findall(r"\S+", s or ""))
+
+    def _fit(body_text: str, cue: str) -> str:
+        cue = " ".join(str(cue or "").split()).strip()
+        if not cue:
+            return " ".join(str(body_text or "").split()).strip()
+        if max_words is None or max_words <= 0:
+            return f"{body_text} {cue}".strip() if body_text else cue
+        cue_n = _word_n(cue)
+        if cue_n >= max_words:
+            # Cue alone fills the budget — prefer the cue (forward-cue lint wins).
+            words = re.findall(r"\S+", cue)[:max_words]
+            return " ".join(words)
+        room = max_words - cue_n
+        body_clean = " ".join(str(body_text or "").split()).strip()
+        if not body_clean:
+            return cue
+        if _word_n(body_clean) > room:
+            body_clean = shorten_spoken_text(body_clean, room)
+        if not body_clean or _word_n(body_clean) > room:
+            return cue
+        out = f"{body_clean} {cue}".strip()
+        if _word_n(out) > max_words:
+            return cue
+        return out
 
     # Prefer target-grounded hinges before the generic courtesy seed so a
     # contrast/intro clip does not get a weaker stock cue first.
@@ -1619,9 +1652,11 @@ def repair_last_sentence_layup(
             continue
         if spoken_copy_violations(cue, evidence=evidence, seen_texts=[]):
             continue
-        candidate = f"{body} {cue}".strip() if body else cue
+        candidate = _fit(body, cue)
         if not body and cue.endswith("?"):
             # A question with no factual body is not a layup/orientation.
+            continue
+        if not candidate:
             continue
         probe = {
             "text": candidate,
@@ -1639,11 +1674,13 @@ def repair_last_sentence_layup(
     # vo_bridge_seg_044 → post-commit "needs a forward cue" loop).
     fallback = "Let's hear how that beat lands."
     if body:
-        return f"{body} {fallback}".strip()
+        return _fit(body, fallback)
     if stripped and not stripped.endswith("?"):
         base = stripped.rstrip(".!?…").rstrip()
-        return f"{base}. {fallback}".strip()
+        return _fit(f"{base}.", fallback) if base else fallback
     if stripped.endswith("?"):
+        if max_words is not None and max_words > 0 and _word_n(stripped) > max_words:
+            return _fit("", stripped)  # question alone; _fit truncates if needed
         return stripped
     return fallback or seeded or stripped
 
@@ -1724,6 +1761,21 @@ def is_interruptive_opener(text: str) -> bool:
     return bool(INTERRUPTIVE_OPENER_RE.match(text or ""))
 
 
+# Diversified stock lines so multi-seed high-gap repair does not collapse into
+# identical copy that spoken_copy_guard omits as spoken_repeated_copy (exec_13157).
+# Keep only phrases that pass spoken_copy_guard + spoken_meta_lint (no segment/clip).
+_COURTESY_SEED_POOL: tuple[str, ...] = (
+    "How does this next moment reframe what we just heard?",
+    "What claim should we test as this continues?",
+    "What tension carries into what comes next?",
+    "How should we hear what follows differently?",
+    "What is at stake as this continues?",
+    "What should we listen for as this continues?",
+    "How does that landing set up what follows?",
+    "What changes if we stay with this idea a beat longer?",
+)
+
+
 def courtesy_seed_text(
     prior: dict[str, Any] | None,
     *,
@@ -1733,7 +1785,8 @@ def courtesy_seed_text(
     """Deterministic courteous density-seed copy with no spoken edit metadata.
 
     ``target_segment_id`` remains an anchoring input for callers, but is never
-    interpolated into listener-facing copy.
+    interpolated into listener-facing copy. Always returns non-empty speakable
+    text — empty courtesy seeds were omitted then left high gaps lint-dirty.
     """
     quote = ""
     impact = False
@@ -1745,6 +1798,11 @@ def courtesy_seed_text(
     # Truncate quote for spoken VO length.
     if len(quote) > 110:
         quote = quote[:107].rstrip() + "…"
+    pool_i = (
+        zlib.crc32(str(target_segment_id or category).encode("utf-8"))
+        % len(_COURTESY_SEED_POOL)
+    )
+    diversified = _COURTESY_SEED_POOL[pool_i]
     if category == "episode_preface":
         if impact and quote:
             candidate = "That landing stays with you — what should we listen for next?"
@@ -1764,13 +1822,13 @@ def courtesy_seed_text(
         elif complete and quote:
             candidate = "That lands — what follows?"
         else:
-            candidate = "Hold onto that — what comes next?"
+            candidate = diversified
     elif impact and quote:
         candidate = "Given what you just said — how did that reshape what came next?"
     elif complete and quote:
         candidate = "Building on that — what changed next?"
     else:
-        candidate = "What changed next in that stretch?"
+        candidate = diversified
 
     from interview_mux.spoken_copy_guard import guard_spoken_copy
 
@@ -1783,11 +1841,14 @@ def courtesy_seed_text(
     decision = guard_spoken_copy(
         candidate,
         evidence=evidence,
-        required=False,
+        required=True,
         purpose=f"gap_prior_fallback[{category}]",
     )
-    return str(decision.get("text") or "")
-
+    text = str(decision.get("text") or "").strip()
+    if text:
+        return text
+    # Required guard still emptied (omit/block) — never seed blank high-gap VO.
+    return diversified
 
 def enrich_line_with_prior_context(
     line: dict[str, Any],

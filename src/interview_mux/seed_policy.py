@@ -15,6 +15,11 @@ FREEZE_STICKY_SEED_STAGES: frozenset[str] = frozenset(
     {
         "selection_framing_apply",
         "gap_framing_recompose",
+        # Layup compose is frozen history after EDL — do not seed-rewind mix
+        # into LLM re-compose (exec_13159 shard/sanitary thrash under seal).
+        "nugget_layup_compose",
+        # SDP already consumed by VO finalize + EDL + music — sticky under seal.
+        "sound_design_plan",
     }
 )
 

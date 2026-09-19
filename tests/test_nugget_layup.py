@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -2617,3 +2618,98 @@ def test_ncm_b2_disabled_empty_corpus_ok(monkeypatch):
         lambda: False,
     )
     assert stage_artifact_incompleteness(ctx, "nugget_corpus_mine") is None
+
+
+def test_edl_adopt_must_use_layup_owner_not_edl_stage_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): edl stage_key cannot persist layup adopt.
+
+    exec_13159: adopt_layup_plan_to_selection(..., stage="edl") AuthorityDenied
+    → stale plan 35 vs selection 34 → mix seed-order rewind under edl_sealed.
+    """
+    import os
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        adopt_layup_plan_to_selection,
+        layup_freshness_errors,
+    )
+    from interview_mux.delivery_guardrails import seed_stage_complete
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "layup_adopt_owner")
+    ordered = ["seg_a", "seg_b"]
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ordered, "order_lock": {"revision": 1}},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ordered + ["seg_stale"],
+            "layups": [],
+            "order_lock": {"revision": 1},
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
+    ok_edl, reason_edl = write_permitted(
+        ctx, PLAN_REL, "edl", role="producer"
+    )
+    assert not ok_edl and "not_allow" in reason_edl
+    assert layup_freshness_errors(ctx)
+    res = adopt_layup_plan_to_selection(ctx, persist=True, stage="nugget_layup_compose")
+    assert res.get("ok")
+    assert layup_freshness_errors(ctx) == []
+    assert ctx.read_json(PLAN_REL)["ordered_segment_ids"] == ordered
+
+
+def test_sealed_clears_layup_compose_shards_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: after EDL, nugget incompleteness is inert (no mix←nugget rewind).
+
+    exec_13159: thrash re-entry stamped compose_shards_pending / sanitary noise
+    after EDL sealed.
+    """
+    import os
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.nugget_layup import PLAN_REL
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "layup_shard_seal")
+    ordered = ["seg_a", "seg_b"]
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ordered, "order_lock": {"revision": 2}},
+        skip_handoff=True,
+    )
+    edl_path = ctx.path("master", "edl.json")
+    edl_path.parent.mkdir(parents=True, exist_ok=True)
+    edl_path.write_text('{"version":1,"timeline_duration_ms":1,"clips":[]}\n')
+    ctx.mark_done("edl")
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ordered,
+            "layups": [],
+            "order_lock": {"revision": 2},
+            "_meta": {
+                "compose_shards_pending": True,
+                "compose_shard_index": 1,
+                "compose_shard_total": 2,
+            },
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch",
+        lambda _ctx: "edl_sealed",
+    )
+    assert stage_artifact_incompleteness(ctx, "nugget_layup_compose") is None

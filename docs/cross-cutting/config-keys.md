@@ -545,6 +545,9 @@ Talking-points-first cut authority — `ideal_cuts.py`, stages `talking_points_c
 | `semantic_edge_buffer_ms` | `5000` | Lookback/lookahead budget when auto-fixing illegal opens/ends |
 | `acoustic_edge_refine` | `true` | After word pins, micro-nudge into silence valleys on `ingest/normalized.wav` |
 | `acoustic_search_ms` | `120` | ±search window for silence-valley micro-snap (never across neighbor words) |
+| `pause_midpoint_end` | `true` | When a keep ends on a finished word and the next word starts later, park the cut at mid-pause (protects word release through mix crossfades) |
+| `pause_midpoint_min_gap_ms` | `80` | Minimum post-word gap before mid-pause placement applies |
+| `pause_midpoint_max_pad_ms` | `1000` | Cap post-word air at this many ms after the word end (midpoint of longer gaps is clamped) |
 | `skip_boundary_llm_when_bound` | `true` | When materialize published boundaries, skip `boundary_detection` LLM |
 | `skip_topic_resplit_when_bound` | `true` | Skip `boundary_topic_resplit` when ideal-cuts boundaries are authoritative |
 | `skip_classification_llm_when_bound` | `true` | Skip `segment_classification` LLM; build manifest from cuts + speakers |
@@ -908,14 +911,14 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 | `host_vo_coverage_min_ratio` / `max` | `0.12` / `0.85` | Share of selected segments near a host VO/transition |
 | `host_vo_duration_min_ratio` / `max` | `0.04` / `0.45` | Host vs total speech duration |
 | `host_vo_quartile_presence_min_ratio` | `0.5` | Quartiles with host presence |
-| `bed_coverage_min_ratio` / `max` | `0.40` / `0.88` | Selection duration under beds |
+| `bed_coverage_min_ratio` / `max` | `0.40` / `0.85` | Selection duration under beds |
 | `bed_quartile_presence_min_ratio` | `0.5` | Quartiles with a bed |
 | `hinge_stinger_coverage_min_ratio` / `max` | `0.3` / `1.0` | Chapter/topic hinges with punctuator |
 | `intentional_air_min_ratio` / `max` | `0.01` / `0.12` | Explicit silence pads in EDL |
 | `gap_eval_scored_min_ratio` | `0.95` | Scored gap evaluations completeness |
 | `fail_closed` | `true` | Mix raises on listenability fail |
 
-`bed_coverage_max_ratio` (`0.88`) and `hinge_stinger_coverage_min_ratio` (`0.3`) were widened/loosened from earlier `0.55` / `0.5` — bed-heavy passages and lighter hinge-punctuation density are both legitimate, so the guard should not fail a well-produced master for being musically dense or for using restraint at minor hinges.
+`bed_coverage_max_ratio` (`0.85`) and `hinge_stinger_coverage_min_ratio` (`0.3`) — bed-heavy passages (up to ~85%) and lighter hinge-punctuation density are both legitimate; the old `0.55` ceiling under-filled mid/late show.
 
 **Retention / pack-to-target policy:** product **soft ideal** is **~65% of source** for the final master (selection is the pre-mix proxy). Prefer **shorter / more concise** than padding — do not fill toward the ceiling. Trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.65` of source), not a hard floor. The hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — catastrophe net only). The hard ceiling is `analysis.delivery_brief.max_ratio_of_source` (**`1.5`** / 150% of source — VO/music may expand past source, never a target). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
 
@@ -967,8 +970,8 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.shape.episode_close.fade_out_ms` | `2200` | Gentle long outro fade | Mix also floors via `bookend_fade_out_ms` |
 | `mastering.air_script.enable` | `true` | Pass A/B air-script on `mastering_plan` (`air_script_compose`, `air_script_seams`) | `false` skips both stages — EDL falls back to concatenating approved parts |
 | `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
-| `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
-| `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
+| `mastering.air_script.bed_coverage_aim_lo` | `0.40` | Low end of underbed aim (Shape band ~40–85%) | Dry exceptions (skip-underscore / overlap) ignore this |
+| `mastering.air_script.bed_coverage_aim_hi` | `0.85` | High end of underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
 | `mastering.air_order_integrity.opening_window_ms` | `180000` | Source-tape window treated as opening (static fallback) | Segments with earlier `start_ms` subject to opening policy |
 | `mastering.air_order_integrity.opening_window_ratio` | `0.05` | Scale opening window as `ceil(duration * ratio)` | Clamped by min/max below |
 | `mastering.air_order_integrity.opening_window_min_ms` | `90000` | Floor for scaled opening window | — |
@@ -1235,7 +1238,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `2` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
 | `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-16` / `-12` | Constant underbed gain band | Mix applies this `level_db` with no speech-gate duck. Dense tape uses the quiet end (−16). Speech-maximal profile stays quieter (−20/−16). |
 
-**Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.40`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
+**Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.40`/`0.85`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
 ---
 

@@ -628,3 +628,201 @@ def test_precedence_requires_authoritative_complete() -> None:
         assert out2 == ["a", "b", "c"]
     finally:
         mpl.consumers_bind_enabled = prev  # type: ignore[assignment]
+
+
+def test_msa_prompt_shaped_agenda_ingests_not_hollow(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): prompt-shaped meta-architect JSON must ingest.
+
+    exec_13157: LLM returned mastering_shape_agenda with levels={run:[…]} and
+    ordered_custom_steps — lint treated it as agenda_llm_hollow and thrash-spun.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.mastering_shape_runtime import _agenda_from_llm
+    from interview_mux.prompt_validation import validate_mastering_shape_agenda
+
+    prompt_shaped = {
+        "mastering_shape_agenda": {
+            "levels": {
+                "run": ["narrative_mode", "cold_open", "montage_grammar"],
+                "skip": ["template five-act checklists"],
+                "deepen": ["bespoke_rationale"],
+            },
+            "ordered_custom_steps": [
+                {"step": "Define narrative mode", "goal": "Establish style."},
+                {"step": "Identify cold open", "goal": "Hook the listener."},
+            ],
+            "anti_patterns": ["Overly generic introductions"],
+            "system_prompt_draft_seeds": {
+                "excellence_pillars": ["Engaging narrative", "Clear content"]
+            },
+            "budgets": {"max_steps": 5, "max_prompt_edits": 3, "max_flagship_calls": 2},
+        }
+    }
+    agenda = _agenda_from_llm(prompt_shaped)
+    assert agenda is not None, "prompt-shaped agenda must not be treated as hollow"
+    assert agenda["source"] == "llm"
+    assert agenda["levels"]["narrative_mode"] == "run"
+    assert agenda["levels"]["template five-act checklists"] == "skip"
+    assert any(s["step_id"] == "Define narrative mode" for s in agenda["steps"])
+    assert "Engaging narrative" in agenda["north_star_pillars"]
+    assert validate_mastering_shape_agenda(agenda) == []
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda _cfg=None: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.soft_gate_enabled",
+        lambda: True,
+    )
+    calls = {"n": 0}
+
+    def _fake_invoke(_ctx, stage_key, prompt_rel, user_payload, *, max_attempts=2):
+        calls["n"] += 1
+        if "meta-architect" in prompt_rel:
+            return prompt_shaped
+        if "eval-rubric" in prompt_rel:
+            return {
+                "criteria": [
+                    {
+                        "criterion_id": "finish",
+                        "description": "finishable",
+                        "weight": 1.0,
+                    }
+                ],
+                "style_axes": [{"axis": "clarity", "value": "high"}],
+            }
+        return {}
+
+    monkeypatch.setattr(
+        "interview_mux.mastering_llm.invoke_mastering_prompt",
+        _fake_invoke,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "t", "topics": [{"name": "a", "summary": "b"}]},
+    )
+    run_mastering_shape_agenda(ctx)
+    assert ctx.is_done("mastering_shape_agenda")
+    assert ctx.artifact_exists("mastering/shape/agenda.json")
+    assert calls["n"] >= 2
+
+
+def test_msa_rubric_payload_rejects_shape_plan_body(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): rubric invoke must not inherit agenda response_contract.
+
+    exec_13157: shared Shape payload asked for plan/agenda → model returned
+    mastering_shape; rubric_llm_failed thrash.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.mastering_shape_runtime import (
+        _rubric_from_llm,
+        _shape_llm_user_payload,
+    )
+
+    assert _rubric_from_llm({"mastering_shape": {"narrative_mode": "run"}}) is None
+    ok = _rubric_from_llm(
+        {
+            "mastering_eval_rubric": {
+                "style_axes": [{"axis": "technical_density", "value": "high"}],
+                "criteria": [
+                    {
+                        "criterion_id": "finishability",
+                        "description": "finishable listen",
+                        "weight": 1.0,
+                    }
+                ],
+            }
+        }
+    )
+    assert ok is not None and ok["source"] == "llm"
+    assert ok["criteria"][0]["criterion_id"] == "finishability"
+
+    payload = _shape_llm_user_payload(
+        ctx, consumer_id="shape_agenda_pass1", pass_name="provisional", artifact="rubric"
+    )
+    assert payload["artifact"] == "rubric"
+    assert payload["response_contract"]["required_artifact"] == "mastering_eval_rubric"
+    assert "mastering_shape" in payload["response_contract"]["forbid"]
+    assert "Produce the best bespoke mastering shape agenda" not in payload["goal"]
+
+
+def test_msa_rubric_contract_response_format_inlines_defs(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): rubric response_format must not raise on $ref items.
+
+    exec_13159: _contract_response_format(mastering_eval_rubric) hit OpenAI strict
+    lint on style_axes/criteria/anti_patterns $ref → MSA hollow ValueError thrash.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.mastering_llm import _contract_response_format
+    from interview_mux.openai_schema_lint import lint_openai_strict_schema
+    from interview_mux.openai_structured_output import load_schema_file
+
+    load_schema_file.cache_clear()
+    fmt = _contract_response_format(
+        "mastering_eval_rubric", "mastering_eval_rubric.schema.json"
+    )
+    schema = fmt["json_schema"]["schema"]
+    assert lint_openai_strict_schema(schema) == []
+    blob = json.dumps(schema)
+    assert "$ref" not in blob
+    items = schema["properties"]["artifacts"]["properties"]["mastering_eval_rubric"][
+        "properties"
+    ]["criteria"]["items"]
+    assert "properties" in items and "criterion_id" in items["properties"]
+
+
+def test_msc_candidates_payload_uses_candidates_contract(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): candidates invoke must not inherit agenda contract.
+
+    exec_13157: default artifact=agenda → model returned mastering_shape_agenda →
+    candidates_llm_hollow thrash.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.mastering_shape_runtime import (
+        _candidates_from_llm,
+        _shape_llm_user_payload,
+    )
+
+    assert _candidates_from_llm({"mastering_shape_agenda": {"mode_candidates": ["a"]}}) is None
+    ok = _candidates_from_llm(
+        {
+            "mastering_shape_candidates": {
+                "version": 1,
+                "pass": "provisional",
+                "candidates": [
+                    {
+                        "candidate_id": "c1",
+                        "narrative_mode": "conversational_host",
+                        "rationale": "fit",
+                    }
+                ],
+            }
+        }
+    )
+    assert ok is not None and ok["source"] == "llm"
+
+    payload = _shape_llm_user_payload(
+        ctx,
+        consumer_id="shape_candidates_pass1",
+        pass_name="provisional",
+        artifact="candidates",
+    )
+    assert payload["artifact"] == "candidates"
+    assert payload["response_contract"]["required_artifact"] == "mastering_shape_candidates"

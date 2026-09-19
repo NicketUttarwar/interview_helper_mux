@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from interview_mux.boundary_collate import normalize_boundary_timeline
 from interview_mux.boundary_enrich import (
     detect_overloaded_segment_ids,
@@ -327,3 +329,65 @@ def test_restamp_run_span_speakers_rewrites_manifest_from_words(tmp_path):
     assert row["speaker_id"] == "spk_1"
     assert row["speaker_role"] == "interviewee"
     assert row["type"] == "interviewee_answer"
+
+
+def test_restamp_under_missing_framing_uses_allow_stage_key(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): restamp must not inherit missing_framing owner.
+
+    exec_13159: AuthorityDenied persist segments/boundaries.json under
+    missing_framing (owner=edl_overlap_repair) — blocked analysis completion.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.boundary_enrich import restamp_run_span_speakers
+    from interview_mux.write_staging import (
+        active_stage_id,
+        enter_stage_staging,
+        exit_stage_staging,
+    )
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "restamp_msa_owner")
+    words = _words(
+        ("The", "spk_1", 0, 2000),
+        ("science", "spk_1", 2100, 4000),
+    )
+    ctx.write_json("transcript/full.json", {"words": words, "text": "The science"}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/boundaries.json",
+        {
+            "_meta": {"segment_contract": {"publisher_stage": "chapter_close_hitch"}},
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "speaker_id": "spk_0",
+                    "proposed_split_reason": "test",
+                }
+            ],
+        },
+        skip_handoff=True,
+        stage_key="boundary_detection",
+    )
+    enter_stage_staging("missing_framing")
+    try:
+        assert active_stage_id() == "missing_framing"
+        changed = restamp_run_span_speakers(ctx)
+    finally:
+        exit_stage_staging()
+    assert changed["boundaries"] >= 1
+    row = ctx.read_json("segments/boundaries.json")["boundaries"][0]
+    assert row["speaker_id"] == "spk_1"

@@ -454,8 +454,8 @@
         "content_brief_reanchor",
         "framing_posture_decide",
         "full_master_ranking",
-        "mastering_plan_confirm",
         "mastering_plan_synthesize",
+        "mastering_research_rollup",
         "narrative_arc_plan",
         "segment_classification",
         "selection_order_sanitize",
@@ -487,6 +487,7 @@
         "information_package_plan",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
+        "mastering_research_rollup",
         "missing_framing",
         "narrative_arc_plan",
         "nugget_corpus_mine",
@@ -618,6 +619,7 @@
     "master/selection.json": {
       "schemas_by_producer": {
         "full_master_ranking": "master_selection_artifact.schema.json",
+        "edl_narrative_audit": null,
         "selection_order_sanitize": "master_selection_artifact.schema.json"
       },
       "producers": [
@@ -638,10 +640,14 @@
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
         "narrative_arc_plan",
+        "selection_order_sanitize",
+        "sonic_context_build",
+        "sound_design_palettes",
         "source_topology_build",
         "topic_coverage_audit",
         "transitions",
-        "vernacular_segment_sanitize"
+        "vernacular_segment_sanitize",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },

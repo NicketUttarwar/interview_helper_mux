@@ -8,7 +8,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.session_log import append_log
 
 RUNNING_STATUSES = frozenset({"running", "running_with_warnings"})
-INTERRUPTED_MESSAGE = "Server restarted — safe to re-run."
+INTERRUPTED_MESSAGE = "Server restarted — infrastructure interrupt; safe to resume."
 STALLED_MESSAGE = "Stage stalled — no progress recently. Safe to re-run."
 WRITE_APPROVAL_EXIT = 2
 
@@ -528,6 +528,7 @@ def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
             return True
     data["status"] = "interrupted"
     data["message"] = INTERRUPTED_MESSAGE
+    data["interrupt_class"] = "infrastructure"
     ctx.write_json("gui_job.json", data)
     append_log(
         ctx.run_dir,

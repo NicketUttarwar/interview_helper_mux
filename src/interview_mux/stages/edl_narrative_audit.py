@@ -101,18 +101,57 @@ def compact_air_script_vo_seats(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def prepare_edl_narrative_audit_inputs(ctx: RunContext) -> dict[str, Any]:
+    """Dedupe spoken seams, then persist disk-grounded occupancy before the LLM."""
+    from interview_mux.gap_framing import dedupe_transitions_for_framing
+    from interview_mux.seam_occupancy import build_seam_occupancy
+    from interview_mux.transition_vo import persist_transitions_doc
+
+    selection = ctx.read_json("master/selection.json")
+    gap_report = _optional_json(ctx, "understanding/gap_report.json")
+    transitions = _optional_json(ctx, "master/transitions.json")
+    deduped = dedupe_transitions_for_framing(
+        gap_report,
+        transitions,
+        ctx=ctx,
+    )
+    if deduped != transitions:
+        deduped = persist_transitions_doc(
+            ctx,
+            deduped,
+            stage_key="transitions",
+            skip_handoff=True,
+        )
+    occupancy = build_seam_occupancy(
+        ctx,
+        selection=selection if isinstance(selection, dict) else {},
+        gap_report=gap_report,
+        transitions_doc=deduped,
+        stage_key="transitions",
+    )
+    return {
+        "selection": selection,
+        "transitions": deduped,
+        "gap_report": gap_report,
+        "seam_occupancy": occupancy,
+    }
+
+
 def run_edl_narrative_audit(ctx: RunContext) -> None:
     """Flagship semantic audit before final Flow 1 EDL construction."""
     from interview_mux.delivery_guardrails import seed_stage_complete
+
+    prepared = prepare_edl_narrative_audit_inputs(ctx)
 
     def build_input(c: RunContext) -> dict:
         payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("master/coverage_audit.json"),
             "narrative_plan": c.read_json("master/narrative_plan.json"),
-            "selection": c.read_json("master/selection.json"),
-            "transitions": _optional_json(c, "master/transitions.json"),
-            "gap_report": _optional_json(c, "understanding/gap_report.json"),
+            "selection": prepared["selection"],
+            "transitions": prepared["transitions"],
+            "gap_report": prepared["gap_report"],
+            "seam_occupancy": prepared["seam_occupancy"],
             "nle_edits": _optional_json(c, "segments/nle_edits.json"),
             "sound_design_plan": _optional_json(c, "understanding/sound_design_plan.json"),
             "air_script_vo_seats": compact_air_script_vo_seats(c),

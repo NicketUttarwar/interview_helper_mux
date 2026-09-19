@@ -153,14 +153,15 @@ def _standards_for_pace(pace: str, underscore: str) -> dict[str, Any]:
         min_rel = 14.0
     if underscore in {"skip", "sparse_or_skip"}:
         min_rel = 10.0
-    coverage = 0.75
+    # Soft ceiling for beds under speech — Shape band ~0.40–0.85 (not the old 0.55 cap).
+    coverage = 0.85
     if underscore == "sparse":
         coverage = 0.55
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
         # Creative delivery still wants audible beds under dense talk.
-        coverage = 0.55
+        coverage = 0.85
     return {
         "min_speech_relative_db": min_rel,
         "max_midrange_overlap_score": 0.35,
@@ -542,13 +543,14 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     bed_range = sap_mix.get("bed_level_db_range") or [-16.0, -12.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
         bed_range = [-16.0, -12.0]
-    coverage = 0.55
+    # Default ceiling ~85% so compose can fill mid/late show; min floor stays ~40%.
+    coverage = 0.85
     if underscore == "sparse":
-        coverage = 0.40
+        coverage = 0.55
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
-        coverage = 0.40
+        coverage = 0.85
 
     mix = {
         "bed_level_db_range": [float(bed_range[0]), float(bed_range[1])],
@@ -610,7 +612,7 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
                     else:
                         dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
                     dens["max_foley"] = 0
-                    coverage = min(max(coverage, 0.40), 0.75)
+                    coverage = min(max(coverage, 0.40), 0.85)
                     mix["max_bed_coverage_ratio"] = coverage
                     mix["underscore_policy"] = underscore
                     standards["max_bed_coverage_ratio"] = coverage

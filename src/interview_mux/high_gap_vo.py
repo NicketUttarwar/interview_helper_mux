@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from interview_mux.run_context import RunContext
 
@@ -12,6 +14,33 @@ PROMPT_REL = "interviewer-gap/high-gap-vo-fill.system.txt"
 
 _CHILD_SUFFIX_RE = re.compile(r"^(seg_\d+)([a-z]+)$", re.IGNORECASE)
 _SEG_IN_TEXT_RE = re.compile(r"(seg_\d+[a-z]*)", re.IGNORECASE)
+
+HighGapIntent = Literal["compose_persist", "repair", "heal_floor_protect", "playbook"]
+_HIGH_GAP_INTENTS = frozenset(
+    {"compose_persist", "repair", "heal_floor_protect", "playbook"}
+)
+
+
+@dataclass(frozen=True)
+class HighGapSeat:
+    """One authoritative high-gap coverage decision."""
+
+    segment_id: str
+    on_air: bool
+    selected: bool
+    action: Literal["covered", "demoted", "floor_protected"]
+    reason: str
+
+
+@dataclass(frozen=True)
+class HighGapSeatLedger:
+    """Result of resolving every currently-high gap exactly once."""
+
+    intent: HighGapIntent
+    seats: tuple[HighGapSeat, ...]
+    demoted: int = 0
+    floor_protected: int = 0
+    floor_unmet: bool = False
 
 
 def parent_id_of_segment(sid: str) -> str | None:
@@ -58,6 +87,14 @@ def targeted_segment_ids(
     for ln in lines or []:
         if not isinstance(ln, dict):
             continue
+        # Coverage means audible copy, not a stale target/reference.  Omitted,
+        # optional-skipped, and blank rows own no high-gap seat.
+        if (
+            ln.get("skipped_optional")
+            or ln.get("air_script_omit")
+            or not str(ln.get("text") or "").strip()
+        ):
+            continue
         for key in ("targets_segment_id", "segment_id"):
             sid = str(ln.get(key) or "")
             if sid:
@@ -80,6 +117,189 @@ def targeted_segment_ids(
     return expand_targeted_with_parents(targeted, ctx)
 
 
+def _selected_segment_ids(ctx: RunContext) -> set[str] | None:
+    if not ctx.artifact_exists("master/selection.json"):
+        return None
+    try:
+        selection = ctx.read_json("master/selection.json")
+        if isinstance(selection, dict):
+            ordered = {
+                str(s) for s in (selection.get("ordered_segment_ids") or []) if s
+            }
+            return ordered or None
+    except Exception:
+        pass
+    return None
+
+
+def _hosted_floor_state(
+    ctx: RunContext, report: dict[str, Any]
+) -> tuple[bool, int, int]:
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+
+        if not hosted_framing_requires_synthetic_vo(ctx):
+            return False, 0, 0
+        need = min_synthetic_vo_lines(ctx)
+    except Exception:
+        return False, 0, 0
+    active = 0
+    for row in report.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if (
+            row.get("skipped_optional")
+            or row.get("air_script_omit")
+            or not str(row.get("text") or "").strip()
+        ):
+            continue
+        delivery = str(row.get("delivery") or "synthesize").strip().lower()
+        if delivery in {"synthesize", "record", "voice_clone", "chatterbox", "mlx_audio"}:
+            active += 1
+    return active < need, need, active
+
+
+def _fill_is_budgeted(ctx: RunContext) -> bool:
+    """A fill is actionable only with credentials and remaining identity budget."""
+    if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
+        return False
+    try:
+        from interview_mux.homunculus.budget import identity_exhausted
+
+        return not identity_exhausted(ctx, "high_gap_vo_fill")
+    except Exception:
+        return False
+
+
+def _stamp_or_top_up_floor(
+    ctx: RunContext, *, report: dict[str, Any], need: int, active: int
+) -> bool:
+    """Try the layup seat path, then leave a sticky floor-unmet pin."""
+    try:
+        from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+        ensure_hosted_framing_vo_seats(ctx)
+    except Exception:
+        pass
+    # The resolver may be operating on a pre-persist repair document, so its
+    # on-air count remains authoritative for deciding whether green is legal.
+    under, need_after, active_after = _hosted_floor_state(ctx, report)
+    if not under:
+        return False
+    try:
+        from interview_mux.vo_contract import _record_hosted_floor_unmet
+
+        _record_hosted_floor_unmet(
+            ctx,
+            need=need_after or need,
+            active=active_after if need_after else active,
+        )
+    except Exception:
+        pass
+    return True
+
+
+def resolve_seats(
+    ctx: RunContext,
+    *,
+    intent: HighGapIntent,
+    gap_report: dict[str, Any] | None = None,
+) -> HighGapSeatLedger:
+    """Resolve high-gap coverage/demotion from one intent-driven policy."""
+    if intent not in _HIGH_GAP_INTENTS:
+        raise ValueError(f"unknown high-gap seat intent: {intent}")
+    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
+        return HighGapSeatLedger(intent=intent, seats=())
+    try:
+        evaluations = ctx.read_json("understanding/gap_evaluations.json")
+    except Exception:
+        return HighGapSeatLedger(intent=intent, seats=())
+    if not isinstance(evaluations, dict):
+        return HighGapSeatLedger(intent=intent, seats=())
+    report = gap_report
+    if report is None:
+        try:
+            loaded = ctx.read_json("understanding/gap_report.json")
+            report = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            report = {}
+    targeted = targeted_segment_ids(
+        report.get("interviewer_lines")
+        if isinstance(report.get("interviewer_lines"), list)
+        else [],
+        ctx,
+    )
+    selected_ids = _selected_segment_ids(ctx)
+    floor_under, floor_need, floor_active = _hosted_floor_state(ctx, report)
+    protect_floor = (
+        intent == "heal_floor_protect" and floor_under and _fill_is_budgeted(ctx)
+    )
+    rows: list[dict[str, Any]] = []
+    seats: list[HighGapSeat] = []
+    demoted = 0
+    protected = 0
+    for original in evaluations.get("evaluations") or []:
+        if not isinstance(original, dict):
+            continue
+        row = original
+        sid = str(row.get("segment_id") or "")
+        if not sid or str(row.get("severity") or "").lower() != "high":
+            rows.append(row)
+            continue
+        selected = selected_ids is None or sid in selected_ids
+        if sid in targeted:
+            seats.append(HighGapSeat(sid, True, selected, "covered", "on_air"))
+        elif protect_floor and selected:
+            protected += 1
+            seats.append(
+                HighGapSeat(
+                    sid,
+                    False,
+                    True,
+                    "floor_protected",
+                    "fill_budget_remaining",
+                )
+            )
+        else:
+            row = dict(row)
+            row["severity"] = "medium"
+            reason = f"high_gap_seat:{intent}" + (":off_air" if not selected else "")
+            row["severity_demotion_reason"] = reason
+            demoted += 1
+            seats.append(HighGapSeat(sid, False, selected, "demoted", reason))
+        rows.append(row)
+    if demoted:
+        out = dict(evaluations)
+        out["evaluations"] = rows
+        try:
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            write_validated_artifact(
+                ctx,
+                "understanding/gap_evaluations.json",
+                out,
+                merge_from_disk=False,
+                stage_key="missing_framing",
+            )
+        except Exception:
+            ctx.write_json("understanding/gap_evaluations.json", out)
+    floor_unmet = False
+    if floor_under and not protect_floor:
+        floor_unmet = _stamp_or_top_up_floor(
+            ctx, report=report, need=floor_need, active=floor_active
+        )
+    return HighGapSeatLedger(
+        intent=intent,
+        seats=tuple(seats),
+        demoted=demoted,
+        floor_protected=protected,
+        floor_unmet=floor_unmet,
+    )
+
+
 def _seg_text(ctx: RunContext, sid: str) -> str:
     if not sid or not ctx.artifact_exists("segments/manifest.json"):
         return ""
@@ -99,99 +319,17 @@ def demote_uncovered_high_gaps(
     gap_report: dict[str, Any] | None = None,
     origin: str = "uncovered_after_fill",
 ) -> int:
-    """Demote remaining high-severity evals that still have no interviewer line.
-
-    Compose lint rejects ``gap_report`` when a high gap has no targeting line.
-    After seed/fill (and skip of blank/contiguous/unspeakable spans), leftover
-    high rows cannot ship — demote them to medium with a typed reason so the
-    stage can commit instead of looping forever.
-
-    Under G-Framing Yes / hosted framing, refuse **heal** demotions while
-    active synthetic VO is below ``min_synthetic_vo_lines`` — those clears
-    fill pressure and leave nugget_layup thrashing at the ≥3 floor (exec_10066).
-    Compose-path demotion (``uncovered_after_fill``) still runs after fill.
-    """
-    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
-        return 0
-    _heal_origins = frozenset(
-        {"e2e_heal_lint_dirty", "post_commit_uncovered_high"}
+    """Compatibility shim; new production callers use typed ``resolve_seats``."""
+    intent: HighGapIntent = (
+        "heal_floor_protect"
+        if origin in {"e2e_heal_lint_dirty", "post_commit_uncovered_high"}
+        else "compose_persist"
     )
-    air_ids: set[str] | None = None
-    if ctx.artifact_exists("master/selection.json"):
-        try:
-            sel = ctx.read_json("master/selection.json")
-            if isinstance(sel, dict):
-                ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
-                if ordered:
-                    air_ids = set(ordered)
-        except Exception:
-            air_ids = None
-    refuse_on_air_demote = False
-    try:
-        from interview_mux.gap_fill_eligibility import (
-            count_active_gap_vo_lines,
-            hosted_framing_requires_synthetic_vo,
-            min_synthetic_vo_lines,
-        )
-
-        if (
-            origin in _heal_origins
-            and hosted_framing_requires_synthetic_vo(ctx)
-            and count_active_gap_vo_lines(ctx) < min_synthetic_vo_lines(ctx)
-        ):
-            # Still allow demoting high gaps that are off the air-order selection —
-            # those cannot receive on-air VO and must not sticky-block compose lint.
-            refuse_on_air_demote = True
-    except Exception:
-        pass
-    try:
-        evals = ctx.read_json("understanding/gap_evaluations.json")
-    except Exception:
-        return 0
-    if not isinstance(evals, dict):
-        return 0
-    report = gap_report
-    if report is None and ctx.artifact_exists("understanding/gap_report.json"):
-        loaded = ctx.read_json("understanding/gap_report.json")
-        report = loaded if isinstance(loaded, dict) else {}
-    lines = (report or {}).get("interviewer_lines") if isinstance(report, dict) else []
-    targeted = targeted_segment_ids(lines if isinstance(lines, list) else [], ctx)
-    demoted = 0
-    rows: list[dict[str, Any]] = []
-    for row in evals.get("evaluations") or []:
-        if not isinstance(row, dict):
-            continue
-        sid = str(row.get("segment_id") or "")
-        sev = str(row.get("severity") or "").lower()
-        if sid and sev == "high" and sid not in targeted:
-            off_air = air_ids is not None and sid not in air_ids
-            if refuse_on_air_demote and not off_air:
-                rows.append(row)
-                continue
-            row = dict(row)
-            row["severity"] = "medium"
-            row["severity_demotion_reason"] = (
-                f"{origin}:off_air" if off_air else origin
-            )
-            demoted += 1
-        rows.append(row)
-    if not demoted:
-        return 0
-    out = dict(evals)
-    out["evaluations"] = rows
-    try:
-        from interview_mux.artifact_writes import write_validated_artifact
-
-        write_validated_artifact(
-            ctx,
-            "understanding/gap_evaluations.json",
-            out,
-            merge_from_disk=False,
-            stage_key="missing_framing",
-        )
-    except Exception:
-        ctx.write_json("understanding/gap_evaluations.json", out)
-    return demoted
+    return resolve_seats(
+        ctx,
+        intent=intent,
+        gap_report=gap_report,
+    ).demoted
 
 
 def fill_uncovered_high_gaps(
@@ -237,7 +375,7 @@ def fill_uncovered_high_gaps(
     fill_identity = "high_gap_vo_fill"
     if identity_exhausted(ctx, fill_identity):
         applied.append({"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"})
-        demote_uncovered_high_gaps(ctx, gap_report=out, origin="limit_exhausted")
+        resolve_seats(ctx, intent="compose_persist", gap_report=out)
         return 0
 
     if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
@@ -273,7 +411,7 @@ def fill_uncovered_high_gaps(
                 applied.append(
                     {"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"}
                 )
-                demote_uncovered_high_gaps(ctx, gap_report=out, origin="limit_exhausted")
+                resolve_seats(ctx, intent="compose_persist", gap_report=out)
                 return added
             except Exception:
                 continue

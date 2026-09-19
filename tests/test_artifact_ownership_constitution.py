@@ -227,3 +227,41 @@ def test_hot_paths_match_one_writer() -> None:
     from interview_mux.artifact_sanitize.one_writer import HOT_ARTIFACT_RELS
 
     assert HOT_PATHS == HOT_ARTIFACT_RELS
+
+
+def test_forensics_restamps_matrix_version_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: plain refuse mismatch; MUX_FORENSICS=1 restamps same run_id.
+
+    exec_13159 i5b: ownership ALLOW patch mid-campaign must not brick driver
+    claim under forensics.
+    """
+    from interview_mux.artifact_ownership import (
+        MATRIX_VERSION_META_KEY,
+        check_matrix_version,
+        matrix_version,
+        write_permitted,
+    )
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "matrix_restamp_f")
+    ctx.write_json(
+        "run_meta.json",
+        {"version": 1, MATRIX_VERSION_META_KEY: "stale_hash_0000"},
+        skip_handoff=True,
+    )
+
+    ok0, msg0 = check_matrix_version(ctx)
+    assert not ok0 and "matrix_version_mismatch" in msg0
+    allowed0, reason0 = write_permitted(
+        ctx, "master/selection.json", "full_master_ranking", role="producer"
+    )
+    assert not allowed0 and "matrix_version_mismatch" in reason0
+
+    monkeypatch.setenv("MUX_FORENSICS", "1")
+    ok1, msg1 = check_matrix_version(ctx)
+    assert ok1 and "forensics_restamp" in msg1
+    live = matrix_version()
+    meta2 = ctx.read_json("run_meta.json")
+    assert meta2.get(MATRIX_VERSION_META_KEY) == live

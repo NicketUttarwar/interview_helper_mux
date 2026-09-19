@@ -322,6 +322,23 @@ def memo_row(ctx: RunContext, stage: str) -> dict[str, Any]:
     return dict(row) if isinstance(row, dict) else {}
 
 
+def _live_product_stamps() -> tuple[str, str]:
+    """Product + ownership matrix stamps used to invalidate stale attempt memos."""
+    try:
+        from interview_mux.identical_failures import product_code_fingerprint
+
+        fp = str(product_code_fingerprint() or "")
+    except Exception:
+        fp = ""
+    try:
+        from interview_mux.artifact_ownership import matrix_version
+
+        mv = str(matrix_version() or "")
+    except Exception:
+        mv = ""
+    return fp, mv
+
+
 def record_attempt(
     ctx: RunContext,
     stage: str,
@@ -339,6 +356,7 @@ def record_attempt(
     prev = dict(stages.get(sid) or {})
     if digest is None:
         digest = input_digest(ctx, sid)
+    product_fp, matrix_ver = _live_product_stamps()
     row: dict[str, Any] = {
         "stage": sid,
         "input_digest": digest,
@@ -346,6 +364,8 @@ def record_attempt(
         "outcome": str(outcome or ""),
         "source": str(source or ""),
         "progress_token": progress_token(ctx),
+        "product_fingerprint": product_fp,
+        "matrix_version": matrix_ver,
         "attempts": int(prev.get("attempts") or 0) + (1 if outcome == "started" else 0),
         "updated_at": _now(),
         "first_seen_at": str(prev.get("first_seen_at") or _now()),
@@ -407,13 +427,25 @@ def no_delta_refusal(
 
 
 def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
-    """Refuse to re-offer a stage already attempted at this state with no progress."""
+    """Refuse to re-offer a stage already attempted at this state with no progress.
+
+    Product / ownership matrix changes (or a legacy memo missing those stamps) must
+    not permanently refuse a producer that failed under a prior ALLOW or code finger-
+    print — otherwise a patch-and-continue forensics resume is stranded behind
+    ``own:absent`` with unchanged ``.stage_done``.
+    """
     if not memo_enabled():
         return None
     row = memo_row(ctx, stage)
     if not row:
         return None
     if str(row.get("outcome") or "") not in {"failed", "refused"}:
+        return None
+    live_fp, live_mv = _live_product_stamps()
+    stamped_fp = str(row.get("product_fingerprint") or "")
+    stamped_mv = str(row.get("matrix_version") or "")
+    # Missing stamp = mismatch (legacy rows written before this field existed).
+    if stamped_fp != live_fp or stamped_mv != live_mv:
         return None
     token = state_token(ctx, stage)
     if str(row.get("state_token") or "") != token:
@@ -425,4 +457,94 @@ def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
         "state_token": token,
         "prior_outcome": row.get("outcome"),
         "progress_token": row.get("progress_token"),
+        "product_fingerprint": stamped_fp,
+        "matrix_version": stamped_mv,
+    }
+
+
+def clear_failed_refused_memo_rows(ctx: RunContext) -> int:
+    """Drop failed/refused attempt-memo rows (forensics restart / product flip).
+
+    A single post-patch failure must not permanently refuse the producer for the
+    rest of the campaign — identical-halts already clear on forensics restart;
+    memo must match that contract.
+    """
+    doc = read_memo(ctx)
+    stages = dict(doc.get("stages") or {})
+    if not stages:
+        return 0
+    kept: dict[str, Any] = {}
+    cleared = 0
+    for sid, row in stages.items():
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("outcome") or "") in {"failed", "refused"}:
+            cleared += 1
+            continue
+        kept[sid] = row
+    if not cleared:
+        return 0
+    doc["stages"] = kept
+    doc["updated_at"] = _now()
+    _write_memo(ctx, doc)
+    return cleared
+
+
+def resume_after_intervene(
+    ctx: RunContext, *, stages: tuple[str, ...] | list[str] | set[str] | None = None
+) -> dict[str, Any]:
+    """Clear failed attempt rows and sticky halts for product-patched stages.
+
+    ``stages=None`` clears every failed/refused row and sticky attempt, which is
+    the appropriate scope when a forensics restart cannot identify one patch
+    target. Successful memo rows are retained.
+    """
+    wanted = {str(stage).strip() for stage in (stages or ()) if str(stage).strip()}
+    doc = read_memo(ctx)
+    rows = dict(doc.get("stages") or {})
+    kept: dict[str, Any] = {}
+    memo_cleared = 0
+    for sid, row in rows.items():
+        failed = isinstance(row, dict) and str(row.get("outcome") or "") in {
+            "failed",
+            "refused",
+        }
+        if failed and (not wanted or sid in wanted):
+            memo_cleared += 1
+            continue
+        kept[sid] = row
+    if memo_cleared:
+        doc["stages"] = kept
+        doc["updated_at"] = _now()
+        _write_memo(ctx, doc)
+
+    sticky_cleared = 0
+    sticky_rel = "operator/sticky_heal.json"
+    if ctx.artifact_exists(sticky_rel):
+        try:
+            sticky = ctx.read_json(sticky_rel)
+        except Exception:
+            sticky = None
+        if isinstance(sticky, dict):
+            attempts = dict(sticky.get("attempts") or {})
+            retained: dict[str, Any] = {}
+            for key, row in attempts.items():
+                pin = str((row or {}).get("pin") or "") if isinstance(row, dict) else ""
+                if not wanted or pin in wanted:
+                    sticky_cleared += 1
+                else:
+                    retained[key] = row
+            active = sticky.get("active_halt")
+            active_pin = (
+                str(active.get("pin") or "") if isinstance(active, dict) else ""
+            )
+            sticky["attempts"] = retained
+            if isinstance(active, dict) and (not wanted or active_pin in wanted):
+                sticky.pop("active_halt", None)
+            sticky["updated_at"] = __import__("time").time()
+            ctx.write_json(sticky_rel, sticky, skip_handoff=True)
+    return {
+        "memo_cleared": memo_cleared,
+        "sticky_cleared": sticky_cleared,
+        "stages": sorted(wanted),
     }

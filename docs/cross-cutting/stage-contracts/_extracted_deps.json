@@ -16,7 +16,6 @@
     "reads": [
       "master/assembly_ledger.json",
       "master/edl.json",
-      "master/edl_narrative_audit.json",
       "master/selection.json",
       "master/transitions.json",
       "mastering/mastering_plan.json",

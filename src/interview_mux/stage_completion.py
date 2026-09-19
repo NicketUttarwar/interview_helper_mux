@@ -97,6 +97,46 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
     return None
 
 
+def _high_gap_unframed_incompleteness(
+    ctx: RunContext, stage_id: str
+) -> str | None:
+    """Refuse hollow compose/sanitize done while a high gap lacks an interviewer line.
+
+    Seeds that spoken-copy-omit after write left `.stage_done` on compose while
+    lint stayed dirty (exec_13157 seg_051) and driver heal thrash-locked layup.
+    """
+    if stage_id not in {
+        "gap_framing_compose",
+        "optimal_questions",
+        "gap_report_sanitize",
+    }:
+        return None
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return None
+    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
+        return None
+    try:
+        from interview_mux.deterministic_lint import _lint_optimal_questions
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        if gap_fill_was_skipped(ctx):
+            return None
+        report = ctx.read_json("understanding/gap_report.json")
+        if not isinstance(report, dict):
+            return None
+        errs = _lint_optimal_questions(report, ctx)
+    except Exception:
+        return None
+    dirty = [e for e in errs if "has no interviewer line" in str(e)]
+    if not dirty:
+        return None
+    resume_stage = high_gap_heal_resume_stage(ctx)
+    return (
+        f"high_gap_unframed — resume {resume_stage}: "
+        + "; ".join(str(e) for e in dirty[:2])
+    )
+
+
 def _nugget_corpus_empty_incompleteness(ctx: RunContext) -> str | None:
     """NCM-B2: enabled mine with zero nuggets must not hollow-complete."""
     try:
@@ -1091,6 +1131,9 @@ def stage_artifact_incompleteness(
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:
             return stub
+        high_gap = _high_gap_unframed_incompleteness(ctx, stage_id)
+        if high_gap:
+            return high_gap
     # A-01: research thin — early advisory; late/expected consumers refuse seed_complete.
     thin_reason = _research_thin_late_refuse(ctx, stage_id)
     if thin_reason:
@@ -1116,6 +1159,19 @@ def stage_artifact_incompleteness(
     if vo_reason:
         return vo_reason
     if stage_id == "nugget_layup_compose":
+        # Once EDL is committed, layup compose is frozen history — do not report
+        # shard/freshness/sanitary incompleteness that rewinds mix under seal
+        # (exec_13159 thrash).
+        try:
+            from interview_mux.artifact_ownership import current_epoch
+
+            epoch = str(current_epoch(ctx) or "")
+            if epoch in {"edl_sealed", "mix_seated", "junction_committed"} or (
+                ctx.is_done("edl") and ctx.artifact_exists("master/edl.json")
+            ):
+                return None
+        except Exception:
+            pass
         try:
             from interview_mux.artifact_sanitize.registry import selection_sanitary_errors
 
@@ -1218,12 +1274,27 @@ def stage_artifact_incompleteness(
                     "selection_unsanitary — resume selection_order_sanitize: "
                     + "; ".join(sel_errs[:3])
                 )
-            lay_errs = layup_sanitary_errors(ctx)
-            if lay_errs:
-                return (
-                    "layup_unsanitary — resume nugget_layup_compose: "
-                    + "; ".join(lay_errs[:3])
+            # After EDL, layup QC noise must not block SDP seed (exec_13159 mix rewind).
+            edl_sealed = False
+            try:
+                from interview_mux.artifact_ownership import current_epoch
+
+                edl_sealed = str(current_epoch(ctx) or "") in {
+                    "edl_sealed",
+                    "mix_seated",
+                    "junction_committed",
+                } or (
+                    ctx.is_done("edl") and ctx.artifact_exists("master/edl.json")
                 )
+            except Exception:
+                edl_sealed = False
+            if not edl_sealed:
+                lay_errs = layup_sanitary_errors(ctx)
+                if lay_errs:
+                    return (
+                        "layup_unsanitary — resume nugget_layup_compose: "
+                        + "; ".join(lay_errs[:3])
+                    )
             sdp_errs = sdp_sanitary_errors(ctx)
             if sdp_errs and any("missing" not in e for e in sdp_errs):
                 # missing is ok before first write; stale/unsanitary is not
@@ -1339,15 +1410,20 @@ def stage_artifact_incompleteness(
         if hollow_vo:
             return hollow_vo
     if stage_id == "edl_narrative_audit":
-        # Fail verdict first — hollow stage_done must not mask a blocking audit
-        # (exec_11630: stale fail deferred EDL while assembly walked).
-        if ctx.artifact_exists("master/edl_narrative_audit.json"):
-            try:
-                audit = ctx.read_json("master/edl_narrative_audit.json")
-            except Exception:
-                audit = None
-            if isinstance(audit, dict) and str(audit.get("verdict") or "").strip().lower() == "fail":
-                return "edl_narrative_audit verdict=fail — remutate/re-audit before edl"
+        # Only live blockers count; stale fail prose contradicted by current disk
+        # must not make a complete audit hollow.
+        try:
+            from interview_mux.edl_narrative_remutate import (
+                effective_narrative_blocking_issues,
+            )
+
+            if effective_narrative_blocking_issues(ctx):
+                return (
+                    "edl_narrative_audit has effective blocking issues "
+                    "— remutate/re-audit before edl"
+                )
+        except Exception:
+            pass
         heard = _edl_narrative_audit_heard_wav_incompleteness(ctx)
         if heard:
             return heard

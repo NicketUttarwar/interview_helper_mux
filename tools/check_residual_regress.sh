@@ -33,6 +33,12 @@ PYTEST_TARGETS=(
   tests/test_hx2_mix_unseated.py
   tests/test_hx4_mix_lease_pin.py
   tests/test_anti_footgun_hardening.py
+  tests/test_category_b_footguns.py
+  tests/test_category_b_ws1_shape.py
+  tests/test_category_b_ws2_highgap.py
+  tests/test_category_b_ws4_ownership.py
+  tests/test_category_b_ws5_conductor.py
+  tests/test_ws3_edl_narrative_disk_gate.py
   tests/test_r1_orientation_heal_pin.py
   tests/test_r2_scaffold_sanitize.py
   tests/test_r3_vo_family.py
@@ -50,6 +56,9 @@ echo "check_residual_regress: pytest (${#PYTEST_TARGETS[@]} targets) MUX_FORENSI
 
 echo "check_residual_regress: audit_artifact_ownership --write-sites-only"
 "$PY" tools/audit_artifact_ownership.py --write-sites-only
+
+echo "check_residual_regress: ownership_new_stage_checklist"
+"$PY" tools/ownership_new_stage_checklist.py
 
 echo "check_residual_regress: verify_full_auto_env"
 ./tools/verify_full_auto_env.sh

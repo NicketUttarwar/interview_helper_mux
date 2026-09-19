@@ -71,13 +71,21 @@ def ensure_schema_agenda(doc: dict[str, Any] | None) -> dict[str, Any]:
             row["goal"] = goal
             mapped.append(row)
     if not mapped:
-        for raw in out.get("custom_steps") or []:
-            if not isinstance(raw, dict):
-                continue
-            sid = str(raw.get("step_id") or raw.get("id") or "").strip()
-            goal = str(raw.get("goal") or "").strip()
-            if sid and goal:
-                mapped.append({"step_id": sid, "goal": goal})
+        # Prompt-shaped LLMs often emit ordered_custom_steps / custom_steps.
+        for key in ("ordered_custom_steps", "custom_steps", "ordered_steps"):
+            for i, raw in enumerate(out.get(key) or []):
+                if not isinstance(raw, dict):
+                    continue
+                sid = str(
+                    raw.get("step_id") or raw.get("id") or raw.get("step") or ""
+                ).strip()
+                goal = str(raw.get("goal") or "").strip()
+                if not sid and goal:
+                    sid = f"step_{i}"
+                if sid and goal:
+                    mapped.append({"step_id": sid, "goal": goal})
+            if mapped:
+                break
     if not mapped:
         mode = str(out.get("primary_mode_hypothesis") or "sparse_source")
         mapped = [
@@ -103,7 +111,47 @@ def ensure_schema_agenda(doc: dict[str, Any] | None) -> dict[str, Any]:
         budgets["max_flagship_calls"] = 0
     out["budgets"] = budgets
     pillars = [str(p).strip() for p in (out.get("north_star_pillars") or []) if str(p).strip()]
+    if not pillars:
+        seeds = out.get("system_prompt_draft_seeds")
+        if isinstance(seeds, dict):
+            pillars = [
+                str(p).strip()
+                for p in (seeds.get("excellence_pillars") or [])
+                if str(p).strip()
+            ]
     out["north_star_pillars"] = pillars or list(_NORTH_STAR_PILLARS)
+    return out
+
+
+def _invert_prompt_levels(levels: Any) -> dict[str, str] | None:
+    """Map prompt-shaped {run:[ids], skip:[…], deepen:[…]} → schema {id: level}."""
+    if not isinstance(levels, dict) or not levels:
+        return None
+    if all(
+        isinstance(v, str) and v in {"run", "skip", "deepen"} for v in levels.values()
+    ):
+        return {str(k): str(v) for k, v in levels.items()}
+    inverted: dict[str, str] = {}
+    for level in ("run", "skip", "deepen"):
+        raw = levels.get(level)
+        if isinstance(raw, str) and raw.strip():
+            inverted[raw.strip()] = level
+            continue
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            key = str(item or "").strip()
+            if key:
+                inverted[key] = level
+    return inverted or None
+
+
+def _normalize_llm_shape_agenda(doc: dict[str, Any]) -> dict[str, Any]:
+    """Coerce prompt-shaped meta-architect JSON onto mastering_shape_agenda schema."""
+    out = dict(doc)
+    inverted = _invert_prompt_levels(out.get("levels"))
+    if inverted is not None:
+        out["levels"] = inverted
     return out
 
 
@@ -313,18 +361,92 @@ def _shape_llm_user_payload(
     consumer_id: str,
     pass_name: str,
     extra: dict[str, Any] | None = None,
+    artifact: str = "agenda",
 ) -> dict[str, Any]:
     """Pack a bounded, structured Shape LLM packet (Q6B + honesty slim).
 
     Prefer the budgeted evidence packet over dumping full artifacts. Slim
     companion docs and evidence inlines so the model sees finishability signal.
+
+    ``artifact`` selects the response contract: agenda | rubric | candidates | plan.
     """
     packet = compile_shape_evidence(ctx, consumer_id=consumer_id, pass_name=pass_name)
     items = list(packet.get("items") or []) if isinstance(packet, dict) else []
     omitted = list(packet.get("omitted") or []) if isinstance(packet, dict) else []
+    art = str(artifact or "agenda").strip().lower()
+    if art == "rubric":
+        goal = (
+            "Mint a source-specific eval rubric for THIS tape only — style_axes + "
+            "weighted criteria + anti_patterns + hard_requirements. Do NOT return a "
+            "mastering shape plan, agenda, or narrative_mode. Schema-valid JSON only."
+        )
+        response_contract = {
+            "required_artifact": "mastering_eval_rubric",
+            "must_include": [
+                "style_axes (list or object with evidence)",
+                "criteria[] with criterion_id, description, weight (sum ~1)",
+                "anti_patterns[] with severity kill|penalize|note",
+                "hard_requirements[]",
+            ],
+            "forbid": [
+                "mastering_shape",
+                "narrative_mode plan body",
+                "empty criteria",
+                "empty {}",
+                "invented guest evidence",
+            ],
+        }
+    elif art == "candidates":
+        goal = (
+            "Produce Shape mode candidates for this tape — not a generic template. "
+            "Return schema-valid JSON only (no prose wrapper)."
+        )
+        response_contract = {
+            "required_artifact": "mastering_shape_candidates",
+            "candidates": [
+                "candidates[] with narrative_mode",
+                "optional scores.bespoke_fit / finishability",
+            ],
+            "forbid": ["empty {}", "template five-act checklists", "invented guest evidence"],
+        }
+    elif art == "plan":
+        goal = (
+            "Synthesize the authoritative mastering plan for this tape from the "
+            "agenda, rubric, and candidates. Return schema-valid JSON only."
+        )
+        response_contract = {
+            "required_artifact": "mastering_plan",
+            "must_include": [
+                "narrative_mode",
+                "cold_open",
+                "bespoke_rationale or decisions",
+            ],
+            "forbid": [
+                "mastering_shape_agenda",
+                "mastering_eval_rubric",
+                "mastering_shape_candidates",
+                "empty {}",
+            ],
+        }
+    else:
+        goal = (
+            "Produce the best bespoke mastering shape agenda for this tape — "
+            "not a generic template. Prefer finishable, recommendable listen. "
+            "Return schema-valid JSON only (no prose wrapper)."
+        )
+        response_contract = {
+            "required_artifact": "mastering_shape_agenda",
+            "agenda": [
+                "mode_candidates or steps/ordered_custom_steps or primary_mode_hypothesis",
+                "budgets.max_steps",
+                "north_star_pillars or system_prompt_draft_seeds.excellence_pillars",
+            ],
+            "forbid": ["empty {}", "template five-act checklists", "invented guest evidence"],
+        }
     payload: dict[str, Any] = {
         "pass": pass_name,
         "consumer_id": consumer_id,
+        "artifact": art,
         "evidence_packet_hash": evidence_packet_hash(packet),
         "evidence": {
             "items": [
@@ -344,29 +466,8 @@ def _shape_llm_user_payload(
             ],
             "token_estimate": packet.get("token_estimate") if isinstance(packet, dict) else None,
         },
-        "goal": (
-            "Produce the best bespoke mastering shape artifact for this tape — "
-            "not a generic template. Prefer finishable, recommendable listen. "
-            "Return schema-valid JSON only (no prose wrapper)."
-        ),
-        "response_contract": {
-            "agenda": [
-                "mode_candidates or steps or primary_mode_hypothesis",
-                "budgets.max_steps",
-                "north_star_pillars",
-            ],
-            "candidates": [
-                "candidates[] with narrative_mode",
-                "optional scores.bespoke_fit / finishability",
-            ],
-            "plan": [
-                "narrative_mode in known set",
-                "cold_open.kind",
-                "bespoke_rationale or decisions[]",
-                "montage_grammar subset of known moves",
-            ],
-            "forbid": ["empty {}", "template five-act checklists", "invented guest evidence"],
-        },
+        "goal": goal,
+        "response_contract": response_contract,
     }
     dossier = load_dossier(ctx)
     if isinstance(dossier, dict):
@@ -552,9 +653,17 @@ def _lint_shape_agenda_llm(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     """Reject hollow / schema-invalid agenda before ingest (Q6B)."""
     if not isinstance(doc, dict):
         return None
-    if not (doc.get("mode_candidates") or doc.get("steps") or doc.get("primary_mode_hypothesis")):
+    has_signal = bool(
+        doc.get("mode_candidates")
+        or doc.get("steps")
+        or doc.get("ordered_custom_steps")
+        or doc.get("custom_steps")
+        or doc.get("primary_mode_hypothesis")
+        or (isinstance(doc.get("levels"), dict) and doc.get("levels"))
+    )
+    if not has_signal:
         return None
-    ensured = ensure_schema_agenda(doc)
+    ensured = ensure_schema_agenda(_normalize_llm_shape_agenda(doc))
     try:
         from interview_mux.prompt_validation import validate_mastering_shape_agenda
 
@@ -569,9 +678,12 @@ def _lint_shape_agenda_llm(doc: dict[str, Any] | None) -> dict[str, Any] | None:
 def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(arts, dict):
         return None
-    cand = arts.get("agenda") if isinstance(arts.get("agenda"), dict) else arts
-    if not isinstance(cand, dict):
-        return None
+    if isinstance(arts.get("agenda"), dict):
+        cand = dict(arts["agenda"])
+    elif isinstance(arts.get("mastering_shape_agenda"), dict):
+        cand = dict(arts["mastering_shape_agenda"])
+    else:
+        cand = dict(arts)
     out = dict(cand)
     out.setdefault("version", 1)
     out.setdefault("pass", "provisional")
@@ -583,15 +695,39 @@ def _agenda_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
 def _rubric_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(arts, dict):
         return None
-    cand = arts.get("eval_rubric") if isinstance(arts.get("eval_rubric"), dict) else arts
-    if not isinstance(cand, dict):
+    if isinstance(arts.get("eval_rubric"), dict):
+        cand = dict(arts["eval_rubric"])
+    elif isinstance(arts.get("mastering_eval_rubric"), dict):
+        cand = dict(arts["mastering_eval_rubric"])
+    else:
+        cand = dict(arts)
+    # Wrong-shaped plan/agenda body is not a rubric (exec_13157 mastering_shape).
+    if cand.get("narrative_mode") and not (cand.get("criteria") or cand.get("style_axes")):
         return None
+    if "mastering_shape" in arts and not (cand.get("criteria") or cand.get("style_axes")):
+        nested = arts.get("mastering_shape")
+        if isinstance(nested, dict) and not (
+            nested.get("criteria") or nested.get("style_axes")
+        ):
+            return None
     if not (cand.get("criteria") or cand.get("style_axes")):
+        return None
+    # Empty criteria with empty style_axes list is hollow.
+    criteria = cand.get("criteria")
+    style_axes = cand.get("style_axes")
+    if criteria == [] and style_axes in ([], {}, None):
         return None
     out = dict(cand)
     out.setdefault("version", 1)
     out["source"] = "llm"
     out.setdefault("generated_at", _now())
+    try:
+        from interview_mux.prompt_validation import validate_mastering_eval_rubric
+
+        if validate_mastering_eval_rubric(out):
+            return None
+    except Exception:
+        return None
     return out
 
 
@@ -620,11 +756,18 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                 from interview_mux.openai_primary_honesty import raise_hollow_openai_primary
 
                 raise_hollow_openai_primary("mastering_shape_agenda", "agenda_llm_hollow")
+            rubric_payload = _shape_llm_user_payload(
+                ctx,
+                consumer_id="shape_agenda_pass1",
+                pass_name="provisional",
+                artifact="rubric",
+                extra={"agenda": agenda},
+            )
             rubric_arts = invoke_mastering_prompt(
                 ctx,
                 "mastering_shape_agenda",
                 "mastering/eval-rubric-mint.system.txt",
-                {**payload, "agenda": agenda},
+                rubric_payload,
                 max_attempts=2,
             )
             rubric = _rubric_from_llm(rubric_arts)
@@ -790,9 +933,13 @@ def _candidates_from_llm(arts: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     if isinstance(arts.get("candidates"), list):
         return _lint_shape_candidates_llm(arts)
-    nested = arts.get("candidates_doc") if isinstance(arts.get("candidates_doc"), dict) else None
-    if nested is not None:
-        return _lint_shape_candidates_llm(nested)
+    for key in ("mastering_shape_candidates", "candidates_doc", "shape_candidates"):
+        nested = arts.get(key)
+        if isinstance(nested, dict):
+            return _lint_shape_candidates_llm(nested)
+    # Wrong artifact (agenda/plan) is hollow for this stage.
+    if arts.get("mastering_shape_agenda") or arts.get("mastering_shape"):
+        return None
     return None
 
 
@@ -811,7 +958,10 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
                 "mastering_shape_candidates",
                 "mastering/shape-l2-candidates.system.txt",
                 _shape_llm_user_payload(
-                    ctx, consumer_id="shape_candidates_pass1", pass_name="provisional"
+                    ctx,
+                    consumer_id="shape_candidates_pass1",
+                    pass_name="provisional",
+                    artifact="candidates",
                 ),
                 max_attempts=2,
             )
@@ -1010,7 +1160,10 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
                 "mastering_plan_synthesize",
                 "mastering/flagship-synthesize.system.txt",
                 _shape_llm_user_payload(
-                    ctx, consumer_id="shape_synthesize_pass1", pass_name="provisional"
+                    ctx,
+                    consumer_id="shape_synthesize_pass1",
+                    pass_name="provisional",
+                    artifact="plan",
                 ),
                 max_attempts=2,
             )
@@ -1089,6 +1242,7 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
                     ctx,
                     consumer_id="shape_confirm_pass2",
                     pass_name="confirmed",
+                    artifact="plan",
                     extra={"confirm": True, "prior_plan": prev},
                 ),
                 max_attempts=2,

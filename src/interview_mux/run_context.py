@@ -118,6 +118,7 @@ class RunContext:
         stage_key: str | None = None,
         skip_handoff: bool = False,
         role: str | None = None,
+        mutation_class: str | None = None,
     ) -> Path:
         prior_gap: Any = None
         prior_transitions: Any = None
@@ -136,6 +137,7 @@ class RunContext:
                 sk,
                 role=role_s,
                 verb="persist",
+                mutation_class=mutation_class,
             )
         except ImportError:
             pass
@@ -627,6 +629,16 @@ class RunContext:
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
+        # Close ledger rows for this stage once it actually completed. Dispatch
+        # door also resolves on outcome=done, but heals / nested remasters often
+        # mark_done without that path — leaving stale ship-bar defects that
+        # structurally block PMQ after the artifacts exist (exec_13159).
+        try:
+            from interview_mux.defect_ledger import resolve_stage_defects
+
+            resolve_stage_defects(self, stage, reason="mark_done")
+        except Exception:
+            pass
         if stage == "mix":
             try:
                 from interview_mux.air_order import mix_outputs_seated

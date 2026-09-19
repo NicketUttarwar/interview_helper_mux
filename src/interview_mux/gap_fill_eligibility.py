@@ -301,7 +301,12 @@ def count_active_gap_vo_lines(ctx: RunContext) -> int:
         return 0
     n = 0
     for ln in doc.get("interviewer_lines") or []:
-        if not isinstance(ln, dict) or ln.get("skipped_optional"):
+        if (
+            not isinstance(ln, dict)
+            or ln.get("skipped_optional")
+            or ln.get("air_script_omit")
+            or not str(ln.get("text") or "").strip()
+        ):
             continue
         raw = ln.get("delivery")
         if raw is None:

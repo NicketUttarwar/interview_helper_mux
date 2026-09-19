@@ -25,7 +25,6 @@ inputs:
   - path: understanding/source_topology.json
     producer: source_topology_build
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/sound_design_plan.json
     producer: sound_design_palettes
   - path: mastering/mastering_plan.json

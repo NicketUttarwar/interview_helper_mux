@@ -1234,13 +1234,13 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
 
 
 def run_edl(ctx: RunContext) -> None:
-    if ctx.artifact_exists("master/edl_narrative_audit.json"):
-        audit = ctx.read_json("master/edl_narrative_audit.json")
-        if str(audit.get("verdict", "")).strip().lower() == "fail":
-            raise SystemExit(
-                "edl_narrative_audit verdict is fail — fix blocking issues and re-run "
-                "edl_narrative_audit before edl."
-            )
+    from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
+
+    if narrative_audit_blocks_edl(ctx):
+        raise SystemExit(
+            "edl_narrative_audit has effective blocking issues — fix them and re-run "
+            "edl_narrative_audit before edl."
+        )
     check_narrative_qc(ctx, stage="edl", require_selection=True)
 
     soft = False
@@ -1397,7 +1397,12 @@ def run_edl(ctx: RunContext) -> None:
             from interview_mux.nugget_layup import PLAN_REL
 
             if ctx.artifact_exists(PLAN_REL):
-                adopt_layup_plan_to_selection(ctx, persist=True, stage="edl")
+                # Ownership allows nugget_layup_compose / gap_framing_recompose only —
+                # stage="edl" silently AuthorityDenied and left stale ordered_segment_ids
+                # (exec_13159: plan 35 vs selection 34 → mix seed-order rewind under seal).
+                adopt_layup_plan_to_selection(
+                    ctx, persist=True, stage="nugget_layup_compose"
+                )
         except Exception:
             pass
         assert_layup_fresh_vs_selection(ctx, stage="edl")

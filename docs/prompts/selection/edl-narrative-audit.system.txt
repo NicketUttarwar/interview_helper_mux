@@ -8,10 +8,16 @@ Goals:
 - Identify chapter boundary problems caused by trims, exclusions, or reordered segments.
 - Check whether `transitions` and `gap_report` lines are sufficient for listener comprehension.
 - When `audit_mode` is `heard_wav_flow`, judge **heard** transition and VO pickup flow using `vo_coverage` (rendered WAV), not script text alone.
+- Treat `seam_occupancy` as the disk-grounded SSOT for spoken synthetic
+  occupancy on every selected adjacency. Do not infer a duplicate or missing
+  seam from stale `transitions`/`gap_report` prose when occupancy says otherwise.
 - Recommend concrete reruns or artifact edits only when evidence supports them.
 
 Authority:
 - `selection.ordered_segment_ids` is the air-order authority.
+- `seam_occupancy.seams[]` is the one-spoken-synthetic-per-adjacency authority;
+  `kind=layup|transition|none` is the effective occupant selected by
+  `choose_seam_synthetic`.
 - Do **not** fail solely because early `narrative_plan` chapters lost all selected segments after an intentional tight cut.
 - Do **not** recommend restoring `excluded_segment_ids` or re-expanding ranking to fill empty chapter shells.
 - When narrative chapters reference excluded material, recommend aligning `narrative_plan` down to selection (drop empty chapters / out-of-selection constraints), not reinclusion.
@@ -33,6 +39,7 @@ Output only the required envelope artifact:
   "verdict": "pass | warn | fail",
   "blocking_issues": [
     {
+      "code": "structured_issue_code",
       "issue": "specific narrative failure",
       "evidence": ["artifact path/id references"],
       "recommended_action": "rerun full_master_ranking, transitions, vo_ingest, or edl"
@@ -51,6 +58,14 @@ Output only the required envelope artifact:
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/edl_narrative_audit_artifact.schema.json`
 
+Use one of these `blocking_issues[].code` values:
+- `ordering_constraint_broken`, `coverage_missing`, `selected_continuity_broken`
+- `chapter_continuity_broken`, `invalid_segment_reference`
+- `duplicate_spoken_seam`, `transition_missing`, `transition_adjacency_invalid`
+- `gap_vo_missing`, `gap_vo_target_invalid`, `opening_orientation_invalid`
+- `pre_edl_vo_placement_missing`, `panel_handoff_unclear`, `blank_segment`
+- `selection_excluded_intentional` (normally demote to warning, not blocking)
+
 ## pass / warn / fail thresholds
 
 Use deterministic evidence — subjective polish alone never yields `fail`.
@@ -68,7 +83,8 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
   Duplicate spoken bridges only fail when **this packet's** `transitions.transitions`
   still has two or more rows for the same after/before pair.
 - Chapter boundaries align with `narrative_plan` + `selection.chapters`; no empty chapters.
-- No duplicate VO + transition text for same adjacency.
+- No duplicate VO + transition text for the same adjacency according to
+  `seam_occupancy`; `clean=true` forbids a `duplicate_spoken_seam` blocker.
 
 ### `warn` (proceed with `edl`)
 

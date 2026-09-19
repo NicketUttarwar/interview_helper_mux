@@ -353,3 +353,27 @@ def test_adjudicate_incomprehensible_vo_hard_fails_even_fail_open(
     with pytest.raises(RuntimeError, match="loud_fail"):
         run_vo_line_adjudicate_stage(ctx)
     assert any("synthesize_vo_incomprehensible" in r for r in loud_reasons)
+
+
+def test_scrub_spoken_edit_structure_clears_next_segment() -> None:
+    from interview_mux.spoken_meta_lint import (
+        scrub_spoken_edit_structure,
+        spoken_structure_hits,
+    )
+    from interview_mux.vo_line_adjudicate import synthesize_vo_comprehensibility_errors
+
+    raw = "What tensions carry over into the next segment?"
+    cleaned = scrub_spoken_edit_structure(raw)
+    assert "segment" not in cleaned.lower()
+    assert not spoken_structure_hits(cleaned)
+    report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_seed_seg_017",
+                "text": cleaned,
+                "delivery": "synthesize",
+                "targets_segment_id": "seg_017",
+            }
+        ]
+    }
+    assert not synthesize_vo_comprehensibility_errors(report)

@@ -473,6 +473,10 @@ def apply_adjudicate_results(
 
         if action == "rewrite":
             new_text = str(row.get("final_text") or row.get("text") or "").strip()
+            if new_text:
+                from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
+
+                new_text = scrub_spoken_edit_structure(new_text)
             if new_text and new_text != str(line.get("text") or ""):
                 line["text"] = new_text
                 line["origin"] = "vo_line_adjudicate"
@@ -887,6 +891,25 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
             )
 
     # Q1A+: coverage may fail-open, but seated synthesize VO must stay comprehensible.
+    # Scrub edit-structure nouns left by adjudicate LLM before the hard gate.
+    from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
+
+    scrubbed_any = False
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        if str(line.get("delivery") or "").lower() != "synthesize":
+            continue
+        if line.get("skipped_optional") or line.get("air_script_omit"):
+            continue
+        text = str(line.get("text") or "")
+        cleaned = scrub_spoken_edit_structure(text)
+        if cleaned and cleaned != text:
+            line["text"] = cleaned
+            scrubbed_any = True
+    if scrubbed_any:
+        ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
+
     vo_errs = synthesize_vo_comprehensibility_errors(gap_report)
     if vo_errs:
         from interview_mux.loud_fail import raise_loud_failure

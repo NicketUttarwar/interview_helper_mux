@@ -930,7 +930,13 @@ def heal_redundant_framing_transitions(ctx: RunContext) -> dict[str, Any]:
             ctx, rel, doc, merge_from_disk=False, stage_key="transitions"
         )
     except Exception:
-        ctx.write_json(rel, doc, skip_handoff=True)
+        ctx.write_json(
+            rel,
+            doc,
+            skip_handoff=True,
+            stage_key="transitions",
+            mutation_class="transition_dedupe",
+        )
     try:
         from interview_mux.delivery_invariants import record_invariant_heal
 

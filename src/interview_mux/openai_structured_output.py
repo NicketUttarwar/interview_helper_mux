@@ -146,6 +146,59 @@ def _make_nullable(prop: dict[str, Any]) -> dict[str, Any]:
     return prop
 
 
+def inline_local_refs(
+    node: Any,
+    defs: dict[str, Any] | None = None,
+    *,
+    _seen: frozenset[str] | None = None,
+) -> Any:
+    """Inline ``#/$defs/…`` (and ``#/definitions/…``) refs for OpenAI strict schemas.
+
+    OpenAI structured outputs reject ``$ref``. Artifact schemas may still use
+    ``$defs`` for DRY validation; resolve before ``assert_openai_strict_schema``.
+    """
+    if isinstance(node, list):
+        return [inline_local_refs(item, defs, _seen=_seen) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    nested_defs: dict[str, Any] = {}
+    for key in ("$defs", "definitions"):
+        block = node.get(key)
+        if isinstance(block, dict):
+            nested_defs.update(block)
+    if defs is None:
+        local_defs = nested_defs
+    elif nested_defs:
+        local_defs = {**defs, **nested_defs}
+    else:
+        local_defs = defs
+
+    ref = node.get("$ref")
+    if isinstance(ref, str) and (
+        ref.startswith("#/$defs/") or ref.startswith("#/definitions/")
+    ):
+        name = ref.rsplit("/", 1)[-1]
+        if _seen is not None and name in _seen:
+            raise ValueError(f"cyclic $ref: {ref}")
+        target = (local_defs or {}).get(name)
+        if not isinstance(target, dict):
+            raise ValueError(f"unresolved $ref: {ref}")
+        # JSON Schema: siblings alongside $ref are ignored when inlining.
+        return inline_local_refs(
+            copy.deepcopy(target),
+            local_defs,
+            _seen=(_seen or frozenset()) | {name},
+        )
+
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in ("$defs", "definitions"):
+            continue
+        out[key] = inline_local_refs(value, local_defs, _seen=_seen)
+    return out
+
+
 def strictify_schema(
     schema: dict[str, Any],
     *,
@@ -154,6 +207,9 @@ def strictify_schema(
 ) -> dict[str, Any]:
     """Make a JSON Schema OpenAI strict-mode compatible."""
     schema = copy.deepcopy(schema)
+    # Resolve local $defs before lint — leaving $ref nodes fails OpenAI strict.
+    if path == "":
+        schema = inline_local_refs(schema)
     schema.pop("$schema", None)
     schema.pop("title", None)
 

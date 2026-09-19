@@ -200,6 +200,49 @@ def test_premature_cap_pins_before_edl_when_selection_exists(
     assert DELIVERY_ORDER.index(pinned) < DELIVERY_ORDER.index("edl")
 
 
+
+def test_filter_defers_edl_when_narrative_audit_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): missing audit must not hollow-finish EDL.
+
+    exec_13159: from_stage=edl ran without edl_narrative_audit.json → Finished
+    Edit decision list with no master/edl.json.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.delivery_guardrails import filter_delivery_candidates
+    from interview_mux.thrash_hardening import resume_producer
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "edl_needs_audit")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid not in {"edl_narrative_audit", "edl"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.ship_path_ready",
+        lambda _ctx: (False, "no_master"),
+    )
+    filtered = filter_delivery_candidates(ctx, ["edl", "assembly_preview", "mix"])
+    assert "edl" not in filtered
+    assert filtered[0] == "edl_narrative_audit"
+    assert resume_producer(ctx, "edl") == "edl_narrative_audit"
+
+
 def test_premature_cap_keeps_music_palette_not_edl_narrative(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

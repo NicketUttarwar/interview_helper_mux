@@ -385,13 +385,16 @@ def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None
     assert not any("has no interviewer line" in e for e in after)
     evals = ctx.read_json("understanding/gap_evaluations.json")
     assert evals["evaluations"][0]["severity"] == "medium"
-    assert evals["evaluations"][0]["severity_demotion_reason"] == "uncovered_after_fill"
+    assert (
+        evals["evaluations"][0]["severity_demotion_reason"]
+        == "high_gap_seat:compose_persist"
+    )
 
 
-def test_demote_uncovered_high_gaps_refuses_below_hosted_floor(
+def test_demote_uncovered_high_gaps_demotes_when_fill_unavailable(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Under G-Framing Yes, demote must not clear high pressure while active VO < floor."""
+    """Without actionable fill, heal demotes and leaves floor remediation sticky."""
     from interview_mux.high_gap_vo import demote_uncovered_high_gaps
 
     monkeypatch.setattr(
@@ -426,9 +429,9 @@ def test_demote_uncovered_high_gaps_refuses_below_hosted_floor(
         {"interviewer_lines": []},
         skip_handoff=True,
     )
-    assert demote_uncovered_high_gaps(ctx, origin="e2e_heal_lint_dirty") == 0
+    assert demote_uncovered_high_gaps(ctx, origin="e2e_heal_lint_dirty") == 1
     evals = ctx.read_json("understanding/gap_evaluations.json")
-    assert evals["evaluations"][0]["severity"] == "high"
+    assert evals["evaluations"][0]["severity"] == "medium"
 
 
 def test_fill_uncovered_high_gaps_sets_schema_fields(
@@ -473,7 +476,6 @@ def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None
     """Seed lines that fail spoken-copy must not leave a high gap uncovered at lint."""
     from interview_mux.artifact_repairs import repair_gap_report
     from interview_mux.deterministic_lint import _lint_optimal_questions
-    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
 
     ctx.write_json(
         "understanding/gap_evaluations.json",
@@ -526,9 +528,118 @@ def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None
         for ln in (repaired.get("interviewer_lines") or [])
         if isinstance(ln, dict)
     )
-    assert demote_uncovered_high_gaps(ctx, gap_report=repaired) == 1
+    # repair_gap_report demotes uncovered highs after omit (compose-path origin).
+    assert any(
+        n.get("action") == "demote_uncovered_high_after_repair"
+        for n in notes
+        if isinstance(n, dict)
+    ) or (
+        ctx.read_json("understanding/gap_evaluations.json")["evaluations"][0]["severity"]
+        == "medium"
+    )
     after = _lint_optimal_questions(repaired, ctx)
     assert not any("has no interviewer line" in e for e in after)
+
+
+def test_courtesy_seed_never_empty_and_diversified() -> None:
+    from interview_mux.gap_vo_prior_context import courtesy_seed_text
+
+    a = courtesy_seed_text(None, category="story_bridge", target_segment_id="seg_051")
+    b = courtesy_seed_text(None, category="story_bridge", target_segment_id="seg_015")
+    assert a.strip()
+    assert b.strip()
+    assert a != b
+
+
+def test_gap_framing_compose_incomplete_while_high_gap_unframed(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hollow compose .stage_done must flip while high-gap lint is dirty."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled", lambda _ctx: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.gap_fill_was_skipped", lambda _ctx: False
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_051",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "assay undefined",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_after_cta_open",
+                    "text": "Precision oncology seeks to match treatment.",
+                    "targets_segment_id": "seg_002",
+                    "delivery": "synthesize",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "gap_framing_compose")
+    assert reason and "high_gap_unframed" in reason
+    assert "seg_051" in reason
+
+
+def test_heal_demotes_when_fill_has_no_credentials_under_hosted_floor(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No credentials means fill is not budgeted, so heal must demote."""
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.count_active_gap_vo_lines",
+        lambda _ctx: 0,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_051",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "assay undefined",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        skip_handoff=True,
+    )
+    assert demote_uncovered_high_gaps(ctx, origin="e2e_heal_lint_dirty") == 1
+    evals = ctx.read_json("understanding/gap_evaluations.json")
+    assert evals["evaluations"][0]["severity"] == "medium"
 
 
 def test_fill_uncovered_high_gaps_skips_when_identity_exhausted(
@@ -724,6 +835,74 @@ def test_preface_forward_cue_heal(ctx: RunContext) -> None:
     assert has_forward_cue(str(line.get("text") or ""))
     assert any(n.get("action") == "preface_forward_cue_heal" for n in notes) or has_forward_cue(
         str(line.get("text") or "")
+    )
+
+
+def test_context_setup_layup_stays_within_word_budget(ctx: RunContext) -> None:
+    """Cascade (MUX_FORENSICS=0): layup must not re-bloom past context_setup max.
+
+    exec_13159: trim_line_word_limit then repair_last_sentence_layup appended a cue
+    → vo_context_seg_009 post-commit 22 words (max 20).
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_repairs import repair_gap_report
+    from interview_mux.gap_framing import validate_line_word_limits, word_limit_for_category
+    from interview_mux.gap_vo_prior_context import has_forward_cue, repair_last_sentence_layup
+
+    body = (
+        "Liquid biopsy looks for cancer-related material in blood, where tumour DNA "
+        "can be mixed with DNA from normal dying cells."
+    )
+    limit = word_limit_for_category("context_setup")
+    assert limit == 20
+    healed = repair_last_sentence_layup(body, category="context_setup", max_words=limit)
+    assert has_forward_cue(healed)
+    assert len(healed.split()) <= limit
+
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_009"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_009",
+                    "text": "Tumour DNA in blood mixes with DNA from normal dying cells.",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["science"],
+                    "start_ms": 0,
+                    "end_ms": 5000,
+                }
+            ]
+        },
+    )
+    doc = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_context_seg_009",
+                "line_category": "context_setup",
+                "targets_segment_id": "seg_009",
+                "text": body,
+                "delivery": "synthesize",
+                "rationale": "orient the listener before the clip",
+            }
+        ]
+    }
+    repaired, notes = repair_gap_report(ctx, doc)
+    line = (repaired.get("interviewer_lines") or [None])[0]
+    assert line is not None
+    text = str(line.get("text") or "")
+    assert has_forward_cue(text)
+    assert validate_line_word_limits([line]) == []
+    assert any(
+        n.get("action") in ("repair_last_sentence_layup", "rebudget_after_layup", "trim_line_word_limit")
+        for n in notes
     )
 
 

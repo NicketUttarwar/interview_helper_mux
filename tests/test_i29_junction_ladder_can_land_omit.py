@@ -404,6 +404,93 @@ def test_i33b_remap_allow_is_stage_scoped(
     assert not allowed, "the remap carve-out must not open selection to mix"
 
 
+@pytest.mark.parametrize(
+    "fuse_stage",
+    ["connector_fuse_pass", "connector_fuse_pass_pre_ranking"],
+)
+def test_i33b_fuse_remap_allowed_content_brief_pre_soft_freeze(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch, fuse_stage: str
+) -> None:
+    """Cascade: fuse must remap content_brief seg_* refs (owner stays reanchor)."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
+    )
+    allowed, reason = write_permitted(
+        ctx, "understanding/content_brief.json", fuse_stage, role="producer"
+    )
+    assert allowed, (
+        f"{fuse_stage} must rewrite content_brief ids after fuse ({reason})"
+    )
+    foreign, _ = write_permitted(
+        ctx, "understanding/content_brief.json", "mix", role="producer"
+    )
+    assert not foreign, "fuse remap carve-out must not open content_brief to mix"
+
+
+def test_i33c_chapter_close_hitch_remap_allowed_content_brief(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: hitch remap must rewrite content_brief (exec_13157 AuthorityDenied)."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
+    )
+    allowed, reason = write_permitted(
+        ctx,
+        "understanding/content_brief.json",
+        "chapter_close_hitch",
+        role="producer",
+    )
+    assert allowed, (
+        f"chapter_close_hitch must remap content_brief seg_* refs ({reason})"
+    )
+    foreign, _ = write_permitted(
+        ctx, "understanding/content_brief.json", "mix", role="producer"
+    )
+    assert not foreign, "hitch remap carve-out must not open content_brief to mix"
+
+
+def test_i33d_chapter_close_hitch_materialized_needs_remap_class(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): hitch ideal_cuts_materialized write needs remap class.
+
+    exec_13159: mutation_class_required:segment_id_remap on MATERIALIZED_REL.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
+    )
+    denied, reason = write_permitted(
+        ctx,
+        "understanding/ideal_cuts_materialized.json",
+        "chapter_close_hitch",
+        role="producer",
+    )
+    assert not denied and "mutation_class_required" in reason
+    allowed, ok_reason = write_permitted(
+        ctx,
+        "understanding/ideal_cuts_materialized.json",
+        "chapter_close_hitch",
+        role="producer",
+        mutation_class="segment_id_remap",
+    )
+    assert allowed, f"hitch+remap class must write materialized ({ok_reason})"
+
+
 # --- i35: a matrix-version mismatch must not silence operator telemetry --------
 
 
@@ -1506,3 +1593,24 @@ def test_i54_dropped_owned_staging_path_is_logged(
 
     assert "mastering/listen_delight_audit.json" not in flushed
     assert any("does not declare it" in m for m in logged), logged
+
+
+def test_missing_framing_may_write_flow_adaptation(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): G-Framing overrides on flow_adaptation.
+
+    exec_13157: missing_framing AuthorityDenied owner=source_topology_build.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
+    )
+    allowed, reason = write_permitted(
+        ctx, "understanding/flow_adaptation.json", "missing_framing", role="producer"
+    )
+    assert allowed, f"missing_framing must patch flow_adaptation overrides ({reason})"

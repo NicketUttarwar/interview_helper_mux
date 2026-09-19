@@ -208,6 +208,50 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
     return list(dict.fromkeys(hits))
 
 
+def scrub_spoken_edit_structure(text: str) -> str:
+    """Rewrite edit-unit nouns that trip ``spoken_edit_structure_ref``.
+
+    Adjudicate / density seeds must not land "next segment" / "this clip" on air
+    (exec_13157 vo_seed_seg_017 after LLM rewrite).
+    """
+    scrubbed = str(text or "")
+    scrubbed = re.sub(
+        r"\b(?:the|this|that|our|a|an)\s+(?:previous|earlier|prior|last|next|"
+        r"upcoming|following|preceding)\s+(?:clips?|segments?|chapters?|"
+        r"scenes?|cuts?|takes?|parts?|sections?|acts?)\b",
+        "what follows",
+        scrubbed,
+        flags=re.IGNORECASE,
+    )
+    scrubbed = re.sub(
+        r"\b(?:previous|earlier|prior|last|next|upcoming|following|preceding)\s+"
+        r"(?:clips?|segments?|chapters?|scenes?|cuts?|takes?|parts?|sections?|acts?)\b",
+        "what follows",
+        scrubbed,
+        flags=re.IGNORECASE,
+    )
+    scrubbed = re.sub(
+        r"\b(?:the|this|that|our)\s+clips?'?s?\b",
+        "this moment",
+        scrubbed,
+        flags=re.IGNORECASE,
+    )
+    scrubbed = re.sub(
+        r"\b(?:the|this|that|our)\s+segments?'?s?\b",
+        "this stretch",
+        scrubbed,
+        flags=re.IGNORECASE,
+    )
+    scrubbed = re.sub(
+        r"\bin\s+(?:this|the|our|that)\s+(?:clip|segment|chapter|scene|cut|part|"
+        r"section|act)\b",
+        "here",
+        scrubbed,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(scrubbed.split()).strip()
+
+
 def is_editorial_qc_prose(text: str) -> bool:
     """True when text looks like gap-eval diagnostics rather than on-air VO."""
     return "spoken_editorial_qc_prose" in spoken_structure_hits(text)

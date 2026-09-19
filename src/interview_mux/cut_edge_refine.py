@@ -349,6 +349,79 @@ def _neighbor_bounds(
     return prev_end, next_start
 
 
+# Minimum pause after a finished word before we park the cut in mid-silence.
+# Below this, abutting/short breaths stay at the word end (+ optional margin).
+DEFAULT_PAUSE_MIDPOINT_MIN_GAP_MS = 80
+# End must sit on the word close (or already in that pause) to re-center.
+DEFAULT_PAUSE_MIDPOINT_ON_WORD_TOL_MS = 60
+# Never keep more than this much post-word air (long gaps stay tidy).
+DEFAULT_PAUSE_MIDPOINT_MAX_PAD_MS = 1000
+
+
+def pad_end_into_following_pause(
+    end_ms: int,
+    words: list[dict[str, Any]],
+    *,
+    min_gap_ms: int = DEFAULT_PAUSE_MIDPOINT_MIN_GAP_MS,
+    on_word_tol_ms: int = DEFAULT_PAUSE_MIDPOINT_ON_WORD_TOL_MS,
+    max_pad_ms: int = DEFAULT_PAUSE_MIDPOINT_MAX_PAD_MS,
+) -> int:
+    """Park an outgoing cut at the midpoint of the post-word pause when one exists.
+
+    STT ``end_ms`` often lands at the energy drop before the release finishes, and
+    mix crossfades then shave the tail. When the next transcript word is later,
+    cutting halfway through that pause keeps the word fully audible and still
+    reads as a deliberate edit (not mid-word, not into the next thought).
+
+    Long gaps are capped at ``max_pad_ms`` after the word end so the keep does not
+    swallow seconds of dead air.
+    """
+    end = max(0, int(end_ms))
+    if not words or end <= 0:
+        return end
+    min_gap = max(0, int(min_gap_ms))
+    tol = max(0, int(on_word_tol_ms))
+    max_pad = max(0, int(max_pad_ms))
+
+    last_end: int | None = None
+    for w in words:
+        if not isinstance(w, dict) or not _tok(w):
+            continue
+        times = _word_ms(w)
+        if times is None:
+            continue
+        _w0, w1 = times
+        if w1 <= end + tol:
+            last_end = w1 if last_end is None else max(last_end, w1)
+    if last_end is None:
+        return end
+    # Cut must be on this word's close or already inside the following pause.
+    if end < last_end - tol:
+        return end
+
+    next_start: int | None = None
+    for w in words:
+        if not isinstance(w, dict) or not _tok(w):
+            continue
+        times = _word_ms(w)
+        if times is None:
+            continue
+        w0, _w1 = times
+        if w0 >= last_end - 5:
+            next_start = w0 if next_start is None else min(next_start, w0)
+    if next_start is None:
+        return end
+    gap = int(next_start) - int(last_end)
+    if gap < min_gap:
+        return end
+    # Do not pull a cut that already entered the next word.
+    if end > int(next_start):
+        return end
+    mid = int(last_end + next_start) // 2
+    capped = min(mid, int(last_end) + max_pad)
+    return min(capped, int(next_start))
+
+
 def acoustic_snap_edges(
     wav_path: Path | str | None,
     start_ms: int,
@@ -435,8 +508,11 @@ def refine_cut_edges(
     search_ms: int = 120,
     apply_exact_words: bool = True,
     apply_acoustic: bool = True,
+    pause_midpoint_end: bool = True,
+    pause_midpoint_min_gap_ms: int = DEFAULT_PAUSE_MIDPOINT_MIN_GAP_MS,
+    pause_midpoint_max_pad_ms: int = DEFAULT_PAUSE_MIDPOINT_MAX_PAD_MS,
 ) -> tuple[int, int, dict[str, Any]]:
-    """Full edge refine: exact word pins then optional acoustic valley nudge."""
+    """Full edge refine: exact word pins, pause-midpoint end, optional acoustic nudge."""
     meta: dict[str, Any] = {"steps": []}
     start = max(0, int(start_ms))
     end = max(start, int(end_ms))
@@ -444,6 +520,18 @@ def refine_cut_edges(
     if apply_exact_words and word_list:
         start, end = exact_word_edges(word_list, start, end)
         meta["steps"].append("exact_word_edges")
+    if pause_midpoint_end and word_list:
+        padded = pad_end_into_following_pause(
+            end,
+            word_list,
+            min_gap_ms=int(pause_midpoint_min_gap_ms),
+            max_pad_ms=int(pause_midpoint_max_pad_ms),
+        )
+        if padded != end:
+            meta["pause_midpoint_before_ms"] = end
+            meta["pause_midpoint_after_ms"] = padded
+            end = max(start, int(padded))
+            meta["steps"].append("pause_midpoint_end")
     if apply_acoustic:
         start, end, acoustic_meta = acoustic_snap_edges(
             wav_path,

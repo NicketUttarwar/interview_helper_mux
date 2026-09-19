@@ -23,7 +23,6 @@ inputs:
   - path: understanding/source_topology.json
     producer: source_topology_build
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/value_features.json
   - path: understanding/speakers.json
     producer: speaker_roles

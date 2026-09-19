@@ -48,7 +48,6 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/gap_evaluations.json
     producer: missing_framing
   - path: understanding/ideal_cuts.json

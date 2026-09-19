@@ -225,3 +225,25 @@ def test_hs3_raw_done_without_audit_is_incomplete(ctx: RunContext) -> None:
     assert "connector_fuse_audit" in str(reason)
     heal_or_refuse_mark(ctx, "connector_fuse_pass", force=True)
     assert not ctx.is_done("connector_fuse_pass")
+
+
+def test_hs3_pre_ranking_may_append_shared_fuse_audit(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Applied pre-ranking fuses append connector_fuse_audit (exec_13157)."""
+    from interview_mux.artifact_ownership import write_permitted
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
+    )
+    ok, reason = write_permitted(
+        ctx,
+        "analysis/connector_fuse_audit.json",
+        "connector_fuse_pass_pre_ranking",
+        role="producer",
+    )
+    assert ok, f"pre_ranking must co-produce fuse audit ({reason})"
+    foreign, _ = write_permitted(
+        ctx, "analysis/connector_fuse_audit.json", "mix", role="producer"
+    )
+    assert not foreign

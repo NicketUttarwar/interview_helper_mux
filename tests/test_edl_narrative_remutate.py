@@ -46,6 +46,14 @@ def test_classify_issue_needles() -> None:
         )
         == "align_plan"
     )
+    assert (
+        classify_edl_narrative_issue(
+            "Two spoken bridges are scheduled for the same selected adjacency: "
+            "the transition after seg_023/before seg_025 and required rendered "
+            "VO vo_layup_seg_025"
+        )
+        == "transitions"
+    )
 
 
 def test_plan_sticky_exhausted_does_not_climb(tmp_path) -> None:

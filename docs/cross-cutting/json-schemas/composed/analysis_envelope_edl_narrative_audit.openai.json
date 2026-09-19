@@ -33,11 +33,18 @@
           "items": {
             "type": "object",
             "required": [
+              "code",
               "issue",
               "evidence",
               "recommended_action"
             ],
             "properties": {
+              "code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "issue": {
                 "type": "string"
               },

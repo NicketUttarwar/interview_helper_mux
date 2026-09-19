@@ -9,6 +9,7 @@ import soundfile as sf
 
 from interview_mux.cut_edge_refine import (
     exact_word_edges,
+    pad_end_into_following_pause,
     refine_cut_edges,
     resolve_ms_from_anchor_text,
 )
@@ -39,6 +40,54 @@ def _list_words() -> list[dict]:
         {"text": t, "start_ms": s, "end_ms": e, "speaker_id": "spk_0"}
         for t, s, e in toks
     ]
+
+
+def test_pad_end_into_following_pause_midpoint() -> None:
+    """Longitudinally-style: word end then 1.5s pause → cut at mid-pause."""
+    words = [
+        {"text": "16", "start_ms": 1455000, "end_ms": 1455200},
+        {"text": "genes", "start_ms": 1455300, "end_ms": 1455600},
+        {"text": "longitudinally.", "start_ms": 1456100, "end_ms": 1456720},
+        {"text": "It's", "start_ms": 1458240, "end_ms": 1458740},
+    ]
+    assert pad_end_into_following_pause(1456720, words) == (1456720 + 1458240) // 2
+    # Already in the pause → still canonicalize to midpoint.
+    assert pad_end_into_following_pause(1457000, words) == (1456720 + 1458240) // 2
+
+
+def test_pad_end_caps_long_gaps_at_one_second() -> None:
+    words = [
+        {"text": "done.", "start_ms": 0, "end_ms": 400},
+        {"text": "Later", "start_ms": 5400, "end_ms": 5600},
+    ]
+    # Midpoint would be +2500ms; cap at +1000ms after the word.
+    assert pad_end_into_following_pause(400, words) == 1400
+    assert pad_end_into_following_pause(400, words, max_pad_ms=1000) == 1400
+
+
+def test_pad_end_skips_tiny_or_abutting_gaps() -> None:
+    words = [
+        {"text": "hello", "start_ms": 0, "end_ms": 200},
+        {"text": "world.", "start_ms": 220, "end_ms": 400},
+    ]
+    assert pad_end_into_following_pause(200, words) == 200
+
+
+def test_refine_cut_edges_applies_pause_midpoint() -> None:
+    words = [
+        {"text": "done.", "start_ms": 100, "end_ms": 400},
+        {"text": "Next", "start_ms": 1400, "end_ms": 1600},
+    ]
+    _s, end, meta = refine_cut_edges(
+        start_ms=100,
+        end_ms=400,
+        words=words,
+        wav_path=None,
+        apply_exact_words=True,
+        apply_acoustic=False,
+    )
+    assert end == (400 + 1400) // 2
+    assert "pause_midpoint_end" in meta["steps"]
 
 
 def test_and_yet_is_hanging_setup() -> None:

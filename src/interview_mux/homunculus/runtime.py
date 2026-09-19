@@ -70,6 +70,17 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
 
     if stage not in ANALYSIS_ORDER and stage not in DELIVERY_ORDER:
         return None
+    # A committed, non-truncated master is stronger completion evidence than a
+    # missing mix marker after an infrastructure/process interruption. Finalize
+    # must be allowed to validate/promote it instead of rewinding into mix.
+    if stage == "master_finalize":
+        try:
+            from interview_mux.delivery_invariants import committed_master_integrity_ok
+
+            if committed_master_integrity_ok(ctx):
+                return None
+        except Exception:
+            pass
     # G1 already green: do not force vo_line_adjudicate over fresh WAVs.
     if stage in {"vo_synthesize", "edl_narrative_audit", "edl"}:
         try:

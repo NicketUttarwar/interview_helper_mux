@@ -26,7 +26,6 @@ inputs:
     producer: source_acoustic_profile
   - path: understanding/value_features.json
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/source_topology.json
     producer: source_topology_build
   - path: segments/manifest.json

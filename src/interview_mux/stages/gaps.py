@@ -98,12 +98,18 @@ def _gap_eval_is_unscored_fill(row: dict[str, Any]) -> bool:
     from interview_mux.stage_completion import BATCH_FILL_BY, MISSING_FRAMING_FILL_TAGS
 
     filled_by = _gap_eval_filled_by(row)
+    if filled_by == "coverage_exhausted_accept":
+        return False
     if filled_by not in MISSING_FRAMING_FILL_TAGS:
         return False
     if filled_by == BATCH_FILL_BY:
         return True
     reason = str((row.get("_meta") or {}).get("reason") or "")
-    if reason == "fabricate_evaluation":
+    if reason in ("fabricate_evaluation", "coverage_cap_seal"):
+        # coverage_cap_seal is keep-eligible even if an older repair left the
+        # repair_gap_evaluations filled_by tag (exec_13159).
+        if reason == "coverage_cap_seal":
+            return False
         return True
     if row.get("severity") and row.get("gap_type"):
         return False
@@ -1054,7 +1060,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             nugget_layup_enabled,
             publish_layup_plan_to_gap_report,
         )
-        from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+        from interview_mux.artifact_ownership import freeze_write_allowed
         from interview_mux.write_staging import heal_or_refuse_mark
 
         gap = (
@@ -1069,7 +1075,11 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 or ctx.artifact_exists(PLAN_REL)
             )
         )
-        frozen = soft_freeze_active(ctx) or hard_freeze_active(ctx)
+        frozen = not freeze_write_allowed(
+            ctx,
+            "gap_framing_compose",
+            "compose_copy",
+        )
         if layup_owns or frozen:
             why = "layup_authority" if layup_owns else "seat_freeze"
             try:
@@ -1117,7 +1127,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
 
         plan = artifacts.pop("gap_framing_plan", None)
         repaired, _ = repair_gap_report(c, artifacts)
-        from interview_mux.high_gap_vo import demote_uncovered_high_gaps, fill_uncovered_high_gaps
+        from interview_mux.high_gap_vo import fill_uncovered_high_gaps, resolve_seats
 
         fill_applied: list[dict[str, Any]] = []
         filled = 0
@@ -1147,10 +1157,11 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         persist_gap_framing_companion_artifacts(c, repaired)
         if isinstance(plan, dict):
             c.write_json("understanding/gap_framing_plan.json", plan)
-        demoted = demote_uncovered_high_gaps(c, gap_report=repaired)
-        if demoted:
+        resolution = resolve_seats(c, intent="compose_persist", gap_report=repaired)
+        if resolution.demoted:
             c.log(
-                f"gap_framing_compose: demoted {demoted} uncovered high gap(s) after fill",
+                "gap_framing_compose: demoted "
+                f"{resolution.demoted} uncovered high gap(s) after fill",
                 level="warning",
                 stage="gap_framing_compose",
             )

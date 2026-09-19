@@ -91,7 +91,14 @@ SEGMENT_ID_REMAP_PATHS: frozenset[str] = frozenset(
         "transcripts/index.json",
     }
 )
-SEGMENT_ID_REMAP_STAGES: tuple[str, ...] = ("edl_overlap_repair",)
+# Fuse + overlap repair + chapter-close hitch all retire absorbed seg_* ids
+# across SHARED remaps (hitch remaps keepers onto surviving ids — exec_13157).
+SEGMENT_ID_REMAP_STAGES: tuple[str, ...] = (
+    "edl_overlap_repair",
+    "connector_fuse_pass",
+    "connector_fuse_pass_pre_ranking",
+    "chapter_close_hitch",
+)
 
 MATRIX_VERSION_META_KEY = "artifact_ownership_matrix_version"
 AUTHORITY_DENIED_FP_PREFIX = "authority_denied"
@@ -136,6 +143,48 @@ class DenyRow:
     epochs: tuple[str, ...] = ()
     verb: Verb = "persist"
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class FreezeWritePolicyRow:
+    """Named mutation classes that remain legal at each seat-freeze epoch."""
+
+    stage: str
+    mutation_class: str
+    epochs: tuple[str, ...]
+
+
+# Freeze policy is deliberately stage/action based: paths can be co-written, but
+# the reason for a post-freeze write determines whether it is safe. Metadata
+# alignment and transition shrinkage do not mint VO seats; compose/host-copy
+# rewrites stop once the seat contract freezes.
+FREEZE_WRITE_POLICY: tuple[FreezeWritePolicyRow, ...] = (
+    FreezeWritePolicyRow(
+        "edl_narrative_audit",
+        "narrative_metadata_align",
+        ("pre_soft_freeze", "soft_freeze", "hard_freeze"),
+    ),
+    FreezeWritePolicyRow(
+        "edl_narrative_audit",
+        "narrative_host_repair",
+        ("pre_soft_freeze",),
+    ),
+    FreezeWritePolicyRow(
+        "gap_framing_compose",
+        "compose_copy",
+        ("pre_soft_freeze", "soft_freeze"),
+    ),
+    FreezeWritePolicyRow(
+        "transitions",
+        "transition_dedupe",
+        ("pre_soft_freeze", "soft_freeze", "hard_freeze"),
+    ),
+    FreezeWritePolicyRow(
+        "transitions",
+        "transition_repair",
+        ("pre_soft_freeze", "soft_freeze", "hard_freeze"),
+    ),
+)
 
 
 class AuthorityDenied(PermissionError):
@@ -211,9 +260,14 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "understanding/source_topology.json",
         "source_topology_build",
     ),
+    # source_topology_build authors the base doc; missing_framing / G-Framing
+    # mutates operator_overrides (gap_framing_enabled) via gap_vo_gates
+    # (exec_13157 AuthorityDenied under missing_framing).
     _row(
         "understanding/flow_adaptation.json",
         "source_topology_build",
+        "missing_framing",
+        mode="committed_ok",
     ),
     _row(
         "understanding/content_brief.json",
@@ -266,7 +320,13 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/framing_posture_decision.json", "framing_posture_decide"),
     _row("vernacular/resplit_report.json", "vernacular_segment_sanitize"),
     _row("analysis/low_conf_islands.json", "low_conf_island_scan"),
-    _row("analysis/connector_fuse_audit.json", "connector_fuse_pass"),
+    _row(
+        "analysis/connector_fuse_audit.json",
+        "connector_fuse_pass",
+        # Pre-ranking apply_connector_fuses appends the same audit trail
+        # (exec_13157 AuthorityDenied when only post_sanitize owned the path).
+        "connector_fuse_pass_pre_ranking",
+    ),
     # Both fuse passes write rounds.json (analysis + pre_ranking); keep
     # pre_ranking last as authoritative (HS-3 / exec_11871).
     _row(
@@ -406,6 +466,14 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "master/transitions.json",
         "transitions",
         mode="one_writer",
+        end="C",
+    ),
+    # Disk-grounded selected-adjacency occupancy. The audit builds it immediately
+    # before its LLM volley; transitions refreshes it under soft/hard seat freeze.
+    _row(
+        "master/seam_occupancy.json",
+        "edl_narrative_audit",
+        "transitions",
         end="C",
     ),
     _row(
@@ -801,6 +869,8 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "transitions",
         "selection_order_sanitize",
         "full_master_ranking",
+        # EDL may refresh bridges when seating air order (exec_13159 AuthorityDenied).
+        "edl",
         end="C",
     ),
     _row("vo_pickup/synthesis_report.json", "vo_synthesize", mode="operational", end="B"),
@@ -906,7 +976,9 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("sound_design/musicgen_candidates.json", "music_palette_compose", mode="operational", end="D"),
     _row("sound_design/placement_adjustments.json", "mix", mode="operational", end="D"),
     _row("sound_design/soundscape_report.json", "soundscape_policy_build", mode="operational"),
-    _row("master/music_cue_coverage.json", "music_palette_compose", mode="operational", end="D"),
+    # Mix realizes overlays and writes coverage; palette only plans cues.
+    # Junction remaster must promote this as a side effect (see remaster_mix_only).
+    _row("master/music_cue_coverage.json", "mix", mode="operational", end="D"),
     _row("master/bed_presence_qc.json", "mix", mode="operational", end="D"),
     _row("master/underbed_ab_qc.json", "mix", mode="operational", end="D"),
     _row("master/listen_critic.json", "mix", mode="operational", end="D"),
@@ -980,6 +1052,7 @@ _PRIMARY_BY_STAGE: dict[str, str] = {
     "vernacular_segment_sanitize": "vernacular/resplit_report.json",
     "low_conf_island_scan": "analysis/low_conf_islands.json",
     "connector_fuse_pass": "analysis/connector_fuse_audit.json",
+    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_audit.json",
     "sonic_context_build": "understanding/sonic_context.json",
     "sound_design_palettes": "understanding/sound_design_plan.json",
     "mastering_research_routing": "mastering/research/routing.json",
@@ -1333,6 +1406,19 @@ def _build_allow() -> tuple[AllowRow, ...]:
                 verb="persist",
             )
         )
+    # Narrative audit may realign chapter metadata to the already-selected air
+    # order without changing seats. This is the freeze-safe repair class.
+    rows.append(
+        AllowRow(
+            path="master/selection.json",
+            stage="edl_narrative_audit",
+            role="producer",
+            epochs=("pre_soft_freeze", "soft_freeze", "hard_freeze"),
+            write_mode="one_writer",
+            allowed_mutations=("narrative_metadata_align",),
+            verb="persist",
+        )
+    )
     # Common operational / ledger paths (not stage primaries).
     for path in (
         "understanding/refinement_ledger.json",
@@ -1583,6 +1669,23 @@ def current_epoch(ctx: Any) -> str:
     return ep
 
 
+def freeze_write_allowed(
+    ctx: Any,
+    stage_key: str,
+    mutation_class: str,
+    *,
+    epoch: str | None = None,
+) -> bool:
+    """Return whether a named stage mutation is legal in the active freeze epoch."""
+    stage = str(stage_key or "").strip()
+    mutation = str(mutation_class or "").strip()
+    ep = str(epoch or current_epoch(ctx) or "pre_soft_freeze")
+    for row in FREEZE_WRITE_POLICY:
+        if row.stage == stage and row.mutation_class == mutation:
+            return ep in row.epochs
+    return False
+
+
 @lru_cache(maxsize=1)
 def matrix_version() -> str:
     payload = {
@@ -1593,6 +1696,9 @@ def matrix_version() -> str:
         "deny": [
             (d.path, d.stage, d.role, d.fields, d.epochs, d.verb, d.reason)
             for d in DENY
+        ],
+        "freeze": [
+            (p.stage, p.mutation_class, p.epochs) for p in FREEZE_WRITE_POLICY
         ],
         "primary": sorted(_PRIMARY_BY_STAGE.items()),
     }
@@ -1614,7 +1720,11 @@ def stamp_matrix_version(ctx: Any) -> str:
 
 
 def check_matrix_version(ctx: Any) -> tuple[bool, str]:
-    """Return (ok, message). Mismatch refuses further mutates."""
+    """Return (ok, message). Mismatch refuses further mutates.
+
+    Forensics campaigns may restamp after intentional ALLOW-seed patches so the
+    same run_id can continue (MUX_FORENSICS=1). Plain / soak runs stay sealed.
+    """
     live = matrix_version()
     try:
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -1624,6 +1734,14 @@ def check_matrix_version(ctx: Any) -> tuple[bool, str]:
     if not sealed:
         return True, "unsealed"
     if sealed != live:
+        try:
+            from interview_mux.identical_failures import forensics_mode
+
+            if forensics_mode():
+                stamp_matrix_version(ctx)
+                return True, f"forensics_restamp sealed={sealed}→{live}"
+        except Exception:
+            pass
         return False, f"matrix_version_mismatch sealed={sealed} live={live}"
     return True, sealed
 
@@ -1639,12 +1757,14 @@ def write_permitted(
     role: str = "producer",
     fields: Iterable[str] | None = None,
     verb: Verb = "persist",
+    mutation_class: str | None = None,
 ) -> tuple[bool, str]:
     """Return (ok, reason). DENY wins over ALLOW. Unknown path fails when closed."""
     rel = _norm_path(path)
     stage = str(stage_key or "").strip()
     role_s = str(role or "producer").strip() or "producer"
     field_set = tuple(str(f) for f in (fields or ()) if f)
+    mutation = str(mutation_class or "").strip()
     epoch = ""
     try:
         epoch = current_epoch(ctx) if ctx is not None else ""
@@ -1703,6 +1823,31 @@ def write_permitted(
             return True, "unknown_path_warn"
         return False, "unknown_path"
 
+    # Remap authority is narrower than producer authority. Every persist made by
+    # a remap stage on the shared walker surface must identify the integrity-only
+    # mutation class declared by its ALLOW row.
+    if (
+        verb == "persist"
+        and stage in SEGMENT_ID_REMAP_STAGES
+        and rel in SEGMENT_ID_REMAP_PATHS
+    ):
+        if mutation != "segment_id_remap":
+            return False, "mutation_class_required:segment_id_remap"
+        if not any(
+            a.path == rel
+            and a.stage == stage
+            and a.verb == verb
+            and mutation in a.allowed_mutations
+            and (not a.epochs or not epoch or epoch in a.epochs or "" in a.epochs)
+            for a in ALLOW
+        ):
+            return False, "mutation_class_not_allowed:segment_id_remap"
+
+    if mutation and any(
+        p.stage == stage and p.mutation_class == mutation for p in FREEZE_WRITE_POLICY
+    ) and not freeze_write_allowed(ctx, stage, mutation, epoch=epoch):
+        return False, f"freeze_blocks:{stage}:{mutation}:{epoch}"
+
     # Ops / operational paths — any caller may persist (telemetry, integrity, GUI).
     if row.write_mode == "operational":
         return True, "operational"
@@ -1755,9 +1900,16 @@ def assert_write(
     role: str = "producer",
     fields: Iterable[str] | None = None,
     verb: Verb = "persist",
+    mutation_class: str | None = None,
 ) -> None:
     ok, reason = write_permitted(
-        ctx, path, stage_key, role=role, fields=fields, verb=verb
+        ctx,
+        path,
+        stage_key,
+        role=role,
+        fields=fields,
+        verb=verb,
+        mutation_class=mutation_class,
     )
     if ok:
         return
@@ -2123,6 +2275,8 @@ __all__ = [
     "ArtifactRow",
     "AllowRow",
     "DenyRow",
+    "FREEZE_WRITE_POLICY",
+    "FreezeWritePolicyRow",
     "HEAL_TOKEN_OWNERS",
     "HOT_PATHS",
     "MATRIX_VERSION_META_KEY",
@@ -2135,6 +2289,7 @@ __all__ = [
     "current_epoch",
     "disk_paths_view",
     "fail_closed",
+    "freeze_write_allowed",
     "heal_pin_for",
     "matrix_version",
     "owner_of",

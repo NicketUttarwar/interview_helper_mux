@@ -327,6 +327,39 @@ def resolve_stage_defects(
     return closed
 
 
+def reconcile_defects_for_completed_stages(ctx: RunContext) -> int:
+    """Close open defects for stages that already have ``.stage_done``.
+
+    Heals and nested remasters often ``mark_done`` / restamp without going through
+    ``note_dispatch_outcome(..., outcome=\"done\")``, so attempt_memo /
+    missing_hard_input rows linger and structurally block PMQ after the artifacts
+    exist. Call before counting ship-bar defects.
+
+    Walk every stage that still has an open ship-bar row (not only
+    ``SHIP_BAR_CRITICAL_STAGES``): ``missing_hard_input`` degrades the bar on
+    non-critical stages such as ``listen_delight_audit`` (exec_13159).
+    """
+    stages: set[str] = set(SHIP_BAR_CRITICAL_STAGES)
+    try:
+        for row in open_ship_bar_defects(ctx):
+            sid = str(row.get("stage") or "").strip()
+            if sid:
+                stages.add(sid)
+    except Exception:
+        pass
+    closed = 0
+    for sid in sorted(stages):
+        try:
+            if not ctx.is_done(sid):
+                continue
+        except Exception:
+            continue
+        closed += resolve_stage_defects(
+            ctx, sid, reason="completed_stage_reconcile"
+        )
+    return closed
+
+
 def defect_summary(ctx: RunContext) -> dict[str, Any]:
     """Compact view for PMQ / GUI: counts plus the open ship-bar blockers.
 

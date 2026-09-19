@@ -98,7 +98,12 @@ def set_gap_framing_enabled(ctx: RunContext, enabled: bool) -> None:
     else:
         overrides.pop("gap_fill_skipped", None)
     adapt["operator_overrides"] = overrides
-    ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        adapt,
+        skip_handoff=True,
+        stage_key="missing_framing",
+    )
     try:
         from interview_mux.pipeline_mode import persist_pipeline_mode
 

@@ -87,7 +87,13 @@ def stamp_span_speakers(
 
 
 def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
-    """Rewrite boundary/manifest speaker_id from word majority; keep 0.1.0 stable."""
+    """Rewrite boundary/manifest speaker_id from word majority; keep 0.1.0 stable.
+
+    Persist under ALLOW stage_keys — never inherit ``missing_framing`` /
+    other non-owners (exec_13159 AuthorityDenied on boundaries.json).
+    """
+    from interview_mux.artifact_ownership import write_permitted
+
     transcript = (
         ctx.read_json("transcript/full.json")
         if ctx.artifact_exists("transcript/full.json")
@@ -100,6 +106,16 @@ def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
     )
     roles = _speaker_roles(speakers_doc)
     changed = {"boundaries": 0, "manifest": 0}
+
+    def _persist(rel: str, payload: dict[str, Any], *, candidates: list[str]) -> bool:
+        for stage_key in candidates:
+            ok, _reason = write_permitted(ctx, rel, stage_key)
+            if not ok:
+                continue
+            ctx.write_json(rel, payload, skip_handoff=True, stage_key=stage_key)
+            return True
+        return False
+
     if ctx.artifact_exists("segments/boundaries.json"):
         doc = ctx.read_json("segments/boundaries.json")
         rows = [r for r in (doc.get("boundaries") or []) if isinstance(r, dict)] if isinstance(doc, dict) else []
@@ -112,8 +128,23 @@ def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
         if n:
             out = dict(doc)
             out["boundaries"] = stamped
-            ctx.write_json("segments/boundaries.json", out, skip_handoff=True)
-            changed["boundaries"] = n
+            meta = out.get("_meta") if isinstance(out.get("_meta"), dict) else {}
+            contract = meta.get("segment_contract") if isinstance(meta, dict) else {}
+            publisher = ""
+            if isinstance(contract, dict):
+                publisher = str(contract.get("publisher_stage") or "").strip()
+            candidates = [
+                s
+                for s in (
+                    publisher,
+                    "chapter_close_hitch",
+                    "boundary_detection",
+                    "edl_overlap_repair",
+                )
+                if s
+            ]
+            if _persist("segments/boundaries.json", out, candidates=candidates):
+                changed["boundaries"] = n
     if ctx.artifact_exists("segments/manifest.json"):
         doc = ctx.read_json("segments/manifest.json")
         rows = [r for r in (doc.get("segments") or []) if isinstance(r, dict)] if isinstance(doc, dict) else []
@@ -139,8 +170,16 @@ def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
         if n:
             out = dict(doc)
             out["segments"] = stamped
-            ctx.write_json("segments/manifest.json", out, skip_handoff=True)
-            changed["manifest"] = n
+            if _persist(
+                "segments/manifest.json",
+                out,
+                candidates=[
+                    "segment_classification",
+                    "edl_overlap_repair",
+                    "connector_fuse_pass",
+                ],
+            ):
+                changed["manifest"] = n
     if any(changed.values()) and hasattr(ctx, "log"):
         ctx.log(
             f"restamped span speakers boundaries={changed['boundaries']} "

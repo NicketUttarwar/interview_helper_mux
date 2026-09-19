@@ -1,8 +1,57 @@
 # Full-auto forensics end report
 
-Current campaign: **`exec_11871_d19c15b58ab4_20260916T002245Z`** (2026-09-16). Prior campaigns archived below.
+Current campaign: **`exec_13159_d19c15b58ab4_20260918T235157Z`** (2026-09-18/19). Prior campaigns archived below.
 
 ---
+
+## What happened
+
+INPUT `mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3` → **ship** (local episode package) on run_id
+`exec_13159_d19c15b58ab4_20260918T235157Z`.
+
+- `fresh_launches = 1` (one `MUX_FRESH=1` kickoff; every fix continued this same run_id)
+- **11 interventions** (i1–i9 family; see state file); driver relaunched on the same run_id after patches
+- Homunculus `0.2.0`
+- Master `master/master.wav` 161,181,774 B (~28:00); `publish/audio.mp3` 40,297,160 B; cover + `package_ready.json`
+- Window: 2026-09-18T23:51:57Z → 2026-09-19T03:15:52Z
+- Per-intervene log: [full_auto_forensics_state.md](full_auto_forensics_state.md)
+
+## Ship verification (§2)
+
+| Gate | Result |
+|------|--------|
+| `master/master.wav` | yes (161181774 B) |
+| `tools/verify_master.py` | **OK** LUFS −16.03 / TP −1.00 / 48 kHz |
+| listen delight | overall **0.9547**, failed_dims=[] |
+| PMQ `publish_allowed` | **true** (structural=[]) |
+| Local package | `publish/package_ready.json`, `audio.mp3`, `cover.jpg` |
+| S3 upload | deferred — quality advisories need G-Publish consent |
+
+## Root causes fixed (this campaign)
+
+| # | Predicate (short) | Producer / root cause | Cascade |
+|---|-------------------|-----------------------|---------|
+| i1–i4 | MSA $ref; layup wordcap; boundaries; CAP | prior session patches | (see state) |
+| i5/i5b | hollow EDL without audit; matrix mismatch | delivery gate + forensics restamp | delivery audit / matrix tests |
+| i6–i6d | sealed layup adopt wrong stage_key; freeze-sticky rewind | assembly/driver/seed_policy | layup owner + sealed shard tests |
+| i7 | critical remaster mislabeled budget exhaust | junction remaster path | `test_jsq_critical_remaster_path` |
+| i8 | mix⇄junction assembly.wav deadlock | `junction_recut_precedes_mix` | precedes-when-assembly-missing |
+| i9 | junction remaster drops mix QC; stale ship-bar defects | `promote_staged_side_effects` + defect reconcile | `test_i9_junction_remaster_promotes_mix_qc.py` |
+
+## Open advisories (aspirational — did not block local ship)
+
+- `scorecard_dimension_floors` (clarity 0.7946 < 0.80 — low synthetic share)
+- `planned_music_preserved` / `episode_close_outro_present` — `music_cue_coverage.json` still absent on disk because post-ship remaster is refused by live `on_a_roll` on `seg_057` (junction `critical_count=0`). i9 promote path is in code for the next remaster.
+
+## Daemon / nudge
+
+Stopped after ship (`full_auto_daemon_launch` stack shutdown + killed §3.0a nudge PID 34728).
+
+---
+
+## Prior campaign archive
+
+### Archived: previous current campaign
 
 ## What happened
 

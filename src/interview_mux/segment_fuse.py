@@ -1285,7 +1285,11 @@ def _append_audit(
         remap[old] = target
     audit["id_remap"] = remap
     audit["version"] = 1
-    ctx.write_json(FUSE_AUDIT_PATH, audit)
+    ctx.write_json(
+        FUSE_AUDIT_PATH,
+        audit,
+        stage_key=fuse_writer_stage(pass_id),
+    )
 
 
 def fused_id_remap(ctx: RunContext) -> dict[str, str]:

@@ -21,7 +21,7 @@ code_is_king: true | prior_exec: ignored_by_default
 |------|---------|-----|--------------|
 | agenda present | Heuristic or LLM candidates; heal | IN_CODE | `run_mastering_shape_candidates` |
 | soft_gate off | Empty candidates stub + skipped | IN_CODE | `_persist_shape_candidates_skip` |
-| empty LLM candidates | Heuristic with `llm_failed` | IN_CODE | `_heuristic_candidates` |
+| empty / wrong / schema-invalid LLM candidates | One typed remutate, then hard incomplete | IN_CODE | `invoke_mastering_prompt` |
 | no modes | Forced sparse survivor cand | IN_CODE | `_heuristic_candidates` |
 | hollow | HM-1 | IN_CODE | |
 
@@ -44,7 +44,7 @@ code_is_king: true | prior_exec: ignored_by_default
 |------|---------|-----|--------------|
 | defaults heuristic | ≥1 candidate; heal | IN_CODE | |
 | LLM success | LLM candidates | IN_CODE | prompt shape-l2-candidates ≤2 |
-| exception | Forced sparse cand; heal | IN_CODE | |
+| shape.llm on exception/exhaustion | CSP-05 hard incomplete; no forced-sparse heal-done | IN_CODE | |
 | diversity | Skipped by default (`skip_diversity: true`) | IN_CODE | |
 
 ## 5. Side effects
@@ -54,7 +54,7 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## 6. Complexity traps
 
-- OpenAI optional; fail-open always produces survivors — `IN_CODE`
+- OpenAI is default-on; CSP-05 forbids hollow soft-heal survivors — `IN_CODE`
 - Local heavy ML: N/A
 
 ## 7. Contract honesty
@@ -68,15 +68,15 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| N/A default | Heuristic | IN_CODE | shape.llm false |
-| LLM fail | Heuristic heal | IN_CODE | |
+| shape.llm false | Heuristic | IN_CODE | explicit override |
+| LLM fail | One typed remutate, then hard incomplete | IN_CODE | |
 
 ## 9. Full-auto / defaults path (REQUIRED)
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| Full-auto + defaults | Completes with heuristic candidates | IN_CODE | |
-| human stall? | No (except research thin) | IN_CODE | |
+| Full-auto + defaults | Schema-bound LLM candidates | IN_CODE | shape.llm true |
+| human stall? | Only after typed remutate exhausts; driver caps Finished-lie replay | IN_CODE | |
 | GUI-only? | No | IN_CODE | |
 | partial-only fix risk | Requiring LLM candidates without fallback stalls Full-auto | FULL_AUTO_REGRESSION_RISK | |
 

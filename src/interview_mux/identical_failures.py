@@ -972,11 +972,19 @@ def sync_identical_halts_with_product(
         cleared = clear_edl_repair_halts(ctx)
     else:
         cleared = 0
+    memo_cleared = 0
     if forensics or force or product_changed:
+        try:
+            from interview_mux.dispatch_delta import clear_failed_refused_memo_rows
+
+            memo_cleared = int(clear_failed_refused_memo_rows(ctx) or 0)
+        except Exception:
+            memo_cleared = 0
         meta[PRODUCT_FINGERPRINT_META_KEY] = fp
         ctx.write_json("run_meta.json", meta, skip_handoff=True)
     return {
         "cleared": cleared,
+        "memo_cleared": memo_cleared,
         "fingerprint": fp,
         "previous_fingerprint": prev,
         "product_changed": product_changed,

@@ -19,7 +19,7 @@ Underbeds do **not** follow the speech gate. Mix applies a single `level_db` (au
 
 ## Bed coverage / hinge stinger — Shape-owned soft bands (Plan 4)
 
-`bed_coverage` (**0.40–0.88** of selection duration) and `hinge_stinger_coverage`
+`bed_coverage` (**0.40–0.85** of selection duration) and `hinge_stinger_coverage`
 (**0.3–1.0** of chapter/topic hinges) are **Shape-owned soft bands** —
 `listenability_guards._DEFAULTS`, documented in
 [config-keys.md](./config-keys.md#creative_deliverylistenability_guards) — not a remux-theater

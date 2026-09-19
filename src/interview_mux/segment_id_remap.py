@@ -235,7 +235,10 @@ def rewrite_artifact_segment_refs(
                 write_live_edl(ctx, rewritten, source=stage_key or "segment_id_remap")
                 updated.append(rel)
                 continue
-            kwargs: dict[str, Any] = {"skip_handoff": skip_handoff}
+            kwargs: dict[str, Any] = {
+                "skip_handoff": skip_handoff,
+                "mutation_class": "segment_id_remap",
+            }
             if stage_key:
                 kwargs["stage_key"] = stage_key
             ctx.write_json(rel, rewritten, **kwargs)

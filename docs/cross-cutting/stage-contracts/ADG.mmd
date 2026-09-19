@@ -114,14 +114,11 @@ flowchart LR
   sound_design_plan -->|I| vo_line_adjudicate
   sound_design_plan -->|I| vo_synthesize
   sound_design_plan -->|I| edl
-  sound_design_vo_finalize -->|I| vo_line_adjudicate
-  sound_design_vo_finalize -->|I| vo_synthesize
   sound_design_vo_finalize -->|I| edl_narrative_audit
   sound_design_vo_finalize -->|I| edl
   vo_line_adjudicate -->|I| vo_synthesize
   vo_line_adjudicate -->|I| edl_narrative_audit
   vo_line_adjudicate -->|I| edl
-  edl_narrative_audit -->|I| vo_synthesize
   edl_narrative_audit -->|I| edl
   vo_synthesize -->|I| edl_narrative_audit
   vo_synthesize -->|I| edl

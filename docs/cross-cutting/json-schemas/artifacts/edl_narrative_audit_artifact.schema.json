@@ -28,6 +28,9 @@
           "recommended_action"
         ],
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "issue": {
             "type": "string"
           },

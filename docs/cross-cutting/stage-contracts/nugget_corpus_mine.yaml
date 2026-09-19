@@ -29,7 +29,6 @@ inputs:
   - path: mastering/media_ip_cta.json
     producer: full_master_ranking
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/gap_report.json
     producer: gap_framing_compose
   - path: understanding/native_comprehension_masks.json

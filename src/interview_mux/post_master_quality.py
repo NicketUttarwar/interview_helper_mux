@@ -296,8 +296,12 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     # zero: the check refuses and carries the reason that made it refuse, because a
     # net that blocks inexplicably gets switched off.
     try:
-        from interview_mux.defect_ledger import defect_summary
+        from interview_mux.defect_ledger import (
+            defect_summary,
+            reconcile_defects_for_completed_stages,
+        )
 
+        reconcile_defects_for_completed_stages(ctx)
         defects = defect_summary(ctx)
         if not isinstance(defects, dict):
             raise TypeError(

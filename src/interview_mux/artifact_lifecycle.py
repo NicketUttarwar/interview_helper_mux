@@ -198,18 +198,19 @@ def post_commit_validate(ctx: Any, stage_key: str) -> list[str]:
         "has no interviewer line" in str(e) for e in errors
     ):
         try:
-            from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+            from interview_mux.high_gap_vo import resolve_seats
 
             report = (
                 ctx.read_json("understanding/gap_report.json")
                 if ctx.artifact_exists("understanding/gap_report.json")
                 else {"interviewer_lines": []}
             )
-            if demote_uncovered_high_gaps(
+            resolution = resolve_seats(
                 ctx,
+                intent="compose_persist",
                 gap_report=report if isinstance(report, dict) else None,
-                origin="post_commit_uncovered_high",
-            ):
+            )
+            if resolution.demoted:
                 result = stage_acceptance_ok(
                     ctx, stage_key, staged=False, include_downstream=False
                 )

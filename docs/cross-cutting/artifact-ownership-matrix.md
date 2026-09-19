@@ -1,6 +1,6 @@
 # Artifact ownership — ALLOW / DENY
 
-matrix_version: `e435525aaceb4a19`
+matrix_version: `5c1cb0bdae461afd`
 
 ## Primary paths (live stages)
 

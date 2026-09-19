@@ -72,7 +72,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | default no LLM | Heuristic confirm | IN_CODE | |
-| LLM ≤2 fail | Heuristic | IN_CODE | |
+| LLM ≤2 fail | Heuristic; invoke contract explicitly requests `artifact=plan` | IN_CODE | |
 
 ## 9. Full-auto / defaults path (REQUIRED)
 
@@ -90,7 +90,7 @@ code_is_king: true | prior_exec: ignored_by_default
 |------|---------|--------|
 | soft_gate.enable | true | no-op if false |
 | soft_gate.shadow_compare | true | shadow_diff |
-| shape.llm.enabled | false | LLM confirm path |
+| shape.llm.enabled | true | LLM confirm path; plan response contract |
 
 ## TEST_GAP
 

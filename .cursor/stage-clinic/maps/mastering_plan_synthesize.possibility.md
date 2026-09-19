@@ -73,7 +73,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
 | default no LLM | Soft_gate degraded plan | IN_CODE | |
-| LLM ≤2 fail | Soft_gate fallback | IN_CODE | flagship-synthesize |
+| LLM ≤2 fail | Soft_gate fallback; invoke contract explicitly requests `artifact=plan` | IN_CODE | flagship-synthesize |
 
 ## 9. Full-auto / defaults path (REQUIRED)
 
@@ -90,7 +90,7 @@ code_is_king: true | prior_exec: ignored_by_default
 | flag | default | effect |
 |------|---------|--------|
 | soft_gate.enable | true | forced sparse if false |
-| shape.llm.enabled | false | authoritative complete gate |
+| shape.llm.enabled | true | authoritative complete gate; plan response contract |
 | soft_gate.consumers_bind | false | advisory |
 | soft_gate.two_pass | true | confirm expected later |
 

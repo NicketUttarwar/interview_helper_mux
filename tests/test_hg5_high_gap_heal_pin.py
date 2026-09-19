@@ -109,7 +109,7 @@ def test_hg5_playbook_demotes_leftover_highs(
     evals = ctx.read_json("understanding/gap_evaluations.json")
     row = (evals.get("evaluations") or [])[0]
     assert row.get("severity") == "medium"
-    assert "uncovered_after_fill" in str(row.get("severity_demotion_reason") or "")
+    assert row.get("severity_demotion_reason") == "high_gap_seat:playbook"
 
 
 def test_hg5_playbook_does_not_demote_covered_high(

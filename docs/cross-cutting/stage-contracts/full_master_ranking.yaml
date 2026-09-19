@@ -57,7 +57,6 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
-    producer: source_topology_build
   - path: understanding/gap_framing_plan.json
     producer: gap_framing_compose
   - path: understanding/ideal_cuts.json

@@ -84,7 +84,7 @@ records what has to be defused before switching them on.
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | understanding/delivery_brief.json |
 | `edl` | process | master/edl.json, master/transitions/ |
-| `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
+| `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json, master/selection.json |
 | `edl_narrative_refine` | meta | — |
 | `episode_cover_generate` | llm_full | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json, publish/cover_candidates/ |
 | `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |

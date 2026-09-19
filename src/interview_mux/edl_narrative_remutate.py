@@ -14,6 +14,7 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
         "rewrite_episode_orientation_meta_question",
         "rewrite_meta_question_layup",
         "dedupe_transitions_by_adjacency",
+        "dedupe_transitions_for_framing",
         "drop_stale_orientation_wav",
         "reseat_required_recovery_layup",
         "promoted_pending_layup_plan",
@@ -283,14 +284,54 @@ def seed_missing_seated_layups(ctx: RunContext) -> tuple[list[str], list[tuple[s
                 stage_key="gap_framing_compose",
             )
         except Exception:
-            ctx.write_json("understanding/gap_report.json", gap)
+            ctx.write_json(
+                "understanding/gap_report.json",
+                gap,
+                stage_key="gap_framing_compose",
+                mutation_class="compose_copy",
+            )
     return notes, adjacencies
 
 
-def classify_edl_narrative_issue(text: str) -> str:
+_ISSUE_CODE_ACTIONS: dict[str, str] = {
+    "ordering_constraint_broken": "rerank",
+    "coverage_missing": "rerank",
+    "selected_continuity_broken": "rerank",
+    "chapter_continuity_broken": "align_plan",
+    "duplicate_spoken_seam": "transitions",
+    "transition_missing": "transitions",
+    "transition_adjacency_invalid": "transitions",
+    "gap_vo_missing": "rebase_gap_vo",
+    "gap_vo_target_invalid": "rebase_gap_vo",
+    "opening_orientation_invalid": "rebase_gap_vo",
+    "pre_edl_vo_placement_missing": "rebase_gap_vo",
+    "invalid_segment_reference": "align_plan",
+    "blank_segment": "drop_blank",
+    "selection_excluded_intentional": "align_plan",
+    "panel_handoff_unclear": "transitions",
+}
+
+
+def classify_edl_narrative_issue(text: str, *, code: str | None = None) -> str:
+    coded = str(code or "").strip().lower()
+    if coded in _ISSUE_CODE_ACTIONS:
+        return _ISSUE_CODE_ACTIONS[coded]
     blob = str(text or "").strip().lower()
     if not blob:
         return "operator"
+    # Duplicate VO+transition on one adjacency is a transitions drop, even when
+    # the prose names vo_layup (exec_13157 Chapter 3→4 handoff).
+    if any(
+        n in blob
+        for n in (
+            "two spoken bridges",
+            "duplicate framing",
+            "same selected adjacency",
+            "duplicate vo + transition",
+            "duplicate vo and transition",
+        )
+    ):
+        return "transitions"
     # VO/orientation defects often mention "transition coverage". Classify those
     # as gap-VO repair before the generic "transition" needle.
     vo_needles = (
@@ -321,7 +362,7 @@ def classify_edl_narrative_issue(text: str) -> str:
 
 
 def narrative_audit_blocks_edl(ctx: RunContext) -> bool:
-    """True when EDL must not run — audit verdict is still fail."""
+    """True only for blocking issues not contradicted by current disk artifacts."""
     if not ctx.artifact_exists("master/edl_narrative_audit.json"):
         return False
     try:
@@ -330,7 +371,32 @@ def narrative_audit_blocks_edl(ctx: RunContext) -> bool:
         return False
     if not isinstance(audit, dict):
         return False
-    return str(audit.get("verdict") or "").strip().lower() == "fail"
+    return bool(effective_narrative_blocking_issues(ctx, audit))
+
+
+def effective_narrative_blocking_issues(
+    ctx: RunContext,
+    audit: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Return only live audit blockers; stale LLM claims never gate EDL."""
+    if audit is None:
+        if not ctx.artifact_exists("master/edl_narrative_audit.json"):
+            return []
+        try:
+            loaded = ctx.read_json("master/edl_narrative_audit.json")
+        except Exception:
+            return []
+        audit = loaded if isinstance(loaded, dict) else {}
+    if not isinstance(audit, dict):
+        return []
+    from interview_mux.artifact_repairs import _edl_issue_contradicted_by_disk
+
+    remaining: list[Any] = []
+    for issue in audit.get("blocking_issues") or []:
+        if isinstance(issue, dict) and _edl_issue_contradicted_by_disk(ctx, issue):
+            continue
+        remaining.append(issue)
+    return remaining
 
 
 def resume_after_narrative_audit_fail(preferred: str | None = None) -> str:
@@ -353,7 +419,12 @@ def classify_edl_narrative_audit(audit: dict[str, Any] | None) -> list[str]:
             )
         else:
             blob = str(issue or "")
-        actions.append(classify_edl_narrative_issue(blob))
+        actions.append(
+            classify_edl_narrative_issue(
+                blob,
+                code=str(issue.get("code") or "") if isinstance(issue, dict) else None,
+            )
+        )
     for raw in audit.get("recommended_actions") or []:
         actions.append(classify_edl_narrative_issue(str(raw or "")))
     # Stable unique order
@@ -412,6 +483,20 @@ def apply_edl_narrative_metadata_align(ctx: RunContext) -> dict[str, Any]:
 
     Safe under soft/hard seat freeze — metadata only.
     """
+    from interview_mux.artifact_ownership import freeze_write_allowed
+
+    if not freeze_write_allowed(
+        ctx,
+        "edl_narrative_audit",
+        "narrative_metadata_align",
+    ):
+        return {
+            "ok": False,
+            "notes": ["freeze_blocked_narrative_metadata_align"],
+            "cleared": [],
+            "from_stage": "edl_narrative_audit",
+            "host_fixed": False,
+        }
     notes: list[str] = []
     cleared: list[str] = []
     try:
@@ -510,12 +595,98 @@ def apply_edl_narrative_metadata_align(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def _dedupe_framing_transitions_under_freeze(ctx: RunContext) -> list[str]:
+    """Drop transition when required VO already covers the adjacency.
+
+    Safe under seat freeze: touches transitions.json only (no VO/seat rewrite).
+    """
+    from interview_mux.artifact_ownership import freeze_write_allowed
+
+    if not freeze_write_allowed(ctx, "transitions", "transition_dedupe"):
+        return ["freeze_blocked_transition_dedupe"]
+    notes: list[str] = []
+    if not ctx.artifact_exists("master/transitions.json"):
+        return notes
+    try:
+        from interview_mux.gap_framing import (
+            dedupe_transitions_by_adjacency,
+            dedupe_transitions_for_framing,
+        )
+        from interview_mux.transition_vo import persist_transitions_doc
+
+        tr = ctx.read_json("master/transitions.json")
+        if not isinstance(tr, dict):
+            return notes
+        gap = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
+        before = len(tr.get("transitions") or [])
+        tr = dedupe_transitions_for_framing(
+            gap if isinstance(gap, dict) else {}, tr, ctx=ctx
+        )
+        tr = dedupe_transitions_by_adjacency(tr)
+        tr = persist_transitions_doc(ctx, tr, stage_key="transitions")
+        after = len(tr.get("transitions") or [])
+        if after < before:
+            notes.append("dedupe_transitions_for_framing")
+        from interview_mux.seam_occupancy import build_seam_occupancy
+
+        occupancy = build_seam_occupancy(
+            ctx,
+            transitions_doc=tr,
+            stage_key="transitions",
+        )
+        if occupancy.get("clean") and ctx.artifact_exists(
+            "master/edl_narrative_audit.json"
+        ):
+            from interview_mux.artifact_repairs import repair_edl_audit
+
+            audit = ctx.read_json("master/edl_narrative_audit.json")
+            repaired, _ = repair_edl_audit(
+                ctx, audit if isinstance(audit, dict) else {}
+            )
+            if not repaired.get("blocking_issues") and str(
+                repaired.get("verdict") or ""
+            ).lower() != "fail":
+                ctx.write_json(
+                    "master/edl_narrative_audit.json",
+                    repaired,
+                    stage_key="edl_narrative_audit",
+                    skip_handoff=True,
+                )
+                notes.append("upgrade_fail_audit_after_clean_occupancy")
+    except Exception as exc:
+        notes.append(f"transitions_freeze_dedupe:{exc}")
+    return notes
+
+
 def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     """Rewrite unusable orientation/layup copy and keep one transition per adjacency.
 
     Does not rewind ranking or recompose layup. Does not soft-pass the audit.
     Metadata plan/chapter align always runs even when seat freeze blocks VO work.
+    Framing-vs-transition dedupe still runs under freeze (transitions-only).
     """
+    from interview_mux.artifact_ownership import freeze_write_allowed
+
+    if not freeze_write_allowed(
+        ctx,
+        "edl_narrative_audit",
+        "narrative_host_repair",
+    ):
+        meta = apply_edl_narrative_metadata_align(ctx)
+        notes = list(meta.get("notes") or [])
+        notes.extend(_dedupe_framing_transitions_under_freeze(ctx))
+        notes.append("seat_freeze_blocked_host_repair")
+        return {
+            "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+            "notes": notes,
+            "cleared": list(meta.get("cleared") or []),
+            "from_stage": "edl_narrative_audit",
+            "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+        }
     try:
         from interview_mux.seat_authority import soft_freeze_active, request_seat_rewrite
 
@@ -529,6 +700,7 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
             if not dec.get("allow"):
                 meta = apply_edl_narrative_metadata_align(ctx)
                 notes = list(meta.get("notes") or [])
+                notes.extend(_dedupe_framing_transitions_under_freeze(ctx))
                 if "seat_freeze_blocked_host_repair" not in notes:
                     notes.append("seat_freeze_blocked_host_repair")
                 return {
@@ -550,6 +722,7 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         if frozen:
             meta = apply_edl_narrative_metadata_align(ctx)
             notes = list(meta.get("notes") or [])
+            notes.extend(_dedupe_framing_transitions_under_freeze(ctx))
             if "seat_freeze_blocked_host_repair_fail_closed" not in notes:
                 notes.append("seat_freeze_blocked_host_repair_fail_closed")
             return {
@@ -714,7 +887,7 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 tr = dedupe_transitions_by_adjacency(tr)
                 from interview_mux.transition_vo import persist_transitions_doc
 
-                tr = persist_transitions_doc(ctx, tr, stage_key="edl_narrative_remutate")
+                tr = persist_transitions_doc(ctx, tr, stage_key="transitions")
                 after = len(tr.get("transitions") or [])
                 if after < before:
                     notes.append("dedupe_transitions_by_adjacency")
@@ -733,7 +906,7 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 tr = prune_transitions_outside_selection(tr, sel_ids)
                 from interview_mux.transition_vo import persist_transitions_doc
 
-                tr = persist_transitions_doc(ctx, tr, stage_key="edl_narrative_remutate")
+                tr = persist_transitions_doc(ctx, tr, stage_key="transitions")
                 after_n = len(tr.get("transitions") or [])
                 if after_n < before_n:
                     notes.append("prune_stale_transitions")
@@ -897,7 +1070,12 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 have.add((after_id, before_id))
                 added = True
             if added:
-                ctx.write_json("master/transitions.json", tr)
+                ctx.write_json(
+                    "master/transitions.json",
+                    tr,
+                    stage_key="transitions",
+                    mutation_class="transition_repair",
+                )
                 notes.append("ensure_adjacency_transition")
         except Exception as exc:
             notes.append(f"ensure_adj:{exc}")

@@ -19,6 +19,7 @@ from interview_mux.dispatch_delta import (
     memo_skip,
     progress_token,
     record_attempt,
+    resume_after_intervene,
 )
 from interview_mux.dispatch_door import door_applies, evaluate_dispatch
 from interview_mux.homunculus.ledger import append_ledger
@@ -177,3 +178,108 @@ def test_walk_still_breaks_on_g0_before_the_door(tmp_path: Path, monkeypatch) ->
     assert calls == []
     # The walk broke at the gate — it did not advance past it as a defect.
     assert [d["stage"] for d in open_defects(ctx)] == []
+
+
+def test_product_fingerprint_mismatch_clears_attempt_memo(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): ownership/code patch must re-offer a refused fuse."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx(tmp_path, "memo_product_fp")
+    record_attempt(ctx, "connector_fuse_pass", outcome="failed", source="analysis_fill_delivery_prereqs")
+    assert memo_skip(ctx, "connector_fuse_pass") is not None
+
+    monkeypatch.setattr(
+        "interview_mux.dispatch_delta._live_product_stamps",
+        lambda: ("patched_fp_deadbeef", "matrix_new_cafe"),
+    )
+    assert memo_skip(ctx, "connector_fuse_pass") is None
+    assert evaluate_dispatch(
+        ctx, "connector_fuse_pass", source="analysis_fill_delivery_prereqs", layer="walk"
+    ).allowed
+
+
+def test_legacy_memo_without_product_stamps_is_not_permanent(
+    tmp_path: Path,
+) -> None:
+    """Pre-stamp refused rows (own:absent after AuthorityDenied) must retry after patch."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.dispatch_delta import MEMO_REL, progress_token, state_token
+    from interview_mux.file_store import write_json as fs_write_json
+
+    ctx = _ctx(tmp_path, "memo_legacy_stamps")
+    # Simulate a pre-fix memo row that never stamped product/matrix.
+    dest = Path(ctx.run_dir) / MEMO_REL
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(
+        dest,
+        {
+            "version": 1,
+            "updated_at": "2026-09-18T19:35:05Z",
+            "stages": {
+                "connector_fuse_pass": {
+                    "stage": "connector_fuse_pass",
+                    "state_token": state_token(ctx, "connector_fuse_pass"),
+                    "outcome": "refused",
+                    "source": "analysis_fill_delivery_prereqs",
+                    "progress_token": progress_token(ctx),
+                    "attempts": 1,
+                }
+            },
+        },
+    )
+    assert memo_skip(ctx, "connector_fuse_pass") is None
+    assert evaluate_dispatch(
+        ctx, "connector_fuse_pass", source="analysis_fill_delivery_prereqs", layer="walk"
+    ).allowed
+
+def test_forensics_restart_clears_failed_refused_memo(tmp_path: Path) -> None:
+    """Cascade (MUX_FORENSICS=0): forensics sync must clear refused memo rows."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.dispatch_delta import clear_failed_refused_memo_rows, memo_skip
+    from interview_mux.identical_failures import sync_identical_halts_with_product
+
+    ctx = _ctx(tmp_path, "memo_forensics_clear")
+    record_attempt(ctx, "mastering_shape_agenda", outcome="refused", source="walk")
+    assert memo_skip(ctx, "mastering_shape_agenda") is not None
+    assert clear_failed_refused_memo_rows(ctx) == 1
+    assert memo_skip(ctx, "mastering_shape_agenda") is None
+
+    record_attempt(ctx, "mastering_shape_agenda", outcome="failed", source="walk")
+    result = sync_identical_halts_with_product(ctx, forensics=True)
+    assert int(result.get("memo_cleared") or 0) >= 1
+    assert memo_skip(ctx, "mastering_shape_agenda") is None
+
+
+def test_resume_after_intervene_clears_only_patched_stage_state(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path, "memo_intervene")
+    record_attempt(ctx, "edl", outcome="failed", source="walk")
+    record_attempt(ctx, "mix", outcome="refused", source="walk")
+    ctx.write_json(
+        "operator/sticky_heal.json",
+        {
+            "version": 1,
+            "attempts": {
+                "edl-key": {"pin": "edl", "halt": True},
+                "mix-key": {"pin": "mix", "halt": True},
+            },
+            "active_halt": {"pin": "edl", "halt": True},
+        },
+        skip_handoff=True,
+    )
+
+    result = resume_after_intervene(ctx, stages=("edl",))
+
+    assert result["memo_cleared"] == 1
+    assert result["sticky_cleared"] == 1
+    assert memo_skip(ctx, "edl") is None
+    assert memo_skip(ctx, "mix") is not None
+    sticky = ctx.read_json("operator/sticky_heal.json")
+    assert sticky.get("active_halt") is None
+    assert set(sticky["attempts"]) == {"mix-key"}

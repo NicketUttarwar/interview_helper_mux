@@ -409,3 +409,68 @@ def test_hg3_same_invoke_cap_seals_leftovers(
     assert (leftover.get("_meta") or {}).get("reason") == "coverage_cap_seal"
     assert stage_artifact_incompleteness(ctx, _STAGE) is None
     assert "batch_fill" not in str(stage_artifact_incompleteness(ctx, _STAGE) or "")
+
+
+def test_repair_seals_fabricate_after_coverage_cap(tmp_path, monkeypatch):
+    """Cascade (MUX_FORENSICS=0): coverage_passes>=CAP must not leave fabricate thrash.
+
+    exec_13159: seg_061–064 stayed fabricate_evaluation after coverage_passes=2.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_repairs import repair_gap_evaluations
+    from interview_mux.stages.gaps import _gap_eval_is_unscored_fill
+    from interview_mux.stage_completion import _missing_framing_batch_fill_incompleteness
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "cap_seal_fabricate")
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["science"],
+                },
+                {
+                    "segment_id": "seg_002",
+                    "start_ms": 1000,
+                    "end_ms": 2000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["science"],
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    doc = {
+        "_meta": {"coverage_passes": 2},
+        "evaluations": [
+            {
+                "segment_id": "seg_001",
+                "self_explanatory": True,
+                "gap_type": "ok_with_light_bridge",
+                "severity": "low",
+                "listener_confusion": "",
+                "_meta": {
+                    "filled_by": "repair_gap_evaluations",
+                    "reason": "fabricate_evaluation",
+                },
+            }
+        ],
+    }
+    repaired, notes = repair_gap_evaluations(ctx, doc)
+    assert any(n.get("action") == "coverage_cap_seal_existing" for n in notes)
+    assert any(n.get("action") == "coverage_cap_seal_fabricate" for n in notes)
+    for row in repaired["evaluations"]:
+        assert not _gap_eval_is_unscored_fill(row), row
+    ctx.write_json("understanding/gap_evaluations.json", repaired, skip_handoff=True)
+    assert _missing_framing_batch_fill_incompleteness(ctx) is None

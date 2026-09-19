@@ -23,22 +23,29 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
     if not _audit_fail(artifacts):
         return artifacts
 
+    from interview_mux.artifact_repairs import repair_edl_audit
+
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if isinstance(meta, dict) and meta.get("edl_narrative_audit_repair_done"):
+        # Still demote stale LLM complaints vs current disk (e.g. duplicate
+        # VO+transition after framing dedupe) — do not re-commit a hollow fail.
+        demoted, _notes = repair_edl_audit(ctx, dict(artifacts))
         ctx.log(
-            "edl_narrative_audit still fail after prior repair — leaving for operator",
-            level="warning",
+            "edl_narrative_audit still fail after prior repair — leaving for operator"
+            if _audit_fail(demoted)
+            else "edl_narrative_audit prior-repair path demoted stale blocking vs disk",
+            level="warning" if _audit_fail(demoted) else "info",
             stage="edl_narrative_audit",
         )
-        return artifacts
+        return demoted
 
     if not ctx.artifact_exists("master/selection.json"):
-        return artifacts
+        demoted, _ = repair_edl_audit(ctx, dict(artifacts))
+        return demoted
 
     from interview_mux.artifact_repairs import (
         align_narrative_plan_to_selection,
         repair_coverage_audit,
-        repair_edl_audit,
         repair_master_selection,
     )
     from interview_mux.artifact_writes import write_validated_artifact
@@ -48,13 +55,36 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
     if isinstance(sel, dict):
         repaired_sel, sel_notes = repair_master_selection(ctx, sel)
         notes.extend(sel_notes)
-        write_validated_artifact(
-            ctx,
-            "master/selection.json",
-            repaired_sel,
-            merge_from_disk=False,
-            stage_key="edl_narrative_audit_repair",
-        )
+        # Under VO hard freeze, only junction_snip_qa may cut selection.
+        # Narrative repair aligns plan *down* to selection — never rewrite
+        # selection here (exec_13157 AuthorityDenied under hard_freeze).
+        skip_sel_write = False
+        try:
+            from interview_mux.seat_authority import hard_freeze_active
+
+            skip_sel_write = bool(hard_freeze_active(ctx))
+        except Exception:
+            skip_sel_write = False
+        if skip_sel_write:
+            notes.append(
+                {
+                    "action": "skip_selection_write_hard_freeze",
+                    "reason": "narrative_aligns_plan_only",
+                }
+            )
+            ctx.log(
+                "edl_narrative_audit repair: skip selection rewrite under hard freeze",
+                level="info",
+                stage="edl_narrative_audit",
+            )
+        else:
+            write_validated_artifact(
+                ctx,
+                "master/selection.json",
+                repaired_sel,
+                merge_from_disk=False,
+                stage_key="selection_order_sanitize",
+            )
     notes.extend(align_narrative_plan_to_selection(ctx))
     if ctx.artifact_exists("master/coverage_audit.json"):
         cov = ctx.read_json("master/coverage_audit.json")

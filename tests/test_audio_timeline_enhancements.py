@@ -12,7 +12,16 @@ from interview_mux.sound_design import _clamp_speech_slice_to_intentional
 def test_snap_cut_to_word_boundary_nudges_toward_word_end():
     words = [{"text": "hello", "start_ms": 1000, "end_ms": 1500}]
     snapped = snap_cut_to_word_boundary(1520, words, margin_ms=20, max_shift_ms=100)
-    assert snapped == 1520  # 1500 + 20 margin
+    assert snapped == 1520  # 1500 + 20 margin (no following word)
+
+
+def test_snap_cut_to_word_boundary_uses_pause_midpoint():
+    words = [
+        {"text": "hello", "start_ms": 1000, "end_ms": 1500},
+        {"text": "next", "start_ms": 2500, "end_ms": 2700},
+    ]
+    snapped = snap_cut_to_word_boundary(1520, words, margin_ms=20, max_shift_ms=100)
+    assert snapped == (1500 + 2500) // 2
 
 
 def test_clamp_speech_slice_blocks_end_expansion_past_edl_cut():

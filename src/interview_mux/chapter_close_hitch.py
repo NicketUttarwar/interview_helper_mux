@@ -736,6 +736,9 @@ def apply_acoustic_refine(
     conf = ideal_cuts_cfg()
     acoustic_on = bool(conf.get("acoustic_edge_refine", True))
     search = int(conf.get("acoustic_search_ms") or 120)
+    pause_mid = bool(conf.get("pause_midpoint_end", True))
+    pause_min_gap = int(conf.get("pause_midpoint_min_gap_ms") or 80)
+    pause_max_pad = int(conf.get("pause_midpoint_max_pad_ms") or 1000)
     path = Path(wav_path) if wav_path else None
     out: list[dict[str, Any]] = []
     for i, row in enumerate(windows):
@@ -749,6 +752,9 @@ def apply_acoustic_refine(
             search_ms=search,
             apply_exact_words=bool(words),
             apply_acoustic=acoustic_on,
+            pause_midpoint_end=pause_mid,
+            pause_midpoint_min_gap_ms=pause_min_gap,
+            pause_midpoint_max_pad_ms=pause_max_pad,
         )
         next_start = None
         if i + 1 < len(windows):
@@ -880,7 +886,11 @@ def build_segment_remap(
 def rewrite_upstream_segment_refs(ctx: RunContext, mapping: dict[str, str]) -> list[str]:
     """Rewrite hitch-class artifacts plus shared consumers onto surviving ids."""
     return rewrite_artifact_segment_refs(
-        ctx, mapping, extra_rels=(INTENT_REL,), skip_handoff=True
+        ctx,
+        mapping,
+        extra_rels=(INTENT_REL,),
+        skip_handoff=True,
+        stage_key=STAGE_ID,
     )
 
 
@@ -1855,6 +1865,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             },
             skip_handoff=True,
             stage_key=STAGE_ID,
+            mutation_class="segment_id_remap",
         )
         _write_latch(
             ctx,

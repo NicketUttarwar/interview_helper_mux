@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from interview_mux.openai_structured_output import (
@@ -7,6 +9,7 @@ from interview_mux.openai_structured_output import (
     _schema_name,
     compose_arbiter_schema,
     compose_envelope_schema,
+    inline_local_refs,
     min_example_for_stage,
     resolve_response_format,
     schema_to_min_example,
@@ -41,6 +44,45 @@ def test_strictify_adds_additional_properties_false():
     out = strictify_schema(raw)
     assert out["additionalProperties"] is False
     assert "a" in out["required"]
+
+
+def test_strictify_inlines_local_defs_refs():
+    """Cascade (MUX_FORENSICS=0): OpenAI strict rejects $ref — inline #/$defs first.
+
+    exec_13159: mastering_eval_rubric items kept $ref → schema lint ValueError →
+    MSA wrapped as hollow/invalid OpenAI primary (agenda_exception:ValueError).
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.openai_schema_lint import lint_openai_strict_schema
+    from interview_mux.openai_structured_output import inline_local_refs
+
+    raw = {
+        "type": "object",
+        "properties": {
+            "criteria": {"type": "array", "items": {"$ref": "#/$defs/criterion"}}
+        },
+        "required": ["criteria"],
+        "$defs": {
+            "criterion": {
+                "type": "object",
+                "properties": {"criterion_id": {"type": "string"}},
+                "required": ["criterion_id"],
+                "additionalProperties": False,
+            }
+        },
+    }
+    inlined = inline_local_refs(raw)
+    assert "$defs" not in inlined
+    assert "$ref" not in json.dumps(inlined)
+    assert inlined["properties"]["criteria"]["items"]["properties"]["criterion_id"][
+        "type"
+    ] == "string"
+
+    out = strictify_schema(raw)
+    assert lint_openai_strict_schema(out) == []
+    assert "$ref" not in json.dumps(out)
 
 
 def test_schema_to_min_example_boundary():

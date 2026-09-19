@@ -216,7 +216,11 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
     def _active_count(rows: list[dict[str, Any]]) -> int:
         n = 0
         for ln in rows:
-            if ln.get("skipped_optional"):
+            if (
+                ln.get("skipped_optional")
+                or ln.get("air_script_omit")
+                or not str(ln.get("text") or "").strip()
+            ):
                 continue
             delivery = str(ln.get("delivery") or "synthesize").strip().lower() or "synthesize"
             if delivery in {"synthesize", "record", "voice_clone", "chatterbox"}:

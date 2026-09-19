@@ -39,6 +39,12 @@ Rerun-safe: owner re-execute ALLOW; consumer re-execute never becomes owner.
 
 `pre_soft_freeze` → `soft_freeze` → `hard_freeze` → `edl_sealed` → `mix_seated` → `junction_committed`
 
+`FREEZE_WRITE_POLICY` names the mutations that may cross seat-freeze boundaries.
+Narrative metadata alignment and transition shrink/repair remain legal through
+hard freeze; narrative host-copy repair stops at soft freeze, and gap compose
+copy stops at hard freeze. Unknown stage/mutation pairs fail closed through
+`freeze_write_allowed`.
+
 ## Dual-writer queue (Phase 5)
 
 Worked in this constitution land:
@@ -62,7 +68,11 @@ Server routes pass `role="gui"` into `RunContext.write_json`. Gate paths (G0 tra
 
 ## Audit
 
-`python tools/audit_artifact_ownership.py` fails on unknown write-site literals (AST). `tools/generate_ownership_write_checks.py` refreshes `check_ownership_matrix.sh`.
+`python tools/audit_artifact_ownership.py` fails on unknown write-site literals (AST). `python tools/ownership_new_stage_checklist.py` additionally requires registered literal stages at shared remap call sites and verifies that shared-path co-writer literals are catalog producers. `tools/generate_ownership_write_checks.py` refreshes `check_ownership_matrix.sh`.
+
+Shared remap persists must pass `mutation_class="segment_id_remap"`; producer
+authority alone is insufficient. The `SHARED_REMAP_RELS ×
+SEGMENT_ID_REMAP_STAGES × epoch` matrix is regression-tested.
 
 ## Write bypasses
 
@@ -70,7 +80,7 @@ Prefer `ctx.write_json` / `write_committed_json` (gated). `fs_write_json` / `Pat
 
 ## Cutover
 
-`matrix_version` mismatch → fresh exec only; do not resume in-flight execs across ALLOW seed changes. Fail-closed is default; `INTERVIEW_MUX_ARTIFACT_OWNERSHIP_FAIL_CLOSED=0` is attended emergency escape only. Plain Mohan soak (`MUX_FORENSICS` unset) is tape hardness proof after wave gates.
+`matrix_version` mismatch → fresh exec only for plain / soak runs; do not resume in-flight execs across ALLOW seed changes. Under `MUX_FORENSICS=1`, driver claim / persist restamps the live hash so a forensics campaign can continue the same `run_id` after an intentional ownership patch. Fail-closed is default; `INTERVIEW_MUX_ARTIFACT_OWNERSHIP_FAIL_CLOSED=0` is attended emergency escape only. Plain Mohan soak (`MUX_FORENSICS` unset) is tape hardness proof after wave gates.
 
 ## Related
 

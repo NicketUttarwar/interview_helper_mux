@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringShapeCandidates",
+  "type": "object",
+  "required": ["version", "candidates", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "pass": { "type": "string", "enum": ["provisional", "confirmed"] },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "narrative_mode"],
+        "properties": {
+          "candidate_id": { "type": "string", "minLength": 1 },
+          "narrative_mode": {
+            "type": "string",
+            "enum": [
+              "conversational_host",
+              "guide_summary",
+              "documentary_bridge",
+              "hook_montage",
+              "sparse_source"
+            ]
+          },
+          "montage_grammar": { "type": "array", "items": { "type": "string" } },
+          "cold_open_kind": {
+            "type": "string",
+            "enum": ["none", "segment_hook", "vo_clone_open", "vo_plus_segment"]
+          },
+          "pov": { "type": "string" },
+          "rationale": { "type": "string" },
+          "scores": {
+            "type": "object",
+            "additionalProperties": { "type": "number" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "source": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

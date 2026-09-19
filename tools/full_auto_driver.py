@@ -502,8 +502,29 @@ def pause_needs_operator(stage: str, reason: str, *, force_halt: bool = False) -
                     stage=stage,
                     action="forensics_stall",
                     reason="suppress_budget_exhausted",
-                    detail=reason[:240],
+                    detail=f"HARD: {reason[:200]}",
                 )
+                # Force parent intervene: write escalation + treat as exit-worthy pause.
+                try:
+                    from interview_mux.forensics_stall import write_escalation
+                    from interview_mux.run_context import RunContext as _RC
+
+                    write_escalation(
+                        _RC(RUN_ID, create=False),
+                        stage=stage,
+                        reason=f"suppress_budget_exhausted:{reason[:200]}",
+                        error_class=cls,
+                        stall_row={
+                            "count": 99,
+                            "should_escalate": True,
+                            "stage": stage,
+                            "reason": reason[:240],
+                        },
+                    )
+                except Exception as exc:
+                    log(f"forensics escalation write: {exc}")
+                if _forensics_stall_maybe_exit(stage, reason, error_class=cls):
+                    return "pause"
                 return "pause"
         except Exception as exc:
             log(f"forensics suppress budget: {exc}")
@@ -927,14 +948,31 @@ def bind_run(run_id: str) -> None:
         from interview_mux.driver_singleton import claim_driver_run
         from interview_mux.run_context import RunContext
 
-        claim = claim_driver_run(RunContext(run_id, create=False), force=True)
+        ctx_claim = RunContext(run_id, create=False)
+        claim = claim_driver_run(ctx_claim, force=False)
         log(f"driver claim pid={claim.get('pid')} run={run_id}")
+        if _forensics_mode() and not FRESH:
+            from interview_mux.dispatch_delta import resume_after_intervene
+
+            raw_stages = str(os.environ.get("MUX_INTERVENE_STAGES") or "")
+            patched_stages = tuple(
+                stage.strip() for stage in raw_stages.split(",") if stage.strip()
+            )
+            cleared = resume_after_intervene(
+                ctx_claim, stages=patched_stages or None
+            )
+            log(
+                "forensics intervene resume: "
+                f"memo={cleared.get('memo_cleared')} "
+                f"sticky={cleared.get('sticky_cleared')}"
+            )
         global _CLAIM_ATEXIT_REGISTERED
         if not _CLAIM_ATEXIT_REGISTERED:
             atexit.register(_release_driver_claim_safe)
             _CLAIM_ATEXIT_REGISTERED = True
     except Exception as exc:
         log(f"driver claim: {exc}")
+        raise
 
 
 def _release_driver_claim_safe() -> None:
@@ -3594,11 +3632,12 @@ def heal_stage_done_markers() -> None:
                             healed.append(sid)
                     else:
                         from interview_mux.high_gap_vo import (
-                            demote_uncovered_high_gaps,
                             fill_uncovered_high_gaps,
+                            resolve_seats,
                         )
 
                         # Prefer fill over demote when hosted framing floor unmet.
+                        fill_n = 0
                         try:
                             fill_n = fill_uncovered_high_gaps(
                                 ctx,
@@ -3624,15 +3663,21 @@ def heal_stage_done_markers() -> None:
                                 )
                         except Exception as fill_exc:
                             log(f"heal: high-gap fill skipped: {fill_exc}")
-                        demoted = demote_uncovered_high_gaps(
+                            fill_n = 0
+                        resolution = resolve_seats(
                             ctx,
+                            intent="heal_floor_protect",
                             gap_report=repaired,
-                            origin="e2e_heal_lint_dirty",
                         )
-                        if demoted:
+                        if resolution.demoted:
                             log(
-                                f"heal: demoted {demoted} uncovered high gap(s) "
+                                f"heal: demoted {resolution.demoted} uncovered high gap(s) "
                                 f"after lint-dirty ({lint_errs[:1]})"
+                            )
+                        elif resolution.floor_protected:
+                            log(
+                                "heal: retained "
+                                f"{resolution.floor_protected} high gap(s) while fill is budgeted"
                             )
                         else:
                             log(f"heal: gap_report still lint-dirty: {lint_errs[:2]}")
@@ -8328,6 +8373,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         from interview_mux.identical_failures import record_class_failure
                         from interview_mux.run_context import RunContext as _RCPred
                         from interview_mux.thrash_hardening import (
+                            MASTERING_SHAPE_LLM_STAGES,
                             note_sticky_heal_attempt,
                             premature_fail_class,
                             record_thrash_hit,
@@ -8355,6 +8401,17 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             predicate_token=token,
                             stage=resume,
                         )
+                        # Shape's invoke already consumed its sole typed
+                        # remutate. Do not wait for the generic six-hit thrash
+                        # window when the conductor falsely reports Finished.
+                        if (
+                            not thrash
+                            and resume in MASTERING_SHAPE_LLM_STAGES
+                        ):
+                            thrash = {
+                                "hit_count": 1,
+                                "reason": "shape_remutate_exhausted",
+                            }
                         if thrash:
                             log(
                                 f"THRASH DETECTED class={cls} pin={resume} "
@@ -8385,17 +8442,39 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     pin=resume,
                                     intent=cls,
                                     predicate_token=token,
+                                    # Shape has already spent its one typed remutate
+                                    # inside the invoke. A conductor "Finished" lie
+                                    # must therefore halt immediately, not buy three
+                                    # more identical full-stage executions.
+                                    halt_after=(
+                                        1
+                                        if resume in MASTERING_SHAPE_LLM_STAGES
+                                        else None
+                                    ),
                                 )
                             if sticky.get("halt"):
                                 log(
                                     f"STOP: premature thrash sticky heal "
                                     f"×{sticky.get('count')} pin={resume} class={cls}"
                                 )
-                                pause_needs_operator(
+                                action = pause_needs_operator(
                                     resume or label,
                                     f"HARD: premature thrash ×{sticky.get('count')} "
                                     f"class={cls} pin={resume}",
+                                    force_halt=True,
                                 )
+                                # Forensics thrash must not `continue` the heal loop
+                                # (exec_13157 ×600 Finished-lie spin). Exit to parent.
+                                if action == "pause" or _forensics_mode():
+                                    return {
+                                        "status": "needs_operator",
+                                        "stage": resume or label,
+                                        "message": (
+                                            f"forensics_thrash_halt:"
+                                            f"{cls}:pin={resume}"
+                                        ),
+                                        "error": f"premature thrash ×{sticky.get('count')} class={cls}",
+                                    }
                                 continue
                     except Exception:
                         pass
@@ -8532,6 +8611,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     root = _P(ctx.run_dir)
                     asm = (root / "master" / "assembly.wav").is_file()
                     edl = (root / "master" / "edl.json").is_file()
+                    from interview_mux.delivery_invariants import committed_master_integrity_ok
+                    from interview_mux.thrash_hardening import (
+                        infrastructure_interrupt_resume_pin,
+                    )
+
+                    master_ready = committed_master_integrity_ok(ctx)
                     # Prefer the furthest completed delivery checkpoint rather than
                     # replaying the original from_stage (often listen_delight / edl).
                     meta = (
@@ -8541,7 +8626,17 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     )
                     soft = bool((meta or {}).get("e2e_soft_junction_residuals"))
                     autopsy_ok = (root / "master" / "seam_autopsy.json").is_file()
-                    if soft and asm and edl and (autopsy_ok or ctx.is_done("junction_snip_qa")):
+                    if master_ready:
+                        interrupt_pin = infrastructure_interrupt_resume_pin(ctx)
+                        resume_body = {
+                            "mode": "delivery",
+                            "from_stage": interrupt_pin,
+                        }
+                        log(
+                            "infrastructure-interrupt smart-resume → "
+                            f"{resume_body['from_stage']} (committed master)"
+                        )
+                    elif soft and asm and edl and (autopsy_ok or ctx.is_done("junction_snip_qa")):
                         resume_body = {"mode": "delivery", "from_stage": "master_finalize"}
                         log("interrupted smart-resume → master_finalize (soft junction)")
                     elif asm and edl and ctx.is_done("mix") and soft:
@@ -8623,6 +8718,41 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             if action == "pause":
                 if _forensics_mode():
+                    stage = str(job.get("stage") or job.get("current_stage") or "")
+                    msg = str(job.get("message") or job.get("error") or "needs_operator")
+                    # Suppress-budget / stall-escalation must EXIT — never continue the heal loop
+                    # (exec_13157: ×600 Finished-lie thrash on mastering_shape_*).
+                    if _forensics_stall_maybe_exit(stage, msg):
+                        log(
+                            "forensics: stall escalated on gate pause — exiting driver "
+                            "for parent product patch"
+                        )
+                        return {
+                            "status": "needs_operator",
+                            "stage": stage,
+                            "message": f"forensics_stall_escalated:{msg[:200]}",
+                            "error": msg,
+                        }
+                    try:
+                        from interview_mux.forensics_stall import escalation_blocks_driver
+                        from interview_mux.run_context import RunContext
+
+                        blocked, block_reason = escalation_blocks_driver(
+                            RunContext(RUN_ID, create=False)
+                        )
+                        if blocked:
+                            log(
+                                "forensics: escalation pending on gate pause — exiting. "
+                                f"{block_reason[:200]}"
+                            )
+                            return {
+                                "status": "needs_operator",
+                                "stage": stage,
+                                "message": f"forensics_escalation_pending:{block_reason[:200]}",
+                                "error": block_reason,
+                            }
+                    except Exception as exc:
+                        log(f"forensics pause escalation check: {exc}")
                     log("forensics: suppressing needs_operator gate pause — continuing heal loop")
                     _sync_forensics_identical_halts()
                     continue
@@ -8745,6 +8875,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     from interview_mux.run_context import RunContext
                     from interview_mux.stage_completion import reconcile_stage_done_marker
                     from interview_mux.thrash_hardening import (
+                        MASTERING_SHAPE_LLM_STAGES,
                         expensive_stage_lease_active,
                         heal_navigate,
                         note_sticky_heal_attempt,
@@ -8832,6 +8963,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             pin=pin,
                             intent=intent,
                             predicate_token=token,
+                            # The Shape invoke already performed exactly one
+                            # schema-directed remutate; link conductor recovery
+                            # to that exhausted budget.
+                            halt_after=(
+                                1 if pin in MASTERING_SHAPE_LLM_STAGES else None
+                            ),
                         )
                         if sticky.get("halt"):
                             sticky_sig = (
@@ -8868,6 +9005,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 pin,
                                 f"HARD: incomplete-after-conductor thrash ×"
                                 f"{sticky.get('count')} pin={pin} intent={intent}",
+                                force_halt=True,
                             )
                             try:
                                 from interview_mux.thrash_hardening import (
@@ -8884,7 +9022,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 )
                             except Exception:
                                 pass
-                            continue
+                            return {
+                                "status": "needs_operator",
+                                "stage": pin,
+                                "message": (
+                                    "incomplete_after_conductor:"
+                                    f"sticky_halt:pin={pin}"
+                                ),
+                                "error": err,
+                            }
                         log(
                             f"incomplete-after-conductor heal_navigate → "
                             f"{pin} (intent={intent} "
@@ -9168,6 +9314,66 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 )
                             except Exception:
                                 outputs_ok = False
+                            # Freeze-sticky producers (nugget/SDP/framing): never
+                            # unmark+LLM-rerun under hard freeze+EDL — remake marker
+                            # and resume the consumer (exec_13159).
+                            try:
+                                from interview_mux.seed_policy import (
+                                    ensure_sticky_seed_mark,
+                                    seed_stage_satisfied_by_policy,
+                                )
+
+                                if seed_stage_satisfied_by_policy(ctx_seed, resume_seed):
+                                    ensure_sticky_seed_mark(ctx_seed, resume_seed)
+                                    log(
+                                        f"seed order heal: freeze-sticky sealed "
+                                        f"{resume_seed} (no re-compose)"
+                                    )
+                                    consumer = str(stage or "").strip()
+                                    if (
+                                        consumer
+                                        and consumer != resume_seed
+                                        and consumer in DELIVERY_ORDER
+                                    ):
+                                        execute(
+                                            {
+                                                "mode": "delivery",
+                                                "from_stage": consumer,
+                                            }
+                                        )
+                                        continue
+                            except Exception:
+                                pass
+                            # Sealed-epoch layup order drift: adopt to selection instead
+                            # of LLM-rerunning nugget_layup_compose (exec_13159).
+                            if (
+                                resume_seed == "nugget_layup_compose"
+                                and hollow
+                                and "nugget_layup_plan ordered_segment_ids do not match"
+                                in str(hollow)
+                            ):
+                                try:
+                                    from interview_mux.nugget_layup import (
+                                        adopt_layup_plan_to_selection,
+                                    )
+
+                                    adopt_layup_plan_to_selection(
+                                        ctx_seed,
+                                        persist=True,
+                                        stage="nugget_layup_compose",
+                                    )
+                                    hollow = stage_artifact_incompleteness(
+                                        ctx_seed, resume_seed
+                                    )
+                                    log(
+                                        "seed order heal: adopted layup plan to "
+                                        "selection (no LLM re-compose)"
+                                    )
+                                except Exception as _adopt_exc:
+                                    log(
+                                        f"seed order heal: layup adopt failed "
+                                        f"({_adopt_exc})"
+                                    )
                             if (
                                 hollow is None
                                 and outputs_ok
@@ -9178,7 +9384,49 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     f"seed order heal: marked complete {resume_seed} "
                                     "(artifacts present, stage_done missing)"
                                 )
+                                # Resume the consumer that raised seed-order, not the
+                                # already-complete producer (mix←nugget thrash).
+                                consumer = str(stage or "").strip()
+                                if (
+                                    consumer
+                                    and consumer != resume_seed
+                                    and consumer in DELIVERY_ORDER
+                                ):
+                                    execute(
+                                        {
+                                            "mode": "delivery",
+                                            "from_stage": consumer,
+                                        }
+                                    )
+                                    continue
                             elif ctx_seed.is_done(resume_seed):
+                                # Do not unmark freeze-sticky stages.
+                                sticky = False
+                                try:
+                                    from interview_mux.seed_policy import (
+                                        seed_stage_satisfied_by_policy,
+                                    )
+
+                                    sticky = seed_stage_satisfied_by_policy(
+                                        ctx_seed, resume_seed
+                                    )
+                                except Exception:
+                                    sticky = False
+                                if sticky:
+                                    log(
+                                        f"seed order heal: keep sticky {resume_seed} "
+                                        "(refuse unmark under freeze)"
+                                    )
+                                    consumer = str(stage or "").strip() or "mix"
+                                    execute(
+                                        {
+                                            "mode": "delivery",
+                                            "from_stage": consumer
+                                            if consumer in DELIVERY_ORDER
+                                            else "mix",
+                                        }
+                                    )
+                                    continue
                                 unmark_stage_only(ctx_seed, resume_seed)
                                 log(
                                     f"seed order heal: unmarked hollow {resume_seed} "
@@ -12390,7 +12638,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 if not e2e_quality_waivers_enabled():
                     try:
                         from interview_mux.artifact_repairs import repair_gap_report
-                        from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+                        from interview_mux.high_gap_vo import resolve_seats
                         from interview_mux.listenability_guards import (
                             uncovered_high_gap_ratio,
                         )
@@ -12403,15 +12651,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             gr = loaded if isinstance(loaded, dict) else {}
                         repaired, _notes = repair_gap_report(ctx, gr)
                         before = uncovered_high_gap_ratio(ctx)
-                        demoted = demote_uncovered_high_gaps(
+                        resolution = resolve_seats(
                             ctx,
+                            intent="heal_floor_protect",
                             gap_report=repaired,
-                            origin="listenability_heal",
                         )
                         after = uncovered_high_gap_ratio(ctx)
-                        if demoted and after < before:
+                        if resolution.demoted and after < before:
                             log(
-                                f"listenability heal: demoted {demoted} high gap(s) "
+                                "listenability heal: demoted "
+                                f"{resolution.demoted} high gap(s) "
                                 f"({before:.3f}→{after:.3f}) — retry mix"
                             )
                             execute({"mode": "delivery", "from_stage": "mix"})
@@ -13545,7 +13794,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             pol = _json.loads(pol_path.read_text())
                             mc = dict(pol.get("mix_contract") or {})
                             if cov > float(mc.get("max_bed_coverage_ratio") or max_ratio) + 0.01:
-                                mc["max_bed_coverage_ratio"] = round(min(0.75, max(cov + 0.03, 0.40)), 3)
+                                mc["max_bed_coverage_ratio"] = round(min(0.85, max(cov + 0.03, 0.40)), 3)
                             if str(mc.get("underscore_policy") or "") in {"skip", "sparse_or_skip"}:
                                 mc["underscore_policy"] = "sparse"
                             pol["mix_contract"] = mc
@@ -13618,12 +13867,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     cov = float(_estimate_bed_coverage(ctx))
                     bq = float(bed_quartile_presence(ctx))
                     contract = resolve_mix_contract(ctx)
-                    max_ratio = float(contract.get("max_bed_coverage_ratio") or 0.75)
+                    max_ratio = float(contract.get("max_bed_coverage_ratio") or 0.85)
                     if cov > max_ratio + 0.01:
                         pol_path = _P(ctx.run_dir) / "understanding" / "soundscape_policy.json"
                         pol = _json.loads(pol_path.read_text())
                         mc = dict(pol.get("mix_contract") or {})
-                        mc["max_bed_coverage_ratio"] = round(min(0.75, cov + 0.03), 3)
+                        mc["max_bed_coverage_ratio"] = round(min(0.85, cov + 0.03), 3)
                         pol["mix_contract"] = mc
                         pol_path.write_text(_json.dumps(pol, indent=2) + "\n")
                     log(f"bed quartile heal: beds={len(new_beds)} coverage~{cov:.3f} bq~{bq:.2f}")
