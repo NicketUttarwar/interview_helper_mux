@@ -214,14 +214,76 @@ def best_available_mode(plan: dict[str, Any]) -> str:
     )
 
 
-def write_plan(ctx: RunContext, plan: dict[str, Any]) -> None:
+def write_plan(
+    ctx: RunContext,
+    plan: dict[str, Any],
+    *,
+    seat_reason: str = "",
+) -> None:
     from interview_mux.information_packages import ensure_episode_close_on_plan
 
     plan = ensure_episode_close_on_plan(plan)
     if "information_packages" not in plan:
         plan["information_packages"] = []
+    # A′′ Global Freeze: preserve prior vo_seats when freeze is active and the
+    # caller did not name an End-A / one-shot reason (seat-truth artifact).
+    plan = _preserve_frozen_vo_seats(ctx, plan, seat_reason=seat_reason)
     ctx.write_json(PLAN_REL, plan)
     _record_degradation(ctx, plan)
+
+
+def _vo_seats_blob(plan: dict[str, Any] | None) -> dict[str, Any]:
+    script = (plan or {}).get("air_script") if isinstance(plan, dict) else None
+    seats = (script or {}).get("vo_seats") if isinstance(script, dict) else None
+    return dict(seats) if isinstance(seats, dict) else {}
+
+
+def _preserve_frozen_vo_seats(
+    ctx: RunContext,
+    plan: dict[str, Any],
+    *,
+    seat_reason: str = "",
+) -> dict[str, Any]:
+    try:
+        from interview_mux.seat_authority import (
+            freeze_active,
+            hard_freeze_action_permitted,
+            read_seat_freeze,
+        )
+
+        if not freeze_active(ctx):
+            return plan
+        fr = read_seat_freeze(ctx)
+        if isinstance(fr, dict) and fr.get("one_shot_rewrite"):
+            return plan
+        if hard_freeze_action_permitted(str(seat_reason or "").strip(), ctx):
+            return plan
+    except Exception:
+        return plan
+    try:
+        prior = load_plan_raw(ctx)
+    except Exception:
+        prior = None
+    if not isinstance(prior, dict):
+        return plan
+    prior_seats = _vo_seats_blob(prior)
+    new_seats = _vo_seats_blob(plan)
+    if prior_seats == new_seats:
+        return plan
+    out = dict(plan)
+    script = dict(out.get("air_script") or {}) if isinstance(out.get("air_script"), dict) else {}
+    script["vo_seats"] = prior_seats
+    out["air_script"] = script
+    try:
+        ctx.log(
+            "seat_freeze: preserved mastering_plan vo_seats "
+            f"(not End-A; reason={seat_reason or 'empty'})",
+            level="warning",
+            stage=str(seat_reason or "") or None,
+        )
+    except Exception:
+        pass
+    return out
 
 
 def _record_degradation(ctx: RunContext, plan: dict[str, Any]) -> None:

@@ -274,6 +274,20 @@ def ensure_g1_pickups(
             stage="delivery_recovery",
         )
 
+    from interview_mux.gap_vo_gates import gap_framing_enabled, vo_ladder_complete
+
+    if gap_framing_enabled(ctx):
+        ok, reason = vo_ladder_complete(ctx, for_synthesize=True)
+        if not ok and reason != "no_synthesize_lines":
+            return {
+                "ok": False,
+                "error": reason or "vo_ladder_incomplete",
+                "reason_code": reason,
+                "synthesized": [],
+                "errors": [f"vo_ladder_incomplete:{reason}"],
+                "g1_missing": check_g1_vo(ctx),
+            }
+
     report = ctx.read_json("understanding/gap_report.json")
     omitted: set[str] = set()
     try:
@@ -489,7 +503,13 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
         "episode_cover_generate",
         "podcast_publish",
     )
-    if master and ctx.is_done("master_finalize"):
+    try:
+        from interview_mux.done_authority import honest_finalize_seeded
+
+        honest_fin = bool(honest_finalize_seeded(ctx))
+    except Exception:
+        honest_fin = bool(ctx.is_done("master_finalize"))
+    if master and honest_fin:
         return first_pending_delivery(ctx, post_finalize)
 
     if _edl_ready_artifacts(ctx) and not edl:

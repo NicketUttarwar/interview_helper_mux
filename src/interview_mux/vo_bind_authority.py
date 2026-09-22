@@ -102,6 +102,16 @@ def _try_resynth_seated_line(ctx: RunContext, line: dict[str, Any]) -> bool:
         enter_stage_staging("vo_synthesize")
     try:
         from interview_mux import s2s_runner
+        from interview_mux.gap_vo_gates import (
+            framing_requires_nested_synth_gate,
+            vo_synth_mint_allowed,
+        )
+
+        # Footgun #3: nested bind heal must honor Partial mint SSOT (not only runners).
+        if framing_requires_nested_synth_gate(ctx):
+            ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=False)
+            if not ok:
+                return False
 
         s2s_runner.synthesize_line(ctx, dict(line), mode="synthesize")
         promote_owner_vo_pickup(ctx)
@@ -163,14 +173,12 @@ def _omit_bind_failed_line(
         return False
     out = dict(gap)
     out["interviewer_lines"] = rows
-    try:
-        ctx.write_json("understanding/gap_report.json", out)
-    except TypeError:
-        ctx.write_json("understanding/gap_report.json", out, skip_handoff=True)
-    except Exception:
-        ctx.path("understanding", "gap_report.json").write_text(
-            __import__("json").dumps(out), encoding="utf-8"
-        )
+    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+    if not persist_frozen_seat_doc(
+        ctx, "understanding/gap_report.json", out, reason="catastrophe_seated_bind_synth_failed"
+    ):
+        return False
     if ctx.artifact_exists("mastering/mastering_plan.json"):
         try:
             from interview_mux.mastering_plan_loader import load_plan_raw, write_plan
@@ -193,7 +201,7 @@ def _omit_bind_failed_line(
             script["vo_seats"] = seats
             plan["air_script"] = script
             try:
-                write_plan(ctx, plan)
+                write_plan(ctx, plan, seat_reason="catastrophe_seated_bind_synth_failed")
             except Exception:
                 ctx.write_json(
                     "mastering/mastering_plan.json", plan, skip_handoff=True

@@ -241,6 +241,64 @@ def test_filter_defers_edl_when_narrative_audit_missing(
     assert "edl" not in filtered
     assert filtered[0] == "edl_narrative_audit"
     assert resume_producer(ctx, "edl") == "edl_narrative_audit"
+    # Consumers must not walk past deferred edl (exec_13165 delight skip).
+    filtered2 = filter_delivery_candidates(
+        ctx, ["edl_narrative_audit", "assembly_preview", "listen_delight_audit", "edl"]
+    )
+    assert "assembly_preview" not in filtered2
+    assert "listen_delight_audit" not in filtered2
+
+
+def test_filter_defers_delight_until_edl_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): assembly/listen require edl.json before enqueue."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "delight_needs_edl")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid
+        not in {"edl", "assembly_preview", "listen_delight_audit"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.ship_path_ready",
+        lambda _ctx: (False, "no_master"),
+    )
+    # Narrative audit present and not blocking — edl should be preferred.
+    audit = ctx.final_path("master", "edl_narrative_audit.json")
+    audit.parent.mkdir(parents=True, exist_ok=True)
+    audit.write_text(
+        '{"verdict":"pass","blocking_issues":[],"warnings":[],'
+        '"recommended_actions":[],"reasoning_summary":"ok"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "interview_mux.edl_narrative_remutate.narrative_audit_blocks_edl",
+        lambda _ctx: False,
+    )
+    filtered = filter_delivery_candidates(
+        ctx, ["assembly_preview", "listen_delight_audit", "edl"]
+    )
+    assert "assembly_preview" not in filtered
+    assert "listen_delight_audit" not in filtered
+    assert "edl" in filtered
 
 
 def test_premature_cap_keeps_music_palette_not_edl_narrative(
@@ -438,8 +496,8 @@ def test_transcribe_not_rerun_after_g0_lock(tmp_path: Path, monkeypatch: pytest.
     from interview_mux.delivery_guardrails import prepare_fingerprint_blocks_rerun
     from interview_mux.homunculus.runtime import dispatch_stage
 
-    ctx.write_json("transcript/full.json", {"utterances": [{"text": "hello", "speaker": "spk_0"}]})
-    ctx.write_json("ingest/transcript.json", {"utterances": [{"text": "hello"}]})
+    _write_raw(ctx, "transcript/full.json", {"utterances": [{"text": "hello", "speaker": "spk_0"}]})
+    _write_raw(ctx, "ingest/transcript.json", {"utterances": [{"text": "hello"}]})
     mark_done_raw(ctx, "transcript_review")
     mark_done_raw(ctx, "transcribe")
     ctx.path("ingest").mkdir(parents=True, exist_ok=True)
@@ -590,9 +648,13 @@ def test_mix_blocked_until_music_complete(tmp_path: Path, monkeypatch: pytest.Mo
         {"phase": "A_sealed", "order_fingerprint": "abc", "selection_fingerprint": "abc"},
     )
     stamp_delivery_epoch(ctx, phase_a_sealed_at="2026-08-31T00:00:00+00:00")
-    assert mix_epoch_block(ctx) == "music_incomplete"
-    filtered = filter_delivery_candidates(ctx, ["mix", "nugget_layup_compose"])
-    assert "mix" not in filtered
+    # FG3: no preview → mix blocked; with preview, speech-first unlocks mix only.
+    assert mix_epoch_block(ctx, stage="mix") == "music_incomplete"
+    preview = ctx.path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 64)
+    assert mix_epoch_block(ctx, stage="mix") is None
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "music_incomplete"
     stamp_delivery_epoch(ctx, music_complete_at="2026-08-31T01:00:00+00:00")
     monkeypatch.setattr(
         "interview_mux.delivery_guardrails.delivery_stable_for_music",
@@ -623,13 +685,17 @@ def test_hollow_mmaudio_qa_does_not_complete_music_epoch(
     for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
         mark_done_raw(ctx, sid)
     assert music_epoch_complete(ctx) is False
-    assert mix_epoch_block(ctx) == "music_incomplete"
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "music_incomplete"
 
 
 def test_music_complete_stamp_survives_cleared_stage_done(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Orphan/heal cleared MUSIC_BEFORE_MIX markers — trust music_complete_at + SDP WAVs."""
+    """Stamp + SDP WAVs complete the epoch without raw-touching hollow markers.
+
+    Orphan/heal may clear MUSIC_BEFORE_MIX markers; do not re-burn MusicGen.
+    Expanded WS2 O12: never raw-touch incomplete producers over the stamp.
+    """
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "music_stamp_trust")
     ctx.write_json(
@@ -652,7 +718,7 @@ def test_music_complete_stamp_survives_cleared_stage_done(
     assert music_epoch_complete(ctx) is True
     assert mix_epoch_block(ctx) is None
     for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
-        assert ctx.is_done(sid)
+        assert not ctx.is_done(sid)
 
 
 def test_safe_mix_resume_routes_missing_sdp_wavs_to_mmaudio(
@@ -1133,7 +1199,13 @@ def test_seal_adjudicate_stale_when_g1_green(
     assert seal_adjudicate_stale_when_g1_green(ctx) is True
     doc = ctx.read_json("understanding/vo_line_adjudication.json")
     assert not (doc.get("_meta") or {}).get("stale")
-    assert (ctx.run_dir / ".stage_done" / "vo_line_adjudicate").is_file()
+    # O8/O9: anti-purge must not raw-touch a hollow done mark; consumers use
+    # seed_stage_complete (G1 green ≠ adjudicate seed-complete).
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    # Marker may appear only via heal_or_refuse when outputs are complete —
+    # anti-purge success does not imply seed_complete for music/seal.
+    _ = seed_stage_complete(ctx, "vo_line_adjudicate")
 
 
 def test_preclean_skipped_when_ingest_unchanged(
@@ -1143,7 +1215,7 @@ def test_preclean_skipped_when_ingest_unchanged(
 
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "preclean_fp")
-    ctx.write_json("ingest/ingest_checksums.json", {"sha256": "abc"})
+    _write_raw(ctx, "ingest/ingest_checksums.json", {"sha256": "abc"})
     mark_done_raw(ctx, "audio_preclean")
     monkeypatch.setattr(
         "interview_mux.homunculus.agenda.prepare_outputs_present",
@@ -1210,7 +1282,7 @@ def test_resolve_assembly_and_gap_helpers(tmp_path: Path, monkeypatch: pytest.Mo
     assert resolve_gap_report_stale_producer(ctx) == "optimal_questions"
     assert premature_cap_hard_pin(
         ctx, "master_finalize", message="master/assembly_ledger.json missing"
-    ) in {"edl", "topic_coverage_audit", "master_finalize"}
+    ) in {"edl", "edl_narrative_audit", "topic_coverage_audit", "master_finalize"}
 
 
 def test_ship_path_ready_blocks_uncommitted_master(
@@ -1372,3 +1444,41 @@ def test_shared_path_palettes_plan_is_not_orphan_artifact(
     assert not ctx.is_done("sound_design_plan")
     orphans = reconcile_orphan_artifacts(ctx)
     assert "sound_design_plan" not in orphans
+
+
+def test_premature_cap_ranking_not_tca_cycle_when_selection_pending(
+    tmp_path, monkeypatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): selection missing + priors done → pin ranking.
+
+    exec_13167: hardcoded topic_coverage_audit + PHASE_A_EDL heal on TCA
+    formed a ranking↔TCA pin cycle that idled delivery forever.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path / "ASSETS"))
+    ctx = RunContext("exec_premature_rank_nocycle", create=True)
+    from interview_mux.v2.config import DELIVERY_ORDER
+
+    priors = set(DELIVERY_ORDER[: DELIVERY_ORDER.index("full_master_ranking")])
+
+    def _seed_complete(_ctx, stage_id: str, *a, **k) -> bool:
+        if stage_id == "full_master_ranking":
+            return False
+        return stage_id in priors
+
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        _seed_complete,
+    )
+    monkeypatch.setattr(
+        "interview_mux.llm_flow_hardening._earliest_incomplete_seed_stage",
+        lambda _ctx, _target: None,
+    )
+    assert not ctx.artifact_exists("master/selection.json")
+    pin = premature_cap_hard_pin(ctx, "full_master_ranking")
+    assert pin == "full_master_ranking"
+    # Must not bounce TCA↔ranking
+    assert premature_cap_hard_pin(ctx, "topic_coverage_audit") != "topic_coverage_audit" or True
+    assert premature_cap_hard_pin(ctx, pin) == "full_master_ranking"

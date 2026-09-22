@@ -43,15 +43,38 @@ def test_heal_registry_incomplete_cut_and_mmaudio():
         assert spec.resume_stage, key
 
 
+def _mark_honest_edl(ctx) -> None:
+    """A4 footgun #4: sticky needs done marker + real edl.json body."""
+    (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "edl").touch()
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_001"],
+            "timeline_duration_ms": 1000,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_001",
+                    "source_start_ms": 0,
+                    "source_end_ms": 1000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 1000,
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+
+
 def test_seed_policy_freeze_sticky(tmp_path, monkeypatch):
     from interview_mux.run_context import RunContext
     from interview_mux import seed_policy
 
     ctx = RunContext(str(tmp_path / "exec_seed"), create=True)
     ctx.write_json("run_meta.json", {"delivery_epoch": {"vo_seats_freeze": {"hard": True}}})
-    # Mark edl done
-    (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)
-    (ctx.run_dir / ".stage_done" / "edl").touch()
+    _mark_honest_edl(ctx)
 
     monkeypatch.setattr(
         "interview_mux.seat_authority.hard_freeze_active",
@@ -67,6 +90,263 @@ def test_seed_policy_freeze_sticky(tmp_path, monkeypatch):
     assert ctx.is_done("selection_framing_apply")
     assert ctx.is_done("gap_framing_recompose")
     assert ctx.artifact_exists("operator/seed_sanitized.json")
+
+
+def test_seed_policy_probe_error_sticky_with_edl_and_freeze_artifact(
+    tmp_path, monkeypatch
+):
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_probe"), create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {"delivery_epoch": {"vo_seats_freeze": {"hard": True, "fingerprint": "fp1"}}},
+        skip_handoff=True,
+    )
+    _mark_honest_edl(ctx)
+
+    def _boom(_c):
+        raise RuntimeError("hard_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        _boom,
+    )
+    assert seed_policy.seed_stage_satisfied_by_policy(ctx, "selection_framing_apply")
+
+
+def test_seed_policy_probe_error_without_evidence_not_sticky(tmp_path, monkeypatch):
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_probe2"), create=True)
+    ctx.write_json("run_meta.json", {}, skip_handoff=True)
+
+    def _boom(_c):
+        raise RuntimeError("hard_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        _boom,
+    )
+    assert not seed_policy.seed_stage_satisfied_by_policy(ctx, "selection_framing_apply")
+
+
+def test_seed_policy_probe_error_soft_fingerprint_not_sticky(tmp_path, monkeypatch):
+    """A4-1: soft freeze fingerprint alone must not sticky-complete framing."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_soft_fp"), create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "delivery_epoch": {
+                "vo_seats_freeze": {"soft": True, "hard": False, "fingerprint": "fp_soft"}
+            }
+        },
+        skip_handoff=True,
+    )
+    _mark_honest_edl(ctx)
+
+    def _boom(_c):
+        raise RuntimeError("hard_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        _boom,
+    )
+    assert not seed_policy.seed_stage_satisfied_by_policy(ctx, "selection_framing_apply")
+
+
+def test_seed_policy_soft_plus_level_hard_not_sticky(tmp_path, monkeypatch):
+    """A4 thorough: hard:False wins over contradictory level=hard."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_soft_lvl"), create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "delivery_epoch": {
+                "vo_seats_freeze": {
+                    "soft": True,
+                    "hard": False,
+                    "level": "hard",
+                    "fingerprint": "fp_lie",
+                }
+            }
+        },
+        skip_handoff=True,
+    )
+    _mark_honest_edl(ctx)
+
+    def _boom(_c):
+        raise RuntimeError("hard_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        _boom,
+    )
+    for sid in seed_policy.freeze_sticky_seed_stages():
+        assert not seed_policy.seed_stage_satisfied_by_policy(ctx, sid)
+
+
+def test_seed_policy_soft_freeze_active_never_sticky(tmp_path, monkeypatch):
+    """Happy path: soft freeze alone must not sticky any registered stage."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+    from interview_mux.seat_authority import stamp_soft_seat_freeze
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_soft_live"), create=True)
+    ctx.write_json("run_meta.json", {"delivery_epoch": {}}, skip_handoff=True)
+    _mark_honest_edl(ctx)
+    stamp_soft_seat_freeze(ctx, reason="test_soft")
+    for sid in seed_policy.freeze_sticky_seed_stages():
+        assert not seed_policy.seed_stage_satisfied_by_policy(ctx, sid)
+    assert seed_policy.seal_freeze_sticky_stages(ctx) == []
+
+
+def test_seed_policy_hard_freeze_sticky_all_core_stages(tmp_path, monkeypatch):
+    """Hard freeze + EDL → every core sticky stage satisfies policy."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+    from interview_mux.seat_authority import stamp_hard_seat_freeze
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_hard_all"), create=True)
+    ctx.write_json("run_meta.json", {"delivery_epoch": {}}, skip_handoff=True)
+    _mark_honest_edl(ctx)
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    for sid in seed_policy.FREEZE_STICKY_SEED_STAGES_CORE:
+        assert seed_policy.seed_stage_satisfied_by_policy(ctx, sid)
+
+
+def test_seed_policy_config_extra_stage_sticky(tmp_path, monkeypatch):
+    """Known pipeline extras (not denied) join the sticky set via config."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "seed_policy": {"freeze_sticky_extra_stages": ["air_script_compose"]}
+        },
+    )
+    assert "air_script_compose" in seed_policy.freeze_sticky_seed_stages()
+    assert seed_policy.is_freeze_sticky_stage("air_script_compose")
+    assert "air_script_compose" in seed_policy.FREEZE_STICKY_SEED_STAGES
+
+    ctx = RunContext(str(tmp_path / "exec_seed_extra"), create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {"delivery_epoch": {"vo_seats_freeze": {"hard": True, "level": "hard"}}},
+        skip_handoff=True,
+    )
+    _mark_honest_edl(ctx)
+
+    def _boom(_c):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        _boom,
+    )
+    assert seed_policy.seed_stage_satisfied_by_policy(ctx, "air_script_compose")
+
+
+def test_seed_policy_config_extra_denied_critical_not_sticky(tmp_path, monkeypatch):
+    """Footgun #2: config cannot sticky-complete mix / vo / ship stages."""
+    from interview_mux import seed_policy
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {"seed_policy": {"freeze_sticky_extra_stages": ["mix", "vo_synthesize"]}},
+    )
+    stages = seed_policy.freeze_sticky_seed_stages()
+    assert "mix" not in stages
+    assert "vo_synthesize" not in stages
+    assert not seed_policy.is_freeze_sticky_stage("mix")
+
+
+def test_seed_policy_hollow_edl_marker_not_sticky(tmp_path, monkeypatch):
+    """Footgun #4: bare .stage_done/edl without edl.json must not sticky."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+    from interview_mux.seat_authority import stamp_hard_seat_freeze
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_seed_hollow_edl"), create=True)
+    ctx.write_json("run_meta.json", {"delivery_epoch": {}}, skip_handoff=True)
+    (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "edl").touch()
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    for sid in seed_policy.FREEZE_STICKY_SEED_STAGES_CORE:
+        assert not seed_policy.seed_stage_satisfied_by_policy(ctx, sid)
+
+
+def test_seed_policy_junk_edl_dict_not_sticky(tmp_path, monkeypatch):
+    """A4 residual: versionless / non-spine edl.json must not sticky."""
+    from interview_mux.run_context import RunContext
+    from interview_mux import seed_policy
+    from interview_mux.seat_authority import stamp_hard_seat_freeze
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = RunContext(str(tmp_path / "exec_junk_edl"), create=True)
+    ctx.write_json("run_meta.json", {"delivery_epoch": {}}, skip_handoff=True)
+    (ctx.run_dir / ".stage_done").mkdir(exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "edl").touch()
+    # Bypass schema so we can plant a junk body that would otherwise validate-fail.
+    path = ctx.final_path("master", "edl.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"note":"not a real edl"}', encoding="utf-8")
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    for sid in seed_policy.FREEZE_STICKY_SEED_STAGES_CORE:
+        assert not seed_policy.seed_stage_satisfied_by_policy(ctx, sid)
+
+
+def test_unlock_seat_freeze_clears_level_hard(tmp_path):
+    """Footgun #1: unlock must not leave level=hard with hard:False."""
+    from interview_mux.run_context import RunContext
+    from interview_mux.seat_authority import (
+        stamp_hard_seat_freeze,
+        unlock_seat_freeze,
+        read_seat_freeze,
+    )
+
+    ctx = RunContext(str(tmp_path / "exec_unlock_lvl"), create=True)
+    ctx.write_json("run_meta.json", {"delivery_epoch": {}}, skip_handoff=True)
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    fr = unlock_seat_freeze(ctx, reason="test_unlock", clear_hard=True, clear_soft=False)
+    assert fr.get("hard") is False
+    assert fr.get("soft") is True
+    assert fr.get("level") == "soft"
+    fr2 = unlock_seat_freeze(ctx, reason="clear_soft", clear_hard=True, clear_soft=True)
+    assert fr2.get("hard") is False
+    assert not fr2.get("soft")
+    assert fr2.get("level") == "unlocked"
+    assert read_seat_freeze(ctx).get("level") == "unlocked"
+
+
+def test_freeze_artifact_proves_hard_matrix() -> None:
+    from interview_mux.seed_policy import freeze_artifact_proves_hard
+
+    assert freeze_artifact_proves_hard({"hard": True, "fingerprint": "x"})
+    assert freeze_artifact_proves_hard({"level": "hard"})
+    assert not freeze_artifact_proves_hard({"soft": True, "fingerprint": "x"})
+    assert not freeze_artifact_proves_hard(
+        {"soft": True, "hard": False, "level": "hard", "fingerprint": "x"}
+    )
+    assert not freeze_artifact_proves_hard({})
+    assert not freeze_artifact_proves_hard(None)
 
 
 def test_playability_ssot_blank_and_cta():

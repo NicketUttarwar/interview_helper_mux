@@ -959,11 +959,13 @@ def test_resolve_assembly_stale_resume_edl_good_pins_mix(
         lambda _ctx: False,
     )
     assert resolve_assembly_stale_resume(ctx) == "mix"
+    # Seated-but-diverged must remaster via mix — never pin junction (blocked by
+    # the same stale-upstream token).
     monkeypatch.setattr(
         "interview_mux.heal_routing.mix_assembly_seated",
         lambda _ctx: True,
     )
-    assert resolve_assembly_stale_resume(ctx) == "junction_snip_qa"
+    assert resolve_assembly_stale_resume(ctx) == "mix"
 
 
 def test_resolve_assembly_stale_resume_stale_edl_pins_edl(tmp_path: Path) -> None:

@@ -932,3 +932,80 @@ def test_native_handoff_ledger_glue_waived_reason(tmp_path):
     assert dest[0].get("glue_waived") == "native_handoff"
     assert dest[0].get("naked") is False
     assert ledger["naked_seam_count"] == 0
+
+
+def test_compose_pass_b_seat_gate_error_fail_closed(tmp_path, monkeypatch):
+    """Cascade: freeze-gate Exception → return existing plan, no seat mutation."""
+    ctx = isolated_run_ctx(tmp_path, "exec_air_gate_err")
+    ordered = ["seg_001", "seg_002"]
+    _seed_plan(ctx, ordered=ordered)
+    plan = forced_sparse_plan(reason="gate_err")
+    plan["air_script"] = {
+        "version": 1,
+        "pass": "pass_a",
+        "beats": [
+            {"id": "b1", "segment_id": "seg_001", "montage_move": "native_handoff"},
+        ],
+        "omits": [],
+        "energy_curve": [],
+        "cold_open": {"kind": "none"},
+    }
+    write_plan(ctx, plan)
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    before = load_plan_raw(ctx) or {}
+
+    def _boom(_ctx):
+        raise RuntimeError("soft_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active",
+        _boom,
+    )
+    out = compose_pass_b(ctx)
+    assert out.get("air_script", {}).get("pass") == "pass_a"
+    after = load_plan_raw(ctx) or {}
+    assert after.get("air_script", {}).get("pass") == before.get("air_script", {}).get("pass")
+
+
+def test_persist_air_script_omits_seat_gate_error_fail_closed(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_air_omit_gate_err")
+    ordered = ["seg_001"]
+    _seed_plan(ctx, ordered=ordered)
+    plan = forced_sparse_plan(reason="omit_gate")
+    plan["air_script"] = {
+        "version": 1,
+        "pass": "pass_b",
+        "beats": [],
+        "omits": [],
+        "energy_curve": [],
+        "cold_open": {"kind": "none"},
+        "vo_seats": {"seated_line_ids": [], "omitted_line_ids": []},
+    }
+    write_plan(ctx, plan)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_x",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "text": "hello",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+
+    def _boom(_ctx):
+        raise RuntimeError("soft_freeze_active boom")
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active",
+        _boom,
+    )
+    assert persist_air_script_omits_on_gap_report(ctx) == 0
+    gap = ctx.read_json("understanding/gap_report.json")
+    assert not (gap["interviewer_lines"][0].get("skipped_optional"))

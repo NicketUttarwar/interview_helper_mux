@@ -26,9 +26,9 @@ Do not skip low_conf_island_scan or connector_fuse_pass unless those artifacts a
 
 Do not skip source_topology_build unless understanding/source_topology.json and flow_adaptation.json already exist. When pipeline_mode is not native_only, speaker sample WAVs under understanding/speaker_samples/ must exist for every topology speaker_stats row — skipping topology leaves Chatterbox with no pickup-eligible voice reference.
 
-framing_posture_decide (analysis, homunculus 0.1.0+ only) is advisory for G-Framing — it recommends native vs synthetic posture; operator G-Framing Yes/No remains authoritative. vo_line_adjudicate (delivery, 0.1.0+ only) runs after sound_design_vo_finalize and before vo_synthesize — adjudicate-before-synth is law: never run vo_synthesize until vo_line_adjudicate outputs are present when G-Framing is Yes.
+framing_posture_decide (analysis, homunculus 0.1.0+ only) is advisory for G-Framing — it recommends native vs synthetic posture; operator G-Framing Yes/No remains authoritative. vo_line_adjudicate (delivery, 0.1.0+ only) runs after sound_design_plan and before vo_synthesize — adjudicate-before-synth is law: never run vo_synthesize until vo_line_adjudicate outputs are present when G-Framing is Yes.
 
-5C delivery synth order: sound_design_vo_finalize → vo_line_adjudicate → vo_synthesize → edl_narrative_audit → edl. edl_narrative_audit judges heard WAV flow, not script-only.
+5C delivery synth order: sound_design_plan → vo_line_adjudicate → vo_synthesize → sound_design_vo_finalize → edl_narrative_audit → edl. sound_design_vo_finalize measures seated WAVs after synthesize. edl_narrative_audit judges heard WAV flow, not script-only.
 
 After hollow_done block (stage marked done but outputs missing): rerun once via rerun_stage with extra facts. If the same completeness miss repeats, halt for operator — do not skip, do not invalidate_downstream, do not repack the same volley. Host returns structured hollow_done with action unmark_and_rerun_once then needs_operator.
 

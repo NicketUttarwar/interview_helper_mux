@@ -135,6 +135,28 @@ def test_audited_path_prefers_seated_wav_matching_bound_sha(tmp_path, monkeypatc
     assert resolved.resolve() == seated.resolve()
 
 
+def test_audited_path_returns_none_when_bound_sha_unmatched(
+    tmp_path, monkeypatch
+) -> None:
+    """Cascade: bound wav_sha256 with no matching candidate → None, not candidates[0]."""
+    from interview_mux.vo_synthesis_audit import (
+        _audited_wav_path,
+        wav_content_sha256,
+    )
+
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_bound_sha_miss")
+    line = _base_line()
+    synth = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    _wav(synth, duration_ms=300)
+    record_synthesis(ctx, line, backend="chatterbox", out_wav=synth)
+    entry = dict(synthesis_entry_for_line(ctx, "line_1") or {})
+    # Overwrite file so bound sha no longer matches any candidate.
+    _wav(synth, duration_ms=900)
+    assert wav_content_sha256(synth) != entry.get("wav_sha256")
+    assert _audited_wav_path(ctx, entry, line) is None
+
+
 def test_audited_path_finds_pending_vo_synthesize_shadow(tmp_path, monkeypatch) -> None:
     """EDL may overwrite committed vo_pickup with stale bytes; pending shadow still binds."""
     from interview_mux.stages.assembly import resolve_vo_pickup_path

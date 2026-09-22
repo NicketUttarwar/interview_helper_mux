@@ -249,6 +249,42 @@ def scrub_spoken_edit_structure(text: str) -> str:
         scrubbed,
         flags=re.IGNORECASE,
     )
+    return scrub_spoken_gendered_pronouns(" ".join(scrubbed.split()).strip())
+
+
+def scrub_spoken_gendered_pronouns(text: str) -> str:
+    """Neutralize he/she/him/her so synthesize VO passes spoken_gendered_pronoun.
+
+    Intro compose and adjudicate LLM copy often attributes claims with gendered
+    pronouns (exec_13167 vo_intro_preface). Prefer singular-they forms.
+    """
+    scrubbed = str(text or "")
+    scrubbed = re.sub(r"\bhers\b", "theirs", scrubbed, flags=re.IGNORECASE)
+    scrubbed = re.sub(r"\bhis\b", "their", scrubbed, flags=re.IGNORECASE)
+    scrubbed = re.sub(r"\bhe\b", "they", scrubbed, flags=re.IGNORECASE)
+    scrubbed = re.sub(r"\bshe\b", "they", scrubbed, flags=re.IGNORECASE)
+    scrubbed = re.sub(r"\bhim\b", "them", scrubbed, flags=re.IGNORECASE)
+    # Possessive/object "her" → their (listener-facing VO avoids gendered forms).
+    scrubbed = re.sub(r"\bher\b", "their", scrubbed, flags=re.IGNORECASE)
+    # Common 3sg → plural agreement after he/she → they.
+    for singular, plural in (
+        ("believes", "believe"),
+        ("says", "say"),
+        ("argues", "argue"),
+        ("explains", "explain"),
+        ("thinks", "think"),
+        ("wants", "want"),
+        ("sees", "see"),
+        ("has", "have"),
+        ("is", "are"),
+        ("was", "were"),
+    ):
+        scrubbed = re.sub(
+            rf"\bthey\s+{singular}\b",
+            f"they {plural}",
+            scrubbed,
+            flags=re.IGNORECASE,
+        )
     return " ".join(scrubbed.split()).strip()
 
 

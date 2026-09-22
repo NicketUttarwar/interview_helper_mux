@@ -3258,6 +3258,25 @@ def create_app() -> FastAPI:
             mark_preview_listened(ctx)
             return {"ok": True, "journey": build_journey_snapshot(ctx)}
 
+    @app.post("/api/runs/{run_id}/milestones/preview-music")
+    def post_preview_music(run_id: str) -> dict[str, Any]:
+        """HAU: operator-only gate to admit music against light/preview heard-assembly."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.mix_junction_seat import (
+                heard_assembly,
+                open_preview_music_gate,
+                preview_music_gate_open,
+            )
+
+            opened = open_preview_music_gate(ctx, source="gui")
+            return {
+                "ok": bool(opened and preview_music_gate_open(ctx)),
+                "preview_music": preview_music_gate_open(ctx),
+                "heard_assembly": heard_assembly(ctx),
+                "journey": build_journey_snapshot(ctx),
+            }
+
     @app.post("/api/runs/{run_id}/transcript-review/complete")
     def complete_transcript_review(run_id: str, body: TranscriptReviewCompleteBody) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -3931,7 +3950,26 @@ def create_app() -> FastAPI:
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 raise HTTPException(404, "gap_report.json not found")
             from interview_mux.delivery_recovery import ensure_g1_pickups
+            from interview_mux.gap_vo_gates import (
+                gap_framing_enabled,
+                synth_entry_may_auto_accept,
+                maybe_auto_accept_gap_gate_defaults,
+                vo_ladder_complete,
+            )
             from interview_mux.loud_fail import LoudStageFailure
+
+            if gap_framing_enabled(ctx):
+                if synth_entry_may_auto_accept(ctx):
+                    try:
+                        maybe_auto_accept_gap_gate_defaults(ctx)
+                    except Exception:
+                        pass
+                ok, reason = vo_ladder_complete(ctx, for_synthesize=True)
+                if not ok and reason != "no_synthesize_lines":
+                    raise HTTPException(
+                        409,
+                        f"VO ladder not complete ({reason}); refuse synthesize-all",
+                    )
 
             try:
                 result = ensure_g1_pickups(ctx, promote=True, max_rounds=2)
@@ -3939,6 +3977,12 @@ def create_app() -> FastAPI:
                 raise
             except Exception as exc:
                 raise HTTPException(503, f"VO synthesis failed: {exc}") from exc
+
+            if result.get("reason_code") and not result.get("ok"):
+                raise HTTPException(
+                    409,
+                    f"VO path not ready ({result.get('reason_code')}); refuse synthesize-all",
+                )
 
             synthesized = list(result.get("synthesized") or [])
             errors = list(result.get("errors") or [])

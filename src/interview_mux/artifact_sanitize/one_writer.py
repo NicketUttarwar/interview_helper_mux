@@ -71,19 +71,32 @@ def maybe_admit_hot_write(
     skip_handoff: bool = False,
     write_committed: bool = False,
     reason: str = "",
+    mutation_class: str | None = None,
 ) -> Path | None:
     """If ``rel`` is hot, persist via the sole commit API and return the path.
 
     Returns ``None`` when the caller should continue with a normal write
     (non-hot, raw escape, or already inside an admit).
+
+    A′′ Global Freeze: under freeze, ``_one_writer_raw`` cannot bypass gap /
+    transitions / SDP — those always admit (commit then End-A-or-skip).
     """
     rel_n = str(rel or "").replace("\\", "/").strip("/")
     if rel_n not in HOT_ARTIFACT_RELS:
         return None
     if not isinstance(data, dict):
         return None
-    if _raw_escape(ctx) or admitting(ctx):
+    if admitting(ctx):
         return None
+    if _raw_escape(ctx):
+        try:
+            from interview_mux.seat_authority import freeze_blocks_raw_escape
+
+            if not freeze_blocks_raw_escape(ctx, rel_n):
+                return None
+            # Fall through to admit under freeze (raw escape blocked).
+        except Exception:
+            return None
 
     begin_admit(ctx)
     try:
@@ -95,6 +108,7 @@ def maybe_admit_hot_write(
             skip_handoff=skip_handoff,
             write_committed=write_committed,
             reason=reason or stage_key or "one_writer_admit",
+            mutation_class=mutation_class,
         )
     finally:
         end_admit(ctx)
@@ -109,6 +123,7 @@ def _admit_impl(
     skip_handoff: bool,
     write_committed: bool,
     reason: str,
+    mutation_class: str | None = None,
 ) -> Path:
     if rel == SELECTION_REL:
         from interview_mux.air_order_boundary import commit_selection_mutation
@@ -203,6 +218,7 @@ def _admit_impl(
             stage_key=stage_key,
             skip_handoff=skip_handoff,
             reason=reason,
+            mutation_class=mutation_class,
         )
 
     raise RuntimeError(f"one_writer: unhandled hot rel {rel}")
@@ -222,6 +238,15 @@ def commit_transitions_doc(
     from interview_mux.artifact_sanitize.transitions import sanitize_transitions
     from interview_mux.artifact_sanitize.types import SanitizeResult
     from interview_mux.transition_vo import retain_required_transition_pairs
+
+    enda_reason = str(reason or stage_key or "").strip()
+    try:
+        from interview_mux.seat_authority import frozen_seat_write_allowed
+
+        if not frozen_seat_write_allowed(ctx, TRANSITIONS_REL, reason=enda_reason):
+            return ctx.final_path(*TRANSITIONS_REL.split("/"))
+    except ImportError:
+        pass
 
     nested = admitting(ctx)
     if not nested:
@@ -288,6 +313,15 @@ def commit_sound_design_plan_doc(
         sanitize_sound_design_plan,
     )
     from interview_mux.prompt_validation import validate_artifact_write
+
+    enda_reason = str(reason or stage_key or "").strip()
+    try:
+        from interview_mux.seat_authority import frozen_seat_write_allowed
+
+        if not frozen_seat_write_allowed(ctx, SDP_REL, reason=enda_reason):
+            return ctx.final_path(*SDP_REL.split("/"))
+    except ImportError:
+        pass
 
     nested = admitting(ctx)
     if not nested:
@@ -385,6 +419,7 @@ def commit_nugget_layup_plan_doc(
     stage_key: str | None = None,
     skip_handoff: bool = False,
     reason: str = "",
+    mutation_class: str | None = None,
 ) -> Path:
     """Sole layup persist: sanitize → stamp → one write."""
     from interview_mux.artifact_sanitize.admit import admit_sanitized
@@ -429,6 +464,7 @@ def commit_nugget_layup_plan_doc(
             refuse_if_unsanitary=False,
             content_keys=["ordered_segment_ids", "layups", "status"],
             action_class=reason or "commit_nugget_layup_plan",
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*LAYUP_REL.split("/"))
     finally:

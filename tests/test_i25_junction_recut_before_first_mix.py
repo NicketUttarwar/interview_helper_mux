@@ -263,8 +263,16 @@ def test_i41_stale_assembly_does_not_strand_the_recut(
         "interview_mux.llm_flow_hardening.flow_hardening_enabled", lambda *a, **k: True
     )
     maybe_require_upstream_llm_progress(ctx, "junction_snip_qa")
-    # Once mix actually lands, the ladder goes back behind mix.
+    # Once live residuals clear and mix has landed, the ladder goes back behind mix.
     _stamp_mix_done(ctx)
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_order.mix_stale_versus_live",
+        lambda _ctx: False,
+    )
     assert junction_recut_precedes_mix(ctx) is False
 
 

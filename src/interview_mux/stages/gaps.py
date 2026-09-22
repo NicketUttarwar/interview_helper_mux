@@ -799,24 +799,16 @@ def _trim_prior_contexts_to_ids(payload: dict[str, Any], segment_ids: list[str] 
 
 
 def _heal_gap_framing_compose_if_complete(ctx: RunContext) -> None:
-    """Mark done only when artifacts are complete; else leave incomplete (B1)."""
+    """Mark done only when artifacts are complete; else raise (no hollow Finished).
+
+    heal_or_raise flushes pending first (HC-3). Pre-flush assert + warn-return
+    previously let the runner emit Finished without .stage_done (exec_13165).
+    """
     if ctx.is_done("gap_framing_compose"):
         return
-    try:
-        from interview_mux.stage_completion import (
-            StageArtifactsIncompleteError,
-            assert_stage_artifacts_complete,
-            heal_or_raise,
-        )
+    from interview_mux.stage_completion import heal_or_raise
 
-        assert_stage_artifacts_complete(ctx, "gap_framing_compose")
-        heal_or_raise(ctx, "gap_framing_compose")
-    except StageArtifactsIncompleteError as exc:
-        ctx.log(
-            f"gap_framing_compose not marked done — {exc.reason}",
-            level="warning",
-            stage="gap_framing_compose",
-        )
+    heal_or_raise(ctx, "gap_framing_compose")
 
 
 def _merge_gap_report_parts(parts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1061,7 +1053,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             publish_layup_plan_to_gap_report,
         )
         from interview_mux.artifact_ownership import freeze_write_allowed
-        from interview_mux.write_staging import heal_or_refuse_mark
+        # heal_or_refuse_mark: module import from stage_completion (not write_staging).
 
         gap = (
             ctx.read_json("understanding/gap_report.json")
@@ -1102,12 +1094,67 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 except Exception:
                     pass
             return
+    except ImportError:
+        # Wrong-module imports must not fall through into LLM rewrite under freeze.
+        raise
     except Exception as exc:
+        # Fail-closed when layup/freeze evidence exists; never fall through into LLM.
+        # If neither armed and authority unknown, raise loud (no hollow done, no rewrite).
+        plan_exists = False
+        freeze_hint = False
+        try:
+            from interview_mux.nugget_layup import PLAN_REL as _PLAN_REL
+
+            plan_exists = bool(ctx.artifact_exists(_PLAN_REL))
+        except Exception:
+            plan_exists = False
+        try:
+            from interview_mux.seat_authority import hard_freeze_active, soft_freeze_active
+
+            freeze_hint = bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+        except Exception:
+            freeze_hint = False
+        if not (plan_exists or freeze_hint):
+            try:
+                gap_hint = (
+                    ctx.read_json("understanding/gap_report.json")
+                    if ctx.artifact_exists("understanding/gap_report.json")
+                    else {}
+                )
+                if isinstance(gap_hint, dict) and gap_hint.get("nugget_layup_authority"):
+                    plan_exists = True
+            except Exception:
+                pass
+        if not (plan_exists or freeze_hint):
+            raise RuntimeError(
+                f"gap_framing_compose: authority/freeze guard error with no "
+                f"layup/freeze evidence — refusing LLM fall-through ({exc})"
+            ) from exc
         ctx.log(
-            f"gap_framing_compose: authority/freeze guard error (continuing): {exc}",
+            f"gap_framing_compose: authority/freeze guard error — fail-closed no-op: {exc}",
             level="warning",
             stage="gap_framing_compose",
         )
+        try:
+            from interview_mux.nugget_layup import (
+                PLAN_REL as _PLAN_REL2,
+                publish_layup_plan_to_gap_report as _pub,
+            )
+
+            if ctx.artifact_exists(_PLAN_REL2):
+                _pub(ctx)
+        except Exception as pub_exc:
+            ctx.log(
+                f"gap_framing_compose: fail-closed publish skipped: {pub_exc}",
+                level="warning",
+                stage="gap_framing_compose",
+            )
+        if not ctx.is_done("gap_framing_compose"):
+            try:
+                heal_or_refuse_mark(ctx, "gap_framing_compose", force=True)
+            except Exception:
+                pass
+        return
 
     required_ids = _gap_segment_ids(ctx)
     batch_size = _gap_pass_batch_size()

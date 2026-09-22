@@ -504,6 +504,9 @@ def test_cfg_defaults():
     assert cfg["enabled"] is True
     assert cfg["min_layup_coverage"] == 0.70
     assert cfg["min_nugget_air_coverage"] == 0.85
+    assert cfg["air_coverage_aspirational"] is True
+    assert cfg["air_coverage_max_attempts"] == 3
+    assert cfg["catastrophic_nugget_air_coverage"] == 0.0
     assert cfg["authoritative_gap_report"] is True
     assert cfg["block_on_open_high_salience"] is True
 
@@ -552,9 +555,18 @@ def test_evaluate_nugget_air_coverage_body_intro_waived():
     assert soft_low["ok"] is True
     assert any("min_nugget_air_coverage" in w for w in soft_low["warnings"])
 
-    hard_low = evaluate_nugget_air_coverage(sparse_body, [], None, corpus, hard=True)
+    # Legacy hard floor when aspirational is off.
+    hard_low = evaluate_nugget_air_coverage(
+        sparse_body, [], None, corpus, hard=True, aspirational=False
+    )
     assert hard_low["ok"] is False
     assert any("min_nugget_air_coverage" in e for e in hard_low["errors"])
+
+    # Default aspirational: hard=True still advisory for goal miss.
+    asp_low = evaluate_nugget_air_coverage(sparse_body, [], None, corpus, hard=True)
+    assert asp_low["ok"] is True
+    assert any("min_nugget_air_coverage" in w for w in asp_low["warnings"])
+    assert not asp_low["errors"]
 
     at_floor = evaluate_nugget_air_coverage(
         {
@@ -580,7 +592,7 @@ def test_evaluate_nugget_air_coverage_body_intro_waived():
 
 
 def test_evaluate_nugget_air_coverage_hard_in_qc():
-    """NLC-B2: compose QC hard-fails below min_nugget_air_coverage."""
+    """NLC-B2: under aspirational, goal miss is advisory; open high stays hard."""
     ctx = RunContext("exec_nugget_air_qc_hard", create=True)
     corpus = {
         "nuggets": [
@@ -603,6 +615,56 @@ def test_evaluate_nugget_air_coverage_hard_in_qc():
         "discharged_talking_point_ids": [],
         "open_talking_point_ids": [],
         "discharged_nugget_ids": ["nug_1"],
+        "open_high_salience_nugget_ids": [],
+    }
+    qc = evaluate_layup_qc(ctx, plan, corpus)
+    assert qc["nugget_air_coverage"] == pytest.approx(0.2, rel=1e-3)
+    assert qc["ok"] is False
+    # Goal miss is advisory under aspirational; unaccounted open high is hard.
+    assert not any("min_nugget_air_coverage" in e for e in (qc.get("errors") or []))
+    assert any("min_nugget_air_coverage" in w for w in (qc.get("warnings") or []))
+    assert any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+
+
+def test_evaluate_nugget_air_coverage_legacy_hard_when_aspirational_off(monkeypatch):
+    """air_coverage_aspirational:false restores prior hard 0.85 in QC."""
+    base = nugget_layup_cfg({})
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_cfg",
+        lambda cfg=None: {
+            **base,
+            "air_coverage_aspirational": False,
+            "min_layup_coverage": 0.0,
+            "require_layup_per_native": False,
+            "require_analysis_fields": False,
+            "ban_canned_air": False,
+            "block_on_open_must_keep": False,
+            "block_on_open_high_salience": False,
+            "degraded_layup": {"enabled": False},
+        },
+    )
+    ctx = RunContext("exec_nugget_air_qc_legacy", create=True)
+    corpus = {
+        "nuggets": [
+            {"nugget_id": f"nug_{i}", "salience": "medium", "in_selection": False}
+            for i in range(1, 6)
+        ]
+    }
+    plan = {
+        "ordered_segment_ids": ["seg_011"],
+        "layups": [
+            {
+                "target_segment_id": "seg_011",
+                "text": "One recovered fact before the clip.",
+                "nugget_ids": ["nug_1"],
+                "skip": False,
+                "forward_cue_ok": True,
+                **_ANALYSIS,
+            }
+        ],
+        "discharged_talking_point_ids": [],
+        "open_talking_point_ids": [],
+        "discharged_nugget_ids": [],
         "open_high_salience_nugget_ids": [],
     }
     qc = evaluate_layup_qc(ctx, plan, corpus)
@@ -2540,6 +2602,75 @@ def test_publish_refuses_hollow_gap_under_g_framing(monkeypatch):
     assert len(disk.get("interviewer_lines") or []) >= 3
 
 
+def test_hollow_preserve_retains_foreign_to_hold_vo_floor(monkeypatch):
+    """Cascade (MUX_FORENSICS=0): scrub must not drop active below G-Framing floor.
+
+    exec_13167: prior were all gap_framing_compose; hollow scrub dropped 11 →
+    active < need=3 → hosted_vo_floor_unmet / cta_only_leftovers needs_operator.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.nugget_layup import (
+        _count_active_synthetic_lines,
+        publish_layup_plan_to_gap_report,
+    )
+
+    ctx = RunContext("exec_layup_hollow_floor_retain", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012", "seg_020", "seg_030"],
+        {
+            "seg_002": "Welcome.",
+            "seg_012": "Guest on CTCs.",
+            "seg_020": "More science.",
+            "seg_030": "Closing.",
+        },
+    )
+    # Only foreign compose origins — no nugget_layup authority body lines.
+    prior_lines = [
+        {
+            "line_id": f"vo_compose_seg_{sid}",
+            "gap_type": "missing_setup",
+            "placement": "before",
+            "targets_segment_id": f"seg_{sid}",
+            "delivery": "synthesize",
+            "origin": "gap_framing_compose",
+            "text": f"Host setup for {sid} that unlocks the next beat clearly.",
+        }
+        for sid in ("012", "020", "030")
+    ]
+    ctx.write_json(
+        GAP_REL,
+        {"interviewer_lines": prior_lines, "nugget_layup_authority": False},
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    hollow = {
+        "ordered_segment_ids": ["seg_002", "seg_012", "seg_020", "seg_030"],
+        "layups": [],
+        "warnings": ["compose_restart"],
+    }
+    report = publish_layup_plan_to_gap_report(ctx, hollow)
+    kept = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict) and not ln.get("skipped_optional")
+    ]
+    assert _count_active_synthetic_lines(kept) >= 3
+    meta = report.get("_meta") or {}
+    assert int(meta.get("hollow_preserve_floor_retained_foreign") or 0) >= 3
+    disk = ctx.read_json(GAP_REL)
+    assert _count_active_synthetic_lines(disk.get("interviewer_lines") or []) >= 3
+
+
 def test_park_open_high_salience_on_orientation_clears_qc():
     from interview_mux.nugget_layup import park_open_high_salience_on_orientation
 
@@ -2587,6 +2718,82 @@ def test_park_open_high_salience_on_orientation_clears_qc():
     qc = evaluate_layup_qc(ctx, parked)
     assert "nug_park" not in (qc.get("open_high_salience_nugget_ids") or [])
     assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+    # Cascade: orientation park must credit air coverage (not leave 10/12=0.833 stuck).
+    assert "nug_park" not in (qc.get("open_nugget_ids") or [])
+    assert not any("nugget_air_coverage" in e for e in (qc.get("errors") or []))
+    assert qc.get("ok") is True
+
+
+def test_orientation_park_credits_nugget_air_coverage_floor(monkeypatch):
+    """MUX_FORENSICS=0 cascade: 10 body-aired + 2 orientation-parked → air floor passes."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.nugget_layup import park_open_high_salience_on_orientation
+
+    ctx = RunContext("exec_layup_orient_air_floor", create=True)
+    _seed_air_order(
+        ctx,
+        [f"seg_{i:03d}" for i in range(1, 13)],
+        {f"seg_{i:03d}": f"Native claim {i}." for i in range(1, 13)},
+    )
+    nuggets = []
+    for i in range(1, 13):
+        nuggets.append(
+            {
+                "nugget_id": f"nug_{i:03d}",
+                "text_claim": f"Claim {i} about oncology biomarkers.",
+                "evidence_quote": f"claim {i}",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+            }
+        )
+    ctx.write_json(CORPUS_REL, {"nuggets": nuggets})
+    # 10 aired body layups + 2 spoken_copy_unhealable skips (open high).
+    layups = []
+    for i in range(1, 11):
+        layups.append(
+            {
+                "target_segment_id": f"seg_{i:03d}",
+                "line_id": f"vo_layup_seg_{i:03d}",
+                "nugget_ids": [f"nug_{i:03d}"],
+                "text": f"Brief preview of claim {i} about oncology biomarkers.",
+                **_ANALYSIS,
+            }
+        )
+    for i in (11, 12):
+        layups.append(
+            stamp_typed_skip(
+                {
+                    "target_segment_id": f"seg_{i:03d}",
+                    "line_id": f"vo_layup_seg_{i:03d}",
+                    "nugget_ids": [f"nug_{i:03d}"],
+                    "value_forgone": [f"nug_{i:03d}"],
+                    **_ANALYSIS,
+                },
+                reason_code="spoken_copy_unhealable",
+            )
+        )
+    plan = {
+        "ordered_segment_ids": [f"seg_{i:03d}" for i in range(1, 13)],
+        "layups": layups,
+        "open_high_salience_nugget_ids": ["nug_011", "nug_012"],
+        "discharged_nugget_ids": [],
+    }
+    before = evaluate_layup_qc(ctx, plan)
+    # Under aspirational, 10/12 coverage is advisory; open high remains hard.
+    assert any("nugget_air_coverage" in w for w in (before.get("warnings") or [])) or any(
+        "nugget_air_coverage" in e for e in (before.get("errors") or [])
+    )
+    assert any("open_high_salience" in e for e in (before.get("errors") or []))
+    parked, _notes = park_open_high_salience_on_orientation(ctx, plan)
+    after = evaluate_layup_qc(ctx, parked)
+    assert set(parked.get("orientation_nugget_recovery_ids") or []) >= {"nug_011", "nug_012"}
+    assert after.get("nugget_air_coverage", 0) + 1e-9 >= 0.85
+    assert not any("nugget_air_coverage" in e for e in (after.get("errors") or []))
+    assert "nug_011" not in (after.get("open_nugget_ids") or [])
+    assert "nug_012" not in (after.get("open_nugget_ids") or [])
 
 
 def test_ncm_b2_empty_enabled_corpus_incomplete(monkeypatch):

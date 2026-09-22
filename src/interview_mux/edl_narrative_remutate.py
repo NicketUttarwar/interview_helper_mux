@@ -28,6 +28,15 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
         "drop_late_intro_reset",
         "drop_post_coda_reverse_jump",
         "prune_stale_transitions",
+        # Mid-sentence transition openers repaired under freeze (exec_13167).
+        "repair_mid_sentence_transition_openers",
+    }
+)
+
+# Metadata-only notes — useful, but must not claim host_fixed when continuity
+# still needs a spoken-bridge repair (align_* used to short-circuit remutate).
+METADATA_ONLY_PROGRESS_NOTES = frozenset(
+    {
         "align_selection_chapters",
         "repair_coverage_for_selection",
         "align_narrative_plan",
@@ -595,6 +604,59 @@ def apply_edl_narrative_metadata_align(ctx: RunContext) -> dict[str, Any]:
     }
 
 
+def _repair_mid_sentence_transition_openers(ctx: RunContext) -> list[str]:
+    """Freeze-safe: complete mid-sentence transition openers (lowercase starts).
+
+    spoken_copy_guard fallback historically returned fragments like
+    \"alone does not settle…\" which flagship audit marks selected_continuity_broken.
+    Prefix with a listener-facing demonstrative under transition_repair.
+    """
+    from interview_mux.artifact_ownership import freeze_write_allowed
+
+    if not freeze_write_allowed(ctx, "transitions", "transition_repair"):
+        return []
+    if not ctx.artifact_exists("master/transitions.json"):
+        return []
+    tr = ctx.read_json("master/transitions.json")
+    if not isinstance(tr, dict):
+        return []
+    rows = list(tr.get("transitions") or [])
+    changed = 0
+    out_rows: list[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            out_rows.append(row)
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text or not text[:1].islower():
+            out_rows.append(row)
+            continue
+        fixed_text = f"That {text}"
+        new_row = dict(row)
+        new_row["text"] = fixed_text
+        guard = dict(new_row.get("spoken_copy_guard") or {})
+        guard["action"] = "repair_mid_sentence_opener"
+        new_row["spoken_copy_guard"] = guard
+        out_rows.append(new_row)
+        changed += 1
+    if not changed:
+        return []
+    tr = dict(tr)
+    tr["transitions"] = out_rows
+    try:
+        from interview_mux.transition_vo import persist_transitions_doc
+
+        persist_transitions_doc(ctx, tr, stage_key="transitions")
+    except Exception:
+        ctx.write_json(
+            "master/transitions.json",
+            tr,
+            stage_key="transitions",
+            mutation_class="transition_repair",
+        )
+    return ["repair_mid_sentence_transition_openers"]
+
+
 def _dedupe_framing_transitions_under_freeze(ctx: RunContext) -> list[str]:
     """Drop transition when required VO already covers the adjacency.
 
@@ -602,9 +664,12 @@ def _dedupe_framing_transitions_under_freeze(ctx: RunContext) -> list[str]:
     """
     from interview_mux.artifact_ownership import freeze_write_allowed
 
-    if not freeze_write_allowed(ctx, "transitions", "transition_dedupe"):
-        return ["freeze_blocked_transition_dedupe"]
     notes: list[str] = []
+    notes.extend(_repair_mid_sentence_transition_openers(ctx))
+    if not freeze_write_allowed(ctx, "transitions", "transition_dedupe"):
+        if not notes:
+            return ["freeze_blocked_transition_dedupe"]
+        return notes
     if not ctx.artifact_exists("master/transitions.json"):
         return notes
     try:
@@ -681,11 +746,11 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         notes.extend(_dedupe_framing_transitions_under_freeze(ctx))
         notes.append("seat_freeze_blocked_host_repair")
         return {
-            "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+            "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
             "notes": notes,
             "cleared": list(meta.get("cleared") or []),
             "from_stage": "edl_narrative_audit",
-            "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+            "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
         }
     try:
         from interview_mux.seat_authority import soft_freeze_active, request_seat_rewrite
@@ -704,11 +769,11 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 if "seat_freeze_blocked_host_repair" not in notes:
                     notes.append("seat_freeze_blocked_host_repair")
                 return {
-                    "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                    "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
                     "notes": notes,
                     "cleared": list(meta.get("cleared") or []),
                     "from_stage": "edl_narrative_audit",
-                    "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                    "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
                     "gate": dec,
                 }
     except Exception:
@@ -726,11 +791,11 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
             if "seat_freeze_blocked_host_repair_fail_closed" not in notes:
                 notes.append("seat_freeze_blocked_host_repair_fail_closed")
             return {
-                "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                "ok": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
                 "notes": notes,
                 "cleared": list(meta.get("cleared") or []),
                 "from_stage": "edl_narrative_audit",
-                "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+                "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
             }
     notes: list[str] = []
     pending_adj: list[tuple[str, str]] = []
@@ -1149,13 +1214,18 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         "from_stage": from_stage,
         "notes": notes,
         "cleared": cleared,
-        "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+        "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes) or METADATA_ONLY_PROGRESS_NOTES.intersection(notes)),
     }
 
 
 def _host_progress_notes(host: dict[str, Any] | None) -> set[str]:
     notes = (host or {}).get("notes") or []
     return HOST_REPAIR_PROGRESS_NOTES.intersection(notes)
+
+
+def _metadata_progress_notes(host: dict[str, Any] | None) -> set[str]:
+    notes = (host or {}).get("notes") or []
+    return METADATA_ONLY_PROGRESS_NOTES.intersection(notes)
 
 
 def _remutate_from_host_progress(host: dict[str, Any], *, extra_notes: list[str] | None = None) -> dict[str, Any]:
@@ -1186,7 +1256,7 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
     # Metadata-only plan/chapter align never needs timeline reopen or seat unfreeze.
     if actions and actions.issubset(_METADATA_ALIGN_ACTIONS):
         host = apply_edl_narrative_host_repair(ctx)
-        if _host_progress_notes(host):
+        if _host_progress_notes(host) or _metadata_progress_notes(host):
             return _remutate_from_host_progress(host, extra_notes=["align_plan_metadata_only"])
         return {
             "ok": False,

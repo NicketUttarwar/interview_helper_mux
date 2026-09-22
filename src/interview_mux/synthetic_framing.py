@@ -498,6 +498,10 @@ def normalize_synthetic_plan(
             )
         if not str(row.get("line_id") or "").strip():
             row["line_id"] = f"syn_{index_i:03d}_{anchor}"
+        if row.get("speaker_policy") is None:
+            row["speaker_policy"] = ""
+        elif not isinstance(row.get("speaker_policy"), str):
+            row["speaker_policy"] = str(row.get("speaker_policy") or "")
         if not str(row.get("text") or "").strip():
             continue
         from interview_mux.spoken_copy_guard import guard_spoken_copy

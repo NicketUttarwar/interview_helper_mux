@@ -520,6 +520,16 @@ def classify_heal_error(
             detail="junction_family:hitch_listen_restage",
         )
 
+    # Commitment diverge mislabeled as incomplete_cut must remaster via mix
+    # (exec_13167 pre_mix: incomplete_cut_unresolved — assembly_not_rendered…).
+    if "assembly_not_rendered_from_current_edl" in low or "air_order generation mismatch" in low:
+        return HealRoute(
+            family="assembly_not_rendered_from_current_edl",
+            from_stage="mix",
+            action="clear_mix_junction",
+            detail="assembly_not_rendered — remaster mix (not junction incomplete-cut)",
+        )
+
     if (
         "incomplete_cut_unresolved" in low
         or "critical_incomplete_cut" in low

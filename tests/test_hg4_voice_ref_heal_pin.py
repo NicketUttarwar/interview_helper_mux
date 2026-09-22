@@ -111,3 +111,72 @@ def test_hg4_walk_does_not_enter_topic_coverage(
     )
     assert "topic_coverage_audit" not in ran
     assert "narrative_arc_plan" not in ran
+
+
+def test_hg4_approved_voice_clears_pending_despite_unconfirmed_pickup(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: voice approved + pickup unconfirmed must not keep voice-ref pending.
+
+    Live thrash: premature_complete on topic_coverage_audit remapped to already-done
+    missing_framing while pickup confirm raced behind voice auto-approve.
+    """
+    from interview_mux.gap_vo_gates import check_voice_reference_pending
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx.mutate_run_meta(
+        lambda m: m.update(
+            {
+                "gap_framing_enabled": True,
+                "voice_reference_approved_at": "2026-09-19T04:20:28Z",
+            }
+        )
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.pickup_eligible_speaker_id",
+        lambda _c: "spk_1",
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.pickup_speaker_confirmed",
+        lambda _c: False,
+    )
+    assert check_voice_reference_pending(ctx) is False
+
+
+def test_hg4_tca_coverage_pending_does_not_remap_complete_missing_framing(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: TCA coverage pending stays on topic_coverage_audit, not missing_framing."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    mark_done_raw(ctx, "missing_framing")
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {"version": 1, "evaluations": []},
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.check_voice_reference_pending",
+        lambda _c: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        lambda _c, sid: (
+            "master/coverage_audit.json is pending"
+            if sid == "topic_coverage_audit"
+            else None
+        ),
+    )
+    assert (
+        voice_ref_heal_resume_stage(
+            ctx,
+            error="delivery:premature_complete:phase_a_edl",
+            stage="topic_coverage_audit",
+        )
+        is None
+    )
+    nav = heal_navigate(
+        ctx,
+        error="delivery:premature_complete:phase_a_edl",
+        stage="topic_coverage_audit",
+    )
+    assert nav["from_stage"] != "missing_framing"

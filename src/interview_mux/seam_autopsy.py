@@ -603,9 +603,15 @@ def enrich_ledger(ctx: RunContext, autopsy: dict[str, Any]) -> dict[str, Any] | 
 
 
 def write_render_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Stamp the realized mix against its EDL for later commitment checks."""
+    """Stamp the realized mix against its EDL for later commitment checks.
+
+    Fingerprint the committed final assembly — ``read_path`` can still see a
+    stale pending WAV and desync ledger vs ``verify_commitment`` (final_path),
+    which leaves ``assembly_not_rendered_from_current_edl`` after a successful
+    mix (exec_13167).
+    """
     doc = edl if isinstance(edl, dict) else ctx.read_json("master/edl.json")
-    assembly = _file_fingerprint(ctx.read_path("master", "assembly.wav"))
+    assembly = _file_fingerprint(ctx.final_path("master", "assembly.wav"))
     clips = [c for c in (doc.get("clips") or []) if isinstance(c, dict)]
     out = {
         "version": 1,
@@ -625,6 +631,14 @@ def write_render_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None) -
             for c in clips
         ],
     }
+    try:
+        from interview_mux.air_order import generation as air_generation
+
+        gen = int(air_generation(ctx) or 0)
+        if gen:
+            out["air_order_generation"] = gen
+    except Exception:
+        pass
     from interview_mux.write_staging import write_committed_json
 
     write_committed_json(ctx, RENDER_LEDGER_REL, out)

@@ -106,3 +106,27 @@ def test_freeze_write_policy(
             mutation,
             epoch=epoch,
         ) is (epoch in allowed_epochs)
+
+
+def test_edl_narrative_audit_may_align_narrative_plan_under_hard_freeze(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MUX_FORENSICS=0: metadata align of narrative_plan under hard_freeze (exec_13167)."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setattr(ownership, "current_epoch", lambda _ctx: "hard_freeze")
+
+    class _Ctx:
+        pass
+
+    ok, reason = ownership.write_permitted(
+        _Ctx(),
+        "master/narrative_plan.json",
+        "edl_narrative_audit",
+        role="producer",
+        verb="persist",
+        mutation_class="narrative_metadata_align",
+    )
+    assert ok is True, reason
+    assert reason == "allow"

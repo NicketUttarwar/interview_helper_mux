@@ -108,7 +108,7 @@ records what has to be defused before switching them on.
 | `listen_delight_audit` | process | mastering/listen_delight_audit.json |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json, analysis/low_conf_density_ranking.json, analysis/low_conf_must_keep.json |
 | `master_finalize` | process | master/master.wav, master/post_master_quality.json, master/listener_scorecard.json, mastering/listen_delight_audit.json, master/seam_autopsy.json |
-| `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt |
+| `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt, glob:transcripts/transition/*.json, glob:transcripts/vo/*.json, glob:transcripts/speech/*.json, transcripts/index.json |
 | `mastering_plan_confirm` | process | mastering/mastering_plan.json, mastering/shadow_diff.json, glob:mastering/evidence_packets/*.json |
 | `mastering_plan_synthesize` | process | mastering/mastering_plan.json, glob:mastering/evidence_packets/*.json |
 | `mastering_research_rollup` | process | mastering/research/rollup.json, mastering/research_dossier.json, glob:mastering/research/*.json, mastering/research/routing.json |

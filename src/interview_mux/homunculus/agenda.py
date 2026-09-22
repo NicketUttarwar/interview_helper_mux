@@ -470,17 +470,20 @@ def _block_hollow_skip(ctx: RunContext, stage: str) -> None:
 
 
 def _refuse_music_before_assembly(ctx: RunContext, stage: str, *, action: str) -> None:
-    """Theme/SFX generation is post-assembly. Conductor must not jump the EDL."""
+    """Theme/SFX generation admits only via HAU ``may_admit_music`` (not preview OR)."""
     if stage not in MUSIC_REQUIRES_ASSEMBLY:
         return
-    if ctx.artifact_exists("master/assembly.wav") or ctx.artifact_exists(
-        "master/assembly_preview.wav"
-    ):
-        return
+    try:
+        from interview_mux.mix_junction_seat import may_admit_music, music_admit_block_reason
+
+        if may_admit_music(ctx):
+            return
+        blocked = music_admit_block_reason(ctx) or "assembly_not_ready_for_music"
+    except Exception:
+        blocked = "assembly_not_ready_for_music"
     raise RuntimeError(
-        f"cannot {action} {stage}: assembly audio missing — "
-        "run nugget_layup_compose → transitions → vo_synthesize → edl → "
-        "assembly_preview before MusicGen/SFX"
+        f"cannot {action} {stage}: {blocked} — "
+        "HAU requires seated assembly (or operator preview_music) before MusicGen/SFX"
     )
 
 
@@ -818,10 +821,12 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
         except Exception:
             return False
     if stage in MUSIC_REQUIRES_ASSEMBLY:
-        if not (
-            ctx.artifact_exists("master/assembly.wav")
-            or ctx.artifact_exists("master/assembly_preview.wav")
-        ):
+        try:
+            from interview_mux.mix_junction_seat import may_admit_music
+
+            if not may_admit_music(ctx):
+                return False
+        except Exception:
             return False
         rels = stage_required_outputs(stage)
         if not (bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)):
@@ -1247,13 +1252,30 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
         remutate_force = set()
 
     out: list[str] = []
+    committed_master = False
+    try:
+        from interview_mux.done_authority import honest_finalize_seeded
+
+        committed_master = bool(honest_finalize_seeded(ctx))
+    except Exception:
+        committed_master = False
     for sid in _order_for(phase):
         if sid in remutate_force:
             out.append(sid)
             continue
-        if stage_outputs_present(ctx, sid):
-            if stage_artifact_incompleteness(ctx, sid) is None:
+        # Post-master: do not resurface pre-master holes in remaining_after.
+        if committed_master and sid not in SHIP_AFTER_MASTER:
+            continue
+        # Pre-master remaining “done” requires seed_stage_complete (O13).
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if seed_stage_complete(ctx, sid):
                 continue
+        except Exception:
+            if stage_outputs_present(ctx, sid):
+                if stage_artifact_incompleteness(ctx, sid) is None:
+                    continue
         out.append(sid)
     return _drop_delivery_while_voice_ref_open(ctx, out)
 
@@ -1807,7 +1829,7 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             if vo_b:
                 blockers.append(f"vo_synth_unstable:{vo_b}")
         if stage in MIX_EPOCH_RUN_BLOCK:
-            mix_b = mix_epoch_block(ctx)
+            mix_b = mix_epoch_block(ctx, stage=stage)
             if mix_b:
                 blockers.append(f"mix_epoch:{mix_b}")
         phase_name = current_delivery_phase(ctx)
@@ -2140,6 +2162,28 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                         detail=halt,
                     )
                     raise ShipUnreachable(halt)
+                # G1 / VO criticals + gap framing: do not advance to a hollow
+                # "Finished" when required outputs are still missing (budget refuse
+                # otherwise skips vo_line → premature vo_synthesize thrash, or
+                # gap_framing_compose → hollow analysis Finished — DP-BUD1 A).
+                try:
+                    from interview_mux.defect_ledger import SHIP_BAR_CRITICAL_STAGES
+
+                    must_land = set(SHIP_BAR_CRITICAL_STAGES) | {
+                        "gap_framing_compose",
+                        "missing_framing",
+                    }
+                    if stage in must_land and not stage_outputs_present(ctx, stage):
+                        ctx.log(
+                            f"dispatch refused for incomplete critical {stage} "
+                            f"({verdict.reason}) — stopping walk (no advance)",
+                            level="error",
+                            stage=stage,
+                            detail={"reason": verdict.reason, "detail": verdict.detail},
+                        )
+                        break
+                except Exception:
+                    pass
                 continue
             try:
                 run_single_stage(ctx, stage)
@@ -2185,9 +2229,43 @@ def run_homunculus_phase(
                     start_idx = min(start_idx, seed.index("edl_narrative_audit"))
             except Exception:
                 pass
+        # Expanded WS2 O19: reinject incomplete MUST_PRECEDE producers even when
+        # they sit *before* the from_stage slice (bounded — once per prepare).
+        try:
+            from interview_mux.delivery_guardrails import (
+                MUST_PRECEDE,
+                earliest_incomplete_must_precede,
+                seed_stage_complete,
+            )
+            from interview_mux.delivery_invariants import committed_master_wav
+            from interview_mux.done_authority import honest_finalize_seeded
+
+            if not (committed_master_wav(ctx) and honest_finalize_seeded(ctx)):
+                for consumer in prior:
+                    hole = earliest_incomplete_must_precede(ctx, consumer)
+                    if not hole:
+                        # Also walk MUST_PRECEDE producers of the resume head.
+                        for prod in MUST_PRECEDE.get(str(first or ""), ()):
+                            if not seed_stage_complete(ctx, prod) and prod in seed:
+                                hole = prod
+                                break
+                    if hole and hole in seed:
+                        start_idx = min(start_idx, seed.index(hole))
+        except Exception:
+            pass
         forward = set(seed[start_idx:])
         holes = prepare_delivery_guardrails(ctx, forward)
         allow = set(prior) | (set(holes) & forward)
+        # Reinject holes that are producers outside the original slice.
+        try:
+            from interview_mux.delivery_guardrails import earliest_incomplete_must_precede
+
+            for consumer in list(prior):
+                hole = earliest_incomplete_must_precede(ctx, consumer)
+                if hole and hole in seed and hole not in allow:
+                    allow.add(hole)
+        except Exception:
+            pass
     else:
         holes = prepare_delivery_guardrails(ctx, set(prior) | set(seed))
         allow = set(prior) | set(holes)
@@ -2204,8 +2282,9 @@ def run_homunculus_phase(
     write_agenda(ctx, phase, remaining, source="conductor")
     if phase == "delivery":
         from interview_mux.delivery_invariants import committed_master_wav
+        from interview_mux.done_authority import honest_finalize_seeded
 
-        if committed_master_wav(ctx) and ctx.is_done("master_finalize"):
+        if committed_master_wav(ctx) and honest_finalize_seeded(ctx):
             filled = backfill_delivery_holes_after_master(ctx)
             if filled:
                 remaining = [s for s in remaining if s not in filled and not ctx.is_done(s)]

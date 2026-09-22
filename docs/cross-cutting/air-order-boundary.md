@@ -94,6 +94,8 @@ Seat/omit fingerprint lives under `run_meta.delivery_epoch.vo_seats_freeze` (`se
 
 After soft freeze, writers that would change the seat fingerprint must **no-op**, take an **operator unlock** (G1 / gap CRUD), or pass the **seat rewrite meta-gate**. `unlock_delivery_epoch(..., unlock_seats=False)` leaves seats frozen by default.
 
+**End-A only (G-4 / H-3):** under soft or hard freeze, gap / selection / SDP / transitions persist only via `HARD_FREEZE_ALLOWLIST_ACTIONS` (or one-shot / `request_seat_rewrite`). Ship-blocking omit is **not** a second constitution — freeze restores order until unlock; mix may refuse `incomplete_cut_unresolved`. Direct persist uses `persist_frozen_seat_doc` (End-A or skip-write).
+
 Holistic review (`holistic_seat_review`) gates `transitions` / `vo_line_adjudicate` / `edl` inputs and pins resume to `air_contract_sanitize` (not Pass B remutate).
 
 See also: [`execution-status.md`](execution-status.md) · `mastering/seat_rewrite_gate.jsonl` · `mastering/timeline_reopen_gate.jsonl`.

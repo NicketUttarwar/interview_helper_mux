@@ -159,6 +159,21 @@ def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
         return []
     if gap_fill_was_skipped(ctx):
         return []
+    ok, reason = vo_path_ready(ctx, for_synthesize=False)
+    if not ok:
+        ctx.log(
+            f"Full-auto record→synth skipped — vo_path not ready ({reason})",
+            level="info",
+            stage="vo_synthesize",
+        )
+        return []
+    if resolve_gap_vo_delivery(ctx) != "chatterbox":
+        ctx.log(
+            "Full-auto record→synth skipped — delivery is not chatterbox",
+            level="info",
+            stage="vo_synthesize",
+        )
+        return []
     if not voice_reference_approved(ctx):
         ctx.log(
             "Full-auto record→synth skipped — voice reference not approved yet",
@@ -289,9 +304,339 @@ def check_voice_reference_pending(ctx: RunContext) -> bool:
     # approve, mirrors the prerequisite guard in check_pickup_speaker_pending.
     if pickup_eligible_speaker_id(ctx) is None:
         return False
+    # Approved voice clears HG-4 heal remap even if pickup-speaker confirm races.
+    # Without this, premature_complete on topic_coverage_audit remaps to already-done
+    # missing_framing → spine-freeze "Finished: Gap evaluation" sticky ×N.
+    if voice_reference_approved(ctx):
+        return False
     if not pickup_speaker_confirmed(ctx):
         return True
     return not voice_reference_approved(ctx)
+
+
+def approved_voice_reference_usable(ctx: RunContext) -> bool:
+    """True when an approved voice-ref points at an on-disk WAV meeting min duration."""
+    if not voice_reference_approved(ctx):
+        return False
+    speaker_id = pickup_eligible_speaker_id(ctx)
+    if not speaker_id:
+        return False
+    rel = f"understanding/voice_reference/{speaker_id}.json"
+    wav_rel = f"understanding/speaker_samples/{speaker_id}.wav"
+    if ctx.artifact_exists(rel):
+        try:
+            doc = ctx.read_json(rel)
+            if isinstance(doc, dict) and doc.get("wav"):
+                wav_rel = str(doc["wav"])
+        except Exception:
+            pass
+    try:
+        path = ctx.read_path(*wav_rel.split("/"))
+    except Exception:
+        return False
+    if not path.is_file() or path.stat().st_size < 64:
+        return False
+    try:
+        from interview_mux.voice_reference import _reference_duration_sec, voice_reference_cfg
+
+        min_sec = float(voice_reference_cfg().get("min_reference_sec", 3.0))
+        return _reference_duration_sec(path) + 1e-9 >= min_sec
+    except Exception:
+        return path.is_file()
+
+
+def _intended_synthesize_line_count(ctx: RunContext) -> int:
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return 0
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return 0
+    if not isinstance(gap, dict):
+        return 0
+    n = 0
+    for row in gap.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped_optional") or row.get("air_script_omit"):
+            continue
+        delivery = str(row.get("delivery") or "").strip().lower()
+        if delivery in {"synthesize", "chatterbox", "voice_clone"}:
+            n += 1
+    return n
+
+
+def vo_path_ready(
+    ctx: RunContext,
+    *,
+    for_synthesize: bool = False,
+) -> tuple[bool, str]:
+    """SSOT: may compose clone-implying scripts / offer G1 synth / run Chatterbox.
+
+    Returns ``(ok, reason_code)``. ``reason_code`` is empty when ok.
+    Gap framing disabled or skipped → ready (no VO path to gate).
+    """
+    if gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx):
+        return True, ""
+    if check_gap_framing_decision_pending(ctx):
+        return False, "gap_framing_pending"
+    # Honest pickup: require confirm stamp; do not treat missing_framing done as enough.
+    if not pickup_speaker_confirmed(ctx):
+        return False, "pickup_speaker_pending"
+    if not voice_reference_approved(ctx):
+        return False, "voice_reference_pending"
+    meta = _run_meta(ctx)
+    if "gap_vo_delivery" not in meta:
+        return False, "gap_delivery_pending"
+    from interview_mux.mastering_hardening_config import gate_blocks
+
+    if gate_blocks("voice_clone") and check_clone_consent_pending(ctx):
+        return False, "clone_consent_pending"
+    if resolve_gap_vo_delivery(ctx) == "chatterbox" and not approved_voice_reference_usable(ctx):
+        return False, "voice_reference_unusable"
+    if for_synthesize and resolve_gap_vo_delivery(ctx) == "chatterbox":
+        if _intended_synthesize_line_count(ctx) < 1:
+            # Rewrite path may arm lines; still refuse hollow synth-all with no targets.
+            return False, "no_synthesize_lines"
+    return True, ""
+
+
+def vo_ladder_complete(
+    ctx: RunContext,
+    *,
+    for_synthesize: bool = False,
+) -> tuple[bool, str]:
+    """DP-VO1 A+: synth-critical ladder beyond gate stamps.
+
+    - Always includes ``vo_path_ready`` (pickup / voice-ref / delivery / consent).
+    - When ``for_synthesize``: also requires seed-complete ``vo_line_adjudicate``
+      (when gap framing is on) and Chatterbox G8 ``vo_synthesize_stability_block``
+      clear (read-only probe — no Full-auto rewrite side effect).
+
+    Framing / G1 ``automation_pending`` is **not** ladder-complete — drivers may
+    look green while this returns false.
+    """
+    ok, reason = vo_path_ready(ctx, for_synthesize=for_synthesize)
+    if not ok:
+        return False, reason
+    if not for_synthesize:
+        return True, ""
+    if gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx):
+        return True, ""
+    # Never treat bare ``is_done`` as adjudicate seal (hollow marker footgun).
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, "vo_line_adjudicate"):
+            return False, "vo_line_adjudicate_incomplete"
+    except Exception:
+        return False, "vo_line_adjudicate_incomplete"
+    if resolve_gap_vo_delivery(ctx) == "chatterbox":
+        try:
+            from interview_mux.delivery_guardrails import vo_synthesize_stability_block
+
+            block = vo_synthesize_stability_block(ctx, allow_rewrite=False)
+            if block:
+                return False, f"vo_synth_stability:{block}"
+        except Exception:
+            return False, "vo_synth_stability:probe_error"
+    return True, ""
+
+
+def vo_synth_mint_allowed(
+    ctx: RunContext,
+    *,
+    for_synthesize: bool = False,
+) -> tuple[bool, str]:
+    """Whether Chatterbox/S2S may mint a WAV for gap framing.
+
+    Partial: full ``vo_ladder_complete`` (no early nested mint past open ladder).
+    Full-auto / interactive: ``vo_path_ready`` only so nested EDL/transition mint
+    can still proceed after gates stamp (NESTED-SYNTH Full-auto path).
+    """
+    try:
+        from interview_mux.automation_run import is_partially_accelerated_run
+
+        if is_partially_accelerated_run(_run_meta(ctx)):
+            return vo_ladder_complete(ctx, for_synthesize=True)
+    except Exception:
+        # Fail closed toward Partial honesty if mode probe fails.
+        return vo_ladder_complete(ctx, for_synthesize=True)
+    return vo_path_ready(ctx, for_synthesize=for_synthesize)
+
+
+def synth_entry_may_auto_accept(ctx: RunContext) -> bool:
+    """A+ Partial vs Full-auto matrix for ``require_vo_path_ready`` on synth entry.
+
+    Partial: never stamp gap gates from ``vo_synthesize`` / synth-all (framing
+    auto-accept remains via ``maybe_auto_accept_gap_gate_defaults`` elsewhere).
+    Full-auto: may auto-accept then proceed.
+    Interactive: honor caller (no Partial special-case).
+    """
+    try:
+        from interview_mux.automation_run import (
+            is_full_auto_run,
+            is_partially_accelerated_run,
+        )
+
+        meta = _run_meta(ctx)
+        if is_partially_accelerated_run(meta):
+            return False
+        if is_full_auto_run(meta):
+            return True
+    except Exception:
+        pass
+    return True
+
+
+_VO_PATH_EXIT: dict[str, str] = {
+    "gap_framing_pending": (
+        "Gap framing gate: choose whether to add interviewer framing audio in the GUI"
+    ),
+    "pickup_speaker_pending": (
+        "Gap pickup speaker gate: confirm who will record gap-fill lines in the GUI"
+    ),
+    "voice_reference_pending": (
+        "Voice reference gate: approve interviewer voice sample before gap framing LLM stages."
+    ),
+    "gap_delivery_pending": (
+        "Gap delivery gate: choose Chatterbox clone or record-as-interviewer before gap framing."
+    ),
+    "clone_consent_pending": (
+        "Voice clone gate: record clone consent and usage scope in the GUI before "
+        "synthesizing pickup VO — docs/cross-cutting/mastering-voice-clone-policy.md"
+    ),
+    "voice_reference_unusable": (
+        "Voice reference gate: approved reference WAV missing or too short for clone."
+    ),
+    "no_synthesize_lines": (
+        "Gap VO gate: no synthesize lines armed — compose or rewrite record→synth first."
+    ),
+    "vo_line_adjudicate_incomplete": (
+        "VO ladder: vo_line_adjudicate not seed-complete — finish adjudicate before synth."
+    ),
+}
+
+
+def framing_requires_nested_synth_gate(ctx: RunContext) -> bool:
+    """True when resync/nested mint must consult ``nested_synth_may_mint``.
+
+    DP-NESTED-SYNTH residuals:
+    - Gate whenever gap framing is on (not only when delivery already ∈ chatterbox).
+    - If framing probe throws under Partial → assume gate required (fail closed).
+    """
+    try:
+        if gap_fill_was_skipped(ctx):
+            return False
+        return bool(gap_framing_enabled(ctx))
+    except Exception:
+        try:
+            from interview_mux.automation_run import is_partially_accelerated_run
+
+            if is_partially_accelerated_run(_run_meta(ctx)):
+                return True
+        except Exception:
+            return True
+        return False
+
+
+def nested_synth_may_mint(
+    ctx: RunContext,
+    *,
+    for_synthesize: bool = False,
+) -> tuple[bool, str]:
+    """Whether nested EDL/transition Chatterbox may mint WAVs.
+
+    Partial (and manual): never auto-accept gates; if ladder not ready → skip mint
+    (caller continues without SystemExit). Full-auto may auto-accept then mint.
+
+    Returns ``(ok, note)``. ``note`` is empty when ok; otherwise a skip token such as
+    ``nested_synth_skipped:vo_path_not_ready:<reason_code>``.
+    """
+    try:
+        if gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx):
+            return True, ""
+    except Exception:
+        # Framing probe failed — fail closed for all modes (footgun #4).
+        return False, "nested_synth_skipped:vo_path_not_ready:framing_probe_error"
+
+    delivery = resolve_gap_vo_delivery(ctx)
+    # Nested Chatterbox must not mint under explicit record delivery.
+    if delivery == "record":
+        return False, "nested_synth_skipped:vo_path_not_ready:record_delivery"
+
+    auto_accept = False
+    try:
+        from interview_mux.automation_run import is_full_auto_run, is_partially_accelerated_run
+
+        meta = _run_meta(ctx)
+        if is_partially_accelerated_run(meta):
+            auto_accept = False
+        elif is_full_auto_run(meta):
+            auto_accept = True
+    except Exception:
+        auto_accept = False
+
+    if auto_accept:
+        try:
+            maybe_auto_accept_gap_gate_defaults(ctx)
+        except Exception:
+            pass
+
+    try:
+        ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=for_synthesize)
+    except Exception:
+        # Fail closed: Partial/manual must not mint when the ladder probe crashes.
+        return False, "nested_synth_skipped:vo_path_not_ready:probe_error"
+    if ok:
+        return True, ""
+    code = reason or "vo_path_not_ready"
+    return False, f"nested_synth_skipped:vo_path_not_ready:{code}"
+
+
+def require_vo_path_ready(
+    ctx: RunContext,
+    *,
+    for_synthesize: bool = False,
+    auto_accept: bool = True,
+) -> None:
+    """Refuse loudly when the VO ladder is not ready (SystemExit).
+
+    When ``for_synthesize``: uses ``vo_ladder_complete`` (adjudicate + G8).
+    Otherwise: ``vo_path_ready`` only (framing/compose gates).
+
+    A+ auto_accept: on synth entry, Partial never stamps gates even if
+    ``auto_accept=True``; Full-auto may. Framing path honors ``auto_accept``.
+    """
+    do_accept = bool(auto_accept)
+    if for_synthesize and do_accept:
+        do_accept = synth_entry_may_auto_accept(ctx)
+    if do_accept:
+        try:
+            maybe_auto_accept_gap_gate_defaults(ctx)
+        except Exception:
+            pass
+    if for_synthesize:
+        ok, reason = vo_ladder_complete(ctx, for_synthesize=True)
+    else:
+        ok, reason = vo_path_ready(ctx, for_synthesize=False)
+    if ok:
+        return
+    if reason.startswith("vo_synth_stability:"):
+        token = reason.split(":", 1)[-1]
+        prose = (
+            f"VO ladder: Chatterbox stability blocked ({token}) — "
+            "finish layup/transitions before synth."
+        )
+    else:
+        prose = _VO_PATH_EXIT.get(reason, f"Gap VO path not ready ({reason})")
+    if reason == "pickup_speaker_pending":
+        raise SystemExit(
+            f"{prose} → {ctx.path('understanding/flow_adaptation.json')}"
+        )
+    if reason == "gap_framing_pending":
+        raise SystemExit(f"{prose} → {ctx.path('run_meta.json')}")
+    raise SystemExit(prose)
 
 
 def require_gap_framing_decision_clear(ctx: RunContext) -> None:
@@ -312,20 +657,10 @@ def require_gap_framing_decision_clear(ctx: RunContext) -> None:
 
 
 def require_gap_path_clear(ctx: RunContext) -> None:
-    from interview_mux.source_topology import require_pickup_speaker_clear
-
+    """Compose / framing path clear — delegates to ``vo_path_ready`` SSOT."""
     if not gap_framing_enabled(ctx):
         return
-    require_pickup_speaker_clear(ctx)
-    if check_voice_reference_pending(ctx):
-        raise SystemExit(
-            "Voice reference gate: approve interviewer voice sample before gap framing LLM stages."
-        )
-    if check_gap_delivery_pending(ctx):
-        raise SystemExit(
-            "Gap delivery gate: choose Chatterbox clone or record-as-interviewer before gap framing."
-        )
-    require_clone_consent_clear(ctx)
+    require_vo_path_ready(ctx, for_synthesize=False, auto_accept=True)
 
 
 def mark_voice_reference_approved(ctx: RunContext, speaker_id: str) -> None:
@@ -607,6 +942,8 @@ def gap_gate_payload_for_run(ctx: RunContext) -> dict[str, Any]:
     except Exception:
         pipeline_mode = None
 
+    _ready_ok, _ready_reason = vo_path_ready(ctx, for_synthesize=False)
+    _ladder_ok, _ladder_reason = vo_ladder_complete(ctx, for_synthesize=True)
     return {
         **consent_payload(ctx),
         "clone_consent_required": clone_consent_required(ctx),
@@ -621,9 +958,13 @@ def gap_gate_payload_for_run(ctx: RunContext) -> dict[str, Any]:
         "gap_delivery_pending": check_gap_delivery_pending(ctx),
         "voice_reference_pending": check_voice_reference_pending(ctx),
         "voice_reference_approved": voice_reference_approved(ctx),
+        "voice_reference_usable": approved_voice_reference_usable(ctx),
         "pickup_speaker_confirmed": pickup_speaker_confirmed(ctx),
         "pickup_eligible_speaker_id": pickup_eligible_speaker_id(ctx),
         "synthesis_fallback_notice": synthesis_fallback_notice(ctx),
+        "vo_path_ready": {"ok": _ready_ok, "reason_code": _ready_reason},
+        # G1 automation_pending ≠ ladder-complete (DP-VO1 A+).
+        "vo_ladder_complete": {"ok": _ladder_ok, "reason_code": _ladder_reason},
     }
 
 

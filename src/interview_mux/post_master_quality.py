@@ -11,6 +11,46 @@ from interview_mux.run_context import RunContext
 QUALITY_REL = "master/post_master_quality.json"
 SCORECARD_REL = "master/listener_scorecard.json"
 
+# Music/junction PMQ checks that e2e quality waivers *may* soften — never under
+# forensics / full-auto production / production ship. Soft path = gate-only smoke.
+MUSIC_JUNCTION_SOFT_WAIVABLE: frozenset[str] = frozenset(
+    {
+        "no_critical_junction_residuals",
+        "episode_close_outro_present",
+        "planned_music_preserved",
+        "opening_orientation_contract",
+        "opening_music_preserved",
+        "feel_audit_available",
+    }
+)
+
+
+def soft_music_junction_pmq_allowed(*, meta: dict[str, Any] | None = None) -> bool:
+    """True only for explicit non-ship e2e quality-waiver smoke.
+
+    Full-auto, forensics (``MUX_FORENSICS``), and production never soft-waive
+    music/junction PMQ criticals — those checks stay hard for ship honesty.
+    """
+    import os
+
+    from interview_mux.e2e_soft import e2e_quality_waivers_enabled, e2e_soft_enabled
+    from interview_mux.identical_failures import forensics_mode
+
+    if forensics_mode():
+        return False
+    # Full-auto gate soft without quality waivers: never.
+    if e2e_soft_enabled(meta=meta) and not e2e_quality_waivers_enabled(meta=meta):
+        return False
+    m = meta if isinstance(meta, dict) else {}
+    # Production / full-auto parity stamps — refuse even if quality waivers env set.
+    if m.get("full_auto") or m.get("production") or m.get("full_auto_production_parity"):
+        return False
+    # Explicit production env used by verify_full_auto_env / ship path.
+    prod = str(os.environ.get("INTERVIEW_MUX_PRODUCTION") or "").strip().lower()
+    if prod in {"1", "true", "yes", "on"}:
+        return False
+    return e2e_quality_waivers_enabled(meta=meta)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -827,14 +867,13 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         # Spoken VO speakability + audible script-hash agreement stay hard even
         # under e2e soft — soft-waiving them ships masters that disagree with the
         # current gap scripts / synthesized WAVs.
-        waivable = {
-            "no_critical_junction_residuals",
-            "episode_close_outro_present",
-            "planned_music_preserved",
-            "opening_orientation_contract",
-            "opening_music_preserved",
-            "feel_audit_available",
-        }
+        #
+        # Music/junction checks (MUSIC_JUNCTION_SOFT_WAIVABLE) soft-waive only when
+        # soft_music_junction_pmq_allowed — never under forensics / full-auto /
+        # production ship. Soft path remains gate-only / non-ship smoke.
+        waivable: set[str] = set()
+        if soft_music_junction_pmq_allowed(meta=meta):
+            waivable = set(MUSIC_JUNCTION_SOFT_WAIVABLE)
         for c in checks:
             if c.get("check_id") in waivable and not c.get("passed"):
                 c["passed"] = True
@@ -1070,8 +1109,9 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
     from interview_mux.write_staging import write_committed_json
 
-    if ctx.artifact_exists("master/master.wav"):
-        run_authoritative_listen_delight_at_ship(ctx)
+    # Persist the PMQ envelope even when authoritative delight loud-fails.
+    # Previously delight ran first and aborted before persist, leaving only
+    # master.wav staged → hollow mark_done thrash (exec_13167).
     snip = (
         ctx.read_json("master/junction_snip_qa.json")
         if ctx.artifact_exists("master/junction_snip_qa.json")
@@ -1080,6 +1120,14 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     autopsy = build_autopsy(ctx, phase="post_master", snip_report=snip)
     write_autopsy(ctx, autopsy)
     enrich_ledger(ctx, autopsy)
+
+    delight_exc: BaseException | None = None
+    if ctx.artifact_exists("master/master.wav"):
+        try:
+            run_authoritative_listen_delight_at_ship(ctx)
+        except BaseException as exc:
+            delight_exc = exc
+
     quality = evaluate_post_master_quality(ctx)
     persist_post_master_quality(ctx, quality)
 
@@ -1098,6 +1146,16 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     meta["qc_summaries"] = qc
     write_committed_json(ctx, "run_meta.json", meta)
 
+    from interview_mux.done_authority import (
+        stamp_finalize_on_success,
+        unmark_finalize_after_ship_fail,
+    )
+
+    if delight_exc is not None:
+        # Footgun #1: never leave finalize stamped across delight loud-fail.
+        unmark_finalize_after_ship_fail(ctx, reason="listen_delight")
+        raise delight_exc
+
     if block:
         structural = list(quality.get("structural_failed_checks") or [])
         if structural or quality.get("status") == STATUS_FAIL:
@@ -1106,6 +1164,7 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
             if not (is_aspirational_enabled(ctx) and not structural):
                 from interview_mux.loud_fail import raise_loud_failure
 
+                unmark_finalize_after_ship_fail(ctx, reason="post_master_quality_failed")
                 raise_loud_failure(
                     ctx,
                     "Post-master quality failed: " + ", ".join(quality["failed_checks"]),
@@ -1116,6 +1175,9 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
                         "structural_failed_checks": structural,
                     },
                 )
+
+    # Footgun #1/#2: stamp only after delight + structural gates clear; refuse is loud.
+    stamp_finalize_on_success(ctx)
     return quality
 
 

@@ -53,12 +53,17 @@ Wiring: `stages/assembly.py` (`post_edl`, `pre_mix`), `junction_snip_qa.py` (`po
 
 When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** remains blocking. **Rubric gates** (listen delight floors, PMQ scorecard, listenability contract, non-critical junction feel, LUFS band) are recommendations: up to three attempts per family, then `select_best_quality_candidate` restores the best-scored `master.wav` and writes `run_meta.quality_advisories`. Catastrophic floors (`catastrophic_floors`) and never-soft PMQ checks still hard-stop. Roll back with `aspirational_quality.enabled: false` and `listen_delight.mode: authoritative`.
 
+### Nugget air coverage goal (layup)
+
+`analysis.nugget_layup.min_nugget_air_coverage` (**0.85**) is an **aspirational goal** when `air_coverage_aspirational` is true (default): compose archives up to `air_coverage_max_attempts` plan candidates, scores by coverage (tie-break fewer open high / craft errors), and may `select_best_layup_candidate` on attempt cap or hash oscillation. Under-goal coverage with every eligible high-salience nugget **accounted** (aired ∪ orientation-parked ∪ waived ∪ discharged) is a QC / `run_meta.layup_air_advisories` warning — not infinite thrash. Unaccounted open high-salience and coverage below `catastrophic_nugget_air_coverage` stay hard. Roll back with `air_coverage_aspirational: false`.
+
 | Rubric | Artifact | Structural exceptions |
 |--------|----------|----------------------|
 | Listen delight | `mastering/listen_delight_audit.json` | Below catastrophic floors; air-script **errors** |
 | PMQ scorecard | `master/post_master_quality.json` | `spoken_vo_speakable`, hash agreement, omit ledger, duration floor |
 | Listenability | `master/listenability_contract.json` | — |
 | Junction | `master/junction_snip_qa.json` | **Critical** residuals |
+| Nugget air (layup) | `understanding/nugget_layup_qc.json` / `layup_candidates.json` | Unaccounted open high-salience; catastrophic air floor |
 
 | Stage | Gate | Notes |
 |-------|------|-------|
@@ -138,6 +143,8 @@ Full-auto must match production for audio quality and ship gates. **Gate auto-pr
 Verify: `./tools/verify_full_auto_env.sh` · tests: `tests/test_full_auto_production_parity.py`.
 
 **e2e_soft split:** Allowed = gate auto-progress. Forbidden = soft junction commit, PMQ `e2e_softened`, stub theme beds, fake listenability passes.
+
+**No soft music/junction ship path:** Full-auto, forensics (`MUX_FORENSICS`), and production never soft-waive music/junction PMQ checks (`planned_music_preserved`, `episode_close_outro_present`, `opening_music_preserved`, `no_critical_junction_residuals`, etc.). `soft_music_junction_pmq_allowed` in `post_master_quality.py` refuses those waivers; soft music/junction remains gate-only / non-ship smoke when quality waivers are explicitly opted in outside production parity. Cascade: `tests/test_music_pmq_architecture.py`.
 
 **Soft-pass hardness:** `soft_pass_pre_edl_delivery` writes a refuse brief then **`return []`** when last-resort soft is off. Callers must hard-stop (no corpus/transitions/narrative stubs, no pre-EDL heal-marks). Stubs only when `INTERVIEW_MUX_E2E_LAST_RESORT_SOFT=1` **and** `e2e_soft_enabled()`.
 

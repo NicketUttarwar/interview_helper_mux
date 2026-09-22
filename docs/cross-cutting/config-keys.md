@@ -184,7 +184,10 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.adjudicate_flow_threshold` | `vo_line_adjudicate` | Pre-score below → LLM adjudicate (default **0.55**) |
 | `analysis.gap_vo.full_resynth_on_adjudicate_change` | `vo_line_adjudicate`, `vo_synthesis_audit` | 1A — nuke synth WAVs on adjudicate mutation (default **true**) |
 | `analysis.gap_vo.intro_compose_llm_tier` | `nugget_intro_compose` | Flagship tier for intro preface LLM (default **flagship**) |
-| `analysis.nugget_layup.min_nugget_air_coverage` | `evaluate_nugget_air_coverage`, `nugget_intro_compose`, `vo_line_adjudicate`, `nugget_allocation_plan.json` | Body + intro combined nugget air floor (default **0.85**). Soft warn at `nugget_layup_compose`; hard check after adjudicate + intro persist. Eligible = corpus nuggets − waived − already native in selection. |
+| `analysis.nugget_layup.min_nugget_air_coverage` | `evaluate_nugget_air_coverage`, `nugget_intro_compose`, `vo_line_adjudicate`, `nugget_allocation_plan.json` | Body + intro combined nugget air **goal** (default **0.85**). When `air_coverage_aspirational` is true (default), under-goal coverage is advisory at compose/adjudicate; structural refuse is unaccounted open high-salience or `catastrophic_nugget_air_coverage`. Eligible = corpus nuggets − waived − already native in selection. |
+| `analysis.nugget_layup.air_coverage_aspirational` | `evaluate_nugget_air_coverage`, `evaluate_layup_qc`, pick-best | Soften 0.85 to goal + best-of-N (default **true**). Set **false** to restore prior hard floor. |
+| `analysis.nugget_layup.air_coverage_max_attempts` | layup candidate ledger | Max compose/heal candidates before pick-best (default **3**) |
+| `analysis.nugget_layup.catastrophic_nugget_air_coverage` | `evaluate_nugget_air_coverage` | Hard refuse below this floor even when aspirational (default **0.0** = disabled) |
 | `analysis.gap_vo.auto_fallback_on_qc_fail` | `vo_synthesis_audit.qc_failed`, `s2s_runner` | Global Chatterbox→mlx retry after QC fail (default **false**). Topology `recovery_policy.synth_ladder=chatterbox_then_mlx_qc` may enable the same retry **per run** without flipping this charter default |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
@@ -1180,6 +1183,7 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `ban_mps_on_abort` | `true` | After SIGABRT, ban MPS for the rest of the run and retry once on CPU |
 | `request_timeout_sec` | `900` | Hang budget for primary attempt on GPU (large needs several minutes per stem) |
 | `cpu_request_timeout_sec` | `300` | Tighter hang budget when resolved device is CPU (step down instead of thrash) |
+| `max_request_timeout_sec` | `2400` | Hard cap for duration-scaled hang budgets |
 | `step_down_timeout_sec` | `480` | Hang budget for medium/small ladder steps |
 | `step_down_duration_ratio` | `0.85` | Shorten clip duration on each ladder step-down |
 | `pause_between_ladder_steps_sec` | `0` | Optional extra pause between ladder rungs (abort backoff handles kills) |
@@ -1217,7 +1221,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `use_adaptive_caps` | `true` | `sound_design` planners + sonic context posture | Ignores scenario-based cap tuning when false |
 | `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
 | `g_listen_enabled` | `true` | optional G-Listen offer after mix when listen_critic is borderline | Set false to hide |
-| `g_listen_mode` | `block` | `warn` advisory; `block` / `block_mix` hard-stops master_finalize until continue/skip | Default blocks finalize until listen continue/skip |
+| `g_listen_mode` | `warn` | `warn` advisory; `block` / `block_mix` hard-stops master_finalize until continue/skip | Default is advisory; set `block` to hard-stop finalize |
 | `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `mmaudio_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
 
 `placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. With BUILD-SS-03, `execute_fitness_remediation` may action `regenerate` / `skip_cue` after MMAudio (capped); mix still applies placement adjustments.
@@ -1319,6 +1323,16 @@ Isolated venv paths — [local-audio-stack.md](./local-audio-stack.md).
 
 ---
 
+## `seed_policy`
+
+Hard-freeze sticky seed stages (Partial Zero A4). Soft freeze never sticky-completes.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `seed_policy.freeze_sticky_extra_stages` | `[]` | Future seal no-op stage ids missing → seed may rewind sealed work; add id here or to `FREEZE_STICKY_SEED_STAGES_CORE`. Extras must be known pipeline stages and not on the critical denylist (`mix` / `vo_synthesize` / ship stages, etc.). |
+
+---
+
 ## `local_gpu`
 
 Machine-wide exclusive gate for heavy local AI subprocesses (MusicGen, Chatterbox, MMAudio, MLX speech/LLM, DeepFilter). Pipeline stages are already one-at-a-time per run; this also serializes back-to-back gens inside a stage and across runs.
@@ -1388,7 +1402,9 @@ Local Audio Probe Platform + Vernacular Evidence Covenant — [vernacular-eviden
 | `deepfilter.model` | `DeepFilterNet3` | `tools/deepfilter_enhance.py` | Wrong model load |
 | `deepfilter.postfilter` | `false` | enhance CLI | Extra post-filter stage |
 | `deepfilter.compensate_delay` | `true` | enhance CLI | Alignment vs latency tradeoff |
-| `deepfilter.request_timeout_sec` | `600` | `local_runtime` subprocess timeout | Hung or premature timeout |
+| `deepfilter.request_timeout_sec` | `600` | Base `local_runtime` subprocess timeout | Hung or premature timeout |
+| `deepfilter.timeout_sec_per_file` | `90` | Per-file addend for batch enhance hang budget | Multi-file batch under one fixed 600s |
+| `deepfilter.max_request_timeout_sec` | `2400` | Cap for batch hang budget | Unbounded batch wait |
 
 ---
 
@@ -1419,7 +1435,9 @@ Local Audio Probe Platform + Vernacular Evidence Covenant — [vernacular-eviden
 | `mmaudio.auto_refine_max_attempts_per_asset` | `2` | refine loop cap | Runaway LLM spend |
 | `mmaudio.auto_refine_on_qa_fail` / `on_listen_fail` | `true` | auto-refine triggers | Which failures invoke refine |
 | `mmaudio.auto_refine_on_trauma` | `true` | auto-refine for `trauma_adjacent` without manual override | Set `false` to require per-asset `sfx_auto_refine_override` |
-| `mmaudio.request_timeout_sec` | `900` | `local_runtime` subprocess timeout | Long generations time out |
+| `mmaudio.request_timeout_sec` | `900` | Base `local_runtime` subprocess timeout | Long generations time out |
+| `mmaudio.max_request_timeout_sec` | `2400` | Cap for duration-scaled hang budget | Unbounded MMAudio wait |
+| `mmaudio.ref_duration_sec` | `8.0` | Reference duration for hang budget scale | Short beds get full budget; long beds scale up |
 
 Craft artifact optional fields (`sound_design/sfx_prompts.json`): `mmaudio_variant`, `cfg_strength`, `num_steps`, `seed`, `regression_notes` — see [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md).
 

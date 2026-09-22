@@ -12,7 +12,11 @@ REPORT_REL = "mastering/vo_synthesize.json"
 
 def run_vo_synthesize(ctx: RunContext) -> None:
     """Generate current-pair transition audio, then fail-open remaining synthesize gap lines."""
-    from interview_mux.gap_vo_gates import rewrite_full_auto_record_lines_to_synth
+    from interview_mux.gap_vo_gates import (
+        gap_framing_enabled,
+        require_vo_path_ready,
+        rewrite_full_auto_record_lines_to_synth,
+    )
     from interview_mux.stages.assembly import resync_required_synthesize_wavs
     from interview_mux.transition_vo import (
         current_transition_pairs_missing,
@@ -20,6 +24,9 @@ def run_vo_synthesize(ctx: RunContext) -> None:
         synthesize_spoken_transitions,
     )
     from interview_mux.write_staging import promote_staged_side_effects
+
+    if gap_framing_enabled(ctx):
+        require_vo_path_ready(ctx, for_synthesize=True, auto_accept=True)
 
     # VS-B3: unattended Full-auto owns formerly record-required lines via synth.
     rewrite_full_auto_record_lines_to_synth(ctx)

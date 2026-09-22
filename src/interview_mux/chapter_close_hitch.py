@@ -147,9 +147,15 @@ def hitch_restage_order() -> list[str]:
 def hitch_phase_a_or_assembly_seated(ctx: RunContext) -> bool:
     """True when remapping must not unmark ranking (no rewind past W3)."""
     try:
-        from interview_mux.delivery_guardrails import assembly_wav_present, phase_a_sealed
+        from interview_mux.air_order import mix_outputs_seated
+        from interview_mux.delivery_guardrails import phase_a_sealed
 
-        return bool(phase_a_sealed(ctx) or assembly_wav_present(ctx))
+        if phase_a_sealed(ctx):
+            return True
+        if mix_outputs_seated(ctx):
+            return True
+        # Final assembly present (even mid-seat) still blocks ranking rewind.
+        return bool(ctx.artifact_exists("master/assembly.wav"))
     except Exception:
         return False
 
@@ -1109,7 +1115,15 @@ def reattach_vo_to_gap_report(ctx: RunContext, mapping: dict[str, str]) -> dict[
         injected += 1
 
     report["interviewer_lines"] = lines
-    ctx.write_json("understanding/gap_report.json", report, skip_handoff=True)
+    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+    persist_frozen_seat_doc(
+        ctx,
+        "understanding/gap_report.json",
+        report,
+        reason="hitch_reattach_vo",
+        skip_handoff=True,
+    )
     return {"copied": copied, "injected": injected, "stamped_skips": stamped}
 
 
@@ -1793,10 +1807,11 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         phase_a = False
         assembly_seated = False
         try:
-            from interview_mux.delivery_guardrails import assembly_wav_present, phase_a_sealed
+            from interview_mux.air_order import mix_outputs_seated
+            from interview_mux.delivery_guardrails import phase_a_sealed
 
             phase_a = bool(phase_a_sealed(ctx))
-            assembly_seated = bool(assembly_wav_present(ctx))
+            assembly_seated = bool(mix_outputs_seated(ctx))
         except Exception:
             pass
         late_forbid = {

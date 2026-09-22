@@ -261,7 +261,15 @@ def apply_cheap_remediation(ctx: RunContext) -> list[str]:
         # carries mix-time levels). Raising here aborted the junction commitment
         # remaster mid-render — exec_11871 `authority_denied … edl_sealed`.
         return [f"{a}:advisory_sdp_sealed" for a in actions]
-    ctx.write_json("understanding/sound_design_plan.json", sdp)
+    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+    if not persist_frozen_seat_doc(
+        ctx,
+        "understanding/sound_design_plan.json",
+        sdp,
+        reason="soundscape_bed_trim",
+    ):
+        return [f"{a}:advisory_sdp_seat_freeze" for a in actions]
     return actions
 
 
@@ -351,18 +359,19 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
         ):
             try:
                 from interview_mux.artifact_repairs import repair_sound_design_plan
+                from interview_mux.seat_authority import persist_frozen_seat_doc
 
                 if ctx.artifact_exists("understanding/sound_design_plan.json"):
                     sdp = ctx.read_json("understanding/sound_design_plan.json")
-                    fixed, notes = repair_sound_design_plan(ctx, sdp if isinstance(sdp, dict) else {})
-                    try:
-                        from interview_mux.write_staging import write_committed_json
-
-                        write_committed_json(
-                            ctx, "understanding/sound_design_plan.json", fixed
-                        )
-                    except Exception:
-                        ctx.write_json("understanding/sound_design_plan.json", fixed)
+                    fixed, notes = repair_sound_design_plan(
+                        ctx, sdp if isinstance(sdp, dict) else {}
+                    )
+                    persist_frozen_seat_doc(
+                        ctx,
+                        "understanding/sound_design_plan.json",
+                        fixed,
+                        reason="soundscape_bed_seed_repair",
+                    )
                     actions.extend([str(n.get("action") or n) for n in notes[-8:]])
             except Exception as exc:
                 actions.append(f"bed_seed_repair_failed:{exc}"[:120])

@@ -156,6 +156,9 @@ def _should_skip_stale_vo_pickup_promote(
     Stale ``.pending_writes/vo_synthesize/vo_pickup/*.wav`` (exec_11630) can
     overwrite a fresh G1 take whose synthesis_report sha still matches gap
     script — leaving ``wav_content_mismatch`` and EDL missing-WAV thrash.
+
+    Protect only when dest/audit is still script-fresh. Script-stale, missing
+    line, or script-check errors → do not skip (prefer promote over thrash).
     """
     if not is_vo_pickup_rel(rel) or not str(rel).endswith(".wav"):
         return False
@@ -166,7 +169,9 @@ def _should_skip_stale_vo_pickup_promote(
         return False
     try:
         from interview_mux.vo_synthesis_audit import (
+            _vo_pickup_script_lines,
             synthesis_entry_for_line,
+            synthesis_entry_matches_line,
             wav_content_sha256,
         )
 
@@ -178,18 +183,66 @@ def _should_skip_stale_vo_pickup_promote(
             return False
         dest_sha = wav_content_sha256(dest)
         src_sha = wav_content_sha256(src)
-        if dest_sha == want and src_sha != want:
+        if not (dest_sha == want and src_sha != want):
+            return False
+        # Dest matches audit; pending differs — only protect if script-fresh.
+        try:
+            line = _vo_pickup_script_lines(ctx).get(lid)
+            if not isinstance(line, dict):
+                ctx.log(
+                    f"allow pending VO promote {rel} (script_check_failed: no line)",
+                    level="warning",
+                    stage=str(active_stage_id() or "vo_synthesize"),
+                    detail={
+                        "line_id": lid,
+                        "reason": "script_check_failed",
+                        "dest_sha": dest_sha[:16],
+                        "src_sha": src_sha[:16],
+                    },
+                )
+                return False
+            matches, _reason = synthesis_entry_matches_line(ctx, line)
+            if not matches:
+                ctx.log(
+                    f"allow pending VO promote {rel} (script_stale_allow)",
+                    level="warning",
+                    stage=str(active_stage_id() or "vo_synthesize"),
+                    detail={
+                        "line_id": lid,
+                        "reason": "script_stale_allow",
+                        "dest_sha": dest_sha[:16],
+                        "src_sha": src_sha[:16],
+                    },
+                )
+                return False
+        except Exception as exc:
             ctx.log(
-                f"skip stale pending VO promote {rel} "
-                f"(dest matches audit sha; pending differs)",
+                f"allow pending VO promote {rel} (script_check_failed: {exc})",
                 level="warning",
                 stage=str(active_stage_id() or "vo_synthesize"),
-                detail={"line_id": lid, "dest_sha": dest_sha[:16], "src_sha": src_sha[:16]},
+                detail={
+                    "line_id": lid,
+                    "reason": "script_check_failed",
+                    "dest_sha": dest_sha[:16],
+                    "src_sha": src_sha[:16],
+                },
             )
-            return True
+            return False
+        ctx.log(
+            f"skip stale pending VO promote {rel} "
+            f"(sha_protect: dest matches audit+script; pending differs)",
+            level="warning",
+            stage=str(active_stage_id() or "vo_synthesize"),
+            detail={
+                "line_id": lid,
+                "reason": "sha_protect",
+                "dest_sha": dest_sha[:16],
+                "src_sha": src_sha[:16],
+            },
+        )
+        return True
     except Exception:
         return False
-    return False
 
 
 def _discard_skipped_stale_vo_pending(src: Path) -> None:
@@ -246,6 +299,7 @@ def write_committed_json(
     data: Any,
     *,
     stage_key: str | None = None,
+    mutation_class: str | None = None,
 ) -> Path:
     """Persist to the committed run tree without opening a new staging root."""
     try:
@@ -259,6 +313,7 @@ def write_committed_json(
             sk,
             role="producer" if sk else "ops",
             verb="persist",
+            mutation_class=mutation_class,
         )
     except ImportError:
         pass
@@ -1380,6 +1435,7 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
                 )
         preflight_stage_enter(ctx, stage_id)
         enter_stage_staging(stage_id)
+        stage_exc: BaseException | None = None
         try:
             fn()
             ctx.log(
@@ -1395,11 +1451,23 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
             from interview_mux.operator_trace import log_stage_error
 
             log_stage_error(stage_id, exc, ctx=ctx)
-            raise
+            stage_exc = exc
         finally:
             exit_stage_staging()
             _report_contract_conformance(ctx, stage_id)
-        after_stage_write_check(ctx, stage_id)
+        # Flush staged outputs even when the stage loud-fails after writing them
+        # (exec_13167: delight abort left master.wav pending, PMQ missing, hollow
+        # mark_done). mark_done still enforces completeness after flush.
+        if stage_exc is None:
+            after_stage_write_check(ctx, stage_id)
+        elif has_pending_writes(ctx, stage_id):
+            try:
+                after_stage_write_check(ctx, stage_id)
+            except Exception:
+                pass
+            raise stage_exc
+        else:
+            raise stage_exc
     finally:
         active_run_context.reset(ctx_token)
 

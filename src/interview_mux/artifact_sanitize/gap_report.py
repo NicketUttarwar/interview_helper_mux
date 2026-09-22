@@ -436,6 +436,20 @@ def commit_gap_report_doc(
         prior_gap = None
 
     try:
+        from interview_mux.seat_authority import frozen_seat_write_allowed
+
+        enda_reason = str(reason or stage_key or "").strip()
+        if not frozen_seat_write_allowed(ctx, REL, reason=enda_reason):
+            kept = prior_gap if isinstance(prior_gap, dict) else dict(doc)
+            return SanitizeResult(
+                doc=kept,
+                ok=True,
+                metrics={"skipped": "seat_freeze_not_enda"},
+            )
+    except ImportError:
+        pass
+
+    try:
         with sanitize_reentry_guard(ctx) as nested:
             if nested:
                 _persist_gap_disk(ctx, doc, skip_handoff=skip_handoff, stage_key=stage_key)

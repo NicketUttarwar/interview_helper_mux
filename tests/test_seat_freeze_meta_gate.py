@@ -202,17 +202,23 @@ def test_seat_rewrite_generation_cap(run_ctx, monkeypatch):
     ok, why = sa.seat_rewrite_budget_ok(run_ctx)
     assert ok is False
     assert "soft_rewrite_cap" in why
-    # Packaging CTA editorial must still reach meta-gate (not hard-stop on cap).
+    # DP-A2 A: named CTA End-A proceeds even under soft rewrite cap (no substring).
     allowed, why2 = sa.seat_mutation_allowed(
         run_ctx, reason="media_ip_cta_editorial_omits", require_meta_gate=True
     )
-    assert allowed is False
-    assert why2 == "frozen_needs_meta_gate"
+    assert allowed is True
+    assert why2 == "end_a_allowlist"
     assert sa.gate_seat_mutation(
         run_ctx,
         reason="media_ip_cta_editorial_omits",
         symptoms=["media_ip_cta"],
     )
+    # Non-exact packaging substring must not auto-allow past the cap.
+    sub_ok, sub_why = sa.seat_mutation_allowed(
+        run_ctx, reason="repair:media_ip_cta_residue", require_meta_gate=True
+    )
+    assert sub_ok is False
+    assert "soft_rewrite_cap" in sub_why or sub_why.startswith("end_a_near_miss:")
 
 
 def test_story_remutate_dual_gate_under_hard_freeze(run_ctx, monkeypatch):
@@ -463,6 +469,26 @@ def test_seed_order_skips_framing_apply_after_edl_hard_freeze(run_ctx, monkeypat
         if stage == "selection_framing_apply":
             continue
         (run_ctx.run_dir / ".stage_done" / stage).write_text("", encoding="utf-8")
+    # A4 footgun #4: sticky needs honest EDL body, not hollow marker alone.
+    run_ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_001"],
+            "timeline_duration_ms": 1000,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_001",
+                    "source_start_ms": 0,
+                    "source_end_ms": 1000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 1000,
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
     sa.stamp_hard_seat_freeze(run_ctx, reason="vo_synthesize")
     assert not run_ctx.is_done("selection_framing_apply")
     earliest = _earliest_incomplete_seed_stage(run_ctx, "mix")

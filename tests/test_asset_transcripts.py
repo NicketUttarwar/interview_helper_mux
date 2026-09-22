@@ -16,6 +16,7 @@ from interview_mux.asset_transcripts import (
     sync_speech_sidecars,
     vtt_timestamp,
     write_speech_sidecar,
+    write_transition_sidecar,
     write_vo_sidecar,
 )
 from interview_mux.run_context import RunContext
@@ -297,3 +298,74 @@ def test_delivery_order_places_transcript_after_finalize():
     assert DELIVERY_ORDER.index("master_finalize") < DELIVERY_ORDER.index("master_transcript_build")
     assert DELIVERY_ORDER.index("master_transcript_build") < DELIVERY_ORDER.index("episode_meta_build")
     assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 72
+
+
+def test_master_transcript_may_persist_transition_sidecars(monkeypatch: pytest.MonkeyPatch):
+    """MUX_FORENSICS=0 cascade: transition sidecar path must be ALLOW for MTB.
+
+    exec_13161: authority_denied unknown_path transcripts/transition/tr_seg_*.json
+    under junction_committed blocked master_transcript_build.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+
+    class _Ctx:
+        pass
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.current_epoch",
+        lambda _ctx: "junction_committed",
+    )
+    ok, reason = write_permitted(
+        _Ctx(),
+        "transcripts/transition/tr_seg_012_seg_014.json",
+        "master_transcript_build",
+        role="producer",
+        verb="persist",
+    )
+    assert ok, reason
+
+
+def test_write_transition_sidecar_staged_under_master_transcript_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-4: staged write_transition_sidecar under MTB promotes to disk."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_ownership import write_permitted
+    from interview_mux.write_staging import (
+        enter_stage_staging,
+        exit_stage_staging,
+        flush_stage_writes,
+    )
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    clip_id = "tr_seg_012_seg_014"
+    rel = sidecar_rel("transition", clip_id)
+    stage = "master_transcript_build"
+
+    enter_stage_staging(stage)
+    try:
+        write_transition_sidecar(
+            ctx,
+            clip_id=clip_id,
+            text="And next.",
+            duration_ms=800,
+            speaker_id="spk_host",
+        )
+    finally:
+        exit_stage_staging()
+
+    flushed = flush_stage_writes(ctx, stage)
+    assert rel in flushed
+    assert ctx.final_path(*rel.split("/")).is_file()
+    ok, reason = write_permitted(
+        ctx, rel, stage, role="producer", verb="persist"
+    )
+    assert ok, reason
+    loaded = load_sidecar(ctx, "transition", clip_id)
+    assert loaded is not None
+    assert str(loaded.get("text") or "") == "And next."

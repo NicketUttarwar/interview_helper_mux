@@ -616,9 +616,14 @@ def live_render_generation_matches(ctx: RunContext) -> bool:
 
 
 def mix_outputs_seated(ctx: RunContext) -> bool:
-    """Mix-done: flushed wav + live EDL, not autopsy commitment.
+    """True only when mix is fully seated for the live EDL.
 
-    Junction / finalize still use ``mix_committed_for_live_gen``.
+    Requires **both**:
+    - mtime seat (``mix_wav_fresh_versus_edl`` — assembly not older than EDL)
+    - commitment seat (ledger SHA / ``mix_stale_versus_live`` false)
+
+    mtime-only is not enough to stamp done or leave mix. Junction / finalize
+    still use ``mix_committed_for_live_gen`` for autopsy commitment.
     """
     if not mix_wav_fresh_versus_edl(ctx):
         return False
@@ -626,6 +631,14 @@ def mix_outputs_seated(ctx: RunContext) -> bool:
         return False
     if not live_render_generation_matches(ctx):
         return False
+    # Ledger SHA must match final assembly — otherwise orphan promote / mtime
+    # seat can mark_done while verify_commitment still diverges (exec_13167).
+    try:
+        if mix_stale_versus_live(ctx):
+            return False
+    except Exception:
+        # Fail-open on check crash; stale=True already returns False above.
+        pass
     sel = _read_dict(ctx, SELECTION_REL)
     edl = _read_dict(ctx, EDL_REL)
     if not isinstance(sel, dict):
@@ -686,6 +699,36 @@ def mix_committed_for_live_gen(ctx: RunContext) -> bool:
     return isinstance(result, dict) and result.get("status") == "committed"
 
 
+def mix_seat_resume_stage(ctx: RunContext) -> str:
+    """Single resume pin for mix ↔ junction ↔ finalize after music.
+
+    All driver / path_to_master / safe_mix callers must use this — never
+    ``is_done("mix")`` alone or ``assembly.wav`` existence as a seat proxy.
+
+    - Not fully seated (mtime **and** commitment) → ``mix``
+    - Seated, junction incomplete → ``junction_snip_qa``
+    - Seated, junction complete → ``master_finalize``
+    """
+    if not mix_outputs_seated(ctx):
+        return "mix"
+    try:
+        from interview_mux.homunculus.agenda import assembly_stale_versus_edl
+
+        if assembly_stale_versus_edl(ctx):
+            return "mix"
+    except Exception:
+        pass
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, "junction_snip_qa"):
+            return "junction_snip_qa"
+    except Exception:
+        if not ctx.is_done("junction_snip_qa"):
+            return "junction_snip_qa"
+    return "master_finalize"
+
+
 def assert_consumer(ctx: RunContext, stage: str) -> None:
     """Fail closed when mix/junction/finalize would read a mixed generation."""
     sel = _read_dict(ctx, SELECTION_REL)
@@ -700,19 +743,19 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             "selection_edl_order_drift: speech clip order diverges from "
             f"ordered_segment_ids (heal={action}) — sealed commit required before {stage}"
         )
-    # exec_11871: the pre-mix recut pass has no assembly to be stale against —
-    # junction owns recut/fuse/omit on the EDL and drives the first remaster.
-    pre_mix_recut = False
+    # A5-1 / seat authority: skip generation/commitment only when assembly is missing
+    # (first recut), not whenever junction precedes mix (stale-only would skip).
+    skip_pre_mix_commitment = False
     if stage == "junction_snip_qa":
         try:
-            from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+            from interview_mux.mix_junction_seat import must_verify_commitment
 
-            pre_mix_recut = junction_recut_precedes_mix(ctx)
+            skip_pre_mix_commitment = not must_verify_commitment(ctx)
         except Exception:
-            pre_mix_recut = False
+            skip_pre_mix_commitment = not ctx.artifact_exists("master/assembly.wav")
     if (
         stage in {"mix", "junction_snip_qa", "master_finalize"}
-        and not pre_mix_recut
+        and not skip_pre_mix_commitment
         and not live_generation_matches(ctx)
     ):
         live = generation(ctx)
@@ -721,7 +764,7 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             "assembly_not_rendered_from_current_edl: air_order generation mismatch "
             f"(live={live} edl={edl_gen}) — remaster mix from the sealed EDL"
         )
-    if stage in {"junction_snip_qa", "master_finalize"} and not pre_mix_recut:
+    if stage in {"junction_snip_qa", "master_finalize"} and not skip_pre_mix_commitment:
         try:
             from interview_mux.seam_autopsy import verify_commitment
 

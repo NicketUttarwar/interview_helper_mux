@@ -315,7 +315,11 @@ def test_f02_record_wasted_work_schema_bypass(tmp_path, monkeypatch):
 
 
 def test_f03_invent_gate_blocks_heuristic_beds(tmp_path, monkeypatch):
-    """F-03: unpaid invent_obligation → policy invent_gate blocked, no beds."""
+    """F-03: unpaid invent_obligation → invent_gate blocked; dens invent beds cleared.
+
+    Soft-block (Partial Zero A+) keeps planned/inject beds when present; with no
+    planned SDP beds the slot list stays empty.
+    """
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "f03_invent")
     _seed_unpaid_invent_policy_inputs(ctx)
@@ -329,6 +333,7 @@ def test_f03_invent_gate_blocks_heuristic_beds(tmp_path, monkeypatch):
     assert cov is not None and float(cov) == 0.0
     assert policy.get("cue_slots") == []
     assert policy.get("musical_direction_complete") is False
+    assert "soft_block" in str(policy.get("invent_gate_reason") or "")
 
 
 def test_ssp_b1_fail_closed_invent_blocked_incomplete(tmp_path, monkeypatch):

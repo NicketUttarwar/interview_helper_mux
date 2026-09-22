@@ -156,13 +156,20 @@ def count_attempts(ctx: RunContext, identity: str) -> int:
     and recycles do not burn the cap. That is why the driver walk could dispatch
     ``mix`` 28 times against ``max_mix_cycles: 3``: junction unmarks ``.stage_done/mix``
     between iterations, so the count was always 0. The walk door counts attempts.
+
+    Rows at or before the latest ``budget_epoch`` are ignored so a product-code
+    fingerprint flip can honestly retry incomplete producers.
     """
+    from interview_mux.homunculus.ledger import latest_budget_epoch_seq
+
+    epoch = latest_budget_epoch_seq(ctx)
     return sum(
         1
         for row in read_ledger(ctx)
         if row.get("identity") == identity
         and row.get("kind") in {"stage", "host"}
         and row.get("status") in (None, "started")
+        and int(row.get("seq") or 0) > epoch
     )
 
 

@@ -184,12 +184,30 @@ def test_maybe_require_names_earliest_incomplete_seed(tmp_path, monkeypatch):
 
 
 def test_ship_does_not_rewind_vo_synthesize_after_master(tmp_path, monkeypatch):
+    import json
+
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_ship_vo")
+    from interview_mux.delivery_invariants import MIN_COMMITTED_MASTER_BYTES
+
     master = ctx.path("master/master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
-    master.write_bytes(b"RIFF" + b"\0" * 40)
+    master.write_bytes(b"RIFF" + b"\0" * MIN_COMMITTED_MASTER_BYTES)
+    (ctx.path("master") / "post_master_quality.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "generated_at": "2026-09-21T00:00:00Z",
+                "status": "pass",
+                "publish_allowed": True,
+                "failed_checks": [],
+                "checks": {},
+                "never_skipped": True,
+            }
+        ),
+        encoding="utf-8",
+    )
     mark_done_raw(ctx, "master_finalize")
     maybe_require_upstream_llm_progress(ctx, "master_transcript_build")
 

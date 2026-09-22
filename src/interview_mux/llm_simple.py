@@ -29,6 +29,18 @@ class StageError(RuntimeError):
         super().__init__(message)
 
 
+def _auto_complete_or_raise(ctx: RunContext, stage_key: str) -> None:
+    """Footgun #5: auto_complete refuse must not look like stage success."""
+    from interview_mux.done_authority import try_mark_done
+
+    if try_mark_done(ctx, stage_key):
+        return
+    raise StageError(
+        stage_key,
+        f"LLM stage {stage_key}: auto_complete mark_done refused (Done Authority)",
+    )
+
+
 def _is_retryable_persist_runtime(exc: BaseException) -> bool:
     msg = str(exc).lower()
     return (
@@ -171,7 +183,7 @@ def _commit_partial_artifacts(
     if sync_fn is not None:
         sync_fn(ctx, envelope)
     if auto_complete:
-        ctx.mark_done(stage_key)
+        _auto_complete_or_raise(ctx, stage_key)
     return envelope
 
 
@@ -500,7 +512,7 @@ def run_llm_stage_simple(
                         if sync_fn is not None:
                             sync_fn(ctx, envelope)
                         if auto_complete:
-                            ctx.mark_done(stage_key)
+                            _auto_complete_or_raise(ctx, stage_key)
                         return envelope
                 if stage_key == "speaker_roles":
                     from interview_mux.speaker_role_evidence import (
@@ -525,7 +537,7 @@ def run_llm_stage_simple(
                         if sync_fn is not None:
                             sync_fn(ctx, fallback)
                         if auto_complete:
-                            ctx.mark_done(stage_key)
+                            _auto_complete_or_raise(ctx, stage_key)
                         return {**envelope, "status": "complete", "artifacts": fallback}
                 ctx.log(msg, level="error", stage=stage_key)
                 committed = _try_fail_open_partial(
@@ -577,7 +589,7 @@ def run_llm_stage_simple(
         if sync_fn is not None:
             sync_fn(ctx, envelope)
         if auto_complete:
-            ctx.mark_done(stage_key)
+            _auto_complete_or_raise(ctx, stage_key)
         ctx.log(
             f"LLM stage {stage_key} complete (v2 simple path, attempt {attempt})",
             level="success",

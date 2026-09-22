@@ -22,6 +22,7 @@ def admit_sanitized(
     refuse_if_unsanitary: bool = True,
     content_keys: list[str] | None = None,
     action_class: str | None = None,
+    mutation_class: str | None = None,
 ) -> dict[str, Any]:
     """Run non-amplifying sanitize then persist; optionally refuse if unsanitary.
 
@@ -49,7 +50,13 @@ def admit_sanitized(
 
         write_committed_json(ctx, rel_n, out, stage_key=sk)
     else:
-        ctx.write_json(rel_n, out, stage_key=sk, skip_handoff=skip_handoff)
+        ctx.write_json(
+            rel_n,
+            out,
+            stage_key=sk,
+            skip_handoff=skip_handoff,
+            mutation_class=mutation_class,
+        )
     try:
         from interview_mux.artifact_sanitize.reentry import sanitary_content_hash
         from interview_mux.thrash_hardening import note_authority_undo_attempt

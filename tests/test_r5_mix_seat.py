@@ -83,6 +83,12 @@ def _plant_seated(ctx: RunContext, *, gen: int = 1) -> dict:
         "master/air_order.json",
         {"generation": gen, "air_order_generation": gen},
     )
+    asm = ctx.final_path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(_WAV)
+    from interview_mux.seam_autopsy import _file_fingerprint
+
+    fp = _file_fingerprint(asm)
     _write_raw(
         ctx,
         "master/render_ledger.json",
@@ -90,19 +96,11 @@ def _plant_seated(ctx: RunContext, *, gen: int = 1) -> dict:
             "version": 1,
             "generated_at": "2026-01-01T00:00:00Z",
             "edl_hash": "x",
-            "assembly": {
-                "path": "master/assembly.wav",
-                "exists": True,
-                "size": len(_WAV),
-                "sha256_edges": "ab",
-            },
+            "assembly": fp,
             "clips": [],
             "air_order_generation": gen,
         },
     )
-    asm = ctx.final_path("master", "assembly.wav")
-    asm.parent.mkdir(parents=True, exist_ok=True)
-    asm.write_bytes(_WAV)
     ensure_assembly_mtime_seats_edl(ctx)
     assert mix_outputs_seated(ctx) is True
     return edl

@@ -6,8 +6,12 @@ Authoritative planner for contentful ``before`` synthetic VO. Publishes into
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config
@@ -19,6 +23,9 @@ GAP_REL = "understanding/gap_report.json"
 QC_REL = "understanding/nugget_layup_qc.json"
 MASKS_REL = "understanding/native_comprehension_masks.json"
 COMPREHENSION_INDEX_REL = "understanding/nugget_comprehension_index.json"
+LAYUP_CANDIDATES_REL = "understanding/layup_candidates.json"
+LAYUP_CANDIDATES_ARCHIVE = "understanding/.archived/layup_candidates"
+LAYUP_AIR_ADVISORIES_META_KEY = "layup_air_advisories"
 
 # LLM analysis fields that make a lay-up a *constructed* next-native setup
 # instead of a generic hinge. Required on every non-skip row.
@@ -63,6 +70,12 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "require_layup_per_native": bool(block.get("require_layup_per_native", True)),
         "min_layup_coverage": float(block.get("min_layup_coverage", 0.70)),
         "min_nugget_air_coverage": float(block.get("min_nugget_air_coverage", 0.85)),
+        # NLC-B2 aspirational: 0.85 is a goal; structural accounting stays hard.
+        "air_coverage_aspirational": bool(block.get("air_coverage_aspirational", True)),
+        "air_coverage_max_attempts": max(1, int(block.get("air_coverage_max_attempts") or 3)),
+        "catastrophic_nugget_air_coverage": float(
+            block.get("catastrophic_nugget_air_coverage", 0.0)
+        ),
         "min_layup_words": int(block.get("min_layup_words", 18)),
         "max_layup_words": int(block.get("max_layup_words", 90)),
         "prefer_excluded_nuggets": bool(block.get("prefer_excluded_nuggets", True)),
@@ -1130,16 +1143,30 @@ def evaluate_nugget_air_coverage(
     *,
     hard: bool = False,
     min_coverage: float | None = None,
+    aspirational: bool | None = None,
 ) -> dict[str, Any]:
     """Body + intro nugget air coverage vs eligible corpus.
 
-    Compose QC uses ``hard=True`` (NLC-B2). Soft warn remains available for
-    callers that pass ``hard=False`` (e.g. exploratory coverage probes).
+    NLC-B2 / Workstream B: ``min_nugget_air_coverage`` (0.85) is an aspirational
+    goal when ``air_coverage_aspirational`` is true — under-goal coverage is a
+    warning (advisory), not a hard error. Hard refuse only when coverage falls
+    below ``catastrophic_nugget_air_coverage``, or when callers still set
+    ``air_coverage_aspirational: false`` (legacy hard floor). Structural
+    unaccounted open high-salience is enforced separately in ``evaluate_layup_qc``.
+
+    Compose QC uses ``hard=True``. Soft warn remains available for callers that
+    pass ``hard=False`` (e.g. exploratory coverage probes).
     """
     cfg = nugget_layup_cfg()
     floor = float(
         min_coverage if min_coverage is not None else cfg.get("min_nugget_air_coverage", 0.85)
     )
+    aspirational_on = (
+        bool(cfg.get("air_coverage_aspirational", True))
+        if aspirational is None
+        else bool(aspirational)
+    )
+    catastrophic = float(cfg.get("catastrophic_nugget_air_coverage") or 0.0)
     plan = body_plan if isinstance(body_plan, dict) else {}
     doc = corpus if isinstance(corpus, dict) else {}
     waived_set = waived_nugget_ids_from_sources(waived, plan)
@@ -1151,12 +1178,19 @@ def evaluate_nugget_air_coverage(
     open_ids = sorted(eligible - aired)
     warnings: list[str] = []
     errors: list[str] = []
-    if eligible and coverage + 1e-9 < floor:
+    if eligible and catastrophic > 0 and coverage + 1e-9 < catastrophic:
+        errors.append(
+            f"nugget_air_coverage={coverage:.3f} below "
+            f"catastrophic_nugget_air_coverage={catastrophic}"
+        )
+    elif eligible and coverage + 1e-9 < floor:
         msg = (
             f"nugget_air_coverage={coverage:.3f} below "
             f"min_nugget_air_coverage={floor}"
         )
-        if hard:
+        # Aspirational: goal miss is advisory even under hard=True. Legacy:
+        # hard=True restores the prior hard 0.85 refuse.
+        if hard and not aspirational_on:
             errors.append(msg)
         else:
             warnings.append(msg)
@@ -1170,6 +1204,8 @@ def evaluate_nugget_air_coverage(
         "open_nugget_ids": open_ids,
         "waived_nugget_ids": sorted(waived_set),
         "min_nugget_air_coverage": floor,
+        "catastrophic_nugget_air_coverage": catastrophic,
+        "air_coverage_aspirational": aspirational_on,
         "warnings": warnings,
         "errors": errors,
         "ok": not errors,
@@ -2844,7 +2880,11 @@ def adopt_layup_plan_to_selection(
     meta["adopted_rebound"] = rebound
     plan["_meta"] = meta
     if persist:
-        ctx.write_json(PLAN_REL, plan, skip_handoff=True, stage_key=stage)
+        write_kw: dict[str, Any] = {"skip_handoff": True, "stage_key": stage}
+        if stage != "nugget_layup_compose" or map_ids:
+            # Cousin writers (e.g. hitch) must declare segment_id_remap under freeze.
+            write_kw["mutation_class"] = "segment_id_remap"
+        ctx.write_json(PLAN_REL, plan, **write_kw)
         try:
             publish_layup_plan_to_gap_report(ctx, plan)
         except Exception as exc:
@@ -2910,12 +2950,19 @@ def ensure_layup_gap_authority(ctx: RunContext) -> dict[str, Any] | None:
 
 def _scrub_foreign_before_vo_for_hollow_preserve(
     report: dict[str, Any],
+    *,
+    min_active: int | None = None,
 ) -> dict[str, Any]:
     """Drop foreign before-VO origins when hollow-preserving under layup authority.
 
     Prefer scrubbing ``gap_framing_compose`` / other non-authority before lines while
     keeping orientation + layup/operator/fill origins. If foreign before-VO still
     remain, clear ``nugget_layup_authority`` so lint does not greenwash.
+
+    When ``min_active`` is set (G-Framing Yes floor), never finish below that
+    count — re-admit foreign before lines in original order until the floor
+    holds. Floor integrity beats origin purity under hollow preserve
+    (exec_13167: scrubbed 11 foreign → active < need → hosted_vo_floor_unmet).
     """
     from interview_mux.opening_orientation import is_episode_orientation
 
@@ -2923,6 +2970,7 @@ def _scrub_foreign_before_vo_for_hollow_preserve(
         return report
     lines = [ln for ln in (report.get("interviewer_lines") or []) if isinstance(ln, dict)]
     kept: list[dict[str, Any]] = []
+    foreign_before: list[dict[str, Any]] = []
     dropped = 0
     for ln in lines:
         if is_episode_orientation(ln):
@@ -2931,10 +2979,20 @@ def _scrub_foreign_before_vo_for_hollow_preserve(
         origin = str(ln.get("origin") or "").strip()
         placement = str(ln.get("placement") or "").strip()
         if placement == "before" and origin not in AUTHORITY_BODY_ORIGINS:
+            foreign_before.append(ln)
             dropped += 1
             continue
         kept.append(ln)
-    if dropped == 0 and kept == lines:
+    floor_retained = 0
+    need = int(min_active or 0)
+    if need > 0 and _count_active_synthetic_lines(kept) < need:
+        for ln in foreign_before:
+            if _count_active_synthetic_lines(kept) >= need:
+                break
+            kept.append(ln)
+            floor_retained += 1
+            dropped -= 1
+    if dropped == 0 and floor_retained == 0 and kept == lines:
         return report
     out = dict(report)
     out["interviewer_lines"] = kept
@@ -2947,15 +3005,16 @@ def _scrub_foreign_before_vo_for_hollow_preserve(
             and str(ln.get("origin") or "") not in AUTHORITY_BODY_ORIGINS
         }
     )
+    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
     if still_foreign:
         out["nugget_layup_authority"] = False
-        meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
         meta["hollow_preserve_authority_cleared"] = True
         meta["foreign_before_origins"] = still_foreign[:8]
-        out["_meta"] = meta
-    elif dropped:
-        meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+    if dropped > 0:
         meta["hollow_preserve_scrubbed_foreign_before"] = dropped
+    if floor_retained > 0:
+        meta["hollow_preserve_floor_retained_foreign"] = floor_retained
+    if meta:
         out["_meta"] = meta
     return out
 
@@ -3189,7 +3248,9 @@ def publish_layup_plan_to_gap_report(
                     "compose_restart" in w for w in warnings
                 )
                 if hollow_plan and prior_active >= need:
-                    preserved = _scrub_foreign_before_vo_for_hollow_preserve(existing)
+                    preserved = _scrub_foreign_before_vo_for_hollow_preserve(
+                        existing, min_active=need
+                    )
                     ctx.log(
                         "nugget_layup: refuse hollow gap publish under G-Framing Yes "
                         f"(active={active_new} < {need}; preserving prior {prior_active})",
@@ -4073,11 +4134,20 @@ def evaluate_layup_qc(
     craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
     errors.extend(craft["errors"])
 
-    # NLC-B2: compose-time hard nugget-air floor (same floor as adjudicate).
-    nugget_cov = evaluate_nugget_air_coverage(plan, [], None, corpus, hard=True)
+    # NLC-B2 / Workstream B: ``min_nugget_air_coverage`` (0.85) is aspirational when
+    # ``air_coverage_aspirational`` is true — under-goal coverage is advisory.
+    # Structural refuse: unaccounted open high-salience (above) or catastrophic floor.
+    # Orientation-parked nuggets are recovered via episode orientation embed —
+    # credit them as intro air so park can satisfy coverage math (otherwise
+    # recover→park↔recompose hash-oscillates at a discrete 10/12=0.833 floor miss).
+    orient_ids = sorted(orient_assigned)
+    nugget_cov = evaluate_nugget_air_coverage(plan, orient_ids, None, corpus, hard=True)
     warnings = list(craft.get("warnings") or [])
     warnings.extend(nugget_cov.get("warnings") or [])
     errors.extend(nugget_cov.get("errors") or [])
+    if nugget_cov.get("warnings") and nugget_cov.get("air_coverage_aspirational"):
+        # Surface goal-miss as an advisory flag for G-Publish / pick-best ledger.
+        warnings.append("nugget_air_coverage_aspirational_goal_miss")
 
     return {
         "version": 1,
@@ -4093,6 +4163,11 @@ def evaluate_layup_qc(
         "canned_air_lines": craft["canned_air_lines"],
         "insufficient_analysis_targets": craft["insufficient_analysis_targets"],
         "duplicate_nugget_ids": craft["duplicate_nugget_ids"],
+        "air_coverage_aspirational": nugget_cov.get("air_coverage_aspirational"),
+        "air_coverage_advisory": bool(
+            nugget_cov.get("air_coverage_aspirational")
+            and any("min_nugget_air_coverage" in str(w) for w in (nugget_cov.get("warnings") or []))
+        ),
         "warnings": warnings,
         "errors": errors,
         "ok": not errors,
@@ -4236,6 +4311,232 @@ def evaluate_layup_craft(
     }
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def air_coverage_aspirational_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    return bool(nugget_layup_cfg(cfg).get("air_coverage_aspirational", True))
+
+
+def air_coverage_max_attempts(cfg: dict[str, Any] | None = None) -> int:
+    try:
+        return max(1, int(nugget_layup_cfg(cfg).get("air_coverage_max_attempts") or 3))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _plan_content_hash(plan: dict[str, Any]) -> str:
+    payload = json.dumps(plan, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _layup_candidate_rank(qc: dict[str, Any]) -> tuple[float, int, int, float]:
+    """Higher is better: coverage, then fewer open_high, fewer craft errors, layup_coverage."""
+    coverage = float(qc.get("nugget_air_coverage") or 0.0)
+    open_high = len(qc.get("open_high_salience_nugget_ids") or [])
+    craft_errs = sum(
+        1
+        for e in (qc.get("errors") or [])
+        if "open_high_salience" not in str(e) and "nugget_air_coverage" not in str(e)
+    )
+    layup_cov = float(qc.get("layup_coverage") or 0.0)
+    return (coverage, -open_high, -craft_errs, layup_cov)
+
+
+def load_layup_candidates_doc(ctx: RunContext) -> dict[str, Any]:
+    if not ctx.artifact_exists(LAYUP_CANDIDATES_REL):
+        return {"version": 1, "attempts": 0, "candidates": []}
+    try:
+        doc = ctx.read_json(LAYUP_CANDIDATES_REL)
+        return doc if isinstance(doc, dict) else {"version": 1, "attempts": 0, "candidates": []}
+    except Exception:
+        return {"version": 1, "attempts": 0, "candidates": []}
+
+
+def layup_air_attempts_exhausted(ctx: RunContext) -> bool:
+    doc = load_layup_candidates_doc(ctx)
+    return int(doc.get("attempts") or 0) >= air_coverage_max_attempts()
+
+
+def register_layup_candidate(
+    ctx: RunContext,
+    *,
+    plan: dict[str, Any] | None = None,
+    qc: dict[str, Any] | None = None,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """Archive a layup plan snapshot and append to the candidate ledger."""
+    if plan is None:
+        plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    plan = plan if isinstance(plan, dict) else {}
+    if qc is None:
+        qc = evaluate_layup_qc(ctx, plan)
+    qc = qc if isinstance(qc, dict) else {}
+    doc = load_layup_candidates_doc(ctx)
+    candidates = list(doc.get("candidates") or []) if isinstance(doc.get("candidates"), list) else []
+    attempts = int(doc.get("attempts") or 0) + 1
+    attempt_id = (
+        f"layup_{attempts}_{datetime.now(timezone.utc).strftime('%H%M%S')}_"
+        f"{_plan_content_hash(plan)}"
+    )
+    archive_rel = f"{LAYUP_CANDIDATES_ARCHIVE}/{attempt_id}"
+    archive_dir = Path(ctx.run_dir) / archive_rel
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = archive_dir / "nugget_layup_plan.json"
+    plan_path.write_text(json.dumps(plan, indent=2, default=str), encoding="utf-8")
+    qc_path = archive_dir / "nugget_layup_qc.json"
+    qc_path.write_text(json.dumps(qc, indent=2, default=str), encoding="utf-8")
+    rank = _layup_candidate_rank(qc)
+    open_high = [str(x) for x in (qc.get("open_high_salience_nugget_ids") or []) if x]
+    catastrophic = float(nugget_layup_cfg().get("catastrophic_nugget_air_coverage") or 0.0)
+    coverage = float(qc.get("nugget_air_coverage") or 0.0)
+    catastrophic_ok = (not open_high) and (
+        catastrophic <= 0 or coverage + 1e-9 >= catastrophic
+    )
+    entry = {
+        "attempt_id": attempt_id,
+        "label": label or "layup",
+        "registered_at": _now_iso(),
+        "plan_hash": _plan_content_hash(plan),
+        "nugget_air_coverage": coverage,
+        "layup_coverage": qc.get("layup_coverage"),
+        "open_high_salience_nugget_ids": open_high,
+        "orientation_nugget_recovery_ids": list(
+            plan.get("orientation_nugget_recovery_ids") or []
+        ),
+        "craft_error_count": -rank[2],
+        "rank_tuple": list(rank),
+        "rank_score": coverage,
+        "archive_rel": archive_rel,
+        "catastrophic_ok": catastrophic_ok,
+        "qc_ok": bool(qc.get("ok")),
+        "air_coverage_advisory": bool(qc.get("air_coverage_advisory")),
+    }
+    candidates.append(entry)
+    doc["attempts"] = attempts
+    doc["candidates"] = candidates[-12:]
+    doc["updated_at"] = _now_iso()
+    ctx.write_json(LAYUP_CANDIDATES_REL, doc, skip_handoff=True, stage_key="nugget_layup_compose")
+    return entry
+
+
+def select_best_layup_candidate(ctx: RunContext) -> dict[str, Any] | None:
+    doc = load_layup_candidates_doc(ctx)
+    candidates = [c for c in (doc.get("candidates") or []) if isinstance(c, dict)]
+    if not candidates:
+        return None
+    viable = [c for c in candidates if c.get("catastrophic_ok")]
+    pool = viable or candidates
+    return max(
+        pool,
+        key=lambda c: tuple(c.get("rank_tuple") or (float(c.get("rank_score") or 0.0),)),
+    )
+
+
+def apply_best_layup_candidate(ctx: RunContext) -> dict[str, Any]:
+    """Restore best archived plan as the live layup plan + record advisory."""
+    best = select_best_layup_candidate(ctx)
+    if not best:
+        return {"ok": False, "reason": "no_candidates"}
+    archive_rel = str(best.get("archive_rel") or "")
+    archive_dir = Path(ctx.run_dir) / archive_rel
+    plan_src = archive_dir / "nugget_layup_plan.json"
+    if not plan_src.is_file():
+        return {"ok": False, "reason": "archive_missing", "attempt_id": best.get("attempt_id")}
+    try:
+        plan = json.loads(plan_src.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "reason": "archive_unreadable", "attempt_id": best.get("attempt_id")}
+    if not isinstance(plan, dict):
+        return {"ok": False, "reason": "archive_invalid", "attempt_id": best.get("attempt_id")}
+    ctx.write_json(PLAN_REL, plan, stage_key="nugget_layup_compose")
+    try:
+        publish_layup_plan_to_gap_report(ctx, plan)
+    except Exception:
+        pass
+    record_layup_air_advisories(
+        ctx,
+        gate_id="layup_air_pick_best",
+        detail={
+            "picked_attempt_id": best.get("attempt_id"),
+            "nugget_air_coverage": best.get("nugget_air_coverage"),
+            "plan_hash": best.get("plan_hash"),
+            "catastrophic_ok": best.get("catastrophic_ok"),
+        },
+        aspirational_proceeded=True,
+    )
+    ctx.log(
+        f"nugget_layup: applied best air-coverage candidate {best.get('attempt_id')} "
+        f"coverage={best.get('nugget_air_coverage')}",
+        level="warning",
+        stage="nugget_layup_compose",
+    )
+    return {"ok": True, "candidate": best}
+
+
+def record_layup_air_advisories(
+    ctx: RunContext,
+    *,
+    gate_id: str,
+    detail: dict[str, Any] | None = None,
+    aspirational_proceeded: bool = False,
+) -> None:
+    entry = {
+        "gate_id": gate_id,
+        "detail": dict(detail or {}),
+        "at": _now_iso(),
+        "aspirational_proceeded": bool(aspirational_proceeded),
+    }
+
+    def patch(meta: dict[str, Any]) -> None:
+        advisories = list(meta.get(LAYUP_AIR_ADVISORIES_META_KEY) or [])
+        advisories.append(entry)
+        meta[LAYUP_AIR_ADVISORIES_META_KEY] = advisories[-20:]
+        if aspirational_proceeded:
+            meta["layup_air_aspirational_proceeded"] = True
+        qc = meta.get("qc_summaries") if isinstance(meta.get("qc_summaries"), dict) else {}
+        qc["nugget_air_aspirational"] = {
+            "enabled": air_coverage_aspirational_enabled(),
+            "aspirational_proceeded": bool(meta.get("layup_air_aspirational_proceeded")),
+            "advisory_count": len(advisories),
+        }
+        meta["qc_summaries"] = qc
+
+    try:
+        ctx.mutate_run_meta(patch)
+    except Exception:
+        pass
+
+
+def try_pick_best_layup_on_oscillation(ctx: RunContext) -> dict[str, Any]:
+    """Thrash hook: on hash oscillation, accept best archived candidate when viable."""
+    if not air_coverage_aspirational_enabled():
+        return {"ok": False, "reason": "aspirational_off"}
+    if not load_layup_candidates_doc(ctx).get("candidates"):
+        # Register current plan if present so pick-best has something to choose.
+        if ctx.artifact_exists(PLAN_REL):
+            try:
+                register_layup_candidate(ctx, label="oscillation_snapshot")
+            except Exception:
+                pass
+    applied = apply_best_layup_candidate(ctx)
+    if not applied.get("ok"):
+        return applied
+    winner = applied.get("candidate") or {}
+    if not winner.get("catastrophic_ok"):
+        return {"ok": False, "reason": "best_not_viable", "candidate": winner}
+    qc = evaluate_layup_qc(ctx)
+    if not qc.get("ok"):
+        # Still structural — do not soft-accept.
+        return {"ok": False, "reason": "winner_qc_failed", "qc": qc, "candidate": winner}
+    try:
+        ctx.write_json(QC_REL, qc, stage_key="nugget_layup_compose")
+    except Exception:
+        pass
+    return {"ok": True, "candidate": winner, "qc": qc}
+
+
 def assert_layup_qc_or_raise(ctx: RunContext, qc: dict[str, Any]) -> None:
     from interview_mux.artifact_writes import write_validated_artifact
 
@@ -4250,8 +4551,55 @@ def assert_layup_qc_or_raise(ctx: RunContext, qc: dict[str, Any]) -> None:
         )
     except Exception:
         ctx.write_json(QC_REL, qc)
+
+    cfg = nugget_layup_cfg()
+    aspirational = bool(cfg.get("air_coverage_aspirational", True))
+    plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    if aspirational and isinstance(plan, dict) and plan.get("layups") is not None:
+        try:
+            register_layup_candidate(ctx, plan=plan, qc=qc, label="compose_qc")
+        except Exception:
+            pass
+
     if qc.get("ok"):
+        if aspirational and qc.get("air_coverage_advisory"):
+            record_layup_air_advisories(
+                ctx,
+                gate_id="nugget_air_coverage_goal_miss",
+                detail={
+                    "nugget_air_coverage": qc.get("nugget_air_coverage"),
+                    "min_nugget_air_coverage": cfg.get("min_nugget_air_coverage"),
+                    "open_high_salience_nugget_ids": qc.get("open_high_salience_nugget_ids") or [],
+                },
+                aspirational_proceeded=True,
+            )
+            ctx.log(
+                "nugget_layup_compose: aspirational air-coverage goal miss "
+                f"(coverage={qc.get('nugget_air_coverage')}; "
+                f"goal={cfg.get('min_nugget_air_coverage')}) — proceeding with advisory",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
         return
+
+    # Structural hard fail — but if aspirational + attempts exhausted and we have
+    # a viable archived candidate (accounted / catastrophic_ok), pick-best instead.
+    if aspirational and layup_air_attempts_exhausted(ctx):
+        applied = apply_best_layup_candidate(ctx)
+        if applied.get("ok"):
+            winner_qc = evaluate_layup_qc(ctx)
+            try:
+                write_validated_artifact(
+                    ctx,
+                    QC_REL,
+                    winner_qc,
+                    merge_from_disk=False,
+                    stage_key="nugget_layup_compose",
+                )
+            except Exception:
+                ctx.write_json(QC_REL, winner_qc)
+            if winner_qc.get("ok"):
+                return
     from interview_mux.loud_fail import raise_loud_failure
 
     raise_loud_failure(

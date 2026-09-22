@@ -316,6 +316,7 @@ def commit_selection_mutation(
     write_committed: bool = False,
     skip_checkpoint: bool = False,
     skip_handoff: bool = False,
+    mutation_class: str | None = None,
 ) -> dict[str, Any]:
     """Single write path: checkpoint, optional block, persist, lifecycle on order change."""
     from interview_mux.artifact_sanitize.one_writer import (
@@ -362,6 +363,8 @@ def commit_selection_mutation(
         # heuristic opportunity for empty-ops order_change stays below threshold.
         try:
             from interview_mux.seat_authority import (
+                end_a_action_for_ship_blocking_omit,
+                hard_freeze_action_permitted,
                 hard_freeze_active,
                 request_seat_rewrite,
                 soft_freeze_active,
@@ -374,48 +377,86 @@ def commit_selection_mutation(
                     if s
                 ]
                 cur_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-                exempt_omits = _ship_blocking_omit_ids(
-                    ctx,
-                    prev_ids=prev_ids,
-                    cur_ids=cur_ids,
-                    selection=out,
-                    producer=producer,
-                )
-                if prev_ids and prev_ids != cur_ids and exempt_omits:
-                    ctx.log(
-                        "seat_freeze: honoring ship-blocking omit under freeze "
-                        f"({', '.join(exempt_omits[:6])}; producer={producer})",
-                        level="warning",
-                        stage=stage_key or producer,
-                    )
-                elif prev_ids and prev_ids != cur_ids:
-                    dec = request_seat_rewrite(
+                # DP-A2 Option A: ship-blocking omit/integrity is a *named* End-A
+                # action (single constitution). Classifier names the delta; End-A
+                # permit lands the omit. Otherwise meta-gate / one-shot (else restore).
+                if prev_ids and prev_ids != cur_ids:
+                    classified = _ship_blocking_omit_ids(
                         ctx,
-                        proposed_delta={
-                            "ops": [],
-                            "order_change": True,
-                            "source": producer,
-                            "stage_key": stage_key,
-                        },
-                        reason=f"selection_commit:{producer}",
-                        symptoms=["order_change", "selection_commit"],
+                        prev_ids=prev_ids,
+                        cur_ids=cur_ids,
+                        selection=out,
+                        producer=producer,
                     )
-                    if not dec.get("allow"):
-                        out = _preserve_frozen_selection_order(
-                            out,
-                            previous=previous if isinstance(previous, dict) else None,
-                            prev_ids=prev_ids,
-                            producer=producer,
-                            stage_key=stage_key,
-                            refuse_reason=str(
-                                dec.get("refuse_reason") or "meta_gate"
-                            ),
-                            ctx=ctx,
+                    end_a_action = end_a_action_for_ship_blocking_omit(producer)
+                    if (
+                        classified
+                        and end_a_action
+                        and hard_freeze_action_permitted(end_a_action, ctx)
+                    ):
+                        ctx.log(
+                            "seat_freeze: End-A ship-blocking omit permitted "
+                            f"({end_a_action}; {', '.join(classified[:6])}; "
+                            f"producer={producer})",
+                            level="info",
+                            stage=stage_key or producer,
                         )
-                        # Blank/unusable must still leave air under freeze — otherwise
-                        # chapter continuity QC sees leftover blanks as interlopers
-                        # (exec_11630 seg_041) and seat freeze undoes every heal write.
-                        out = _drop_blank_segments_under_freeze(ctx, out)
+                    else:
+                        if classified:
+                            ctx.log(
+                                "seat_freeze: ship-blocking omit not on End-A "
+                                f"(action={end_a_action or 'unmapped'}; "
+                                f"{', '.join(classified[:6])}; producer={producer}); "
+                                "meta-gate / one-shot required",
+                                level="warning",
+                                stage=stage_key or producer,
+                            )
+                            try:
+                                from interview_mux.seat_authority import (
+                                    note_ship_omit_blocked,
+                                )
+
+                                note_ship_omit_blocked(
+                                    ctx,
+                                    producer=producer,
+                                    action=end_a_action,
+                                    ids=classified,
+                                )
+                            except Exception:
+                                pass
+                        dec = request_seat_rewrite(
+                            ctx,
+                            proposed_delta={
+                                "ops": [],
+                                "order_change": True,
+                                "source": producer,
+                                "stage_key": stage_key,
+                                "ship_omit_ids": list(classified or [])[:12],
+                                "end_a_action": end_a_action,
+                            },
+                            reason=(
+                                f"selection_commit:{producer}"
+                                if end_a_action
+                                else f"selection_commit_unmapped_omit:{producer}"
+                            ),
+                            symptoms=["order_change", "selection_commit", "ship_omit"],
+                        )
+                        if not dec.get("allow"):
+                            out = _preserve_frozen_selection_order(
+                                out,
+                                previous=previous if isinstance(previous, dict) else None,
+                                prev_ids=prev_ids,
+                                producer=producer,
+                                stage_key=stage_key,
+                                refuse_reason=str(
+                                    dec.get("refuse_reason") or "meta_gate"
+                                ),
+                                ctx=ctx,
+                            )
+                            # Blank/unusable must still leave air under freeze —
+                            # otherwise chapter continuity QC sees leftover blanks
+                            # as interlopers (exec_11630 seg_041).
+                            out = _drop_blank_segments_under_freeze(ctx, out)
         except Exception:
             try:
                 from interview_mux.seat_authority import (
@@ -432,17 +473,7 @@ def commit_selection_mutation(
                     cur_ids = [
                         str(s) for s in (out.get("ordered_segment_ids") or []) if s
                     ]
-                    if (
-                        prev_ids
-                        and prev_ids != cur_ids
-                        and not _ship_blocking_omit_ids(
-                            ctx,
-                            prev_ids=prev_ids,
-                            cur_ids=cur_ids,
-                            selection=out,
-                            producer=producer,
-                        )
-                    ):
+                    if prev_ids and prev_ids != cur_ids:
                         out = _preserve_frozen_selection_order(
                             out,
                             previous=previous if isinstance(previous, dict) else None,
@@ -478,19 +509,80 @@ def commit_selection_mutation(
         except Exception:
             pass
 
+        mut = mutation_class
+        write_sk = stage_key
+        try:
+            from interview_mux.artifact_ownership import SEGMENT_ID_REMAP_STAGES
+
+            if producer in SEGMENT_ID_REMAP_STAGES:
+                write_sk = producer
+                mut = mut or "segment_id_remap"
+            elif not mut and stage_key in SEGMENT_ID_REMAP_STAGES:
+                mut = "segment_id_remap"
+        except Exception:
+            pass
+
         if write_committed:
+            from interview_mux.artifact_ownership import AuthorityDenied
             from interview_mux.write_staging import write_committed_json
 
-            write_committed_json(ctx, "master/selection.json", out, stage_key=stage_key)
+            try:
+                write_committed_json(
+                    ctx,
+                    "master/selection.json",
+                    out,
+                    stage_key=write_sk,
+                    mutation_class=mut,
+                )
+            except AuthorityDenied as exc:
+                # A′′ Global Freeze: after meta-gate refuse we restored frozen
+                # order — retry as epoch owner, or no-op when disk already matches.
+                owner = str(getattr(exc, "suggested_owner", "") or "").strip()
+                prev_o = [
+                    str(s)
+                    for s in ((previous or {}).get("ordered_segment_ids") or [])
+                    if s
+                ]
+                cur_o = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+                if owner and owner != write_sk:
+                    write_committed_json(
+                        ctx,
+                        "master/selection.json",
+                        out,
+                        stage_key=owner,
+                        mutation_class=mut,
+                    )
+                elif prev_o and prev_o == cur_o:
+                    try:
+                        ctx.log(
+                            "seat_freeze: skip selection rewrite "
+                            f"(order unchanged; denied {write_sk})",
+                            level="info",
+                            stage=stage_key or producer,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    raise
         elif skip_handoff:
             ctx.write_json(
-                "master/selection.json", out, stage_key=stage_key, skip_handoff=True
+                "master/selection.json",
+                out,
+                stage_key=write_sk,
+                skip_handoff=True,
+                mutation_class=mut,
             )
         else:
             # Prefer write_committed so write_validated cannot re-amplify after sanitize.
             from interview_mux.write_staging import write_committed_json
 
-            write_committed_json(ctx, "master/selection.json", out, stage_key=stage_key)
+            write_committed_json(
+                ctx,
+                "master/selection.json",
+                out,
+                stage_key=write_sk,
+                mutation_class=mut,
+            )
 
         from interview_mux.air_order_integrity import on_selection_order_changed
 

@@ -109,19 +109,119 @@ def run_nugget_intro_compose(
         }
 
     def persist_intro(c: RunContext, artifacts: dict[str, Any]) -> None:
-        captured.update(artifacts if isinstance(artifacts, dict) else {})
-        c.write_json(INTRO_REL, captured, stage_key="vo_line_adjudicate")
+        from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
+
+        raw = artifacts if isinstance(artifacts, dict) else {}
+        # OpenAI envelope often nests payload under stage_output (exec_13167).
+        payload = (
+            raw.get("stage_output")
+            if isinstance(raw.get("stage_output"), dict)
+            else raw
+        )
+        sealed: dict[str, Any] = {
+            "text": scrub_spoken_edit_structure(
+                str(payload.get("text") or payload.get("final_text") or "").strip()
+            ),
+            "nugget_ids": [
+                str(x) for x in (payload.get("nugget_ids") or want) if x
+            ],
+            "clustered_themes": [
+                str(x) for x in (payload.get("clustered_themes") or []) if x
+            ],
+            "rationale": str(payload.get("rationale") or ""),
+            "intro_nugget_recovery": bool(
+                payload.get("intro_nugget_recovery", True)
+            ),
+        }
+        if not sealed["text"] or not sealed["nugget_ids"]:
+            raise ValueError(
+                f"{INTRO_REL}: sealed intro missing text/nugget_ids "
+                f"(keys={sorted(raw.keys())[:12]})"
+            )
+        captured.clear()
+        captured.update(sealed)
+        c.write_json(INTRO_REL, sealed, stage_key="vo_line_adjudicate")
 
     runner = llm_runner or run_flow_llm_stage
     with logged_step("nugget_intro_compose/llm", ctx=ctx, stage="vo_line_adjudicate"):
-        runner(
-            ctx,
-            "nugget_intro_compose",
-            "vo/nugget-intro-compose.system.txt",
-            build_input,
-            persist_intro,
-        )
+        try:
+            try:
+                runner(
+                    ctx,
+                    "nugget_intro_compose",
+                    "vo/nugget-intro-compose.system.txt",
+                    build_input,
+                    persist_intro,
+                    auto_complete=False,
+                )
+            except TypeError:
+                runner(
+                    ctx,
+                    "nugget_intro_compose",
+                    "vo/nugget-intro-compose.system.txt",
+                    build_input,
+                    persist_intro,
+                )
+        except Exception as exc:
+            # Cap exhausted after a prior successful seal (or pending seal) —
+            # reuse the artifact instead of stranding Part A adjudication.
+            from interview_mux.homunculus.budget import LimitExhausted
+
+            if not isinstance(exc, LimitExhausted) and "limit_exhausted" not in str(exc):
+                raise
+            reused = _reuse_sealed_intro(ctx)
+            if reused:
+                captured.clear()
+                captured.update(reused)
+                ctx.log(
+                    "nugget_intro_compose: reusing sealed intro after limit_exhausted",
+                    level="warning",
+                    stage="vo_line_adjudicate",
+                )
+                return captured
+            raise
     return captured
+
+
+def _reuse_sealed_intro(ctx: RunContext) -> dict[str, Any] | None:
+    """Return a schema-usable intro from committed or pending staging, else None."""
+    payload: dict[str, Any] | None = None
+    try:
+        if ctx.artifact_exists(INTRO_REL):
+            raw = ctx.read_json(INTRO_REL)
+            if isinstance(raw, dict):
+                payload = raw
+    except Exception:
+        payload = None
+    if payload is None:
+        try:
+            from interview_mux.write_staging import staged_path
+
+            staged = staged_path(ctx, INTRO_REL, stage_id="vo_line_adjudicate")
+            if staged.is_file():
+                import json
+
+                raw = json.loads(staged.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    payload = raw
+        except Exception:
+            payload = None
+    if not isinstance(payload, dict):
+        return None
+    # Unwrap stage_output envelope if present.
+    if "text" not in payload and isinstance(payload.get("stage_output"), dict):
+        payload = dict(payload["stage_output"])
+    text = str(payload.get("text") or "").strip()
+    ids = [str(x) for x in (payload.get("nugget_ids") or []) if x]
+    if not text or not ids:
+        return None
+    return {
+        "text": text,
+        "nugget_ids": ids,
+        "clustered_themes": list(payload.get("clustered_themes") or []),
+        "rationale": str(payload.get("rationale") or ""),
+        "intro_nugget_recovery": bool(payload.get("intro_nugget_recovery", True)),
+    }
 
 
 def mint_episode_preface_at_position_0(
@@ -130,7 +230,11 @@ def mint_episode_preface_at_position_0(
     intro: dict[str, Any],
 ) -> tuple[dict[str, Any], bool]:
     """3C — mint episode_preface at position 0 with intro_nugget_recovery stamp."""
-    text = str(intro.get("text") or intro.get("final_text") or "").strip()
+    from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
+
+    text = scrub_spoken_edit_structure(
+        str(intro.get("text") or intro.get("final_text") or "").strip()
+    )
     if not text:
         return gap_report, False
 

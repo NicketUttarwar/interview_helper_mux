@@ -61,12 +61,28 @@ def _execute_after_heals(
     stages: list[str],
     later: dict[str, Any],
 ) -> None:
-    """Wave 3: skip-ahead ``from_stage`` only when every listed producer is actually done."""
+    """Wave 3: skip-ahead ``from_stage`` only when every listed producer is seed-complete."""
     for sid in stages:
         if not _heal_mark_or_resume(ctx, sid, force=True):
             log(f"heal refused {sid} — resume {sid} (not {later.get('from_stage')})")
             execute({"mode": _mode_for_stage(sid), "from_stage": sid})
             return
+        # Expanded WS2: heal success alone is not enough — require seed_stage_complete
+        # so hollow .stage_done cannot unlock skip-ahead to expensive consumers.
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if not seed_stage_complete(ctx, sid):
+                log(
+                    f"heal marked {sid} but seed incomplete — resume {sid} "
+                    f"(not {later.get('from_stage')})"
+                )
+                execute({"mode": _mode_for_stage(sid), "from_stage": sid})
+                return
+        except Exception:
+            if not ctx.is_done(sid):
+                execute({"mode": _mode_for_stage(sid), "from_stage": sid})
+                return
     execute(later)
 
 
@@ -1139,6 +1155,33 @@ def _sync_forensics_identical_halts() -> None:
         log(f"identical_halts sync failed: {exc}")
 
 
+def _sync_product_budget_on_flip() -> None:
+    """Partial / full-auto: reclaim max_invokes + attempt_memo after a product patch.
+
+    Forensics uses ``_sync_forensics_identical_halts`` (clears ×3 signatures too).
+    """
+    if not RUN_ID:
+        return
+    if _forensics_mode():
+        return
+    try:
+        from interview_mux.identical_failures import reclaim_budget_on_product_flip
+        from interview_mux.run_context import RunContext
+
+        result = reclaim_budget_on_product_flip(RunContext(RUN_ID, create=False))
+        if result.get("budget_epoch") or result.get("product_changed"):
+            log(
+                "product budget reclaim: "
+                f"epoch={result.get('budget_epoch')} "
+                f"memo_cleared={result.get('memo_cleared')} "
+                f"fp={str(result.get('fingerprint') or '')[:12]} "
+                f"product_changed={result.get('product_changed')} "
+                f"memo_stale={result.get('memo_stale')}"
+            )
+    except Exception as exc:
+        log(f"product budget reclaim failed: {exc}")
+
+
 def _reset_identical_counters_on_reexecute(from_stage: str) -> None:
     """Clear ×3 halt for a stage only when its completeness predicate flipped (T1)."""
     global _EDL_NARRATIVE_HEAL_SIGS
@@ -1419,20 +1462,38 @@ def master_ready() -> bool:
 
 
 def pipeline_complete() -> bool:
-    """Full ship bar: master + cover image + podcast_publish stage marker."""
+    """Full ship bar SSOT — delegates to execution_status.pipeline_complete (C5).
+
+    G-Publish / S3 consent is not this bar. Fallback mirrors the same package
+    envelope (cover + mp3 + package_ready) when RunContext import fails.
+    """
+    try:
+        from interview_mux.execution_status import pipeline_complete as ctx_pipeline_complete
+        from interview_mux.run_context import RunContext
+
+        return bool(ctx_pipeline_complete(RunContext(RUN_ID, create=False)))
+    except Exception:
+        pass
     if not master_ready():
-        return False
-    done_dir = MASTER.parent.parent / ".stage_done"
-    if not (done_dir / "podcast_publish").is_file():
-        return False
-    if not (done_dir / "episode_cover_generate").is_file():
         return False
     pub = MASTER.parent.parent / "publish"
     if not ((pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()):
         return False
     if not (pub / "audio.mp3").is_file():
         return False
-    return True
+    ready = pub / "package_ready.json"
+    if not ready.is_file():
+        return False
+    try:
+        import json
+
+        doc = json.loads(ready.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    # C5 footgun #2: Skip alone is not Partial DONE — require ready:true.
+    return bool(doc.get("ready") is True)
 
 
 def assert_fresh_layer_contract() -> None:
@@ -3810,6 +3871,20 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 log("full-auto: skipped G-Listen after remaster re-arm")
     except Exception as exc:
         log(f"gate lease / g-listen auto-skip: {exc}")
+
+    # Full-auto / forensics: never spin on timeline-optimizer take-best GUI gate.
+    # clear_optimizer_remaster_for_finalize runs before late delivery bodies, but
+    # handle_gate re-executes can recompute pin=master_finalize from a stale
+    # from_stage (e.g. vo_synthesize) and skip that pre-clear — stop + skip here.
+    if (
+        "timeline optimizer pending" in low
+        or "take best or skip via gui" in low
+        or "timeline-optimizer/take-best" in low
+    ):
+        clear_optimizer_remaster_for_finalize()
+        log("full-auto: cleared timeline optimizer gate for finalize")
+        execute({"mode": "delivery", "from_stage": "master_finalize"})
+        return "continue"
 
     if (
         "vo contract" in low
@@ -7676,7 +7751,6 @@ def delivery_resume_stage() -> str | None:
             return "edl"
         if asm and edl:
             try:
-                from interview_mux.air_order import mix_outputs_seated
                 from interview_mux.order_hash import order_drift_heal_action
 
                 sel = (
@@ -7699,7 +7773,10 @@ def delivery_resume_stage() -> str | None:
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
                     return "edl" if drift == "rebuild" else _resolve_mix_from_stage("mix")
-                if not mix_outputs_seated(ctx):
+                from interview_mux.air_order import mix_seat_resume_stage
+
+                seat = mix_seat_resume_stage(ctx)
+                if seat == "mix":
                     (root / ".stage_done" / "mix").unlink(missing_ok=True)
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
@@ -7722,6 +7799,28 @@ def delivery_resume_stage() -> str | None:
                 return "vo_synthesize"
             if not ctx.is_done("edl_narrative_audit"):
                 return "edl_narrative_audit"
+            # SSOT: only advance past mix when fully seated (never is_done alone).
+            try:
+                from interview_mux.air_order import mix_seat_resume_stage
+
+                seat = mix_seat_resume_stage(ctx)
+                if seat != "mix":
+                    if seat == "junction_snip_qa":
+                        return "junction_snip_qa"
+                    return first_pending(
+                        [
+                            "junction_snip_qa",
+                            "master_finalize",
+                            "master_transcript_build",
+                            "episode_meta_build",
+                            "episode_cover_prompt_craft",
+                            "podcast_encode_mp3",
+                            "episode_cover_generate",
+                            "podcast_publish",
+                        ]
+                    )
+            except Exception:
+                pass
             return _resolve_mix_from_stage("mix")
         if edl:
             return first_pending(
@@ -8009,6 +8108,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 if _forensics_mode() and (
                     "seed order" in pause_reason
                     or "true_waste_sticky" in pause_reason
+                    or "hosted_vo_floor" in pause_reason
                     or pause_stage in {"vo_synthesize", "vo_line_adjudicate"}
                     or (
                         pause_stage == "nugget_layup_compose"
@@ -8020,6 +8120,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 "order_lock",
                                 "selection",
                                 "nugget_layup",
+                                "hosted_vo_floor",
+                                "cta_only",
                             )
                         )
                     )
@@ -8028,9 +8130,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log(
                         f"forensics: cleared needs_operator {pause_stage} while "
                         f"{live_stage} running "
-                        f"(seed-order/layup-stale/true-waste heal continues)"
+                        f"(seed-order/layup-stale/true-waste/hosted-floor heal continues)"
                     )
-                    if pause_stage == "nugget_layup_compose":
+                    if pause_stage == "nugget_layup_compose" or "hosted_vo_floor" in pause_reason:
                         try:
                             from interview_mux.nugget_layup import (
                                 PLAN_REL,
@@ -8041,6 +8143,24 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             from interview_mux.run_context import RunContext as _RClayup
 
                             _ctx_l = _RClayup(RUN_ID, create=False)
+                            # Always pin producer for hosted floor — do not wait on
+                            # a stale ranking body (exec_13167 heal-spin).
+                            if "hosted_vo_floor" in pause_reason:
+                                try:
+                                    def _clr_floor(meta: dict) -> None:
+                                        meta.pop("hosted_vo_floor_unmet", None)
+                                        meta.pop("hosted_vo_floor_unmet_prose", None)
+
+                                    _ctx_l.mutate_run_meta(_clr_floor)
+                                except Exception:
+                                    pass
+                                execute(
+                                    {
+                                        "mode": "delivery",
+                                        "from_stage": "nugget_layup_compose",
+                                    }
+                                )
+                                continue
                             if _ctx_l.artifact_exists(PLAN_REL) and _ctx_l.artifact_exists(
                                 "master/selection.json"
                             ):
@@ -8143,6 +8263,33 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     or pause_stage == "missing_framing"
                 ) and skip_ineligible_gap_fill(reason=str(_meta_p.get("needs_operator_reason") or "")):
                     log("needs_operator missing_framing ineligible — skipped VO, continuing")
+                    continue
+                elif _forensics_mode() and (
+                    "hosted_vo_floor" in pause_reason
+                    or pause_stage == "nugget_layup_compose"
+                ):
+                    # Interrupted/idle job + hosted floor: clear stamp and pin
+                    # producer (exec_13167 heal-spin on full_master_ranking body).
+                    _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
+                    try:
+                        from interview_mux.run_context import RunContext as _RCfloor
+
+                        _ctx_f = _RCfloor(RUN_ID, create=False)
+
+                        def _clr_floor(meta: dict) -> None:
+                            meta.pop("hosted_vo_floor_unmet", None)
+                            meta.pop("hosted_vo_floor_unmet_prose", None)
+
+                        _ctx_f.mutate_run_meta(_clr_floor)
+                    except Exception:
+                        pass
+                    log(
+                        "forensics: cleared needs_operator hosted_vo_floor — "
+                        "resume nugget_layup_compose"
+                    )
+                    execute(
+                        {"mode": "delivery", "from_stage": "nugget_layup_compose"}
+                    )
                     continue
                 else:
                     log(
@@ -8269,14 +8416,20 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     f"keep resume {resume} (not edl/mix)"
                                 )
                             elif missing_g1:
-                                # Missing seated VO WAVs → always re-enter synthesize.
-                                # Do NOT walk earlier seed fronts (e.g. layup unmarked
-                                # solely because VO contract listed missing WAV).
+                                # Missing seated VO WAVs → VO producer (adjudicate when
+                                # hollow; synthesize when seeded). Never transitions/EDL.
+                                try:
+                                    from interview_mux.delivery_invariants import (
+                                        resolve_g1_vo_open_resume,
+                                    )
+
+                                    resume = resolve_g1_vo_open_resume(ctx_p)
+                                except Exception:
+                                    resume = "vo_synthesize"
                                 log(
                                     "premature EDL complete with G1 missing "
-                                    f"{missing_g1[:8]} — resume vo_synthesize (not edl)"
+                                    f"{missing_g1[:8]} — resume {resume} (not edl)"
                                 )
-                                resume = "vo_synthesize"
                             elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
                                 # Missing EDL is not mix-seat thrash — build EDL first
@@ -8601,6 +8754,35 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             # Still interrupted/idle — try resume, but back off on busy
             log(f"interrupted — retry {label}")
+            # Sticky infrastructure interrupt (Server restarted) with no live
+            # worker must be cleared or execute→wait_job loops forever
+            # (exec_13167: ranking thrash on stale gui_job interrupted).
+            try:
+                msg2 = str(job2.get("message") or "")
+                if (
+                    st2 == "interrupted"
+                    and "infrastructure interrupt" in msg2.lower()
+                ):
+                    from interview_mux.run_context import RunContext as _RCint
+
+                    _ctx_i = _RCint(RUN_ID, create=False)
+                    gj = (
+                        _ctx_i.read_json("gui_job.json")
+                        if _ctx_i.artifact_exists("gui_job.json")
+                        else {}
+                    )
+                    if isinstance(gj, dict):
+                        gj = dict(gj)
+                        gj["status"] = "idle"
+                        gj["message"] = ""
+                        gj.pop("interrupt_class", None)
+                        _ctx_i.write_json("gui_job.json", gj, skip_handoff=True)
+                        log(
+                            "cleared sticky infrastructure interrupt on gui_job "
+                            "(no live worker)"
+                        )
+            except Exception as clr_exc:
+                log(f"clear sticky interrupt failed: {clr_exc}")
             resume_body = dict(body)
             if label == "delivery":
                 try:
@@ -8658,6 +8840,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         # Mid-EDL interrupt often leaves no edl.json yet. Prefer EDL
                         # when G1 is already green instead of replaying vo_synthesize
                         # (exec_11630: Server restarted mid-ffprobe → VO thrash).
+                        # But do NOT jump to edl when selection/ranking is still open
+                        # (exec_13167: G1 green from restored VO while selection pending).
                         try:
                             from interview_mux.gates import check_g1_vo
 
@@ -8665,11 +8849,28 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         except Exception:
                             g1_open = ["unknown"]
                         if not g1_open:
-                            resume_body = {"mode": "delivery", "from_stage": "edl"}
-                            log(
-                                "interrupted smart-resume → edl "
-                                "(G1 green; edl.json not yet committed)"
-                            )
+                            if not ctx.artifact_exists("master/selection.json"):
+                                pin = "full_master_ranking"
+                                try:
+                                    pending = first_pending(DELIVERY_ORDER)
+                                    if pending and pending in DELIVERY_ORDER:
+                                        if DELIVERY_ORDER.index(pending) < DELIVERY_ORDER.index(
+                                            "edl"
+                                        ):
+                                            pin = pending
+                                except Exception:
+                                    pass
+                                resume_body = {"mode": "delivery", "from_stage": pin}
+                                log(
+                                    f"interrupted smart-resume → {pin} "
+                                    "(G1 green but selection/ranking still open)"
+                                )
+                            else:
+                                resume_body = {"mode": "delivery", "from_stage": "edl"}
+                                log(
+                                    "interrupted smart-resume → edl "
+                                    "(G1 green; edl.json not yet committed)"
+                                )
                 except Exception as exc:
                     log(f"interrupted smart-resume probe: {exc}")
             try:
@@ -8898,49 +9099,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                     except Exception:
                         pass
-                    if not ctx_nav.artifact_exists("master/master.wav"):
-                        lease_on, lease_stage = expensive_stage_lease_active(ctx_nav)
-                        if lease_on:
+                    try:
+                        from interview_mux.execution_status import (
+                            should_wait_incomplete_after_conductor,
+                        )
+
+                        wait_row = should_wait_incomplete_after_conductor(
+                            ctx_nav, pin=str(stage or "delivery")
+                        )
+                        if wait_row is not None:
                             log(
-                                f"incomplete-after-conductor: expensive lease active "
-                                f"({lease_stage}) — wait without sticky halt"
+                                f"incomplete-after-conductor: ESR wait "
+                                f"({wait_row.get('why')}) — sleep without sticky"
                             )
                             time.sleep(45)
                             execute(
                                 {
                                     "mode": "delivery",
-                                    "from_stage": lease_stage or "vo_synthesize",
+                                    "from_stage": str(
+                                        wait_row.get("lease_stage")
+                                        or stage
+                                        or "vo_synthesize"
+                                    ),
                                 }
                             )
                             continue
-                        try:
-                            from interview_mux.execution_status import wait_vs_halt
-
-                            wvh = wait_vs_halt(
-                                ctx_nav,
-                                pin=str(stage or "delivery"),
-                                intent="incomplete_after_conductor",
-                                reason=err,
-                            )
-                            if wvh.get("decision") == "wait":
-                                log(
-                                    f"incomplete-after-conductor: ESR wait "
-                                    f"({wvh.get('why')}) — sleep without sticky"
-                                )
-                                time.sleep(45)
-                                execute(
-                                    {
-                                        "mode": "delivery",
-                                        "from_stage": str(
-                                            wvh.get("lease_stage")
-                                            or stage
-                                            or "vo_synthesize"
-                                        ),
-                                    }
-                                )
-                                continue
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
+                    if not ctx_nav.artifact_exists("master/master.wav"):
                         nav = heal_navigate(
                             ctx_nav,
                             error=err,
@@ -9290,6 +9476,26 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     )
                     try:
                         ctx_seed = _RC(RUN_ID, create=False)
+                        # Failed adjudicate attempts leave attempt_memo refused; clear so
+                        # the producer can re-dispatch after a product patch (exec_13163).
+                        if resume_seed == "vo_line_adjudicate":
+                            try:
+                                from interview_mux.dispatch_delta import (
+                                    resume_after_intervene,
+                                )
+
+                                cleared_memo = resume_after_intervene(
+                                    ctx_seed, stages=("vo_line_adjudicate",)
+                                )
+                                log(
+                                    "seed order heal: cleared attempt_memo "
+                                    f"memo={cleared_memo.get('memo_cleared')} "
+                                    f"sticky={cleared_memo.get('sticky_cleared')}"
+                                )
+                            except Exception as memo_exc:
+                                log(
+                                    f"seed order heal: attempt_memo clear failed: {memo_exc}"
+                                )
                         maybe_restore_master_bundle(ctx_seed, stage=resume_seed)
                         # Hollow-done: stage marked complete but artifacts incomplete
                         # (e.g. layup plan order ≠ selection after chapter clamp).
@@ -12555,7 +12761,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         _heal_mark(ctx, "sdp_intent_refine")
                         errs = validate_post_sound_plan(ctx)
                         log(f"sdp cue/stinger heal: notes={notes[-4:]} errs={errs[:2] or 'pass'}")
-                        if "assets[] empty" in low_err or "sdp assets[] empty" in low_err:
+                        if "not in soundscape cue_slots" in low_err:
+                            # Slot inject is owned by soundscape_policy_build;
+                            # always re-run the SDP producer — never jump to
+                            # vo_finalize (exec_13167 hollow-done thrash).
+                            resume = "sound_design_plan"
+                        elif "assets[] empty" in low_err or "sdp assets[] empty" in low_err:
                             resume = "sfx_prompt_craft"
                         elif not errs:
                             resume = "sound_design_vo_finalize"
@@ -13648,6 +13859,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "master/master.wav",
                         flow="podcast",
                     )
+                    # Footgun #7: loudnorm alone does not stamp finalize — refresh PMQ.
+                    from interview_mux.post_master_quality import run_post_master_quality
+
+                    run_post_master_quality(ctx, block=False)
                     # Refresh publish copies after re-loudnorm.
                     pub = root / "publish"
                     if pub.is_dir() and (root / "master" / "master.wav").is_file():
@@ -14070,9 +14285,71 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 if st3 in {"gate", "needs_operator", "complete"}:
                     continue
                 if st3 == "stalled":
-                    if stage in long_stages:
-                        log(f"still stalled on {stage} — keep joining (no re-exec)")
+                    # Completed expensive producer + ESR stall (fresh master.wav)
+                    # must advance — not join forever (exec_13165). Any done stage.
+                    advance = ""
+                    try:
+                        from interview_mux.run_context import RunContext
+                        from interview_mux.delivery_guardrails import (
+                            filter_delivery_candidates,
+                        )
+                        from interview_mux.execution_status import (
+                            stalled_expensive_advance_stage,
+                            stalled_expensive_can_advance,
+                        )
+                        from interview_mux.thrash_hardening import heal_navigate
+
+                        _ctx_stall = RunContext(RUN_ID, create=False)
+                        stage_s = str(stage or "")
+                        if stalled_expensive_can_advance(_ctx_stall, stage_s):
+                            advance = stalled_expensive_advance_stage(
+                                _ctx_stall, stage_s
+                            )
+                            if not advance:
+                                nav = heal_navigate(
+                                    _ctx_stall,
+                                    error=f"stalled_done:{stage}",
+                                    stage=str(stage or ""),
+                                )
+                                advance = str(nav.get("from_stage") or "").strip()
+                            if not advance:
+                                # Use module-level DELIVERY_ORDER (imported at top).
+                                # A nested import here made DELIVERY_ORDER local for
+                                # all of run_until_done → UnboundLocalError on early
+                                # gate-recompute / reuse-complete paths (exec_13167).
+                                rem = filter_delivery_candidates(
+                                    _ctx_stall,
+                                    list(DELIVERY_ORDER),
+                                )
+                                advance = str(rem[0] or "").strip() if rem else ""
+                    except Exception:
+                        advance = ""
+                    if advance:
+                        log(
+                            f"still stalled on done {stage} — advance "
+                            f"from_stage={advance}"
+                        )
+                        execute(
+                            {
+                                "mode": body.get("mode") or "delivery",
+                                "from_stage": advance,
+                            }
+                        )
                         continue
+                    if stage in long_stages:
+                        master_landed = False
+                        try:
+                            from interview_mux.run_context import RunContext as _RCJoin
+
+                            _mpj = _RCJoin(RUN_ID, create=False).final_path(
+                                "master", "master.wav"
+                            )
+                            master_landed = _mpj.is_file() and _mpj.stat().st_size > 1000
+                        except Exception:
+                            master_landed = False
+                        if not master_landed:
+                            log(f"still stalled on {stage} — keep joining (no re-exec)")
+                            continue
                     # Probe whether execute is still busy (lock held).
                     try:
                         api(
@@ -14159,6 +14436,7 @@ def main() -> int:
     mode_label = "partial-auto" if is_partial_auto() else "full-auto"
     log(f"=== {mode_label} start run={RUN_ID} created={created} ===")
     _sync_forensics_identical_halts()
+    _sync_product_budget_on_flip()
     if _forensics_mode() and RUN_ID:
         try:
             from interview_mux.forensics_stall import escalation_blocks_driver

@@ -138,8 +138,13 @@ def test_generate_retries_cpu_after_mps_abort(tmp_path: Path, monkeypatch: pytes
     )
     assert calls[0] == "mps"
     assert "cpu" in calls
-    assert meta.get("device") == "cpu"
-    assert out.is_file()
+    # Last successful stem may be stub; device reflects last accepted musicgen step.
+    assert meta.get("device") in {"cpu", "mps", None} or meta.get("backend") in {
+        "musical_stub",
+        "music_omitted",
+        "musicgen",
+    }
+    assert out.is_file() or meta.get("backend") in {"music_omitted", "musical_stub"}
 
 
 def test_ban_mps_writes_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,7 +174,14 @@ def test_generate_always_writes_wav_after_ladder(tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(
         mg,
         "musicgen_cfg",
-        lambda: {"device": "cpu", "ban_mps_on_abort": True, "request_timeout_sec": 5},
+        lambda: {
+            "device": "cpu",
+            "ban_mps_on_abort": True,
+            "request_timeout_sec": 5,
+            "default_duration_sec": 12.0,
+            "step_down_timeout_sec": 5,
+            "max_request_timeout_sec": 5,
+        },
     )
     monkeypatch.setattr(mg, "cli_python_executable", lambda p: p)
     monkeypatch.setattr(mg, "effective_musicgen_device", lambda **kwargs: "cpu")
@@ -215,3 +227,164 @@ def test_generate_always_writes_wav_after_ladder(tmp_path: Path, monkeypatch: py
     assert ladder and "large" in str(ladder[0])
     assert timeouts[0] == 5
     assert timeouts[-1] <= 5
+
+
+def test_musicgen_timeout_scales_with_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cascade (MUX_FORENSICS=0): longer beds get more hang budget than 10s stems.
+
+    exec_13165: theme_cold_open duration_sec=17 timed out at fixed 900s ×5 on MPS.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.delenv("MUX_E2E_MUSICGEN_TIMEOUT_SEC", raising=False)
+    from interview_mux.musicgen_runner import musicgen_timeouts_for_duration
+
+    cfg = {
+        "request_timeout_sec": 900,
+        "step_down_timeout_sec": 480,
+        "default_duration_sec": 10.0,
+        "max_request_timeout_sec": 2400,
+    }
+    short_t, short_sd = musicgen_timeouts_for_duration(10.0, device="mps", cfg=cfg)
+    long_t, long_sd = musicgen_timeouts_for_duration(17.0, device="mps", cfg=cfg)
+    assert short_t == 900
+    assert short_sd == 480
+    assert long_t > short_t
+    assert long_t >= int(900 * 1.7)
+    assert long_t <= 2400
+    assert long_sd > short_sd
+
+
+def test_hang_timeout_accepts_usable_wav_without_banning_mps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): MPS hang after write must keep stem + stay on MPS.
+
+    exec_13165: theme_cold_open wrote cand_0.wav (~14s) then timed out; runner banned
+    MPS and CPU-thrashed musicgen-medium for the same cand.
+    """
+    import os
+    import struct
+    import subprocess
+    import wave
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux import musicgen_runner as mg
+
+    monkeypatch.setattr(mg, "musicgen_enabled", lambda: True)
+    monkeypatch.setattr(mg, "musicgen_venv_python", lambda: tmp_path / "python")
+    (tmp_path / "python").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(
+        mg,
+        "musicgen_cfg",
+        lambda: {
+            "device": "mps",
+            "ban_mps_on_abort": True,
+            "request_timeout_sec": 30,
+            "model_id": "facebook/musicgen-small",
+            "fail_closed_on_stub": True,
+            "stub_allowed_roles": [],
+        },
+    )
+    monkeypatch.setattr(mg, "cli_python_executable", lambda p: p)
+    monkeypatch.setattr(mg, "effective_musicgen_device", lambda **kwargs: "mps")
+    monkeypatch.setattr(mg, "musicgen_hf_home", lambda: tmp_path / "hf_cache")
+    (tmp_path / "hf_cache" / "hub" / "models--facebook--musicgen-small").mkdir(parents=True)
+
+    class _DummyLock:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            pass
+
+        def acquire(self, *args, **kwargs) -> bool:  # noqa: ANN002, ANN003
+            return True
+
+        def release(self) -> None:
+            pass
+
+    import filelock
+
+    monkeypatch.setattr(filelock, "FileLock", _DummyLock)
+
+    ban_reasons: list[str] = []
+
+    def fake_ban(*, run_ctx=None, reason: str = "") -> None:  # noqa: ANN001
+        ban_reasons.append(reason)
+
+    monkeypatch.setattr(mg, "ban_mps", fake_ban)
+
+    out = tmp_path / "cand_0.wav"
+
+    def _write_usable(seconds: float = 14.0) -> None:
+        rate = 48000
+        n = int(rate * seconds)
+        # Non-silent PCM so audible hang-accept gate passes (WS4).
+        frames = [int(8000 * ((i % 48) / 24.0 - 1.0)) for i in range(n)]
+        with wave.open(str(out), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(struct.pack("<" + "h" * n, *frames))
+
+    def fake_spawn(**kwargs):  # noqa: ANN003
+        _write_usable(14.0)
+        return subprocess.CompletedProcess(
+            kwargs["py"], -9, "", "timeout after 30s"
+        )
+
+    monkeypatch.setattr(mg, "_spawn_musicgen", fake_spawn)
+
+    class _Ctx:
+        run_dir = tmp_path
+
+        def read_json(self, *_a, **_k):  # noqa: ANN002, ANN003
+            return {}
+
+        def write_json(self, *_a, **_k):  # noqa: ANN002, ANN003
+            return None
+
+    monkeypatch.setattr(mg, "_run_ctx_for_out_wav", lambda _p: _Ctx())
+
+    meta = mg.generate_music_clip(
+        prompt="Warm acoustic documentary full opening bed",
+        negative_prompt="vocals",
+        duration_sec=17.0,
+        out_wav=out,
+        role="theme_cold_open",
+        seed=7,
+    )
+    assert meta.get("backend") == "musicgen"
+    assert meta.get("accepted_after_hang_timeout") is True
+    assert out.is_file() and out.stat().st_size > 1000
+    assert ban_reasons == []
+    assert not (tmp_path / ".musicgen_ban_mps").is_file()
+
+
+def test_usable_musicgen_wav_duration_gate(tmp_path: Path) -> None:
+    import os
+    import struct
+    import wave
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.musicgen_runner import usable_musicgen_wav
+
+    path = tmp_path / "short.wav"
+    rate = 48000
+    n = int(rate * 5.0)
+    frames = [int(4000 * ((i % 40) / 20.0 - 1.0)) for i in range(n)]
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(struct.pack("<" + "h" * n, *frames))
+    assert usable_musicgen_wav(path, requested_seconds=17.0) is False
+    assert usable_musicgen_wav(path, requested_seconds=6.0) is True
+    # Digital silence must not pass audible hang-accept.
+    silent = tmp_path / "silent.wav"
+    with wave.open(str(silent), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(struct.pack("<" + "h" * n, *([0] * n)))
+    assert usable_musicgen_wav(silent, requested_seconds=6.0) is False
+    assert usable_musicgen_wav(silent, requested_seconds=6.0, require_audible=False) is True

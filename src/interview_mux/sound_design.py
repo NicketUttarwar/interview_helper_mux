@@ -1237,7 +1237,47 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         stamp_after_mix(ctx)
     except Exception as exc:
         ctx.log(f"render_ledger write skipped: {exc}", level="warning", stage="mix")
-    ctx.mark_done("mix")
+    # HX-2: write_live_edl / staging flush can leave assembly.wav older than
+    # edl.json even when this render produced both — seat mtime before mark_done
+    # so junction remaster does not inherit authority_denied:mark_done:hollow:mix.
+    try:
+        from interview_mux.air_order import (
+            ensure_assembly_mtime_seats_edl,
+            mix_outputs_seated,
+        )
+
+        ensure_assembly_mtime_seats_edl(ctx)
+        if not mix_outputs_seated(ctx):
+            ctx.log(
+                "mix: outputs not fully seated (mtime+commitment) — refuse mark_done",
+                level="warning",
+                stage="mix",
+            )
+            from interview_mux.done_authority import require_seated_before_mix_mark
+
+            require_seated_before_mix_mark(ctx)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        ctx.log(f"mix: assembly mtime seat skipped: {exc}", level="warning", stage="mix")
+        from interview_mux.done_authority import require_seated_before_mix_mark
+
+        # Fail closed: seating check crash must not hollow-stamp mix.
+        require_seated_before_mix_mark(ctx)
+    from interview_mux.done_authority import try_mark_done
+
+    if not try_mark_done(ctx, "mix"):
+        raise RuntimeError(
+            "mix mark_done refused (AuthorityDenied / hollow) — "
+            "assembly render is not seed-complete"
+        )
+    try:
+        from interview_mux.mix_junction_seat import clear_remaster, close_preview_music_gate
+
+        clear_remaster(ctx)
+        close_preview_music_gate(ctx)
+    except Exception:
+        pass
     # Mode C: endless per-run timeline optimizer (defaults auto-start)
     try:
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}

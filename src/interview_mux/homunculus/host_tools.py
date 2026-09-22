@@ -120,12 +120,24 @@ def run_chatterbox_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]
     from contextlib import nullcontext
 
     from interview_mux.chatterbox_runner import synthesize_line
+    from interview_mux.gap_vo_gates import (
+        framing_requires_nested_synth_gate,
+        vo_synth_mint_allowed,
+    )
     from interview_mux.media_ip_cta import cta_cover_regenerate_scope
 
     line = {
         "line_id": str(args.get("line_id") or "homunculus_vo"),
         "text": str(args.get("text") or ""),
     }
+    if framing_requires_nested_synth_gate(ctx):
+        ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=False)
+        if not ok:
+            return {
+                "ok": False,
+                "error": "vo_path_not_ready",
+                "message": str(reason or "vo_path_not_ready")[:400],
+            }
     cover = _line_is_cta_cover(ctx, str(line["line_id"]))
     scope = cta_cover_regenerate_scope(ctx) if cover else nullcontext()
     if not cover:
@@ -158,6 +170,10 @@ def _line_is_cta_cover(ctx: RunContext, line_id: str) -> bool:
 def run_s2s_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]:
     from contextlib import nullcontext
 
+    from interview_mux.gap_vo_gates import (
+        framing_requires_nested_synth_gate,
+        vo_synth_mint_allowed,
+    )
     from interview_mux.media_ip_cta import cta_cover_regenerate_scope
     from interview_mux.s2s_runner import synthesize_line
 
@@ -165,6 +181,14 @@ def run_s2s_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]:
         "line_id": str(args.get("line_id") or "homunculus_s2s"),
         "text": str(args.get("text") or ""),
     }
+    if framing_requires_nested_synth_gate(ctx):
+        ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=False)
+        if not ok:
+            return {
+                "ok": False,
+                "error": "vo_path_not_ready",
+                "message": str(reason or "vo_path_not_ready")[:400],
+            }
     cover = _line_is_cta_cover(ctx, str(line["line_id"]))
     scope = cta_cover_regenerate_scope(ctx) if cover else nullcontext()
     if not cover:

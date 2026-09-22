@@ -541,6 +541,8 @@ def _audited_wav_path(
                     return cand
             except Exception:
                 continue
+        # Bound sha unmatched — honest miss (never return wrong bytes).
+        return None
     return candidates[0]
 
 def canonicalize_synthesis_out_wav_paths(ctx: RunContext) -> list[str]:

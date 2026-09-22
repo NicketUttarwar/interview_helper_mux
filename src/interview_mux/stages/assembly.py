@@ -1078,15 +1078,35 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
 
     framing_active = False
     try:
-        from interview_mux.gap_vo_gates import gap_framing_enabled, resolve_gap_vo_delivery
+        from interview_mux.gap_vo_gates import (
+            framing_requires_nested_synth_gate,
+            nested_synth_may_mint,
+        )
 
-        framing_active = gap_framing_enabled(ctx) and resolve_gap_vo_delivery(ctx) in {
-            "chatterbox",
-            "synthesize",
-            "voice_clone",
-        }
+        framing_active = framing_requires_nested_synth_gate(ctx)
     except Exception:
-        framing_active = False
+        # Partial-shaped fail-closed: treat as gated.
+        framing_active = True
+
+    if framing_active:
+        # DP-NESTED-SYNTH A: probe errors must skip-not-mint (never fail-open).
+        try:
+            may_mint, skip_note = nested_synth_may_mint(ctx, for_synthesize=False)
+            if not may_mint:
+                # Partial/manual: do not stamp gates or SystemExit — defer WAV demand.
+                ctx.log(
+                    skip_note or "nested_synth_skipped:vo_path_not_ready",
+                    level="warning",
+                    stage="edl",
+                )
+                return [skip_note or "nested_synth_skipped:vo_path_not_ready"]
+        except Exception as exc:
+            note = f"nested_synth_skipped:probe_error:{type(exc).__name__}"
+            try:
+                ctx.log(note, level="warning", stage="edl")
+            except Exception:
+                pass
+            return [note]
 
     from interview_mux.air_script import seated_vo_line_ids
     from interview_mux.mastering_plan_loader import load_plan_raw
@@ -1753,7 +1773,25 @@ def run_edl(ctx: RunContext) -> None:
         bump_assembly_seating_generation(ctx, "edl_rewrite")
     except Exception:
         pass
-    ctx.mark_done("edl")
+    # Expanded WS2 O17: never stamp edl done while G1/VO incompleteness is open.
+    try:
+        from interview_mux.stage_completion import (
+            heal_or_refuse_mark,
+            stage_artifact_incompleteness,
+        )
+
+        inc = stage_artifact_incompleteness(ctx, "edl")
+        if inc and ("g1_open" in inc or "vo_synthesize incomplete" in inc):
+            raise SystemExit(f"edl refuse mark_done: {inc}")
+        out = heal_or_refuse_mark(ctx, "edl", force=True)
+        if out.get("refused"):
+            raise SystemExit(
+                f"edl refuse mark_done: {out.get('reason') or 'incompleteness'}"
+            )
+    except SystemExit:
+        raise
+    except Exception:
+        ctx.mark_done("edl")
     try:
         from interview_mux.delivery_guardrails import freeze_air_order
 
@@ -1893,6 +1931,14 @@ def run_mix(ctx: RunContext) -> Path:
         rerun_listen_delight_after_mix(ctx)
     except Exception as exc:
         ctx.log(f"mix: post-mix listen delight skipped: {exc}", level="warning", stage="mix")
+    try:
+        from interview_mux.air_order import mix_outputs_seated
+        from interview_mux.mix_junction_seat import clear_remaster
+
+        if mix_outputs_seated(ctx):
+            clear_remaster(ctx)
+    except Exception:
+        pass
     return out
 
 

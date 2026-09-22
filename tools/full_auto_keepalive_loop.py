@@ -143,16 +143,26 @@ def remutate_exhausted(run_id: str) -> bool:
 
 
 def pipeline_complete(run_id: str) -> bool:
+    try:
+        from interview_mux.execution_status import pipeline_complete as ctx_complete
+        from interview_mux.run_context import RunContext
+
+        return bool(ctx_complete(RunContext(run_id, create=False)))
+    except Exception:
+        pass
     root = ASSETS / "executions" / run_id
     master = root / "master" / "master.wav"
     done = root / ".stage_done"
-    return (
-        master.is_file()
-        and master.stat().st_size > 1000
-        and (done / "podcast_publish").is_file()
-        and (done / "episode_cover_generate").is_file()
-        and (done / "junction_snip_qa").is_file()
-    )
+    pub = root / "publish"
+    if not (master.is_file() and master.stat().st_size > 1000):
+        return False
+    if not (done / "podcast_publish").is_file():
+        return False
+    if not (done / "episode_cover_generate").is_file():
+        return False
+    if not ((pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()):
+        return False
+    return (pub / "audio.mp3").is_file()
 
 
 def write_status(run_id: str | None) -> None:

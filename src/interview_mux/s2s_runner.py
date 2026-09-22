@@ -208,6 +208,13 @@ def synthesize_line(
     # VO5: suppress spoken-text cascade while this line is rendering.
     setattr(ctx, "_vo_synth_lease", int(getattr(ctx, "_vo_synth_lease", 0) or 0) + 1)
     try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled, vo_synth_mint_allowed
+
+        if mode != "convert" and gap_framing_enabled(ctx):
+            ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=False)
+            if not ok:
+                raise RuntimeError(f"vo_path_not_ready:{reason}")
+
         from interview_mux.spoken_copy_guard import (
             assert_guarded_spoken_copy,
             enrich_evidence_from_run,
@@ -333,6 +340,8 @@ def _synthesize_line_render(
                             level="warning",
                             stage="vo_synthesize",
                         )
+                        # Reclaim settle lives in chatterbox_runner (leaf) — do not
+                        # nest a second 5s settle here and starve hang budgets.
                         continue
                     block = gap_vo_cfg()
                     from interview_mux.chatterbox_runner import chatterbox_cfg

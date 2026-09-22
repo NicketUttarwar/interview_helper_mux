@@ -868,8 +868,15 @@ def compose_pass_b(ctx: RunContext) -> dict[str, Any]:
                     stage="air_script_seams",
                 )
                 return plan if isinstance(plan, dict) else {}
-    except Exception:
-        pass
+    except Exception as exc:
+        # Fail-closed: never mutate seats when freeze gate itself errors.
+        plan = load_plan_raw(ctx) or {}
+        ctx.log(
+            f"compose_pass_b: seat gate error — fail-closed no-op ({exc})",
+            level="warning",
+            stage="air_script_seams",
+        )
+        return plan if isinstance(plan, dict) else {}
     plan = load_plan_raw(ctx) or {}
     script = load_air_script(plan) or empty_air_script(pass_name="pass_b")
     ordered = ordered_ids_from_air_script(plan) or _selection_ordered(ctx)
@@ -1251,8 +1258,17 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
             )
             if not allowed:
                 return 0
-    except Exception:
-        pass
+    except Exception as exc:
+        # Fail-closed: do not stamp omits / rewrite gap seats on gate error.
+        try:
+            ctx.log(
+                f"persist_air_script_omits: seat gate error — fail-closed ({exc})",
+                level="warning",
+                stage="air_script_seams",
+            )
+        except Exception:
+            pass
+        return 0
     if not air_script_enabled():
         return 0
     plan = load_plan_raw(ctx)
@@ -1306,12 +1322,25 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
                 stamped = True
                 break
     if stamped:
-        dest = ctx.write_json("understanding/gap_report.json", filtered)
+        from interview_mux.seat_authority import persist_frozen_seat_doc
+
+        if not persist_frozen_seat_doc(
+            ctx,
+            "understanding/gap_report.json",
+            filtered,
+            reason="air_script_gap_omit_sync",
+            skip_handoff=True,
+        ):
+            return filtered
+        try:
+            dest = ctx.final_path("understanding", "gap_report.json")
+        except Exception:
+            dest = None
         try:
             import shutil
 
             pending_root = ctx.run_dir / ".pending_writes"
-            if pending_root.is_dir():
+            if dest is not None and pending_root.is_dir():
                 for stage_dir in pending_root.iterdir():
                     if not stage_dir.is_dir():
                         continue

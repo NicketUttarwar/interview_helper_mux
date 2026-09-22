@@ -166,9 +166,11 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
             f"{stage}: committed master integrity failed after loudnorm — "
             "refuse mark_done (pending/truncated master cannot soft-complete ship)."
         )
-    ctx.mark_done(stage)
+    # Done Authority: do not stamp master_finalize here — PMQ is required and is
+    # written by run_post_master_quality after this return (SHIP-HOLLOW-FINALIZE).
     ctx.log(
-        f"Master complete — {master_rel} at {target:.1f} LUFS target.",
+        f"Master render complete — {master_rel} at {target:.1f} LUFS target "
+        "(await PMQ before mark_done).",
         level="success",
         stage=stage,
         detail=str(master),

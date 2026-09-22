@@ -107,5 +107,5 @@ def test_delivery_incomplete_raises_when_ship_remaining(ctx: RunContext, monkeyp
     monkeypatch.setattr("interview_mux.pipeline.require_g1_clear", lambda _c: None)
     monkeypatch.setattr("interview_mux.pipeline.require_analysis_artifacts_complete", lambda _c: None)
     monkeypatch.setattr("interview_mux.pipeline.require_delivery_gates", lambda _c, **_k: None)
-    with pytest.raises(RuntimeError, match="remaining ship stages"):
+    with pytest.raises(RuntimeError, match="not publishable|remaining ship|walk_failed"):
         run_delivery(ctx, from_stage="episode_meta_build")

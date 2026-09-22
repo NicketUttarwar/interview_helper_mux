@@ -228,45 +228,94 @@ def generate_text_to_audio(
         )
 
     with tempfile.TemporaryDirectory(prefix="mmaudio_out_") as tmp:
-        proc = run_runtime_script(
-            "mmaudio",
-            "tools/mmaudio_generate.py",
-            [
-                "--variant",
-                resolved_variant,
-                "--prompt",
-                positive,
-                "--negative-prompt",
-                negative_prompt or "no vocals, no speech, no lyrics",
-                "--duration",
-                str(duration),
-                "--cfg-strength",
-                str(resolved_cfg),
-                "--num-steps",
-                str(resolved_steps),
-                "--seed",
-                str(resolved_seed),
-                "--device",
-                device,
-                "--output-wav",
-                str(output_wav),
-                "--repo",
-                str(repo),
-                "--work-dir",
-                tmp,
-            ],
-            ctx=ctx,
-            stage=stage_key,
+        from interview_mux.hang_escalation import (
+            MMAUDIO_FIDELITY_RUNGS,
+            budget_for_work,
+            next_fidelity_rung,
         )
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()[:500]
-            from interview_mux.heavy_task_policy import is_heavy_kill_returncode
 
-            if is_heavy_kill_returncode(proc.returncode):
-                raise HeavyTaskKilled(
-                    f"MMAudio generation killed (rc={proc.returncode}): {err}"
-                )
+        cfg_m = mmaudio_cfg()
+        base_to = int(cfg_m.get("request_timeout_sec") or 900)
+        max_to = int(cfg_m.get("max_request_timeout_sec") or 2400)
+        ref_dur = float(cfg_m.get("ref_duration_sec") or 8.0)
+        timeout = budget_for_work(
+            base_timeout_sec=base_to,
+            work_units=float(duration),
+            ref_units=ref_dur,
+            max_timeout_sec=float(max_to),
+        )
+        variants_tried = [resolved_variant]
+        while True:
+            proc = run_runtime_script(
+                "mmaudio",
+                "tools/mmaudio_generate.py",
+                [
+                    "--variant",
+                    resolved_variant,
+                    "--prompt",
+                    positive,
+                    "--negative-prompt",
+                    negative_prompt or "no vocals, no speech, no lyrics",
+                    "--duration",
+                    str(duration),
+                    "--cfg-strength",
+                    str(resolved_cfg),
+                    "--num-steps",
+                    str(resolved_steps),
+                    "--seed",
+                    str(resolved_seed),
+                    "--device",
+                    device,
+                    "--output-wav",
+                    str(output_wav),
+                    "--repo",
+                    str(repo),
+                    "--work-dir",
+                    tmp,
+                ],
+                timeout_sec=timeout,
+                env_extra={
+                    "INTERVIEW_MUX_OUT_WAV": str(output_wav),
+                    "INTERVIEW_MUX_OUT_WAV_SEC": str(duration),
+                },
+                ctx=ctx,
+                stage=stage_key,
+            )
+            if proc.returncode == 0:
+                break
+            err = (proc.stderr or proc.stdout or "").strip()[:500]
+            from interview_mux.heavy_task_policy import (
+                is_heavy_kill_returncode,
+                reclaim_for_same_class_retry,
+            )
+            from interview_mux.hang_escalation import classify_hang_vs_abort
+
+            kind = classify_hang_vs_abort(returncode=proc.returncode, stderr=err)
+            # §0.3b: reclaim → settle → same-class retry once before fidelity / raise.
+            # Hang budgets (timeout) are unchanged; reclaim only after a finished fail.
+            if reclaim_for_same_class_retry(
+                ctx,
+                consumer="mmaudio",
+                fingerprint=f"{resolved_variant}:{asset_id or output_wav.name}",
+                proc=proc,
+                returncode=proc.returncode,
+                stderr=err,
+                stage=stage_key,
+            ):
+                continue
+            if kind == "hang" or is_heavy_kill_returncode(proc.returncode):
+                nxt = next_fidelity_rung(resolved_variant, MMAUDIO_FIDELITY_RUNGS)
+                if nxt and nxt not in variants_tried:
+                    variants_tried.append(nxt)
+                    resolved_variant = nxt
+                    resolved_steps = max(20, int(resolved_steps * 0.75))
+                    continue
+                if is_heavy_kill_returncode(proc.returncode) and kind != "hang":
+                    raise HeavyTaskKilled(
+                        f"MMAudio generation killed (rc={proc.returncode}): {err}"
+                    )
             raise MMAudioUnavailable(f"MMAudio generation failed: {err}")
+        # success path continues below (file promote)
 
     meta = {
         "provider": "mmaudio",

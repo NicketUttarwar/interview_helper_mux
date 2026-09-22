@@ -59,8 +59,28 @@ def enhance_wav(
 
     proc = run_runtime_script("deepfilter", "tools/deepfilter_enhance.py", args, ctx=ctx, stage="audio_preclean")
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()[:500]
-        raise DeepFilterUnavailable(f"DeepFilterNet enhance failed: {err}")
+        from interview_mux.heavy_task_policy import reclaim_for_same_class_retry
+
+        err0 = (proc.stderr or proc.stdout or "").strip()
+        if reclaim_for_same_class_retry(
+            ctx,
+            consumer="deepfilter",
+            fingerprint=f"enhance:{input_path.name}",
+            proc=proc,
+            returncode=proc.returncode,
+            stderr=err0,
+            stage="audio_preclean",
+        ):
+            proc = run_runtime_script(
+                "deepfilter",
+                "tools/deepfilter_enhance.py",
+                args,
+                ctx=ctx,
+                stage="audio_preclean",
+            )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()[:500]
+            raise DeepFilterUnavailable(f"DeepFilterNet enhance failed: {err}")
 
     if ctx:
         ctx.log(
@@ -112,17 +132,52 @@ def enhance_wav_batch(
             detail={"count": len(pairs)},
         )
 
+    from interview_mux.hang_escalation import budget_for_work
+
+    base_to = int(cfg.get("request_timeout_sec") or 600)
+    max_to = int(cfg.get("max_request_timeout_sec") or 2400)
+    unit = float(cfg.get("timeout_sec_per_file") or 90.0)
+    timeout = budget_for_work(
+        base_timeout_sec=max(base_to, unit * len(pairs)),
+        work_units=float(len(pairs)),
+        ref_units=1.0,
+        max_timeout_sec=float(max_to),
+        min_timeout_sec=float(base_to),
+    )
     proc = run_runtime_script(
         "deepfilter",
         "tools/deepfilter_enhance_batch.py",
         [],
         stdin_data=json.dumps(payload),
+        timeout_sec=timeout,
         ctx=ctx,
         stage="audio_preclean",
     )
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()[:500]
-        raise DeepFilterUnavailable(f"DeepFilterNet batch enhance failed: {err}")
+        from interview_mux.heavy_task_policy import reclaim_for_same_class_retry
+
+        err0 = (proc.stderr or proc.stdout or "").strip()
+        if reclaim_for_same_class_retry(
+            ctx,
+            consumer="deepfilter",
+            fingerprint=f"batch:{len(pairs)}",
+            proc=proc,
+            returncode=proc.returncode,
+            stderr=err0,
+            stage="audio_preclean",
+        ):
+            proc = run_runtime_script(
+                "deepfilter",
+                "tools/deepfilter_enhance_batch.py",
+                [],
+                stdin_data=json.dumps(payload),
+                timeout_sec=timeout,
+                ctx=ctx,
+                stage="audio_preclean",
+            )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()[:500]
+            raise DeepFilterUnavailable(f"DeepFilterNet batch enhance failed: {err}")
 
     if progress is not None and ctx is not None:
         from interview_mux.operator_subprocess import touch_job_progress

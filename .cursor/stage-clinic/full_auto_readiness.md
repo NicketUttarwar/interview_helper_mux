@@ -84,3 +84,17 @@ Unattended Full-auto + app decide gates; **deterministic + strictest honesty** o
 ## Optional outside confirmation
 
 Live Full-auto remains **outside** clinic. Not required to close Stage Clinic. Prefer a tape that yields a real title (or ensure brief→meta title path) given EMB-B1.
+
+## X-2 — Partial readiness addendum (2026-09-19)
+
+Partial (`partially-accelerated`) shares brain **0.2.0** seed walk and unattended remediation, but **does not** flip this clinic verdict to `not_ready` because intentional human gates remain:
+
+| Gate / posture | Partial expectation |
+|----------------|---------------------|
+| **G0** | **must-act** — operator fixes STT before analysis continues |
+| **G-Publish** | **must-act** when armed (Upload / Skip) |
+| **G-Listen** | defaults `sound_design.g_listen_mode=warn` — **non-blocking** advisory |
+| **Narrative QC** | soft under `is_unattended_run` (Partial + Full-auto) — intentional progress; Manual stays strict |
+| Nested Chatterbox | skip-not-stamp when VO ladder open (no Partial auto-accept) |
+
+Do **not** treat G0 / G-Publish must-act as Full-auto readiness regressions.

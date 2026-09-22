@@ -33,6 +33,35 @@ Sticky heal, forensics stall, identical_failures, and `needs_operator` historica
 
 Shared helper is used by `full_auto_driver`, `pipeline`, `homunculus/agenda`, and `web/runner` incomplete-after-conductor paths (`should_wait_incomplete_after_conductor`).
 
+## Post-master never-thrash-wait (ESR_POST_MASTER / DP-C1–C4)
+
+After committed `master.wav` + honest `master_finalize` (Done Authority):
+
+| Law | Helper |
+|-----|--------|
+| C1 wrong-pin never-wait | `post_master_never_wait` / `pin_in_post_master_family` |
+| C2 stalled advance to ship | `stalled_expensive_can_advance` / `stalled_expensive_advance_stage` |
+| C3 one wait helper | callers must use `should_wait_incomplete_after_conductor` |
+| C4 ghost mtime leases | `skip_post_master_mtime_lease` (stalled/idle/error) |
+
+Ship-bar vocabulary (`pipeline_complete`) is **C5** — separate family.
+
+Matrix: `tests/test_esr_post_master_family.py` (`MUX_FORENSICS=0`).
+
+## Ship-bar vocabulary (DP-C5 / SHIP_BAR_VOCAB)
+
+**Partial DONE** = `pipeline_complete(ctx)` / `ship_bar_complete(ctx)` only:
+
+| Predicate | Role |
+|-----------|------|
+| `pipeline_complete` | Local ship-bar SSOT (master + cover + mp3 + package_ready) |
+| `ship_after_master_remaining` | Agenda work list after master — **not** DONE |
+| ESR `should_wait` | Short-circuits when ship bar complete |
+| Runner batch complete | Job slice finished — **not** episode DONE |
+| G-Publish / S3 | Operator consent / remote — **never** part of ship bar |
+
+Holes: `ship_bar_incomplete_reasons(ctx)`. Matrix: `tests/test_ship_bar_vocab.py`.
+
 ## Related
 
 - Seat freeze: `run_meta.delivery_epoch.vo_seats_freeze` (see air-order / seat_authority)

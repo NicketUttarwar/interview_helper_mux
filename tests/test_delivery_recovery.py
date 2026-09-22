@@ -124,6 +124,10 @@ def test_ensure_g1_pickups_missing_gap_report(tmp_path: Path):
 
 def test_ensure_g1_pickups_synthesizes_missing(tmp_path: Path, monkeypatch):
     ctx = _ctx(tmp_path)
+    # Unit fixture is not a framing run — disable gap ladder so synth path is exercised.
+    (ctx.run_dir / "run_meta.json").write_text(
+        '{"gap_framing_enabled": false}', encoding="utf-8"
+    )
     und = ctx.run_dir / "understanding"
     und.mkdir()
     (und / "gap_report.json").write_text(

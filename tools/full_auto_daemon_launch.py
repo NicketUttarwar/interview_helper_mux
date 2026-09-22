@@ -78,14 +78,25 @@ def health_url() -> str:
 
 
 def _pipeline_complete(run_dir: Path) -> bool:
+    try:
+        from interview_mux.execution_status import pipeline_complete as ctx_complete
+        from interview_mux.run_context import RunContext
+
+        return bool(ctx_complete(RunContext(run_dir.name, create=False)))
+    except Exception:
+        pass
     master = run_dir / "master" / "master.wav"
     done = run_dir / ".stage_done"
-    return (
-        master.is_file()
-        and master.stat().st_size > 1000
-        and (done / "podcast_publish").is_file()
-        and (done / "episode_cover_generate").is_file()
-    )
+    pub = run_dir / "publish"
+    if not (master.is_file() and master.stat().st_size > 1000):
+        return False
+    if not (done / "podcast_publish").is_file():
+        return False
+    if not (done / "episode_cover_generate").is_file():
+        return False
+    if not ((pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()):
+        return False
+    return (pub / "audio.mp3").is_file()
 
 
 def newest_incomplete_run() -> str | None:

@@ -159,3 +159,45 @@ def test_cta_cover_exemption_is_a_named_identity_set(tmp_path: Path, monkeypatch
     # Anything else in the run is untouched by the cover scope.
     assert exemption_for(ctx, "edl", "stage") is None
     assert exemption_for(ctx, "mix", "stage") is None
+
+
+def test_budget_epoch_resets_count_attempts_after_product_patch(tmp_path: Path) -> None:
+    """MUX_FORENSICS=0 cascade: fingerprint stamp clears spent invoke budget."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.homunculus.ledger import stamp_budget_epoch
+
+    ctx = _driver_ctx(tmp_path, "door_budget_epoch")
+    _dispatch_rows(ctx, "vo_line_adjudicate", 6)
+    assert count_attempts(ctx, "vo_line_adjudicate") >= 3
+    assert dispatch_cap_refusal(ctx, "vo_line_adjudicate") is not None
+    stamp_budget_epoch(ctx, fingerprint="patched", reason="product_fingerprint")
+    assert count_attempts(ctx, "vo_line_adjudicate") == 0
+    assert dispatch_cap_refusal(ctx, "vo_line_adjudicate") is None
+
+
+def test_walk_refuses_incomplete_critical_without_advancing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """MUX_FORENSICS=0: max_invokes refuse on vo_line must not skip to vo_synthesize."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux import pipeline
+    from interview_mux.homunculus.agenda import walk_seed_agenda
+
+    ctx = _driver_ctx(tmp_path, "door_no_advance_critical")
+    _dispatch_rows(ctx, "vo_line_adjudicate", 6)
+    calls: list[str] = []
+    monkeypatch.setattr(pipeline, "run_single_stage", lambda _c, sid: calls.append(sid))
+    walk_seed_agenda(
+        ctx,
+        ["vo_line_adjudicate", "vo_synthesize"],
+        reason="delivery_walk_to_master",
+    )
+    # MUST_PRECEDE may reinject earlier producers; the critical refuse must still
+    # stop the walk before vo_synthesize runs hollow.
+    assert "vo_synthesize" not in calls
+    assert "vo_line_adjudicate" not in calls
+    assert not ctx.is_done("vo_synthesize")

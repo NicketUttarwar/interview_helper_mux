@@ -15,6 +15,128 @@ from interview_mux.run_context import RunContext
 
 ESR_REL = "operator/execution_status.json"
 
+# ---------------------------------------------------------------------------
+# ESR_POST_MASTER (DP-C1–C4) — shared post-master never-thrash-wait SSOT
+# ---------------------------------------------------------------------------
+# After committed master + honest finalize, ESR must not thrash-wait on
+# fresh:master.wav / ghost VO-MusicGen mtimes / infinite stalled keep-join.
+# C5 (pipeline_complete ship-bar) is a separate family.
+
+
+def pin_in_post_master_family(pin: str) -> bool:
+    """C1: pins for which master.wav freshness must not ESR-stall after finalize."""
+    pin_s = str(pin or "").strip()
+    if not pin_s:
+        return False
+    try:
+        from interview_mux.v2.config import SHIP_AFTER_MASTER
+
+        ship = set(SHIP_AFTER_MASTER)
+    except Exception:
+        ship = set()
+    pin_l = pin_s.lower()
+    return pin_s in {
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+        "listen_delight_audit",
+        "listen_delight",
+        *ship,
+    } or "listen_delight" in pin_l
+
+
+def committed_master_present(ctx: RunContext) -> bool:
+    """Committed master.wav integrity (size floor) — shared C1/C2/C4 gate."""
+    try:
+        from interview_mux.delivery_invariants import committed_master_integrity_ok
+
+        return bool(committed_master_integrity_ok(ctx))
+    except Exception:
+        try:
+            mp = ctx.final_path("master", "master.wav")
+            return mp.is_file() and mp.stat().st_size > 1000
+        except Exception:
+            return False
+
+
+def post_master_finalize_honest(ctx: RunContext) -> bool:
+    """Honest finalize seed-complete (Done Authority — never bare is_done)."""
+    try:
+        from interview_mux.done_authority import may_clear_wait
+
+        return bool(may_clear_wait(ctx, "master_finalize"))
+    except Exception:
+        return False
+
+
+def post_master_never_wait(ctx: RunContext, pin: str = "") -> bool:
+    """C1 law: master committed ∧ finalize honest ∧ pin in post-master family.
+
+    When True, ``should_wait_incomplete_after_conductor`` must return None
+    (no ESR wait on fresh master.wav for the wrong pin).
+    """
+    if not committed_master_present(ctx):
+        return False
+    if not post_master_finalize_honest(ctx):
+        return False
+    pin_s = str(pin or "").strip()
+    if pin_s and pin_in_post_master_family(pin_s):
+        return True
+    # No pin: still never-wait when pipeline ship-bar already complete.
+    try:
+        return bool(pipeline_complete(ctx))
+    except Exception:
+        return False
+
+
+def skip_post_master_mtime_lease(ctx: RunContext, *, job_status: str, job_stage: str) -> bool:
+    """C4 law: suppress VO/MusicGen mtime leases when stalled/idle/error post-master.
+
+    Footgun #5: never suppress when expensive pending_writes exist or VO/music
+    assets landed in the last ~90s (gui_job can lie idle while Chatterbox writes).
+    """
+    status = str(job_status or "").lower()
+    if status not in {"stalled", "idle", "error"}:
+        return False
+    if not committed_master_present(ctx):
+        return False
+    # Hold lease if producers are still writing.
+    try:
+        pending_root = ctx.run_dir / ".pending_writes"
+        if pending_root.is_dir():
+            for sid in (
+                "vo_synthesize",
+                "music_palette_compose",
+                "mmaudio_sfx",
+                "sfx_prompt_craft",
+            ):
+                p = pending_root / sid
+                if p.is_dir() and any(p.rglob("*")):
+                    return False
+    except Exception:
+        pass
+    try:
+        import time
+
+        now = time.time()
+        synth = ctx.final_path("vo_pickup", "synthesized")
+        if synth.is_dir():
+            for p in synth.glob("*.wav"):
+                if p.is_file() and (now - p.stat().st_mtime) < 90.0:
+                    return False
+        assets = ctx.final_path("sound_design", "assets")
+        if assets.is_dir():
+            for p in assets.rglob("*.wav"):
+                if p.is_file() and (now - p.stat().st_mtime) < 90.0:
+                    return False
+    except Exception:
+        pass
+    stage = str(job_stage or "").strip()
+    if pin_in_post_master_family(stage) or post_master_finalize_honest(ctx):
+        return True
+    return False
+
+
 # Stage-class progress SLAs (seconds) — config may override via thrash_spine.progress_sla.
 _DEFAULT_SLA_SEC: dict[str, float] = {
     "vo_synthesize": 180.0,
@@ -211,26 +333,64 @@ def _collect_progress_sources(
 
     # e2e_soft is NOT producer progress — deliberately ignored here
 
+    # Exact pin → freshness family (B2 / C3): never substring ``"vo_" in pin``.
+    _VO_WAV_PINS = frozenset(
+        {
+            "vo_synthesize",
+            "vo_line_adjudicate",
+            "nugget_layup_compose",
+            "nugget_intro_compose",
+            "gap_framing_compose",
+            "gap_framing_recompose",
+            "missing_framing",
+            "transitions",
+        }
+    )
+    _SFX_PINS = frozenset(
+        {
+            "sound_design_plan",
+            "sound_design_vo_finalize",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+            "music_palette_compose",
+            "musicgen_theme",
+        }
+    )
+    _MIX_PINS = frozenset({"mix", "master_finalize", "assembly_preview"})
+    _JUNCTION_PINS = frozenset({"junction_snip_qa"})
+    _DELIGHT_PINS = frozenset({"listen_delight_audit", "listen_delight"})
+    _EDL_NARRATIVE_PINS = frozenset({"edl_narrative_audit", "edl_narrative_remutate"})
+    _EDL_PINS = frozenset({"edl", "stages/assembly"})
+
     def _pin_keeps(label: str) -> bool:
         if not pin_s:
             return True
         if _label_is_non_producer_progress(label):
             # Heartbeats are telemetry; never the sole freshness for a pin.
             return False
-        pin_l = pin_s.lower()
+        pin_l = pin_s.lower().strip()
         s = label.lower()
-        if any(k in pin_l for k in ("vo_", "synthesize", "adjudicate", "layup")):
-            return s.startswith("vo_wavs")
-        if any(k in pin_l for k in ("music", "mmaudio", "sfx", "sound_design", "palette")):
+        if pin_l in _SFX_PINS or pin_l.startswith("sound_design"):
             return s.startswith("sfx_assets")
-        if any(k in pin_l for k in ("mix", "master_finalize", "assembly")):
+        if pin_l in _VO_WAV_PINS:
+            return s.startswith("vo_wavs")
+        if pin_l in _MIX_PINS:
             return s in {"assembly.wav", "assembly_preview.wav", "master.wav"}
-        if "junction" in pin_l or "snip" in pin_l:
+        if pin_l in _DELIGHT_PINS or pin_l.endswith("delight"):
+            return s in {
+                "assembly.wav",
+                "assembly_preview.wav",
+                "master.wav",
+                "edl.json",
+            }
+        if pin_l in _JUNCTION_PINS:
             return s in {"seam_autopsy.json", "nle_edits.json", "edl.json"}
-        if "edl" in pin_l:
+        if pin_l in _EDL_PINS:
             return s in {"edl.json", "seam_autopsy.json", "assembly.wav"}
-        # Unknown pin: real artifact sources only (no heartbeat fallthrough)
-        return not _label_is_non_producer_progress(label)
+        if pin_l in _EDL_NARRATIVE_PINS or pin_l.startswith("edl_narrative"):
+            return s in {"edl_narrative_audit.json", "edl.json"}
+        # Unknown pin: artifact sources except VO wavs (VO freshness is VO-pin only).
+        return not _label_is_non_producer_progress(label) and not s.startswith("vo_wavs")
 
     if pin_s:
         kept = [(lab, mt) for lab, mt in tagged if _pin_keeps(lab)]
@@ -293,6 +453,16 @@ def progress_stale(
             if inc:
                 # incomplete + no fresh disk → stale (allow halt)
                 return True, f"incomplete:{inc[:80]}"
+        except Exception:
+            pass
+        # Seed-complete pin + committed master → not producer progress (WS5).
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if seed_stage_complete(ctx, pin_s) and ctx.final_path(
+                "master", "master.wav"
+            ).is_file():
+                return True, "done_pin_committed_master"
         except Exception:
             pass
 
@@ -533,6 +703,161 @@ def note_reopen_gate_decision(ctx: RunContext, decision: dict[str, Any]) -> None
         pass
 
 
+def _package_ready_envelope(ctx: RunContext) -> bool:
+    """HPUB-2 package envelope for *stage* seed — ready:true or honest skipped:true."""
+    if not ctx.artifact_exists("publish/package_ready.json"):
+        return False
+    try:
+        doc = ctx.read_json("publish/package_ready.json")
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    if doc.get("ready") is True:
+        return True
+    return doc.get("skipped") is True
+
+
+def _package_ready_for_ship_bar(ctx: RunContext) -> bool:
+    """C5 footgun #2: Partial DONE requires ready:true — Skip alone is not DONE."""
+    if not ctx.artifact_exists("publish/package_ready.json"):
+        return False
+    try:
+        doc = ctx.read_json("publish/package_ready.json")
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    return doc.get("ready") is True
+
+
+def pipeline_complete(ctx: RunContext) -> bool:
+    """C5 ship-bar SSOT — local package DONE for Partial / unattended close.
+
+    Required on disk:
+    - committed ``master/master.wav`` (integrity floor)
+    - ``publish/cover.jpg|png`` + ``publish/audio.mp3``
+    - ``publish/package_ready.json`` with ``ready:true``
+
+    ``skipped:true`` may seed-complete ``podcast_publish`` (HPUB) but is **not**
+    Partial DONE — operator intentionally declined a local package.
+
+    Stage markers alone are not enough (hollow ``.stage_done`` refused).
+
+    **Not** this bar (separate operator surfaces):
+    - G-Publish / S3 upload consent
+    - ``g_publish_cleared`` / remote sync success
+    - ESR wait rows / agenda remaining lists (those *consult* this bar)
+    """
+    if not committed_master_present(ctx):
+        return False
+    try:
+        pub = ctx.final_path("publish")
+    except Exception:
+        return False
+    cover_ok = (pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()
+    mp3_ok = (pub / "audio.mp3").is_file()
+    if not cover_ok or not mp3_ok:
+        return False
+    return _package_ready_for_ship_bar(ctx)
+
+
+def ship_bar_complete(ctx: RunContext) -> bool:
+    """Alias for Partial DONE vocabulary — same SSOT as ``pipeline_complete``."""
+    return pipeline_complete(ctx)
+
+
+def ship_bar_incomplete_reasons(ctx: RunContext) -> list[str]:
+    """Operator-facing holes when ``pipeline_complete`` is False (C5 vocabulary)."""
+    reasons: list[str] = []
+    if not committed_master_present(ctx):
+        reasons.append("master_missing_or_thin")
+    try:
+        pub = ctx.final_path("publish")
+    except Exception:
+        reasons.append("publish_dir_unavailable")
+        return reasons
+    if not ((pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()):
+        reasons.append("cover_missing")
+    if not (pub / "audio.mp3").is_file():
+        reasons.append("audio_mp3_missing")
+    if not _package_ready_for_ship_bar(ctx):
+        reasons.append("package_ready_missing_or_false")
+    return reasons
+
+
+def g_publish_consent_is_not_ship_bar() -> bool:
+    """C5 law: G-Publish / S3 consent must never be folded into ``pipeline_complete``."""
+    return True
+
+
+# Five predicates operators may confuse — only pipeline_complete is Partial DONE.
+SHIP_BAR_VOCABULARY: dict[str, str] = {
+    "pipeline_complete": "Local ship-bar SSOT (Partial DONE)",
+    "ship_after_master_remaining": "Agenda holes after master — work list, not DONE",
+    "should_wait / ESR": "Wait-vs-halt; short-circuits when pipeline_complete",
+    "runner batch complete": "Job batch finished a slice — not episode DONE",
+    "g_publish / S3": "Operator consent / remote sync — never part of ship bar",
+}
+
+
+def stalled_expensive_can_advance(ctx: RunContext, stage: str) -> bool:
+    """C2: stalled expensive producer may advance toward ship (never infinite keep-join).
+
+    Pre-master: a done stage that is ESR-stalled must *not* leapfrog into
+    ``SHIP_AFTER_MASTER`` (exec_13167: sound_design_vo_finalize → master_transcript_build
+    while edl/mix still pending). Ship-after-master advance requires a committed master.
+
+    Done Authority: prefer honest seed-complete over bare ``is_done``.
+    """
+    from interview_mux.v2.config import SHIP_AFTER_MASTER
+
+    stage_s = str(stage or "").strip()
+    master_ok = committed_master_present(ctx)
+    left: list[str] = []
+    try:
+        from interview_mux.homunculus.agenda import ship_after_master_remaining
+
+        left = list(ship_after_master_remaining(ctx) or [])
+    except Exception:
+        left = []
+    done = False
+    try:
+        from interview_mux.done_authority import may_clear_wait
+
+        done = bool(may_clear_wait(ctx, stage_s)) if stage_s else False
+    except Exception:
+        try:
+            done = bool(ctx.is_done(stage_s))
+        except Exception:
+            done = False
+    if done and not master_ok:
+        return False
+    return done or bool(master_ok and (stage_s in SHIP_AFTER_MASTER or bool(left)))
+
+
+def stalled_expensive_advance_stage(ctx: RunContext, stage: str) -> str:
+    """First ship hole when C2 can advance — but mix seating before ship (footgun #3)."""
+    if not stalled_expensive_can_advance(ctx, stage):
+        return ""
+    # After master: unseated mix must heal before SHIP_AFTER_MASTER leapfrog.
+    if committed_master_present(ctx):
+        try:
+            from interview_mux.air_order import mix_outputs_seated
+
+            if not mix_outputs_seated(ctx):
+                return "mix"
+        except Exception:
+            pass
+    try:
+        from interview_mux.homunculus.agenda import ship_after_master_remaining
+
+        left = list(ship_after_master_remaining(ctx) or [])
+        return str(left[0] or "").strip() if left else ""
+    except Exception:
+        return ""
+
+
 def should_wait_incomplete_after_conductor(
     ctx: RunContext,
     *,
@@ -543,10 +868,44 @@ def should_wait_incomplete_after_conductor(
 
     Returns the wait_vs_halt row when decision is ``wait`` (caller must not HARD
     raise / sticky-halt). Returns None when HARD escalate is allowed.
+
+    ESR_POST_MASTER (C1): when finalize is honestly done and ``master/master.wav``
+    is committed, post-family pins (mix/delight/junction/ship) must not ESR-wait
+    on fresh master/assembly mtimes — remaining work is ship, not remaster
+    (exec_13165). C3: all callers use this helper (never raw wait_vs_halt alone).
     """
+    try:
+        master_ok = committed_master_present(ctx)
+    except Exception:
+        master_ok = False
+    try:
+        if master_ok and pipeline_complete(ctx):
+            return None
+    except Exception:
+        pass
     pin_s = str(pin or "").strip()
     if not pin_s and remaining:
         pin_s = str(remaining[0] or "").strip()
+    # Done Authority (B5): only honest seed-complete clears wait — never bare is_done.
+    if pin_s:
+        try:
+            from interview_mux.done_authority import may_clear_wait
+
+            if may_clear_wait(ctx, pin_s):
+                return None
+        except Exception:
+            pass
+    # C1: post-master family never-wait (shared SSOT).
+    if pin_s and post_master_never_wait(ctx, pin_s):
+        return None
+    if pin_s and master_ok:
+        try:
+            from interview_mux.done_authority import may_clear_wait
+
+            if may_clear_wait(ctx, pin_s):
+                return None
+        except Exception:
+            pass
     try:
         sync_execution_status(
             ctx,

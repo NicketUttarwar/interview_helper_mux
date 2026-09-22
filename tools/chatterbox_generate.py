@@ -100,7 +100,13 @@ def main() -> int:
         return 1
 
     print(json.dumps({"ok": True, "out_wav": str(out_wav), "model_id": model_id, "device": device}))
-    return 0
+    # Hard-exit after successful write — avoid MPS cache teardown hang (WS4).
+    try:
+        import os
+
+        os._exit(0)
+    except Exception:
+        return 0
 
 
 if __name__ == "__main__":

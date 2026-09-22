@@ -14,6 +14,14 @@ outputs:
   staging: false
 - path: master/transcript.vtt
 - path: master/transcript.txt
+- path: glob:transcripts/transition/*.json
+  staging: true
+- path: glob:transcripts/vo/*.json
+  staging: true
+- path: glob:transcripts/speech/*.json
+  staging: true
+- path: transcripts/index.json
+  staging: true
 inputs:
   hard:
   - path: master/master.wav

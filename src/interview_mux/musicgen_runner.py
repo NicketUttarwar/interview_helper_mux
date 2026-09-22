@@ -133,6 +133,39 @@ def e2e_musicgen_timeout_sec(default: int) -> int:
         return int(default)
 
 
+def musicgen_timeouts_for_duration(
+    duration_sec: float,
+    *,
+    device: str = "mps",
+    cfg: dict | None = None,
+) -> tuple[int, int]:
+    """Return (primary_timeout_sec, step_down_timeout_sec) scaled by stem length.
+
+    Short stems keep the configured hang budget; longer beds (cold open ~17s)
+    need proportionally more wall time on MPS before ladder step-down
+    (exec_13165: 17s theme_cold_open timed out at fixed 900s ×5).
+    """
+    cfg_block = dict(cfg or musicgen_cfg())
+    base_timeout = int(cfg_block.get("request_timeout_sec") or 900)
+    if str(device).lower() == "cpu":
+        base_timeout = int(
+            cfg_block.get("cpu_request_timeout_sec") or min(base_timeout, 300)
+        )
+    timeout = e2e_musicgen_timeout_sec(base_timeout)
+    ref_dur = float(cfg_block.get("default_duration_sec") or 10.0)
+    scale = max(1.0, float(duration_sec) / max(1.0, ref_dur))
+    max_timeout = int(cfg_block.get("max_request_timeout_sec") or 2400)
+    timeout = min(max_timeout, max(timeout, int(timeout * scale)))
+    step_down_timeout = int(
+        cfg_block.get("step_down_timeout_sec") or min(480, timeout)
+    )
+    step_down_timeout = min(
+        max_timeout,
+        max(step_down_timeout, int(step_down_timeout * scale)),
+    )
+    return int(timeout), int(step_down_timeout)
+
+
 def musicgen_hf_home() -> Path:
     """Isolated Hugging Face cache used by bootstrap_musicgen.sh."""
     return repo_root() / "ASSETS" / "local_musicgen" / "hf_cache"
@@ -178,33 +211,105 @@ def is_abort_returncode(code: int | None) -> bool:
     return is_heavy_kill_returncode(code)
 
 
-def mps_banned(*, run_ctx: Any | None = None) -> bool:
-    if str(os.environ.get(_BAN_MPS_ENV) or "").strip().lower() in {"1", "true", "yes"}:
-        return True
-    if run_ctx is None:
+def is_hang_timeout_result(proc: Any) -> bool:
+    """True when the parent killed a hung worker after the hang budget.
+
+    Distinct from Metal abort: MusicGen often writes a good wav then hangs in
+    MPS cache teardown / ``Py_Finalize``; ``os._exit(0)`` never runs and the
+    parent reports ``timeout after Ns`` with returncode -9. That must not ban MPS.
+    """
+    try:
+        rc = int(getattr(proc, "returncode", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    err = str(getattr(proc, "stderr", "") or "")
+    return rc == -9 and "timeout after" in err
+
+
+def usable_musicgen_wav(
+    out_wav: Path,
+    *,
+    requested_seconds: float,
+    min_ratio: float = 0.70,
+    min_bytes: int = 1000,
+    require_audible: bool = True,
+) -> bool:
+    """Return True when on-disk wav is long enough and (by default) audible.
+
+    Hang-accept must not seat digital silence (WS4 footgun).
+    ``requested_seconds`` should be the *planned* duration, not a step-shortened
+    ladder value alone.
+    """
+    path = Path(out_wav)
+    if not path.is_file():
         return False
     try:
-        marker = Path(run_ctx.run_dir) / _BAN_MPS_MARKER
-        if marker.is_file():
-            return True
-        meta = run_ctx.read_json("run_meta.json") if run_ctx.artifact_exists("run_meta.json") else {}
-        if isinstance(meta, dict) and meta.get("musicgen_ban_mps"):
-            return True
+        if path.stat().st_size < int(min_bytes):
+            return False
+    except OSError:
+        return False
+    need = max(1.0, float(requested_seconds) * float(min_ratio))
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as wf:
+            rate = int(wf.getframerate() or 0)
+            frames = int(wf.getnframes() or 0)
+            sampwidth = int(wf.getsampwidth() or 0)
+            nch = int(wf.getnchannels() or 1)
+            raw = wf.readframes(min(frames, rate * 2)) if rate > 0 else b""
+        if rate <= 0 or frames <= 0:
+            return False
+        if (frames / float(rate)) < need:
+            return False
     except Exception:
         return False
+    if not require_audible:
+        return True
+    try:
+        from interview_mux.theme_slot_integrity import wav_is_audible
+
+        return bool(wav_is_audible(path))
+    except Exception:
+        # Fallback: non-zero PCM peak in the first ~2s.
+        try:
+            if not raw or sampwidth <= 0:
+                return True
+            import audioop
+
+            peak = audioop.max(raw, sampwidth)
+            return peak > (16 if sampwidth == 2 else 2)
+        except Exception:
+            return True
+
+
+def mps_banned(*, run_ctx: Any | None = None) -> bool:
+    # Prefer run-scoped marker / meta — avoid sticky parent env across GUI runs.
+    if run_ctx is not None:
+        try:
+            marker = Path(run_ctx.run_dir) / _BAN_MPS_MARKER
+            if marker.is_file():
+                return True
+            meta = run_ctx.read_json("run_meta.json") if run_ctx.artifact_exists("run_meta.json") else {}
+            if isinstance(meta, dict) and meta.get("musicgen_ban_mps"):
+                return True
+        except Exception:
+            pass
+    if str(os.environ.get(_BAN_MPS_ENV) or "").strip().lower() in {"1", "true", "yes"}:
+        return True
     return False
 
 
 def ban_mps(*, run_ctx: Any | None = None, reason: str = "") -> None:
-    os.environ[_BAN_MPS_ENV] = "1"
+    # Run-scoped only — do not sticky-ban the parent GUI/server process env.
     if run_ctx is None:
         return
     try:
-        (Path(run_ctx.run_dir) / _BAN_MPS_MARKER).write_text(reason or "abort", encoding="utf-8")
-    except OSError:
+        marker = Path(run_ctx.run_dir) / _BAN_MPS_MARKER
+        marker.write_text(str(reason or "abort")[:200] + "\n", encoding="utf-8")
+    except Exception:
         pass
     try:
-
         def _flag(m: dict) -> None:
             m["musicgen_ban_mps"] = True
             if reason:
@@ -470,17 +575,8 @@ def generate_music_clip(
     }
     if py and script.is_file():
         cfg_block = musicgen_cfg()
-        base_timeout = int(cfg_block.get("request_timeout_sec") or 900)
-        # musicgen-large on CPU thrash is slow; use a tighter CPU budget and step down.
-        # On MPS, keep the full request_timeout_sec (large ~3–15 min for short stems).
-        if str(device).lower() == "cpu":
-            base_timeout = int(
-                cfg_block.get("cpu_request_timeout_sec")
-                or min(base_timeout, 300)
-            )
-        timeout = e2e_musicgen_timeout_sec(base_timeout)
-        step_down_timeout = int(
-            cfg_block.get("step_down_timeout_sec") or min(480, timeout)
+        timeout, step_down_timeout = musicgen_timeouts_for_duration(
+            dur, device=device, cfg=cfg_block
         )
         step_ratio = float(cfg_block.get("step_down_duration_ratio") or 0.85)
         pause_between = float(cfg_block.get("pause_between_ladder_steps_sec") or 0)
@@ -544,17 +640,30 @@ def generate_music_clip(
             meta["ladder_step"] = step
             meta["model_id"] = mid
             meta["duration_sec"] = seconds
-            if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 1000:
+            # Accept usable wav even when the worker hung after write (common MPS
+            # finalize hang → parent timeout kill). Rejecting that stem bans MPS
+            # and CPU-thrashes the same cand for hours (exec_13165 theme_cold_open).
+            if usable_musicgen_wav(out_wav, requested_seconds=seconds):
                 meta["backend"] = "musicgen"
                 meta["device"] = dev
                 meta["stdout_tail"] = (proc.stdout or "")[-400:]
+                if int(proc.returncode or 0) != 0:
+                    meta["accepted_after_nonzero_rc"] = True
+                    if is_hang_timeout_result(proc):
+                        meta["accepted_after_hang_timeout"] = True
+                        meta["musicgen_timeout"] = True
+                        meta["musicgen_error"] = (proc.stderr or "")[:200]
                 return True
             meta["musicgen_stderr"] = (proc.stderr or "")[-800:]
-            if proc.returncode == -9 and "timeout" in (proc.stderr or ""):
+            if is_hang_timeout_result(proc):
                 meta["musicgen_error"] = proc.stderr
                 meta["musicgen_timeout"] = True
-            if is_abort_returncode(proc.returncode) and bool(
-                musicgen_cfg().get("ban_mps_on_abort", True)
+            # Ban MPS only on real accelerator aborts — not hang-timeouts after a
+            # near-complete write (those leave a usable stem or empty file).
+            if (
+                is_abort_returncode(proc.returncode)
+                and not is_hang_timeout_result(proc)
+                and bool(musicgen_cfg().get("ban_mps_on_abort", True))
             ):
                 ban_mps(run_ctx=run_ctx, reason=f"returncode={proc.returncode}")
                 meta["musicgen_abort"] = True
@@ -595,7 +704,11 @@ def generate_music_clip(
             )
         meta["model_ladder"] = [s["mid"] for s in steps]
 
-        from interview_mux.heavy_task_policy import is_heavy_kill_returncode, wait_abort_backoff
+        from interview_mux.heavy_task_policy import (
+            is_heavy_kill_returncode,
+            reclaim_for_same_class_retry,
+            wait_abort_backoff,
+        )
 
         try:
             ok = False
@@ -604,6 +717,21 @@ def generate_music_clip(
                 ok = _attempt(**{k: v for k, v in spec.items() if k != "attempt"})
                 if ok:
                     break
+                # §0.3b: reclaim → 5s → same-class retry once before ladder/CPU escalate.
+                # Only on hang/kill/OOM-class faults — soft/deterministic fails escalate
+                # without burning settle. Hang budgets on each _attempt are unchanged.
+                fp = f"{spec.get('mid')}:{spec.get('step')}:{spec.get('dev')}"
+                if reclaim_for_same_class_retry(
+                    run_ctx,
+                    consumer="musicgen",
+                    fingerprint=fp,
+                    returncode=meta.get("musicgen_returncode"),
+                    stderr=str(meta.get("musicgen_error") or meta.get("musicgen_stderr") or ""),
+                    stage="musicgen",
+                ):
+                    ok = _attempt(**{k: v for k, v in spec.items() if k != "attempt"})
+                    if ok:
+                        break
                 if meta.get("musicgen_abort") and spec.get("dev") != "cpu":
                     retry = dict(spec)
                     retry["dev"] = "cpu"
@@ -612,6 +740,7 @@ def generate_music_clip(
                     if ok:
                         break
                 rc = meta.get("musicgen_returncode")
+                # Abort backoff is skipped when reclaim settle already credited GPU.
                 if is_heavy_kill_returncode(rc) and idx + 1 < len(steps):
                     wait_abort_backoff(run_ctx, "musicgen")
                 elif pause_between > 0 and idx + 1 < len(steps):

@@ -37,6 +37,12 @@ class RunContext:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             (self.run_dir / "vo_pickup").mkdir(exist_ok=True)
             (self.run_dir / ".stage_done").mkdir(exist_ok=True)
+            try:
+                from interview_mux.heavy_task_policy import bind_reclaim_run
+
+                bind_reclaim_run(self.run_id)
+            except Exception:
+                pass
 
     @classmethod
     def exists(cls, run_id: str) -> bool:
@@ -173,6 +179,7 @@ class RunContext:
                     skip_handoff=skip_handoff,
                     write_committed=False,
                     reason=stage_key or "write_json",
+                    mutation_class=mutation_class,
                 )
                 if admitted is not None:
                     # Admit returns before the shared-path hook below — stamp now.
@@ -563,7 +570,7 @@ class RunContext:
                         level="warning",
                         stage=stage,
                     )
-                    return
+                    raise
                 raise
 
         from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
@@ -585,14 +592,30 @@ class RunContext:
                         level="warning",
                         stage=stage,
                     )
-                    return
+                    from interview_mux.artifact_ownership import AuthorityDenied
+
+                    raise AuthorityDenied(
+                        f"authority_denied:mark_done:incomplete:{stage}:{rel}:{st}",
+                        path=rel,
+                        stage_key=stage,
+                        suggested_owner=stage,
+                        verb="mark_done",
+                    )
             elif not force and stage in ALL_LLM_STAGES:
                 self.log(
                     f"Refusing mark_done({stage}): required artifact {rel} missing",
                     level="warning",
                     stage=stage,
                 )
-                return
+                from interview_mux.artifact_ownership import AuthorityDenied
+
+                raise AuthorityDenied(
+                    f"authority_denied:mark_done:missing_primary:{stage}:{rel}",
+                    path=rel,
+                    stage_key=stage,
+                    suggested_owner=stage,
+                    verb="mark_done",
+                )
 
         # Hollow delivery producers: non-force marks still refuse incompleteness.
         # Force hollow-stamp is gated solely by heal_or_refuse_mark /
@@ -622,7 +645,15 @@ class RunContext:
                             stage=stage,
                             detail={"hollow_reason": hollow},
                         )
-                        return
+                        from interview_mux.artifact_ownership import AuthorityDenied
+
+                        raise AuthorityDenied(
+                            f"authority_denied:mark_done:hollow:{stage}:{hollow}",
+                            path="",
+                            stage_key=stage,
+                            suggested_owner=stage,
+                            verb="mark_done",
+                        )
         except Exception:
             pass
 

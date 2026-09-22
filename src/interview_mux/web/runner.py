@@ -316,7 +316,11 @@ class JobRunner:
         job = self._read_gui_job(run_id)
         if worker_pid_alive(job.get("worker_pid")):
             return True
+        # No live worker process: never block G1/operator on zombie ``running``
+        # (exec_13163: status=running, worker_pid=None after EDL error).
         if not self._holder_thread_alive(run_id):
+            return False
+        if not job.get("worker_pid"):
             return False
         status = job.get("status")
         if status not in RUNNING_STATUSES and status != "stalled":
@@ -749,6 +753,28 @@ class JobRunner:
                     raise ValueError(f"Unknown mode: {mode}")
                 done_msg = f"Finished: {info.title if info else label}"
                 vo_incomplete = False
+                refuse_incomplete = False
+                refuse_stage = ""
+                try:
+                    from interview_mux.homunculus.agenda import stage_outputs_present
+
+                    for row in list(getattr(ctx, "_dispatch_refuses", None) or []):
+                        if not isinstance(row, dict):
+                            continue
+                        sid = str(row.get("stage") or "").strip()
+                        if not sid:
+                            continue
+                        if stage_outputs_present(ctx, sid):
+                            continue
+                        refuse_incomplete = True
+                        refuse_stage = sid
+                        reason = str(row.get("reason") or "dispatch_refused")
+                        done_msg = (
+                            f"Incomplete: dispatch refused {sid} ({reason}) — outputs missing"
+                        )
+                        break
+                except Exception:
+                    refuse_incomplete = False
                 try:
                     from interview_mux.gates import check_g1_vo
                     from interview_mux.stage_completion import vo_synthesize_should_defer_done
@@ -766,17 +792,36 @@ class JobRunner:
                         )
                 except Exception:
                     vo_incomplete = False
-                if vo_incomplete:
+                if refuse_incomplete:
+                    ctx.log(
+                        done_msg,
+                        level="warning",
+                        stage=refuse_stage or label,
+                    )
+                    refresh_journey_meta(ctx)
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "incomplete",
+                            "mode": mode,
+                            "stage": refuse_stage or stage,
+                            "flow": flow,
+                            "message": done_msg,
+                            "error": done_msg,
+                        },
+                    )
+                elif vo_incomplete:
                     ctx.log(done_msg, level="warning", stage="vo_synthesize")
                     refresh_journey_meta(ctx)
                     self._write_job(
                         ctx,
                         {
-                            "status": "running",
+                            "status": "needs_operator",
                             "mode": mode,
                             "stage": "vo_synthesize",
                             "flow": flow,
                             "message": done_msg,
+                            "needs_operator": True,
                         },
                     )
                 else:
@@ -855,6 +900,10 @@ class JobRunner:
             except Exception as exc:
                 err_msg = str(exc)
                 tb = traceback.format_exc()
+                from interview_mux.artifact_ownership import AuthorityDenied
+
+                # B4-2: mark_done raise → stage error / not-done (never silent True / 500).
+                denied = isinstance(exc, AuthorityDenied)
                 # Prefer the stage that was actually running — not the batch from_stage.
                 # Mis-attributing failures to from_stage makes e2e clear_from() archive
                 # good upstream artifacts (talking_points, speakers, …).
@@ -870,7 +919,7 @@ class JobRunner:
                 if not stage_id or stage_id in {"analysis", "delivery", "gui", "None"}:
                     stage_id = str(stage or label or "").strip()
                 # ESR: incomplete-after-conductor while producer progress fresh → wait, not error.
-                if "incomplete after conductor" in err_msg.lower():
+                if (not denied) and "incomplete after conductor" in err_msg.lower():
                     try:
                         from interview_mux.execution_status import (
                             should_wait_incomplete_after_conductor,
@@ -890,10 +939,12 @@ class JobRunner:
                             ctx.log(wait_msg, level="warning", stage=lease)
                             refresh_journey_meta(ctx)
                             self._release_run_locks(run_id, dir_lock, lock)
+                            # Locks released → no live holder; do not leave durable
+                            # ``running`` (G1 409 zombie). ESR wait is stalled.
                             self._write_job(
                                 ctx,
                                 {
-                                    "status": "running",
+                                    "status": "stalled",
                                     "mode": mode,
                                     "stage": lease,
                                     "current_stage": lease,
@@ -1161,25 +1212,42 @@ class JobRunner:
                     if ctx_pre.artifact_exists("run_meta.json")
                     else {}
                 )
-                if not automation_driver_run(meta_doc if isinstance(meta_doc, dict) else {}):
-                    if resume_target in DELIVERY_ORDER:
-                        pinned = premature_cap_hard_pin(ctx_pre, resume_target)
-                        if pinned and pinned != resume_target:
-                            reason = (
-                                f"Producer incomplete — pinned to {pinned} "
-                                f"(requested {resume_target})."
-                            )
-                            ctx_pre.log(reason, level="action", stage=pinned)
-                            self._clear_pipeline_start_reservation(run_id)
-                            return {
-                                "ok": False,
-                                "pinned_to": pinned,
-                                "reason": reason,
-                                "requested_stage": resume_target,
-                                "error": reason,
-                            }
-                    seed_block = _seed_prereq_block(ctx_pre, resume_target)
-                    if seed_block and seed_block != resume_target:
+                # Expanded WS2 O15: premature_cap applies to automation and GUI —
+                # driver walk still uses filter_delivery_candidates; this pins
+                # explicit from_stage/stage asks that would skip producers.
+                if resume_target in DELIVERY_ORDER:
+                    pinned = premature_cap_hard_pin(ctx_pre, resume_target)
+                    if pinned and pinned != resume_target:
+                        reason = (
+                            f"Producer incomplete — pinned to {pinned} "
+                            f"(requested {resume_target})."
+                        )
+                        ctx_pre.log(reason, level="action", stage=pinned)
+                        self._clear_pipeline_start_reservation(run_id)
+                        return {
+                            "ok": False,
+                            "pinned_to": pinned,
+                            "reason": reason,
+                            "requested_stage": resume_target,
+                            "error": reason,
+                        }
+                seed_block = _seed_prereq_block(ctx_pre, resume_target)
+                if seed_block and seed_block != resume_target:
+                    if automation_driver_run(
+                        meta_doc if isinstance(meta_doc, dict) else {}
+                    ):
+                        # Automation: rewrite resume onto the producer (do not
+                        # hard-fail the job — filter/agenda also reinject).
+                        from_stage = seed_block
+                        resume_target = seed_block
+                        if stage:
+                            stage = seed_block
+                        ctx_pre.log(
+                            f"automation seed prereq pin → {seed_block}",
+                            level="action",
+                            stage=seed_block,
+                        )
+                    else:
                         reason = (
                             f"Seed prerequisite incomplete — pinned to {seed_block} "
                             f"(requested {resume_target})."

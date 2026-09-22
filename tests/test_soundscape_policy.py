@@ -154,3 +154,259 @@ def test_score_cue_slots_theme_match(tmp_path) -> None:
         mix_contract={"bed_level_db_range": [-30, -26]},
     )
     assert any(s.get("placement") == "under_segment" for s in slots)
+
+
+def test_score_cue_slots_preserves_planned_sdp_beds_beyond_dens_cap(tmp_path) -> None:
+    """Coverage-seed beds outside dens max_beds must still get cue_slots.
+
+    refresh_cue_slots rescored with max_beds=1 was wiping 15/16 bed slots
+    (exec_13167 sound_design_plan post-commit thrash).
+    """
+    from interview_mux.analysis_memory import default_sound_design_plan
+    from interview_mux.soundscape_policy import refresh_cue_slots
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = isolated_run_ctx(tmp_path, "run_sp_planned_beds")
+    _seed_inputs(ctx)
+    # Extra long segments so scoring would only keep 1 under dens=1 without merge.
+    _raw_write(
+        ctx,
+        "segments/manifest.json",
+        {
+            "segments": [
+                {"segment_id": "seg_001", "start_ms": 0, "end_ms": 60000},
+                {"segment_id": "seg_002", "start_ms": 60000, "end_ms": 120000},
+                {"segment_id": "seg_005", "start_ms": 120000, "end_ms": 180000},
+                {"segment_id": "seg_008", "start_ms": 180000, "end_ms": 240000},
+            ]
+        },
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_001", "seg_002", "seg_005", "seg_008"],
+            "excluded_segment_ids": [],
+            "chapters": [],
+        },
+        skip_handoff=True,
+    )
+    sdp = default_sound_design_plan()
+    sdp["palettes"] = [
+        {
+            "palette_id": "farm",
+            "theme_label": "farm",
+            "keywords": ["farm"],
+            "segment_ids": ["seg_001", "seg_002", "seg_005", "seg_008"],
+            "ambient_description": "soft pasture",
+            "accent_description": "birds",
+            "avoid": [],
+        }
+    ]
+    sdp["assets"] = [
+        {
+            "asset_id": "theme_underscore_calm",
+            "role": "theme_underscore",
+            "description": "calm bed",
+            "duration_seconds": 16,
+        }
+    ]
+    sdp["flow_plans"]["podcast"]["cues"] = [
+        {
+            "cue_id": "bed_coverage_seed_1",
+            "placement": "under_segment",
+            "segment_id": "seg_005",
+            "asset_id": "theme_underscore_calm",
+            "role": "theme_underscore",
+            "level_db": -28,
+        },
+        {
+            "cue_id": "bed_coverage_seed_2",
+            "placement": "under_segment",
+            "segment_id": "seg_008",
+            "asset_id": "theme_underscore_calm",
+            "role": "theme_underscore",
+            "level_db": -28,
+        },
+    ]
+    _raw_write(ctx, "understanding/sound_design_plan.json", sdp)
+    ctx.write_json(
+        POLICY_PATH,
+        {
+            "version": 1,
+            "derived_from": {},
+            "underscore_policy": "normal",
+            "pace_class": "conversational",
+            "sfx_density": {"max_beds": 1, "max_punctuators": 0, "max_foley": 0},
+            "mix_contract": {
+                "underscore_policy": "normal",
+                "bed_level_db_range": [-30, -26],
+            },
+            "standards": {},
+            "cue_slots": [
+                {
+                    "slot_id": "bed_seg_001",
+                    "segment_id": "seg_001",
+                    "placement": "under_segment",
+                    "allowed_roles": ["theme_underscore"],
+                    "priority": 0.9,
+                    "reason": "seed",
+                }
+            ],
+            "operator_overrides": {},
+            "rationale": [],
+            "policy_hash": "test",
+        },
+        skip_handoff=True,
+    )
+
+    scored = score_cue_slots(
+        ctx,
+        underscore="normal",
+        pace="conversational",
+        dens={"max_beds": 1, "max_punctuators": 0, "max_foley": 0},
+        mix_contract={"bed_level_db_range": [-30, -26]},
+    )
+    bed_segs = {
+        str(s.get("segment_id"))
+        for s in scored
+        if "theme_underscore" in (s.get("allowed_roles") or [])
+    }
+    assert "seg_005" in bed_segs
+    assert "seg_008" in bed_segs
+
+    enter_stage_staging("sound_design_plan")
+    try:
+        refreshed = refresh_cue_slots(ctx)
+    finally:
+        exit_stage_staging()
+    refreshed_beds = {
+        str(s.get("segment_id"))
+        for s in (refreshed.get("cue_slots") or [])
+        if isinstance(s, dict)
+        and "theme_underscore" in (s.get("allowed_roles") or [])
+    }
+    assert "seg_005" in refreshed_beds
+    assert "seg_008" in refreshed_beds
+    # Persist must land on committed policy even under SDP staging.
+    committed = load_policy(ctx) or {}
+    committed_beds = {
+        str(s.get("segment_id"))
+        for s in (committed.get("cue_slots") or [])
+        if isinstance(s, dict)
+        and "theme_underscore" in (s.get("allowed_roles") or [])
+    }
+    assert "seg_005" in committed_beds
+    assert "seg_008" in committed_beds
+
+
+def test_normalize_cue_slot_fills_canonical_fields() -> None:
+    from interview_mux.soundscape_policy import normalize_cue_slot
+
+    raw = {
+        "segment_id": "seg_9",
+        "allowed_roles": "theme_underscore",
+        "reason": "theme_underscore_palette_bed_slot",
+    }
+    slot = normalize_cue_slot(raw, bed_level=-28.0)
+    assert slot is not None
+    assert slot["slot_id"] == "bed_seg_9"
+    assert slot["placement"] == "under_segment"
+    assert slot["allowed_roles"] == ["theme_underscore"]
+    assert slot["max_level_db"] == -28.0
+    assert slot["origin"] == "inject"
+    assert isinstance(slot["priority"], float)
+
+
+def test_invent_soft_block_keeps_planned_beds(tmp_path, monkeypatch) -> None:
+    """Unpaid invent must not wipe planned SDP beds (Partial Zero A+)."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.soundscape_policy import _apply_invent_obligation_gate
+
+    status = {
+        "unpaid": True,
+        "waived": False,
+        "invent": "sound_design_plan",
+        "pals": 0,
+        "cues": 0,
+    }
+    policy = {
+        "sfx_density": {"max_beds": 4},
+        "mix_contract": {
+            "underscore_policy": "normal",
+            "bed_level_db_range": [-30, -26],
+            "max_bed_coverage_ratio": 0.8,
+        },
+        "underscore_policy": "normal",
+        "standards": {},
+        "cue_slots": [
+            {
+                "slot_id": "bed_seg_005",
+                "segment_id": "seg_005",
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+                "priority": 0.55,
+                "max_level_db": -28.0,
+                "reason": "planned_sdp_bed",
+                "origin": "planned",
+            },
+            {
+                "slot_id": "bed_seg_001",
+                "segment_id": "seg_001",
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+                "priority": 0.4,
+                "max_level_db": -28.0,
+                "reason": "duration_ok",
+                "origin": "dens",
+            },
+        ],
+        "rationale": [],
+    }
+    gated = _apply_invent_obligation_gate(policy, status=status, rationale=[])
+    assert gated.get("invent_gate") == "blocked"
+    segs = {
+        str(s.get("segment_id"))
+        for s in (gated.get("cue_slots") or [])
+        if isinstance(s, dict)
+    }
+    assert "seg_005" in segs
+    assert "seg_001" not in segs
+
+
+def test_admit_inject_cue_slots_ssot(tmp_path) -> None:
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.soundscape_policy import admit_inject_cue_slots
+
+    ctx = isolated_run_ctx(tmp_path, "run_sp_inject")
+    _seed_inputs(ctx)
+    policy = {
+        "sfx_density": {"max_beds": 2, "max_punctuators": 0, "max_foley": 0},
+        "mix_contract": {"bed_level_db_range": [-30, -26]},
+        "underscore_policy": "normal",
+        "pace_class": "conversational",
+        "cue_slots": [],
+        "rationale": [],
+    }
+    out = admit_inject_cue_slots(
+        ctx,
+        policy,
+        segment_ids=["seg_002"],
+        reason="theme_underscore_palette_bed_slot",
+        persist=False,
+        rescore=False,
+    )
+    beds = [
+        s
+        for s in (out.get("cue_slots") or [])
+        if isinstance(s, dict) and s.get("segment_id") == "seg_002"
+    ]
+    assert len(beds) == 1
+    assert beds[0].get("origin") == "inject"
+    assert beds[0].get("max_level_db") is not None
+    assert "origin" in beds[0]
+

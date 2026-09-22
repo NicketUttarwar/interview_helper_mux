@@ -53,6 +53,33 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     return run
 
 
+def test_default_g_listen_mode_is_warn() -> None:
+    """P0-2: fleet default is advisory warn (not block)."""
+    from interview_mux.config import merged_config
+
+    mode = str((merged_config().get("sound_design") or {}).get("g_listen_mode") or "")
+    assert mode == "warn"
+
+
+def test_require_g_listen_clear_warn_does_not_stall(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defaults / warn mode: pending G-Listen logs but does not SystemExit."""
+    patch_merged_config(monkeypatch, _cfg("warn"))
+    _plant_critic(ctx)
+    ctx.mutate_run_meta(
+        lambda m: m.update(
+            {
+                "partial_auto": True,
+                "run_mode": "partially-accelerated",
+                "g_listen_pending": True,
+            }
+        )
+    )
+    require_g_listen_clear(ctx, stage="master_finalize")
+    assert check_g_listen_pending(ctx) is True
+
+
 def test_full_auto_require_g_listen_clear_does_not_stall(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -79,7 +106,7 @@ def test_full_auto_require_g_listen_clear_does_not_stall(
 def test_partial_require_g_listen_clear_still_blocks(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Partial keeps g_listen block at finalize."""
+    """Partial + explicit block mode still stalls finalize until clear."""
     patch_merged_config(monkeypatch, _cfg("block"))
     _plant_critic(ctx)
     ctx.mutate_run_meta(

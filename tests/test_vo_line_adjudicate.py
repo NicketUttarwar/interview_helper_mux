@@ -139,7 +139,8 @@ def test_run_adjudicate_batches_mockable(tmp_path: Path, monkeypatch: pytest.Mon
     gap = _gap_with_body_line()
     captured: dict = {}
 
-    def fake_runner(_ctx, _stage, _prompt, build_input, persist):
+    def fake_runner(_ctx, _stage, _prompt, build_input, persist, **kwargs):
+        captured["auto_complete"] = kwargs.get("auto_complete", True)
         payload = build_input(_ctx)
         artifacts = {
             "lines": [
@@ -161,6 +162,145 @@ def test_run_adjudicate_batches_mockable(tmp_path: Path, monkeypatch: pytest.Mon
     )
     assert rows and rows[0]["action"] == "air"
     assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    # Mid-batch mark_done is hollow — batches must defer completion (exec_13167).
+    assert captured.get("auto_complete") is False
+    assert not ctx.is_done("vo_line_adjudicate")
+
+
+def test_run_adjudicate_batches_does_not_mark_done_mid_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): flow LLM must not hollow-stamp before seal.
+
+    run_llm_stage_simple(auto_complete=True) marks done after each batch while
+    adjudication.json is still missing → authority_denied:mark_done:hollow.
+    """
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "adj_no_mid_done")
+    gap = _gap_with_body_line()
+    mark_calls: list[str] = []
+
+    def fake_runner(c, stage, _prompt, build_input, persist, **kwargs):
+        assert kwargs.get("auto_complete") is False
+        payload = build_input(c)
+        persist(
+            c,
+            {
+                "lines": [
+                    {
+                        "line_id": payload["lines"][0]["line_id"],
+                        "action": "air",
+                        "final_text": payload["lines"][0].get("text") or "ok",
+                        "input_hash": payload["lines"][0]["input_hash"],
+                    }
+                ]
+            },
+        )
+        # Simulate what llm_simple would do if auto_complete stayed True.
+        if kwargs.get("auto_complete", True):
+            c.mark_done(stage)
+            mark_calls.append(stage)
+        return {"status": "complete"}
+
+    run_adjudicate_batches(
+        ctx,
+        ["vo_layup_seg_002"],
+        gap,
+        llm_runner=fake_runner,
+    )
+    assert mark_calls == []
+    assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    assert not ctx.is_done("vo_line_adjudicate")
+
+
+def test_run_adjudicate_batches_coerces_null_final_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): LLM air+null final_text must still commit.
+
+    OpenAI envelope allows null; artifact schema requires string. Without coerce,
+    write_json raises → no adjudication → seed-order heal-spin vs vo_synthesize
+    (exec_13163 vo_layup_seg_008).
+    """
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "adj_null_ft")
+    gap = _gap_with_body_line()
+    spoken = gap["interviewer_lines"][0]["text"]
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+
+    def fake_runner(_ctx, _stage, _prompt, build_input, persist):
+        payload = build_input(_ctx)
+        artifacts = {
+            "lines": [
+                {
+                    "line_id": payload["lines"][0]["line_id"],
+                    "action": "air",
+                    "final_text": None,
+                    "input_hash": payload["lines"][0]["input_hash"],
+                }
+            ]
+        }
+        persist(_ctx, artifacts)
+        return {"status": "complete", "artifacts": artifacts}
+
+    rows = run_adjudicate_batches(
+        ctx,
+        ["vo_layup_seg_002"],
+        gap,
+        llm_runner=fake_runner,
+    )
+    assert rows and rows[0]["action"] == "air"
+    assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    doc = ctx.read_json("understanding/vo_line_adjudication.json")
+    sealed = (doc.get("lines") or [])[0]
+    assert isinstance(sealed.get("final_text"), str)
+    assert sealed["final_text"] == spoken
+
+
+def test_run_adjudicate_batches_coerces_null_sibling_leaves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: null target_segment_id / rationale / disposition / nugget_ids seal."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "adj_null_sib")
+    gap = _gap_with_body_line()
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+
+    def fake_runner(_ctx, _stage, _prompt, build_input, persist):
+        payload = build_input(_ctx)
+        artifacts = {
+            "lines": [
+                {
+                    "line_id": payload["lines"][0]["line_id"],
+                    "action": "air",
+                    "final_text": None,
+                    "target_segment_id": None,
+                    "flow_rationale": None,
+                    "nugget_disposition": None,
+                    "input_hash": None,
+                    "nugget_ids": None,
+                }
+            ]
+        }
+        persist(_ctx, artifacts)
+        return {"status": "complete", "artifacts": artifacts}
+
+    rows = run_adjudicate_batches(
+        ctx,
+        ["vo_layup_seg_002"],
+        gap,
+        llm_runner=fake_runner,
+    )
+    assert rows and rows[0]["action"] == "air"
+    doc = ctx.read_json("understanding/vo_line_adjudication.json")
+    sealed = (doc.get("lines") or [])[0]
+    assert isinstance(sealed["final_text"], str)
+    assert isinstance(sealed["target_segment_id"], str)
+    assert sealed["target_segment_id"] == "seg_002"
+    assert sealed["flow_rationale"] == ""
+    assert sealed["nugget_disposition"] == ""
+    assert sealed["input_hash"] == ""
+    assert sealed["nugget_ids"] == []
 
 
 def test_intro_compose_mints_position_zero(tmp_path: Path) -> None:
@@ -188,6 +328,81 @@ def test_intro_compose_mints_position_zero(tmp_path: Path) -> None:
     assert lines[0]["line_category"] == "episode_preface"
     assert lines[0].get("intro_nugget_recovery") is True
     assert ctx.artifact_exists("understanding/nugget_intro_compose.json")
+
+
+def test_nugget_intro_compose_unwraps_stage_output_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): nested stage_output must seal flat text/nugget_ids.
+
+    LLM returned {stage_output: {text, nugget_ids}} and persist wrote the wrapper
+    → schema required-property fail (exec_13167).
+    """
+    from interview_mux.nugget_intro_compose import run_nugget_intro_compose
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "intro_unwrap")
+    gap = _gap_with_body_line()
+    ctx.write_json("understanding/nugget_corpus.json", _corpus(), skip_handoff=True)
+
+    def fake_runner(_ctx, _stage, _prompt, _build, persist, **_kwargs):
+        persist(
+            _ctx,
+            {
+                "stage_output": {
+                    "text": "What does it take to turn a promising cancer test into clinic use?",
+                    "nugget_ids": ["nug_002"],
+                    "clustered_themes": ["regulatory pathway"],
+                    "rationale": "hook",
+                },
+                "_meta": {},
+            },
+        )
+        return {"status": "complete"}
+
+    out = run_nugget_intro_compose(
+        ctx, gap, ["nug_002"], llm_runner=fake_runner
+    )
+    assert out.get("text")
+    assert out.get("nugget_ids") == ["nug_002"]
+    doc = ctx.read_json("understanding/nugget_intro_compose.json")
+    assert "stage_output" not in doc
+    assert isinstance(doc.get("text"), str) and doc["text"]
+    assert doc.get("nugget_ids") == ["nug_002"]
+
+
+def test_nugget_intro_reuses_sealed_on_limit_exhausted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MUX_FORENSICS=0: LimitExhausted after a sealed intro must not strand Part A."""
+    from interview_mux.homunculus.budget import LimitExhausted
+    from interview_mux.nugget_intro_compose import run_nugget_intro_compose
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "intro_reuse_cap")
+    gap = _gap_with_body_line()
+    ctx.write_json("understanding/nugget_corpus.json", _corpus(), skip_handoff=True)
+    sealed = {
+        "text": "Before a new cancer test can reach patients, the FDA path takes years.",
+        "nugget_ids": ["nug_002"],
+        "clustered_themes": ["regulatory pathway"],
+        "rationale": "stake",
+        "intro_nugget_recovery": True,
+    }
+    ctx.write_json(
+        "understanding/nugget_intro_compose.json", sealed, skip_handoff=True
+    )
+
+    def boom_runner(*_a, **_k):
+        raise LimitExhausted(
+            "nugget_intro_compose",
+            "max_invokes_per_identity",
+            {"used": 3, "cap": 3},
+        )
+
+    out = run_nugget_intro_compose(ctx, gap, ["nug_002"], llm_runner=boom_runner)
+    assert out.get("text") == sealed["text"]
+    assert out.get("nugget_ids") == ["nug_002"]
 
 
 def test_stage_skips_for_original_brain(tmp_path: Path) -> None:
@@ -373,6 +588,42 @@ def test_scrub_spoken_edit_structure_clears_next_segment() -> None:
                 "text": cleaned,
                 "delivery": "synthesize",
                 "targets_segment_id": "seg_017",
+            }
+        ]
+    }
+    assert not synthesize_vo_comprehensibility_errors(report)
+
+
+def test_scrub_spoken_gendered_pronoun_clears_intro_preface() -> None:
+    """Cascade (MUX_FORENSICS=0): intro 'why he believes' must scrub for VO gate.
+
+    exec_13167: synthesize_vo_comprehensibility_errors → spoken_gendered_pronoun
+    on vo_intro_preface after intro compose.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.spoken_meta_lint import (
+        scrub_spoken_edit_structure,
+        spoken_structure_hits,
+    )
+    from interview_mux.vo_line_adjudicate import synthesize_vo_comprehensibility_errors
+
+    raw = (
+        "In this conversation, we explore why he believes combining "
+        "circulating tumour-cell analysis could help."
+    )
+    assert "spoken_gendered_pronoun" in spoken_structure_hits(raw)
+    cleaned = scrub_spoken_edit_structure(raw)
+    assert "spoken_gendered_pronoun" not in spoken_structure_hits(cleaned)
+    assert "they believe" in cleaned.lower()
+    report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_intro_preface",
+                "text": cleaned,
+                "delivery": "synthesize",
+                "targets_segment_id": "seg_001",
             }
         ]
     }

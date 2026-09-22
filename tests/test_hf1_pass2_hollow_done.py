@@ -169,6 +169,25 @@ def test_hf1_freeze_edl_writes_stub_not_raw(
         skip_handoff=True,
     )
     mark_done_raw(ctx, "edl")
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_001"],
+            "timeline_duration_ms": 1000,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_001",
+                    "source_start_ms": 0,
+                    "source_end_ms": 1000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 1000,
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
     sa.stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
     sealed = seed_policy.seal_freeze_sticky_stages(ctx)
     assert "selection_framing_apply" in sealed

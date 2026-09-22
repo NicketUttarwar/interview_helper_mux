@@ -934,6 +934,42 @@ def clear_edl_repair_halts(ctx: RunContext) -> int:
     return clear_halts_for_stages(ctx, EDL_REPAIR_STAGES, force=True)
 
 
+def _memo_product_fingerprint_stale(ctx: RunContext, live_fp: str) -> bool:
+    """True when any failed/refused attempt-memo row stamps a different product fp.
+
+    Partial (non-forensics) may never have written ``identical_halts_product_fingerprint``
+    into run_meta — still reclaim when memo rows were minted under a prior code stamp.
+    """
+    try:
+        from interview_mux.dispatch_delta import read_memo
+
+        doc = read_memo(ctx)
+    except Exception:
+        return False
+    stages = doc.get("stages") if isinstance(doc, dict) else None
+    if not isinstance(stages, dict):
+        return False
+    for row in stages.values():
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("outcome") or "") not in {"failed", "refused"}:
+            continue
+        stamped = str(row.get("product_fingerprint") or "")
+        if stamped and stamped != live_fp:
+            return True
+    return False
+
+
+def reclaim_budget_on_product_flip(ctx: RunContext) -> dict[str, Any]:
+    """Partial / full-auto path: reclaim attempt budget when product code flips.
+
+    Does not clear identical-failure ×3 signatures (forensics owns that). Stamps
+    ``budget_epoch`` + clears failed/refused attempt_memo when the live fingerprint
+    differs from run_meta or from memo row stamps.
+    """
+    return sync_identical_halts_with_product(ctx, forensics=False)
+
+
 def sync_identical_halts_with_product(
     ctx: RunContext,
     *,
@@ -947,7 +983,9 @@ def sync_identical_halts_with_product(
     Exception: ``seed_order_prereq`` rows whose named producer is still incomplete
     are preserved so forensics cannot wipe a leapfrog thrash counter mid-spin.
 
-    Production full-auto: product fingerprint change clears EDL repair chain only.
+    Production full-auto / Partial: product fingerprint change clears EDL repair
+    chain, failed/refused attempt_memo rows, and stamps a budget epoch so
+    ``max_invokes_per_identity`` cannot strand a post-fix resume.
     """
     fp = product_code_fingerprint()
     meta: dict[str, Any] = {}
@@ -959,7 +997,8 @@ def sync_identical_halts_with_product(
     except Exception:
         meta = {}
     prev = str(meta.get(PRODUCT_FINGERPRINT_META_KEY) or "")
-    product_changed = bool(prev and prev != fp)
+    memo_stale = False if force else _memo_product_fingerprint_stale(ctx, fp)
+    product_changed = bool((prev and prev != fp) or memo_stale)
     preserved: dict[str, Any] = {}
     if forensics or force:
         if forensics and not force and not product_changed:
@@ -973,6 +1012,7 @@ def sync_identical_halts_with_product(
     else:
         cleared = 0
     memo_cleared = 0
+    budget_epoch = False
     if forensics or force or product_changed:
         try:
             from interview_mux.dispatch_delta import clear_failed_refused_memo_rows
@@ -980,14 +1020,37 @@ def sync_identical_halts_with_product(
             memo_cleared = int(clear_failed_refused_memo_rows(ctx) or 0)
         except Exception:
             memo_cleared = 0
+        # Patch-and-resume must not inherit spent max_invokes from pre-patch
+        # attempts (vo_line / nugget_intro burned 3/3 then product fixed).
+        if product_changed or force:
+            try:
+                from interview_mux.homunculus.ledger import stamp_budget_epoch
+
+                stamp_budget_epoch(
+                    ctx,
+                    fingerprint=fp,
+                    reason="product_fingerprint" if product_changed else "force_reset",
+                )
+                budget_epoch = True
+            except Exception:
+                budget_epoch = False
         meta[PRODUCT_FINGERPRINT_META_KEY] = fp
         ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    elif not prev:
+        # Baseline stamp so the next product flip is detectable on Partial / full-auto.
+        meta[PRODUCT_FINGERPRINT_META_KEY] = fp
+        try:
+            ctx.write_json("run_meta.json", meta, skip_handoff=True)
+        except Exception:
+            pass
     return {
         "cleared": cleared,
         "memo_cleared": memo_cleared,
+        "budget_epoch": budget_epoch,
         "fingerprint": fp,
         "previous_fingerprint": prev,
         "product_changed": product_changed,
+        "memo_stale": memo_stale,
         "forensics": forensics,
         "force": force,
         "preserved_seed_order": len(preserved),

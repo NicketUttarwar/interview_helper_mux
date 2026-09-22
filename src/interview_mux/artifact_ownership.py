@@ -380,6 +380,8 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     ),
     _row(
         "understanding/gap_report.json",
+        # Skip stub when operator chooses G-Framing No (ensure_gap_fill_skipped).
+        "missing_framing",
         "gap_framing_compose",
         "nugget_layup_compose",
         "selection_framing_apply",
@@ -753,6 +755,18 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/nugget_allocation_plan.json", "nugget_layup_compose", mode="operational", end="C"),
     _row("understanding/nugget_intro_compose.json", "nugget_layup_compose", mode="operational", end="C"),
     _row(
+        "understanding/layup_candidates.json",
+        "nugget_layup_compose",
+        mode="operational",
+        end="C",
+    ),
+    _row(
+        "understanding/.archived/layup_candidates/**/*.json",
+        "nugget_layup_compose",
+        mode="operational",
+        end="C",
+    ),
+    _row(
         "understanding/nugget_comprehension_index.json",
         "nugget_layup_compose",
         mode="operational",
@@ -838,6 +852,24 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "transcripts/vo/*.json",
         "nugget_layup_compose",
         "vo_synthesize",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
+    # Spoken transition sidecars assembled into master VTT (exec_13161
+    # master_transcript_build unknown_path under junction_committed).
+    _row(
+        "transcripts/transition/*.json",
+        "master_transcript_build",
+        "transitions",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "transcripts/transition/**/*.json",
+        "master_transcript_build",
+        "transitions",
         "ops",
         mode="operational",
         end="ops",
@@ -1419,6 +1451,19 @@ def _build_allow() -> tuple[AllowRow, ...]:
             verb="persist",
         )
     )
+    # Same freeze-safe class for narrative_plan chapter/constraint alignment
+    # (exec_13167: hard_freeze blocked persist under narrative_arc_plan owner).
+    rows.append(
+        AllowRow(
+            path="master/narrative_plan.json",
+            stage="edl_narrative_audit",
+            role="producer",
+            epochs=("pre_soft_freeze", "soft_freeze", "hard_freeze"),
+            write_mode="one_writer",
+            allowed_mutations=("narrative_metadata_align",),
+            verb="persist",
+        )
+    )
     # Common operational / ledger paths (not stage primaries).
     for path in (
         "understanding/refinement_ledger.json",
@@ -1974,8 +2019,39 @@ def heal_pin_for(token_or_path: str, *, ctx: Any = None) -> str:
         if row:
             return row.heal_pin or row.authoritative
 
+    # Named premature_complete:<class> before HEAL_TOKEN_OWNERS substring steal.
+    if "premature_complete" in low:
+        try:
+            from interview_mux.stage_completion import premature_class_pin
+
+            pc = premature_class_pin(raw, ctx)
+            if pc is not None:
+                return str(pc)
+        except Exception:
+            pass
+
     for needle, pin in HEAL_TOKEN_OWNERS.items():
         if needle and needle in low:
+            # Skip bare premature_complete when a named class is present.
+            if needle == "premature_complete" and (
+                "vo_g1" in low
+                or "g1_vo" in low
+                or "premature_complete:stage:" in low
+                or any(
+                    f"premature_complete:{c}" in low
+                    for c in (
+                        "music_epoch",
+                        "mix_seat",
+                        "finalize_inputs",
+                        "phase_a_edl",
+                        "delivery_blocked",
+                        "incomplete_after_conductor",
+                        "mastering_shape_llm_hollow",
+                        "g1_incomplete",
+                    )
+                )
+            ):
+                continue
             return pin
 
     # Delegate to existing producer_pin_for_token but refuse sealed defaults.
@@ -2009,6 +2085,13 @@ def assert_may_mark_done(ctx: Any, stage: str) -> None:
     """Hollow mark_done DENY — stage must have required outputs present."""
     sid = str(stage or "").strip()
     if not sid:
+        return
+    # Operator gate sign-offs are intentional marker-only done stamps.
+    if sid in {
+        "transcript_review",
+        "g1_vo_pickup",
+        "delivery_unlock",
+    }:
         return
     primary = primary_path_for_stage(sid)
     try:

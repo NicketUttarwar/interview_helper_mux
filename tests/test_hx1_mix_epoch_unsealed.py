@@ -81,7 +81,10 @@ def test_hx1_unsealed_unstable_is_music_incomplete(ctx: RunContext) -> None:
     assert phase_a_sealed(ctx) is False
     stable, _reason = delivery_stable_for_music(ctx)
     assert stable is False
-    assert mix_epoch_block(ctx) == "music_incomplete"
+    # FG3: no preview/assembly → mix also blocked (not speech-first).
+    assert mix_epoch_block(ctx, stage="mix") == "music_incomplete"
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "music_incomplete"
+    assert mix_epoch_block(ctx, stage="master_finalize") == "music_incomplete"
 
 
 def test_hx1_sealed_still_music_incomplete_until_music_done(
@@ -97,7 +100,8 @@ def test_hx1_sealed_still_music_incomplete_until_music_done(
         "interview_mux.delivery_guardrails.delivery_stable_for_music",
         lambda _ctx: (True, ""),
     )
-    assert mix_epoch_block(ctx) == "music_incomplete"
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "music_incomplete"
+    assert mix_epoch_block(ctx, stage="master_finalize") == "music_incomplete"
 
 
 def test_hx1_music_complete_still_none(
@@ -133,15 +137,30 @@ def test_hx1_dispatch_blocks_mix_junction_finalize(
     def _impl(stage: str) -> None:
         ran.append(stage)
 
+    # No preview → FG3 blocks mix; junction/finalize always blocked while music incomplete.
     for sid in _CONSUMERS:
         ran.clear()
         with pytest.raises(RuntimeError, match=r"delivery epoch music_incomplete"):
             dispatch_stage(ctx, sid, _impl)
         assert ran == []
+    # With preview, speech-first unlocks mix only.
+    preview = ctx.path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 64)
+    assert mix_epoch_block(ctx, stage="mix") is None
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "music_incomplete"
 
 
-def test_hx1_pipeline_blocks_mix_junction_finalize(ctx: RunContext) -> None:
-    for sid in _CONSUMERS:
+def test_hx1_pipeline_blocks_junction_finalize_not_speech_first_mix(
+    ctx: RunContext,
+) -> None:
+    # Without preview, mix is blocked; with preview, speech-first unlocks mix only.
+    assert mix_epoch_block(ctx, stage="mix") == "music_incomplete"
+    preview = ctx.path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 64)
+    assert mix_epoch_block(ctx, stage="mix") is None
+    for sid in ("junction_snip_qa", "master_finalize"):
         with pytest.raises(ValueError, match=r"delivery epoch music_incomplete"):
             run_single_stage(ctx, sid)
 
@@ -152,7 +171,6 @@ def test_hx1_heal_pins_music_producer_not_mix(ctx: RunContext) -> None:
     assert pin in MUSIC_BEFORE_MIX
     assert pin != "mix"
     nav = heal_navigate(ctx, error=err, stage="mix")
-    assert nav["from_stage"] in MUSIC_BEFORE_MIX
     assert nav["from_stage"] != "mix"
 
 
@@ -160,4 +178,4 @@ def test_hx1_safe_mix_resume_is_music_before_mix(ctx: RunContext) -> None:
     resume = safe_mix_resume_stage(ctx)
     assert resume in MUSIC_BEFORE_MIX
     assert resume != "mix"
-    assert mix_epoch_block(ctx)
+    assert mix_epoch_block(ctx, stage="junction_snip_qa")

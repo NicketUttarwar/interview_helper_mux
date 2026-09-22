@@ -147,9 +147,9 @@ flowchart LR
     OQ[optimal_questions] --> G1[g1_vo_pickup]
     G1 -->|synthesize| S2S[vo_synthesize]
     G1 -->|record/upload| VP[vo_pickup/*.wav]
-    S2S --> VI[vo_ingest]
-    VP --> VI
-    VI --> VF[sound_design_vo_finalize]
+    S2S --> VF[sound_design_vo_finalize]
+    VP --> VI[vo_ingest]
+    VI --> VF
     VF --> EDL[edl → assembly_preview → mix]
 ```
 
@@ -305,7 +305,7 @@ Follow isolated-runtime pattern from [local-audio-stack.md](./local-audio-stack.
 | Verify | `scripts/verify_local_models.sh` gate + `install.json` |
 | CLI | `tools/s2s_generate.py` — `--text`, `--reference`, `--context`, `--tone`, `--out` |
 | Runner | `src/interview_mux/s2s_runner.py` (subprocess via `local_runtime.py`) |
-| Stage | `vo_synthesize` in `DELIVERY_ORDER` after `edl_narrative_audit` (before `edl`); G1 API still synthesizes one gap line |
+| Stage | `vo_synthesize` in `DELIVERY_ORDER` after `vo_line_adjudicate` (before `sound_design_vo_finalize` → `edl_narrative_audit` → `edl`); G1 API still synthesizes one gap line |
 | QA sidecar | `vo_pickup/s2s_qa.json` (model id, reference speaker, duration, tone) — mirror `mmaudio_qa.json` |
 | Config | `s2s.enabled`, `s2s.model`, `s2s.min_reference_sec`, `s2s.fail_open` (default **true**) — document in [config-keys.md](./config-keys.md) when shipped |
 

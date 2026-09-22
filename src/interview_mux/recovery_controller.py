@@ -1302,6 +1302,47 @@ def _write_recovery_escalation(
         pass
 
 
+def live_identical_halt_resume_stage(
+    ctx: RunContext,
+    error_class: str,
+    fallback_stage: str,
+) -> str:
+    """F-2: live classify pins before cold PLAYBOOK_REGISTRY on identical-halt resume.
+
+    Registry remains the cold fallback when no live helper applies.
+    """
+    ec = str(error_class or "").strip()
+    resume = str(fallback_stage or "")
+    try:
+        from interview_mux.stage_completion import (
+            edl_heal_resume_stage,
+            fuse_oscillation_heal_resume_stage,
+            high_gap_heal_resume_stage,
+        )
+
+        if ec == "high_gap_unframed":
+            return high_gap_heal_resume_stage(ctx)
+        if ec in {
+            "vo_audibility_drift",
+            "opening_orientation_inaudible",
+            "never_touch_zeroed_keep",
+        }:
+            return edl_heal_resume_stage(ctx)
+        if ec in {"fuse_oscillation", "connector_fuse_oscillation"}:
+            return fuse_oscillation_heal_resume_stage(ctx)
+    except Exception:
+        pass
+    try:
+        from interview_mux.heal_routing import PLAYBOOK_REGISTRY
+
+        spec = PLAYBOOK_REGISTRY.get(ec)
+        if spec and spec.resume_stage:
+            return str(spec.resume_stage)
+    except Exception:
+        pass
+    return resume
+
+
 def handle_stage_failure(
     ctx: RunContext,
     stage_id: str,
@@ -1368,23 +1409,7 @@ def handle_stage_failure(
     if is_halted(ctx, halt_sig):
         resume = stage_id
         try:
-            from interview_mux.heal_routing import PLAYBOOK_REGISTRY
-
-            spec = PLAYBOOK_REGISTRY.get(error_class)
-            if spec and spec.resume_stage:
-                resume = spec.resume_stage
-            if error_class == "high_gap_unframed":
-                from interview_mux.stage_completion import high_gap_heal_resume_stage
-
-                resume = high_gap_heal_resume_stage(ctx)
-            if error_class in {
-                "vo_audibility_drift",
-                "opening_orientation_inaudible",
-                "never_touch_zeroed_keep",
-            }:
-                from interview_mux.stage_completion import edl_heal_resume_stage
-
-                resume = edl_heal_resume_stage(ctx)
+            resume = live_identical_halt_resume_stage(ctx, error_class, stage_id)
         except Exception:
             pass
         return _result(

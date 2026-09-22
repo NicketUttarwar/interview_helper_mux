@@ -955,6 +955,77 @@ def _check_sound_design_plan(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
+def _check_sound_design_vo_finalize(ctx: RunContext) -> list[StageInputIssue]:
+    """C-02 / expanded WS2: finalize measures seated WAVs after vo_synthesize."""
+    issues: list[StageInputIssue] = []
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, "vo_synthesize"):
+            issues.append(
+                StageInputIssue(
+                    message="sound_design_vo_finalize requires seed-complete vo_synthesize",
+                    remediation="Run vo_synthesize until seated WAVs are complete.",
+                    related_stage="vo_synthesize",
+                )
+            )
+    except Exception:
+        if not ctx.is_done("vo_synthesize"):
+            issues.append(
+                StageInputIssue(
+                    message="sound_design_vo_finalize requires vo_synthesize done",
+                    remediation="Run vo_synthesize.",
+                    related_stage="vo_synthesize",
+                )
+            )
+    issue = _require_artifact(
+        ctx,
+        "understanding/sound_design_plan.json",
+        remediation="Run sound_design_plan.",
+    )
+    if issue:
+        issues.append(issue)
+    return issues
+
+
+def _check_sanitize_predecessor(
+    ctx: RunContext, *, producer: str, consumer: str
+) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, producer):
+            issues.append(
+                StageInputIssue(
+                    message=f"{consumer} requires seed-complete {producer}",
+                    remediation=f"Run {producer}.",
+                    related_stage=producer,
+                )
+            )
+    except Exception:
+        pass
+    return issues
+
+
+def _check_air_script_compose(ctx: RunContext) -> list[StageInputIssue]:
+    return _check_sanitize_predecessor(
+        ctx, producer="selection_order_sanitize", consumer="air_script_compose"
+    )
+
+
+def _check_gap_report_sanitize(ctx: RunContext) -> list[StageInputIssue]:
+    return _check_sanitize_predecessor(
+        ctx, producer="nugget_layup_compose", consumer="gap_report_sanitize"
+    )
+
+
+def _check_air_contract_sanitize(ctx: RunContext) -> list[StageInputIssue]:
+    return _check_sanitize_predecessor(
+        ctx, producer="air_script_seams", consumer="air_contract_sanitize"
+    )
+
+
 _UPSTREAM_ARTIFACT_PRODUCER: dict[str, str] = {
     "understanding/speakers.json": "speaker_roles",
     "understanding/content_brief.json": "content_context",
@@ -1072,6 +1143,10 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "chapter_close_hitch": _check_chapter_close_hitch,
     "full_master_ranking": _check_full_master_ranking,
     "sound_design_plan": _check_sound_design_plan,
+    "sound_design_vo_finalize": _check_sound_design_vo_finalize,
+    "air_script_compose": _check_air_script_compose,
+    "gap_report_sanitize": _check_gap_report_sanitize,
+    "air_contract_sanitize": _check_air_contract_sanitize,
     "assembly_preview": _check_assembly_preview,
     "mix": _check_mix,
     "junction_snip_qa": _check_junction_snip_qa,

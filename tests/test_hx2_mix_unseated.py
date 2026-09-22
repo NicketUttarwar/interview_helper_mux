@@ -68,13 +68,46 @@ def _write_wav(ctx: RunContext) -> None:
 
 
 def _plant_seated(ctx: RunContext) -> None:
+    import json
+
+    from interview_mux.air_order import ensure_assembly_mtime_seats_edl
+    from interview_mux.seam_autopsy import _file_fingerprint
+
+    gen = 1
     sel = bump_order_lock(
-        {"ordered_segment_ids": ["seg_001"], "version": 1},
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "version": 1,
+            "air_order_generation": gen,
+        },
         source="hx2",
     )
     ctx.write_json("master/selection.json", sel, skip_handoff=True)
-    ctx.write_json("master/edl.json", _edl(ids=["seg_001"]), skip_handoff=True)
+    ctx.write_json(
+        "master/air_order.json",
+        {"generation": gen, "air_order_generation": gen},
+        skip_handoff=True,
+        stage_key="edl",
+    )
+    ctx.write_json("master/edl.json", _edl(ids=["seg_001"], gen=gen), skip_handoff=True)
     _write_wav(ctx)
+    ensure_assembly_mtime_seats_edl(ctx)
+    asm = ctx.final_path("master", "assembly.wav")
+    fp = _file_fingerprint(asm)
+    dest_rl = ctx.final_path("master", "render_ledger.json")
+    dest_rl.parent.mkdir(parents=True, exist_ok=True)
+    dest_rl.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "generated_at": "2026-01-01T00:00:00Z",
+                "edl_hash": "x",
+                "assembly": fp,
+                "clips": [],
+                "air_order_generation": gen,
+            }
+        )
+    )
 
 
 def test_hx2_wav_without_edl_is_unseated(ctx: RunContext) -> None:
@@ -112,12 +145,15 @@ def test_hx2_raw_done_unmarked_while_unseated(ctx: RunContext) -> None:
     assert ctx.is_done("mix")
     assert seed_stage_complete(ctx, "mix") is False
     out = heal_or_refuse_mark(ctx, "mix")
-    assert out.get("unmarked") is True
+    # Hollow demote or heal unmark — either way mix must not stay done.
     assert not ctx.is_done("mix")
+    assert out.get("unmarked") is True or out.get("refused") is True
     assert out.get("marked") is not True
 
 
 def test_hx2_mark_done_does_not_clear_stale_when_unseated(ctx: RunContext) -> None:
+    from interview_mux.artifact_ownership import AuthorityDenied
+
     _write_wav(ctx)
     ctx.write_json(
         "run_meta.json",
@@ -128,7 +164,8 @@ def test_hx2_mark_done_does_not_clear_stale_when_unseated(ctx: RunContext) -> No
         },
         skip_handoff=True,
     )
-    ctx.mark_done("mix")
+    with pytest.raises(AuthorityDenied):
+        ctx.mark_done("mix")
     assert not ctx.is_done("mix")
     meta = ctx.read_json("run_meta.json")
     assert meta.get("assembly_seating_stale") is True

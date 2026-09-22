@@ -326,6 +326,37 @@ def test_normalize_keeps_reversed_llm_text_on_air_order_seam(tmp_path: Path) -> 
     assert "what changed?" not in str(row["text"]).casefold()
 
 
+def test_normalize_synthetic_plan_coerces_null_speaker_policy(tmp_path: Path) -> None:
+    from interview_mux import synthetic_framing
+
+    ctx = _reorder_ctx(tmp_path)
+    packet = _synthetic_packet(
+        ctx,
+        ordered=["seg_a", "seg_b"],
+        required=[],
+    )
+    plan = {
+        "selection_order_content_hash": packet["selection_order_content_hash"],
+        "lines": [
+            {
+                "line_id": "syn_host",
+                "role": "preface",
+                "placement": "before",
+                "anchor_segment_id": "seg_a",
+                "text": (
+                    "Liquid biopsy techniques change how clinicians sample "
+                    "tumor biology without invasive tissue collection."
+                ),
+                "duration_ratio": 1.0,
+                "comprehension_reason": "orient",
+                "speaker_policy": None,
+            }
+        ],
+    }
+    out = synthetic_framing.normalize_synthetic_plan(ctx, plan, packet)
+    assert out["lines"][0]["speaker_policy"] == ""
+
+
 def test_normalize_adopts_endpoint_messy_ids_onto_required_seam(tmp_path: Path) -> None:
     from interview_mux import synthetic_framing
 

@@ -597,21 +597,21 @@ def check_narrative_qc(
 ) -> None:
     """Warn or block on narrative QC before ranking or EDL.
 
-    FMR-B2: Full-auto softens a strict QC fail to advisory continue (does not
-    flip config when already soft). Manual/partial keep ``narrative_qc.strict``.
+    FMR-B2 / X-3: unattended (Full-auto + Partial) softens a strict QC fail to
+    advisory continue. Manual keeps ``narrative_qc.strict``.
     """
     errors = validate_flow1_narrative(ctx, require_selection=require_selection)
     strict = narrative_qc_strict_enabled()
     effective_strict = strict
-    full_auto_softened = False
+    unattended_softened = False
     if strict:
         try:
-            from interview_mux.automation_run import is_full_auto_run
+            from interview_mux.operator_gates import is_unattended_run
 
             meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            if is_full_auto_run(meta if isinstance(meta, dict) else None):
+            if is_unattended_run(meta if isinstance(meta, dict) else None):
                 effective_strict = False
-                full_auto_softened = True
+                unattended_softened = True
         except Exception:
             pass
     if not errors:
@@ -641,7 +641,11 @@ def check_narrative_qc(
         f"Narrative QC failed ({len(errors)} issue(s)): {summary}",
         level="error" if effective_strict else "warn",
         stage=stage,
-        detail="narrative_qc_fail_full_auto_soft" if full_auto_softened else "narrative_qc_fail",
+        detail=(
+            "narrative_qc_fail_unattended_soft"
+            if unattended_softened
+            else "narrative_qc_fail"
+        ),
     )
     record_qc_summary(
         ctx,
@@ -651,7 +655,8 @@ def check_narrative_qc(
             "errors": errors[:12],
             "strict": strict,
             "effective_strict": effective_strict,
-            "full_auto_softened": full_auto_softened,
+            "full_auto_softened": unattended_softened,
+            "unattended_softened": unattended_softened,
             "at_stage": stage,
         },
     )

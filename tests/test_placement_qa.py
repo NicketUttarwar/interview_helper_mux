@@ -123,3 +123,129 @@ def test_apply_placement_adjustments_sets_crossfade_ms(tmp_path, monkeypatch):
     cues = [{"asset_id": "stinger_01", "level_db": -18.0}]
     adjusted = apply_placement_adjustments(ctx, cues)
     assert adjusted[0]["crossfade_ms"] == 180
+
+
+def test_placement_qa_preserves_junction_crossfade_across_rerun(tmp_path, monkeypatch):
+    """MUX_FORENSICS=0 cascade: remaster mix must not wipe junction fade floors.
+
+    exec_13161: adjust_music_fade → placement_qa regenerate → effective XF=0 →
+    oscillation_halt residual blocked PMQ.
+    """
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "pq_preserve_xf")
+    sdp_path = ctx.path("understanding", "sound_design_plan.json")
+    sdp_path.parent.mkdir(parents=True, exist_ok=True)
+    sdp_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "assets": [{"asset_id": "theme_a", "role": "theme_emphasis"}],
+                "flow_plans": {
+                    "podcast": {
+                        "profile": "podcast",
+                        "cues": [
+                            {
+                                "cue_id": "c_theme_a",
+                                "asset_id": "theme_a",
+                                "role": "theme_emphasis",
+                                "placement": "after_segment",
+                                "crossfade_ms": None,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "theme_a.wav").write_bytes(MINIMAL_WAV_BYTES)
+    ctx.write_json(
+        OUTPUT_PATH,
+        {
+            "version": 1,
+            "adjustments": [
+                {
+                    "asset_id": "theme_a",
+                    "action": "adjust_crossfade",
+                    "suggested_crossfade_ms": 180,
+                    "reason": "junction_snip_qa:music_hard_transition",
+                    "provenance": {
+                        "rule_id": "junction_snip_qa",
+                        "source_artifact": "master/junction_snip_qa.json",
+                    },
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    doc = run_placement_qa(ctx)
+    row = next((a for a in doc["adjustments"] if a.get("asset_id") == "theme_a"), None)
+    assert row is not None
+    assert int(row.get("suggested_crossfade_ms") or 0) >= 180
+
+
+def test_placement_qa_theme_bookend_gets_soft_crossfade(tmp_path, monkeypatch):
+    """MUX_FORENSICS=0: theme bookend/stinger cues get soft XF even under mmaudio rows."""
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "pq_theme_xf")
+    sdp_path = ctx.path("understanding", "sound_design_plan.json")
+    sdp_path.parent.mkdir(parents=True, exist_ok=True)
+    sdp_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "assets": [{"asset_id": "show_theme_v1_stinger_01", "role": "theme_emphasis"}],
+                "flow_plans": {
+                    "podcast": {
+                        "profile": "podcast",
+                        "cues": [
+                            {
+                                "cue_id": "c_stinger",
+                                "asset_id": "show_theme_v1_stinger_01",
+                                "role": "theme_emphasis",
+                                "placement": "after_segment",
+                                "crossfade_ms": None,
+                                "segment_id": "seg_001",
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "show_theme_v1_stinger_01.wav").write_bytes(MINIMAL_WAV_BYTES)
+    ctx.write_json(
+        "sound_design/mmaudio_qa.json",
+        {
+            "version": 1,
+            "assets": [
+                {
+                    "asset_id": "show_theme_v1_stinger_01",
+                    "role": "theme_emphasis",
+                    "verdict": "warn",
+                    "reasons": ["hot_tail"],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    doc = run_placement_qa(ctx)
+    row = next(
+        (a for a in doc["adjustments"] if a.get("asset_id") == "show_theme_v1_stinger_01"),
+        None,
+    )
+    assert row is not None
+    assert int(row.get("suggested_crossfade_ms") or 0) >= 180

@@ -510,25 +510,45 @@ def test_promote_owner_skips_stale_pending_over_audited_wav(
 ) -> None:
     """Pending VO must not clobber a sha-bound audited take (exec_11630)."""
     import json
+    import os
 
+    from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
     from interview_mux.write_staging import promote_owner_vo_pickup
-    from interview_mux.vo_synthesis_audit import wav_content_sha256
+    from interview_mux.vo_synthesis_audit import (
+        synthesis_entry_for_line,
+        synthesis_entry_matches_line,
+        wav_content_sha256,
+    )
 
+    os.environ["MUX_FORENSICS"] = "0"
     ctx = _ctx(tmp_path, monkeypatch)
     monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
     lid = "vo_layup_seg_020"
+    spoken = "Good audited host line that stays script-fresh for sha protect."
+    line = {
+        "line_id": lid,
+        "text": spoken,
+        "delivery": "synthesize",
+        "targets_segment_id": "seg_020",
+        "placement": "before",
+    }
     syn = ctx.run_dir / "vo_pickup" / "synthesized"
     syn.mkdir(parents=True)
     good = syn / f"{lid}.wav"
     good.write_bytes(b"RIFF" + b"\x00" * 100 + b"GOOD_AUDITED_TAKE")
     want = wav_content_sha256(good)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [line]},
+        skip_handoff=True,
+    )
     report = {
         "version": 1,
         "entries": [
             {
                 "line_id": lid,
-                "script_hash": "abc",
-                "context_hash": "def",
+                "script_hash": script_hash(spoken),
+                "context_hash": context_hash(evidence_for_line(line)),
                 "wav_sha256": want,
                 "backend": "chatterbox",
                 "qc_pass": True,
@@ -536,11 +556,14 @@ def test_promote_owner_skips_stale_pending_over_audited_wav(
             }
         ],
     }
-    # synthesis_entry_for_line reads synthesis_report.json
-    (ctx.run_dir / "vo_pickup").mkdir(parents=True, exist_ok=True)
-    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
+    # Write audit *after* gap so gap admit cascade cannot purge the entry.
+    (ctx.final_path("vo_pickup")).mkdir(parents=True, exist_ok=True)
+    (ctx.final_path("vo_pickup", "synthesis_report.json")).write_text(
         json.dumps(report), encoding="utf-8"
     )
+    assert synthesis_entry_for_line(ctx, lid) is not None
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    assert matches, reason
     pending = (
         ctx.run_dir
         / ".pending_writes"
@@ -556,3 +579,197 @@ def test_promote_owner_skips_stale_pending_over_audited_wav(
     assert f"vo_pickup/synthesized/{lid}.wav" not in flushed
     assert wav_content_sha256(good) == want
     assert good.read_bytes().endswith(b"GOOD_AUDITED_TAKE")
+
+
+def test_promote_owner_allows_pending_when_dest_audit_script_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): pending fresh G1 take must promote over script-stale dest.
+
+    exec_13163: skip left dest matching old audit sha while gap text moved; cascade
+    purged; EDL missing-WAV thrash. Allow promote when audit no longer matches gap.
+    """
+    import json
+    import os
+
+    from interview_mux.spoken_copy_guard import script_hash
+    from interview_mux.write_staging import promote_owner_vo_pickup
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    lid = "vo_layup_seg_009"
+    spoken = "Fresh host line after adjudicate rewrite for precision oncology."
+    syn = ctx.run_dir / "vo_pickup" / "synthesized"
+    syn.mkdir(parents=True)
+    stale_dest = syn / f"{lid}.wav"
+    stale_dest.write_bytes(b"RIFF" + b"\x00" * 100 + b"OLD_AUDIT_DEST_BYTES")
+    old_sha = wav_content_sha256(stale_dest)
+    report = {
+        "version": 1,
+        "entries": [
+            {
+                "line_id": lid,
+                "script_hash": script_hash("old spoken copy before rewrite"),
+                "context_hash": "deadbeef",
+                "wav_sha256": old_sha,
+                "backend": "chatterbox",
+                "qc_pass": True,
+                "out_wav": f"vo_pickup/synthesized/{lid}.wav",
+            }
+        ],
+    }
+    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": lid,
+                    "text": spoken,
+                    "delivery": "synthesize",
+                    "targets_segment_id": "seg_009",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "vo_synthesize"
+        / "vo_pickup"
+        / "synthesized"
+    )
+    pending.mkdir(parents=True)
+    fresh = pending / f"{lid}.wav"
+    fresh.write_bytes(b"RIFF" + b"\x00" * 100 + b"FRESH_G1_PENDING_TAKE")
+    fresh_sha = wav_content_sha256(fresh)
+    assert fresh_sha != old_sha
+
+    flushed = promote_owner_vo_pickup(ctx)
+    assert f"vo_pickup/synthesized/{lid}.wav" in flushed
+    assert wav_content_sha256(stale_dest) == fresh_sha
+    assert stale_dest.read_bytes().endswith(b"FRESH_G1_PENDING_TAKE")
+
+
+def test_promote_owner_allows_pending_when_script_line_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: no gap/layup line → fail-open promote (not sha-only skip)."""
+    import json
+    import os
+
+    from interview_mux.write_staging import promote_owner_vo_pickup
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    lid = "vo_layup_seg_077"
+    syn = ctx.run_dir / "vo_pickup" / "synthesized"
+    syn.mkdir(parents=True)
+    dest = syn / f"{lid}.wav"
+    dest.write_bytes(b"RIFF" + b"\x00" * 100 + b"DEST_MATCHES_AUDIT")
+    want = wav_content_sha256(dest)
+    report = {
+        "version": 1,
+        "entries": [
+            {
+                "line_id": lid,
+                "script_hash": "dead",
+                "context_hash": "beef",
+                "wav_sha256": want,
+                "backend": "chatterbox",
+                "qc_pass": True,
+                "out_wav": f"vo_pickup/synthesized/{lid}.wav",
+            }
+        ],
+    }
+    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    # No gap_report / layup plan → script line missing.
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "vo_synthesize"
+        / "vo_pickup"
+        / "synthesized"
+    )
+    pending.mkdir(parents=True)
+    fresh = pending / f"{lid}.wav"
+    fresh.write_bytes(b"RIFF" + b"\x00" * 100 + b"PENDING_FRESH_BYTES!")
+    flushed = promote_owner_vo_pickup(ctx)
+    assert f"vo_pickup/synthesized/{lid}.wav" in flushed
+    assert dest.read_bytes().endswith(b"PENDING_FRESH_BYTES!")
+
+
+def test_promote_owner_uses_layup_plan_script_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: layup-only line (not in gap interviewer_lines) still gates freshness."""
+    import json
+    import os
+
+    from interview_mux.spoken_copy_guard import script_hash
+    from interview_mux.write_staging import promote_owner_vo_pickup
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    lid = "vo_layup_seg_088"
+    spoken = "Layup-only spoken line for promote freshness authority."
+    syn = ctx.run_dir / "vo_pickup" / "synthesized"
+    syn.mkdir(parents=True)
+    dest = syn / f"{lid}.wav"
+    dest.write_bytes(b"RIFF" + b"\x00" * 100 + b"OLD_LAYUP_DEST_BYTES")
+    old_sha = wav_content_sha256(dest)
+    report = {
+        "version": 1,
+        "entries": [
+            {
+                "line_id": lid,
+                "script_hash": script_hash("previous layup text"),
+                "context_hash": "deadbeef",
+                "wav_sha256": old_sha,
+                "backend": "chatterbox",
+                "qc_pass": True,
+                "out_wav": f"vo_pickup/synthesized/{lid}.wav",
+            }
+        ],
+    }
+    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": ["seg_088"],
+            "layups": [
+                {
+                    "line_id": lid,
+                    "target_segment_id": "seg_088",
+                    "text": spoken,
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    pending = (
+        ctx.run_dir
+        / ".pending_writes"
+        / "vo_synthesize"
+        / "vo_pickup"
+        / "synthesized"
+    )
+    pending.mkdir(parents=True)
+    fresh = pending / f"{lid}.wav"
+    fresh.write_bytes(b"RIFF" + b"\x00" * 100 + b"FRESH_LAYUP_PENDING!")
+    flushed = promote_owner_vo_pickup(ctx)
+    assert f"vo_pickup/synthesized/{lid}.wav" in flushed
+    assert dest.read_bytes().endswith(b"FRESH_LAYUP_PENDING!")

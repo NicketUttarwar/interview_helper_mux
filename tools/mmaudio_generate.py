@@ -198,7 +198,13 @@ def main() -> int:
             full_precision=args.full_precision,
             device=args.device,
         )
-        return 0
+        # Hard-exit after successful write — avoid accelerator teardown hang (WS4).
+        try:
+            import os
+
+            os._exit(0)
+        except Exception:
+            return 0
     except ImportError as exc:
         print(f"MMAudio import failed: {exc}", file=sys.stderr)
         return 1

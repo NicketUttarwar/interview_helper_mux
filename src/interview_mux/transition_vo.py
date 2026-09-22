@@ -221,24 +221,14 @@ def resolve_transition_wav(
         **evidence,
     }
     from interview_mux.vo_synthesis_audit import (
-        synthesis_entry_for_line,
         synthesis_entry_matches_line,
     )
-    from interview_mux.spoken_copy_guard import script_hash
 
     matches, _reason = synthesis_entry_matches_line(ctx, line)
     if matches:
         return path
-    # Context hash drifts when evidence enrichment / adjacent text changes
-    # without rewriting the spoken line. Accept script-matched WAVs on disk.
-    entry = synthesis_entry_for_line(ctx, str(line.get("line_id") or ""))
-    if (
-        entry
-        and _transition_wav_usable(path)
-        and str(entry.get("script_hash") or "")
-        == script_hash(str(item.get("text") or ""))
-    ):
-        return path
+    # Do not accept script_hash-only (context-drift) seats — same class as G1 VO
+    # bind. Require full synthesis_entry_matches_line (script + sha).
     return None
 
 
@@ -382,6 +372,22 @@ def resync_spoken_transitions(ctx: RunContext, *, fail_closed: bool = False) -> 
             needed.append((after_id, before_id))
     if not needed:
         return []
+    try:
+        from interview_mux.gap_vo_gates import nested_synth_may_mint
+
+        may_mint, skip_note = nested_synth_may_mint(ctx, for_synthesize=False)
+        if not may_mint:
+            note = skip_note or "nested_synth_skipped:vo_path_not_ready"
+            ctx.log(note, level="warning", stage="edl")
+            return [note]
+    except Exception as exc:
+        # DP-NESTED-SYNTH A: never fall through to mint on probe failure.
+        note = f"nested_synth_skipped:probe_error:{type(exc).__name__}"
+        try:
+            ctx.log(note, level="warning", stage="edl")
+        except Exception:
+            pass
+        return [note]
     # Drop stale bytes so Chatterbox cannot skip-fresh on existence alone.
     for after_id, before_id in needed:
         _purge_transition_pair_wav(ctx, after_id, before_id)
@@ -412,6 +418,28 @@ def synthesize_spoken_transitions(
 ) -> list[dict[str, Any]]:
     """Generate WAVs for transitions that have spoken text. Returns result rows."""
     if not ctx.artifact_exists("master/transitions.json"):
+        return []
+    try:
+        from interview_mux.gap_vo_gates import nested_synth_may_mint
+
+        may_mint, skip_note = nested_synth_may_mint(ctx, for_synthesize=False)
+        if not may_mint:
+            ctx.log(
+                skip_note or "nested_synth_skipped:vo_path_not_ready",
+                level="warning",
+                stage="transition_vo",
+            )
+            return []
+    except Exception as exc:
+        # DP-NESTED-SYNTH A: never fall through to mint on probe failure.
+        try:
+            ctx.log(
+                f"nested_synth_skipped:probe_error:{type(exc).__name__}",
+                level="warning",
+                stage="transition_vo",
+            )
+        except Exception:
+            pass
         return []
     doc = ctx.read_json("master/transitions.json")
     if not isinstance(doc, dict):

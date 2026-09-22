@@ -82,8 +82,32 @@ def transcribe_audio(
                 stage="transcribe",
             )
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()[:500]
-            raise LocalRuntimeUnavailable(f"STT failed: {err}")
+            from interview_mux.heavy_task_policy import reclaim_for_same_class_retry
+
+            err0 = (proc.stderr or proc.stdout or "").strip()
+            # Deterministic STT errors raise immediately; hang/OOM get one reclaim
+            # retry with the same timeout budget (not shortened).
+            if reclaim_for_same_class_retry(
+                ctx,
+                consumer="speech",
+                fingerprint=f"stt:{audio_path.name}:{model_id}",
+                proc=proc,
+                returncode=proc.returncode,
+                stderr=err0,
+                stage="transcribe",
+            ):
+                with logged_step("stt/transcribe_reclaim_retry", ctx=ctx, stage="transcribe"):
+                    proc = run_runtime_script(
+                        "speech",
+                        "tools/stt_transcribe.py",
+                        args,
+                        timeout_sec=timeout,
+                        ctx=ctx,
+                        stage="transcribe",
+                    )
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()[:500]
+                raise LocalRuntimeUnavailable(f"STT failed: {err}")
         raw = json.loads(out_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise LocalRuntimeUnavailable("STT returned non-object JSON")

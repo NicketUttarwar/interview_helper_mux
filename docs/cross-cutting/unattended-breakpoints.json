@@ -430,7 +430,11 @@
       "outputs": [
         "master/transcript.json",
         "master/transcript.vtt",
-        "master/transcript.txt"
+        "master/transcript.txt",
+        "glob:transcripts/transition/*.json",
+        "glob:transcripts/vo/*.json",
+        "glob:transcripts/speech/*.json",
+        "transcripts/index.json"
       ]
     },
     {

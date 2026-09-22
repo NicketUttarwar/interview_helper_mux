@@ -413,17 +413,18 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
                 gap_framing_enabled,
                 maybe_auto_accept_gap_gate_defaults,
                 require_gap_framing_decision_clear,
+                require_gap_path_clear,
             )
             from interview_mux.source_topology import (
                 maybe_auto_confirm_pickup_speaker,
-                require_pickup_speaker_clear,
             )
 
             maybe_auto_accept_gap_gate_defaults(ctx)
             require_gap_framing_decision_clear(ctx)
             if gap_framing_enabled(ctx):
                 maybe_auto_confirm_pickup_speaker(ctx)
-                require_pickup_speaker_clear(ctx)
+                # Full ladder SSOT (pickup + voice-ref + delivery + consent).
+                require_gap_path_clear(ctx)
         fns = _analysis_stage_fns(ctx)
         if stage not in fns:
             raise ValueError(f"Unknown stage: {stage}")
@@ -540,7 +541,7 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         )
 
         if stage in MIX_EPOCH_RUN_BLOCK:
-            mix_b = mix_epoch_block(ctx)
+            mix_b = mix_epoch_block(ctx, stage=stage)
             if mix_b:
                 raise ValueError(f"cannot run {stage}: delivery epoch {mix_b}")
         stale = upstream_stale_blockers(ctx, stage)
@@ -694,6 +695,15 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
                 failed_invariant=str(exc)[:400],
                 evidence={"error_class": type(exc).__name__},
             )
+        except Exception:
+            pass
+        # Flush sealable pending before re-raise so HC-3 pending_only does not
+        # deadlock the next execute (vo_line wrote adjudication then raised).
+        try:
+            from interview_mux.write_staging import has_pending_writes
+
+            if has_pending_writes(ctx, stage):
+                heal_or_refuse_mark(ctx, stage, force=False)
         except Exception:
             pass
         raise
@@ -960,6 +970,15 @@ def _run_steps(
                 "Delivery blocked — analysis incomplete: " + ", ".join(str(s) for s in blocked)
             )
         remaining_after = list((result or {}).get("remaining_after") or [])
+        # Filter remaining so ESR/raise pins seed-complete-ordered head (exec_13165).
+        try:
+            from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+            filtered = filter_delivery_candidates(ctx, remaining_after)
+            if filtered:
+                remaining_after = filtered
+        except Exception:
+            pass
         committed_master = ctx.final_path("master", "master.wav").is_file()
         if remaining_after and not committed_master:
             if isinstance(result, dict) and result.get("esr_wait"):
@@ -1030,10 +1049,23 @@ def _run_steps(
                         "not publishable; remaining stages: "
                         + ", ".join(str(s) for s in (remaining_after or left)[:12])
                     )
-                raise RuntimeError(
-                    "Delivery incomplete after conductor — remaining ship stages: "
-                    + ", ".join(left)
-                )
+                # Walk ship in-place (align with agenda delivery_walk_to_publish).
+                try:
+                    from interview_mux.homunculus.agenda import walk_seed_agenda
+
+                    ctx.log(
+                        "Delivery walking remaining ship stages "
+                        f"({len(left)} stage(s))",
+                        level="warning",
+                        stage=left[0],
+                    )
+                    walk_seed_agenda(ctx, left, reason="delivery_walk_to_publish")
+                except Exception as walk_exc:
+                    raise RuntimeError(
+                        "Delivery incomplete after conductor — remaining ship stages: "
+                        + ", ".join(left)
+                        + f"; walk_failed={walk_exc}"
+                    ) from walk_exc
             after_complete_master(ctx)
         return
     plan_idx = 0

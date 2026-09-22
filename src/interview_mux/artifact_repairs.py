@@ -1164,6 +1164,47 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
             producer = str((row.get("_meta") or {}).get("producer") or "")
             if producer == "gap_fill_skip":
                 continue
+            # Explicit envelope nulls (key present, value null) — coerce for disk.
+            if row.get("listener_confusion") is None:
+                row["listener_confusion"] = ""
+                applied.append(
+                    {
+                        "action": "null_to_empty_string",
+                        "path": f"evaluations[{i}].listener_confusion",
+                    }
+                )
+            elif not isinstance(row.get("listener_confusion"), str):
+                row["listener_confusion"] = str(row.get("listener_confusion") or "")
+            if "recommended_framing" in row and row.get("recommended_framing") is None:
+                row["recommended_framing"] = "none"
+                applied.append(
+                    {
+                        "action": "default_value",
+                        "path": f"evaluations[{i}].recommended_framing",
+                        "value": "none",
+                    }
+                )
+            if "duplicate_claim_cluster" in row and row.get("duplicate_claim_cluster") is None:
+                row["duplicate_claim_cluster"] = ""
+                applied.append(
+                    {
+                        "action": "null_to_empty_string",
+                        "path": f"evaluations[{i}].duplicate_claim_cluster",
+                    }
+                )
+            for bk in (
+                "self_explanatory",
+                "candidate_for_summary",
+                "supports_ranking_exclude",
+                "ready",
+            ):
+                if bk in row and row.get(bk) is None:
+                    row[bk] = False if bk != "self_explanatory" else True
+                    applied.append(
+                        {"action": "coerce_bool", "path": f"evaluations[{i}].{bk}"}
+                    )
+                elif bk in row and not isinstance(row.get(bk), bool):
+                    row[bk] = bool(row.get(bk))
             if row.get("severity") and row.get("gap_type"):
                 continue
             tagged = False
@@ -1978,9 +2019,20 @@ def align_narrative_plan_to_selection(
         try:
             from interview_mux.write_staging import write_committed_json
 
-            write_committed_json(ctx, "master/narrative_plan.json", out)
+            write_committed_json(
+                ctx,
+                "master/narrative_plan.json",
+                out,
+                stage_key="edl_narrative_audit",
+                mutation_class="narrative_metadata_align",
+            )
         except Exception:
-            ctx.write_json("master/narrative_plan.json", out)
+            ctx.write_json(
+                "master/narrative_plan.json",
+                out,
+                stage_key="edl_narrative_audit",
+                mutation_class="narrative_metadata_align",
+            )
     return applied
 
 
@@ -2719,6 +2771,20 @@ def repair_gap_report(
                 elif arr_key in fixed and not isinstance(fixed.get(arr_key), list):
                     fixed[arr_key] = []
                     applied.append({"action": "coerce_array", "path": arr_key})
+            # Envelope nulls on string taxonomy leaves — coerce via existing vocabulary.
+            if "line_category" in fixed and (
+                fixed.get("line_category") is None
+                or not str(fixed.get("line_category") or "").strip()
+            ):
+                from interview_mux.gap_framing import infer_line_category
+
+                fixed["line_category"] = infer_line_category(fixed)
+                applied.append({"action": "default_line_category", "path": "line_category"})
+            if "origin" in fixed and fixed.get("origin") is None:
+                fixed["origin"] = ""
+                applied.append({"action": "null_to_empty_string", "path": "origin"})
+            elif "origin" in fixed and not isinstance(fixed.get("origin"), str):
+                fixed["origin"] = str(fixed.get("origin") or "")
             if not str(fixed.get("gap_type") or "").strip():
                 origin = str(fixed.get("origin") or "")
                 fixed["gap_type"] = "nugget_layup" if origin == "nugget_layup" else "missing_setup"
@@ -2726,6 +2792,29 @@ def repair_gap_report(
             cleaned.append(fixed)
         lines = cleaned
         out["interviewer_lines"] = cleaned
+    # opening_orientation: envelope nulls on string/bool leaves refuse disk write.
+    oo = out.get("opening_orientation")
+    if isinstance(oo, dict):
+        oo_fixed = dict(oo)
+        oo_changed = False
+        for sk in ("sequence", "target_segment_id", "omit_reason"):
+            if sk in oo_fixed and oo_fixed.get(sk) is None:
+                oo_fixed[sk] = ""
+                oo_changed = True
+                applied.append({"action": "null_to_empty_string", "path": f"opening_orientation.{sk}"})
+            elif sk in oo_fixed and not isinstance(oo_fixed.get(sk), str):
+                oo_fixed[sk] = str(oo_fixed.get(sk) or "")
+                oo_changed = True
+        for bk in ("required", "omitted"):
+            if bk in oo_fixed and oo_fixed.get(bk) is None:
+                oo_fixed[bk] = False
+                oo_changed = True
+                applied.append({"action": "coerce_bool", "path": f"opening_orientation.{bk}"})
+            elif bk in oo_fixed and not isinstance(oo_fixed.get(bk), bool):
+                oo_fixed[bk] = bool(oo_fixed.get(bk))
+                oo_changed = True
+        if oo_changed:
+            out["opening_orientation"] = oo_fixed
     if isinstance(lines, list) and manifest_ids:
         kept = []
         for row in lines:
@@ -4785,11 +4874,29 @@ def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:
     ``sound_design_plan`` only flushes ``understanding/sound_design_plan.json``.
     Cue-slot injections written via ``ctx.write_json`` would otherwise stay in
     ``.pending_writes/`` and never reach post-commit validation.
+
+    Ownership ALLOW is ``soundscape_policy_build`` only — pass that stage_key so
+    soft-freeze assert_write does not AuthorityDeny the slot inject
+    (exec_13167: theme_underscore cue_slots heal spin).
     """
     try:
         from interview_mux.write_staging import write_committed_json
 
-        write_committed_json(ctx, "understanding/soundscape_policy.json", policy)
+        write_committed_json(
+            ctx,
+            "understanding/soundscape_policy.json",
+            policy,
+            stage_key="soundscape_policy_build",
+        )
+        return
+    except Exception:
+        pass
+    try:
+        ctx.write_json(
+            "understanding/soundscape_policy.json",
+            policy,
+            stage_key="soundscape_policy_build",
+        )
     except Exception:
         try:
             ctx.write_json("understanding/soundscape_policy.json", policy)
@@ -5570,19 +5677,34 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 and s.get("segment_id")
             ]
             # Sparse slot maps (common after archive/restore) → re-score against selection.
+            # Isolate refresh: AuthorityDenied must not abort bed-slot inject
+            # (exec_13167: cue_slot_stinger_repair_skipped before inject).
             if selection_ids and len(amb_segs) < max(1, min(3, len(bed_anchor_pool) or 1)):
-                policy = refresh_cue_slots(ctx)
-                slots = [s for s in (policy.get("cue_slots") or []) if isinstance(s, dict)]
-                amb_segs = [
-                    str(s.get("segment_id") or "")
-                    for s in slots
-                    if (
-                        "theme_underscore" in (s.get("allowed_roles") or [])
-                        or "ambient_bed" in (s.get("allowed_roles") or [])
+                try:
+                    policy = refresh_cue_slots(ctx)
+                    slots = [s for s in (policy.get("cue_slots") or []) if isinstance(s, dict)]
+                    amb_segs = [
+                        str(s.get("segment_id") or "")
+                        for s in slots
+                        if (
+                            "theme_underscore" in (s.get("allowed_roles") or [])
+                            or "ambient_bed" in (s.get("allowed_roles") or [])
+                        )
+                        and s.get("segment_id")
+                    ]
+                    applied.append(
+                        {
+                            "action": "refresh_soundscape_cue_slots",
+                            "theme_underscore_slots": len(amb_segs),
+                        }
                     )
-                    and s.get("segment_id")
-                ]
-                applied.append({"action": "refresh_soundscape_cue_slots", "theme_underscore_slots": len(amb_segs)})
+                except Exception as refresh_exc:
+                    applied.append(
+                        {
+                            "action": "refresh_soundscape_cue_slots_skipped",
+                            "error": str(refresh_exc)[:160],
+                        }
+                    )
             amb_set = set(amb_segs)
             preferred = [s for s in bed_anchor_pool if s in amb_set]
             if not preferred:
@@ -5599,26 +5721,33 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         palette_set.add(target)
                         applied.append({"action": "extend_palette_for_bed_slot", "segment_id": target})
                 if target not in amb_set:
-                    slots = list(slots)
-                    slots.append(
+                    from interview_mux.soundscape_policy import admit_inject_cue_slots
+
+                    policy = admit_inject_cue_slots(
+                        ctx,
+                        policy,
+                        segment_ids=[target],
+                        reason="theme_underscore_palette_bed_slot",
+                        persist=True,
+                        rescore=False,
+                    )
+                    slots = [
+                        s
+                        for s in (policy.get("cue_slots") or [])
+                        if isinstance(s, dict)
+                    ]
+                    amb_set.add(target)
+                    applied.append(
                         {
-                            "slot_id": f"bed_{target}",
+                            "action": "inject_theme_underscore_cue_slot",
                             "segment_id": target,
-                            "placement": "under_segment",
-                            "allowed_roles": ["theme_underscore"],
-                            "priority": 0.5,
-                            "reason": "theme_underscore_palette_bed_slot",
                         }
                     )
-                    policy["cue_slots"] = slots
-                    _persist_soundscape_policy(ctx, policy)
-                    amb_set.add(target)
-                    applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": target})
                 preferred = [target]
             if preferred:
                 pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
                 slots = list(slots)
-                slots_changed = False
+                inject_ids: list[str] = []
                 for cue in cues:
                     if not isinstance(cue, dict) or cue.get("placement") != "under_segment" or cue.get("skip"):
                         continue
@@ -5633,18 +5762,8 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                             palette_set.add(seg)
                             applied.append({"action": "extend_palette_for_bed_segment", "segment_id": seg})
                     if amb_set is not None and seg not in amb_set:
-                        slots.append(
-                            {
-                                "slot_id": f"bed_{seg}",
-                                "segment_id": seg,
-                                "placement": "under_segment",
-                                "allowed_roles": ["theme_underscore"],
-                                "priority": 0.55,
-                                "reason": "theme_underscore_quartile_spread",
-                            }
-                        )
+                        inject_ids.append(seg)
                         amb_set.add(seg)
-                        slots_changed = True
                         applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": seg})
                     # Never remap beds onto a single preferred slot — that collapses
                     # coverage seeding and contiguous music across the selection.
@@ -5655,9 +5774,22 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                                 pals[0]["segment_ids"] = ids + [seg]
                         palette_set.add(seg)
                         applied.append({"action": "force_palette_for_bed_segment", "segment_id": seg})
-                if slots_changed:
-                    policy["cue_slots"] = slots
-                    _persist_soundscape_policy(ctx, policy)
+                if inject_ids:
+                    from interview_mux.soundscape_policy import admit_inject_cue_slots
+
+                    policy = admit_inject_cue_slots(
+                        ctx,
+                        policy,
+                        segment_ids=inject_ids,
+                        reason="theme_underscore_quartile_spread",
+                        persist=True,
+                        rescore=False,
+                    )
+                    slots = [
+                        s
+                        for s in (policy.get("cue_slots") or [])
+                        if isinstance(s, dict)
+                    ]
 
             # Drop cues anchored on segments no longer in the ranked selection.
             if selection_set:

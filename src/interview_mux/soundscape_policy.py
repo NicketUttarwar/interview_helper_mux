@@ -284,19 +284,15 @@ def _finalize_policy(
     out = _apply_operator_overrides(out)
     out = _clamp_density_after_overrides(out)
     if refresh_slots:
-        out["cue_slots"] = score_cue_slots(
-            ctx,
-            underscore=str(out.get("underscore_policy") or "normal"),
-            pace=str(out.get("pace_class") or "conversational"),
-            dens=dict(out.get("sfx_density") or {}),
-            mix_contract=dict(out.get("mix_contract") or {}),
+        # Sole cue_slots writer (SSOT) — dens ∪ planned ∪ inject path.
+        out = build_cue_slots_ssot(ctx, out, rescore=True)
+    else:
+        invent_status = invent_obligation_status(ctx)
+        out = _apply_invent_obligation_gate(
+            out,
+            status=invent_status,
+            rationale=list(out.get("rationale") or []),
         )
-    invent_status = invent_obligation_status(ctx)
-    out = _apply_invent_obligation_gate(
-        out,
-        status=invent_status,
-        rationale=list(out.get("rationale") or []),
-    )
     out["policy_hash"] = _policy_hash({k: v for k, v in out.items() if k != "policy_hash"})
     return out
 
@@ -422,7 +418,337 @@ def score_cue_slots(
     bed_slots.sort(key=lambda s: float(s.get("priority") or 0), reverse=True)
     bed_slots = bed_slots[: dens.get("max_beds", 0)]
     other = other[: dens.get("max_punctuators", 0) + dens.get("max_foley", 0)]
-    return bed_slots + other
+    # Planned under_segment beds in SDP must keep cue_slots even when dens
+    # max_beds is tight — otherwise refresh at sound_design_plan start wipes
+    # coverage seeds and strict_slots post-commit thrash (exec_13167).
+    return _merge_planned_bed_slots(ctx, bed_slots + other, bed_level=bed_level)
+
+
+def _planned_under_segment_bed_ids(ctx: RunContext) -> set[str]:
+    """Segment ids that already carry a non-skipped under_segment bed in SDP."""
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return set()
+    try:
+        sdp = ctx.read_json("understanding/sound_design_plan.json")
+    except Exception:
+        return set()
+    if not isinstance(sdp, dict):
+        return set()
+    assets_by_id = {
+        str(a.get("asset_id")): a
+        for a in (sdp.get("assets") or [])
+        if isinstance(a, dict) and a.get("asset_id")
+    }
+    out: set[str] = set()
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    for key in ("podcast", "flow1"):
+        flow = flow_plans.get(key) if isinstance(flow_plans.get(key), dict) else {}
+        for cue in flow.get("cues") or []:
+            if not isinstance(cue, dict) or cue.get("skip"):
+                continue
+            if str(cue.get("placement") or "") != "under_segment":
+                continue
+            aid = str(cue.get("asset_id") or "")
+            role = str(
+                (assets_by_id.get(aid) or {}).get("role") or cue.get("role") or "theme_underscore"
+            )
+            if role not in _BED_ROLES and role != "theme_underscore":
+                continue
+            sid = str(cue.get("segment_id") or "")
+            if sid:
+                out.add(sid)
+    return out
+
+
+def _merge_planned_bed_slots(
+    ctx: RunContext,
+    slots: list[dict[str, Any]],
+    *,
+    bed_level: float,
+) -> list[dict[str, Any]]:
+    """Union SDP-planned bed segments into scored cue_slots (beyond dens cap)."""
+    planned = _planned_under_segment_bed_ids(ctx)
+    if not planned:
+        return slots
+    have = {
+        str(s.get("segment_id") or "")
+        for s in slots
+        if isinstance(s, dict)
+        and (
+            "theme_underscore" in (s.get("allowed_roles") or [])
+            or "ambient_bed" in (s.get("allowed_roles") or [])
+        )
+        and s.get("segment_id")
+    }
+    out = list(slots)
+    for sid in sorted(planned):
+        if sid in have:
+            continue
+        out.append(
+            {
+                "slot_id": f"bed_{sid}",
+                "segment_id": sid,
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+                "priority": 0.55,
+                "max_level_db": bed_level,
+                "reason": "planned_sdp_bed",
+                "origin": "planned",
+            }
+        )
+        have.add(sid)
+    return out
+
+
+# --- Cue-slot SSOT (Partial Zero DP-SOUND-SDP-CUE custom A+) -----------------
+# One writer: dens score ∪ planned ∪ inject → normalize → dedupe → invent soft-block.
+
+_ORIGIN_RANK = {"planned": 3, "inject": 2, "dens": 1}
+_CUE_SLOT_REQUIRED = (
+    "slot_id",
+    "segment_id",
+    "placement",
+    "allowed_roles",
+    "priority",
+    "max_level_db",
+    "reason",
+    "origin",
+)
+
+
+def _bed_level_from_mix(mix_contract: dict[str, Any] | None) -> float:
+    bed_range = (mix_contract or {}).get("bed_level_db_range") or [-16.0, -12.0]
+    if isinstance(bed_range, list) and len(bed_range) == 2:
+        try:
+            return float(bed_range[0] + bed_range[-1]) / 2.0
+        except (TypeError, ValueError):
+            return _DEFAULT_BED_LEVEL
+    return _DEFAULT_BED_LEVEL
+
+
+def infer_cue_slot_origin(slot: dict[str, Any]) -> str:
+    """Map existing reason/origin strings onto dens|planned|inject."""
+    raw = str(slot.get("origin") or "").strip().lower()
+    if raw in _ORIGIN_RANK:
+        return raw
+    reason = str(slot.get("reason") or "").lower()
+    if "planned_sdp" in reason:
+        return "planned"
+    if (
+        "theme_underscore" in reason
+        or reason.startswith("inject")
+        or "palette_bed" in reason
+        or "quartile_spread" in reason
+    ):
+        return "inject"
+    return "dens"
+
+
+def normalize_cue_slot(
+    raw: Any,
+    *,
+    bed_level: float | None = None,
+    origin: str | None = None,
+) -> dict[str, Any] | None:
+    """Coerce any writer-shaped dict into the canonical cue_slot schema.
+
+    Returns None when the candidate cannot become a valid slot (missing segment).
+    """
+    if not isinstance(raw, dict):
+        return None
+    sid = str(raw.get("segment_id") or "").strip()
+    if not sid:
+        return None
+    placement = str(raw.get("placement") or "under_segment").strip() or "under_segment"
+    roles_raw = raw.get("allowed_roles") or []
+    if isinstance(roles_raw, str):
+        roles = [roles_raw.strip()] if roles_raw.strip() else []
+    elif isinstance(roles_raw, list):
+        roles = [str(r).strip() for r in roles_raw if str(r).strip()]
+    else:
+        roles = []
+    if not roles:
+        roles = ["theme_underscore"]
+    try:
+        priority = float(raw.get("priority") if raw.get("priority") is not None else 0.5)
+    except (TypeError, ValueError):
+        priority = 0.5
+    level = bed_level if bed_level is not None else _DEFAULT_BED_LEVEL
+    if raw.get("max_level_db") is not None:
+        try:
+            level = float(raw.get("max_level_db"))
+        except (TypeError, ValueError):
+            pass
+    reason = str(raw.get("reason") or "cue_slot").strip() or "cue_slot"
+    orig = str(origin or "").strip().lower()
+    if orig not in _ORIGIN_RANK:
+        orig = infer_cue_slot_origin({**raw, "reason": reason})
+    slot_id = str(raw.get("slot_id") or "").strip() or f"bed_{sid}"
+    out: dict[str, Any] = {
+        "slot_id": slot_id,
+        "segment_id": sid,
+        "placement": placement,
+        "allowed_roles": roles,
+        "priority": round(priority, 3),
+        "max_level_db": level,
+        "reason": reason,
+        "origin": orig,
+    }
+    # Preserve optional bind metadata when already present (volley annotate).
+    for opt in ("speaker_volley_id", "hinge", "hinge_kind"):
+        if raw.get(opt) is not None:
+            out[opt] = raw.get(opt)
+    return out
+
+
+def cue_slot_identity(slot: dict[str, Any]) -> tuple[str, str, str]:
+    """Stable merge key: placement + segment + primary role."""
+    placement = str(slot.get("placement") or "under_segment")
+    sid = str(slot.get("segment_id") or "")
+    roles = [str(r) for r in (slot.get("allowed_roles") or []) if str(r).strip()]
+    primary = "theme_underscore"
+    for cand in ("theme_underscore", "ambient_bed", "era_music_bed"):
+        if cand in roles:
+            primary = cand
+            break
+    if roles and primary not in roles:
+        primary = roles[0]
+    return (placement, sid, primary)
+
+
+def merge_normalized_cue_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dedupe by identity; planned > inject > dens; higher priority on tie."""
+    by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        key = cue_slot_identity(slot)
+        prev = by_key.get(key)
+        if prev is None:
+            by_key[key] = slot
+            continue
+        rank_new = _ORIGIN_RANK.get(str(slot.get("origin") or "dens"), 0)
+        rank_old = _ORIGIN_RANK.get(str(prev.get("origin") or "dens"), 0)
+        if rank_new > rank_old:
+            by_key[key] = slot
+        elif rank_new == rank_old:
+            try:
+                if float(slot.get("priority") or 0) > float(prev.get("priority") or 0):
+                    by_key[key] = slot
+            except (TypeError, ValueError):
+                pass
+    return sorted(
+        by_key.values(),
+        key=lambda s: (-float(s.get("priority") or 0), str(s.get("segment_id") or "")),
+    )
+
+
+def _slot_survives_invent_soft_block(slot: dict[str, Any]) -> bool:
+    """Keep planned/inject beds while invent unpaid; drop dens heuristic invent."""
+    origin = str(slot.get("origin") or infer_cue_slot_origin(slot))
+    if origin in {"planned", "inject"}:
+        return True
+    reason = str(slot.get("reason") or "").lower()
+    if "planned_sdp" in reason or "theme_underscore" in reason:
+        return True
+    # Keep non-bed punctuators that are not musical invent (chapter stingers etc.)
+    roles = [str(r) for r in (slot.get("allowed_roles") or [])]
+    if roles and not any(r in _BED_ROLES or r == "theme_underscore" for r in roles):
+        return True
+    return False
+
+
+def build_cue_slots_ssot(
+    ctx: RunContext,
+    policy: dict[str, Any],
+    *,
+    inject_slots: list[dict[str, Any]] | None = None,
+    rescore: bool = True,
+) -> dict[str, Any]:
+    """Sole cue_slots writer: score ∪ planned ∪ inject → normalize → dedupe → invent gate.
+
+    Repair inject must call this (or ``admit_inject_cue_slots``) — never assign
+    ``policy["cue_slots"]`` ad hoc.
+    """
+    out = dict(policy) if isinstance(policy, dict) else {}
+    mix = dict(out.get("mix_contract") or {})
+    bed_level = _bed_level_from_mix(mix)
+    dens = dict(out.get("sfx_density") or {})
+    if rescore:
+        scored = score_cue_slots(
+            ctx,
+            underscore=str(out.get("underscore_policy") or "normal"),
+            pace=str(out.get("pace_class") or "conversational"),
+            dens=dens,
+            mix_contract=mix,
+        )
+    else:
+        scored = [s for s in (out.get("cue_slots") or []) if isinstance(s, dict)]
+
+    normalized: list[dict[str, Any]] = []
+    for raw in scored:
+        n = normalize_cue_slot(raw, bed_level=bed_level)
+        if n:
+            normalized.append(n)
+    for raw in inject_slots or []:
+        n = normalize_cue_slot(raw, bed_level=bed_level, origin="inject")
+        if n:
+            normalized.append(n)
+
+    out["cue_slots"] = merge_normalized_cue_slots(normalized)
+    invent_status = invent_obligation_status(ctx)
+    out = _apply_invent_obligation_gate(
+        out,
+        status=invent_status,
+        rationale=list(out.get("rationale") or []),
+    )
+    return out
+
+
+def admit_inject_cue_slots(
+    ctx: RunContext,
+    policy: dict[str, Any] | None,
+    *,
+    segment_ids: list[str],
+    reason: str = "theme_underscore_inject",
+    persist: bool = True,
+    rescore: bool = False,
+) -> dict[str, Any]:
+    """Fold repair inject into the SSOT writer (Partial Zero A+)."""
+    base = dict(policy) if isinstance(policy, dict) else (load_policy(ctx) or {})
+    inject: list[dict[str, Any]] = []
+    for sid in segment_ids:
+        s = str(sid or "").strip()
+        if not s:
+            continue
+        inject.append(
+            {
+                "slot_id": f"bed_{s}",
+                "segment_id": s,
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+                "priority": 0.55,
+                "reason": str(reason or "theme_underscore_inject"),
+                "origin": "inject",
+            }
+        )
+    if not inject:
+        return base
+    out = build_cue_slots_ssot(ctx, base, inject_slots=inject, rescore=rescore)
+    out["policy_hash"] = _policy_hash({k: v for k, v in out.items() if k != "policy_hash"})
+    if persist:
+        try:
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(
+                ctx, POLICY_PATH, out, stage_key="soundscape_policy_build"
+            )
+        except Exception:
+            try:
+                ctx.write_json(POLICY_PATH, out, stage_key="soundscape_policy_build")
+            except Exception:
+                pass
+    return out
 
 
 def invent_obligation_status(ctx: RunContext) -> dict[str, Any]:
@@ -474,7 +800,11 @@ def _apply_invent_obligation_gate(
     status: dict[str, Any],
     rationale: list[str],
 ) -> dict[str, Any]:
-    """Strip invented musical direction while invent obligation is unpaid."""
+    """Block heuristic musical invent while invent obligation is unpaid.
+
+    Partial Zero A+: never wipe planned/inject cue_slots — soft-block only.
+    Dens heuristic invent beds are dropped; invent_gate stays blocked.
+    """
     if not status.get("unpaid"):
         policy["invent_gate"] = "clear" if not status.get("invent") else "satisfied"
         return policy
@@ -491,13 +821,24 @@ def _apply_invent_obligation_gate(
     standards = dict(policy.get("standards") or {})
     standards["max_bed_coverage_ratio"] = 0.0
     policy["standards"] = standards
-    # Never present heuristic cue invent as success while obligation unpaid.
-    policy["cue_slots"] = []
+    # Soft-block: keep planned/inject beds; drop dens heuristic invent only.
+    kept: list[dict[str, Any]] = []
+    for raw in policy.get("cue_slots") or []:
+        if not isinstance(raw, dict):
+            continue
+        slot = normalize_cue_slot(raw, bed_level=_bed_level_from_mix(mix))
+        if slot and _slot_survives_invent_soft_block(slot):
+            kept.append(slot)
+    policy["cue_slots"] = merge_normalized_cue_slots(kept)
     policy["invent_gate"] = "blocked"
     policy["invent_obligation"] = str(status.get("invent") or "sound_design_plan")
-    policy["invent_gate_reason"] = "unpaid_invent_obligation_empty_palettes_cues"
+    policy["invent_gate_reason"] = (
+        "unpaid_invent_obligation_soft_block_keeps_planned_inject"
+    )
     policy["musical_direction_complete"] = False
-    rationale.append("invent_gate=blocked:unpaid_sound_design_plan_obligation")
+    rationale.append(
+        "invent_gate=blocked:unpaid_soft_block_keeps_planned_inject_beds"
+    )
     policy["rationale"] = list(rationale)
     return policy
 
@@ -772,7 +1113,8 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
         # Rescore then invent-last (load_policy already re-gated without rescoring).
         policy = _finalize_policy(ctx, policy, refresh_slots=True)
     policy = _annotate_slots_with_speaker_volleys(ctx, policy)
-    # Annotate may mutate slots; invent must still win if unpaid.
+    # Re-normalize after annotate so volley fields stay on canonical slots;
+    # invent soft-block still applies if unpaid.
     invent_status = invent_obligation_status(ctx)
     if invent_status.get("unpaid"):
         policy = _apply_invent_obligation_gate(
@@ -780,15 +1122,28 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
             status=invent_status,
             rationale=list(policy.get("rationale") or []),
         )
+    else:
+        mix = dict(policy.get("mix_contract") or {})
+        bed_level = _bed_level_from_mix(mix)
+        normalized = [
+            n
+            for raw in (policy.get("cue_slots") or [])
+            if (n := normalize_cue_slot(raw, bed_level=bed_level))
+        ]
+        policy["cue_slots"] = merge_normalized_cue_slots(normalized)
     policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
     # Commit even when called from sound_design_plan staging — that stage only
     # flushes SDP, so a staged policy write would be discarded on approve.
+    # Ownership ALLOW is soundscape_policy_build only; pass that stage_key so
+    # soft-freeze assert_write does not AuthorityDeny mid-SDP (exec_13167).
     try:
         from interview_mux.write_staging import write_committed_json
 
-        write_committed_json(ctx, POLICY_PATH, policy)
+        write_committed_json(
+            ctx, POLICY_PATH, policy, stage_key="soundscape_policy_build"
+        )
     except Exception:
-        ctx.write_json(POLICY_PATH, policy)
+        ctx.write_json(POLICY_PATH, policy, stage_key="soundscape_policy_build")
     return policy
 
 

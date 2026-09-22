@@ -203,7 +203,9 @@ def test_check_g1_vo_duplicate_line_id_one_resolved(tmp_path, monkeypatch):
 def test_require_analysis_artifacts_complete_noop_in_v2(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_artifacts_gate")
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
+    ctx._mark_done_raw = True
     ctx.mark_done("optimal_questions")
+    ctx._mark_done_raw = False
     require_analysis_artifacts_complete(ctx)
 
 
@@ -231,6 +233,7 @@ def test_narrative_qc_full_auto_softens_strict_fail(tmp_path, monkeypatch):
     summary = qc_summary(ctx_auto.read_json("run_meta.json"), "narrative_qc")
     assert summary["passed"] is False
     assert summary.get("full_auto_softened") is True
+    assert summary.get("unattended_softened") is True
     assert summary.get("effective_strict") is False
 
     ctx_manual = isolated_run_ctx(tmp_path / "man", "exec_fmr_b2_manual")
@@ -241,6 +244,33 @@ def test_narrative_qc_full_auto_softens_strict_fail(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit, match="narrative_qc strict"):
         check_narrative_qc(ctx_manual, stage="full_master_ranking")
+
+
+def test_narrative_qc_partial_softens_strict_fail(tmp_path, monkeypatch):
+    """X-3: Partial (unattended) softens strict narrative QC like Full-auto."""
+    from interview_mux.gates import check_narrative_qc
+    from interview_mux.operator_quality import qc_summary
+
+    monkeypatch.setattr(
+        "interview_mux.gates.narrative_qc_strict_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.validate_flow1_narrative",
+        lambda *_a, **_k: ["missing chapter callback"],
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narrative_partial_soft")
+    ctx.write_json(
+        "run_meta.json",
+        {"run_mode": "partially-accelerated", "partial_auto": True},
+        skip_handoff=True,
+    )
+    check_narrative_qc(ctx, stage="full_master_ranking")
+    summary = qc_summary(ctx.read_json("run_meta.json"), "narrative_qc")
+    assert summary["passed"] is False
+    assert summary.get("unattended_softened") is True
+    assert summary.get("effective_strict") is False
 
 
 def test_narrative_qc_already_soft_unchanged_under_full_auto(tmp_path, monkeypatch):

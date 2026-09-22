@@ -161,6 +161,13 @@ def synthesize_line(
     if not chatterbox_enabled():
         raise LocalRuntimeUnavailable("local_chatterbox disabled in config")
 
+    from interview_mux.gap_vo_gates import gap_framing_enabled, vo_synth_mint_allowed
+
+    if gap_framing_enabled(ctx):
+        ok, reason = vo_synth_mint_allowed(ctx, for_synthesize=False)
+        if not ok:
+            raise LocalRuntimeUnavailable(f"vo_path_not_ready:{reason}")
+
     line_id = str(line.get("line_id") or line.get("targets_segment_id") or "line")
     pickup = dest_dir or ctx.path("vo_pickup")
     out_dir = pickup / "synthesized"
@@ -196,6 +203,7 @@ def synthesize_line(
     last_entry: dict[str, Any] | None = None
     last_exc: Exception | None = None
     ref_id, ref = candidates[0]
+    reclaim_fp = f"{line_id}:{ref_id}"
     for attempt in range(1, 3):
         try:
             entry = _synthesize_once(
@@ -214,6 +222,7 @@ def synthesize_line(
                     level="warning",
                     stage="vo_synthesize",
                 )
+                # QC-only: retry without GPU reclaim settle (not a hang/OOM fault).
                 continue
             from interview_mux.s2s_runner import promote_synthesized_vo
 
@@ -226,9 +235,61 @@ def synthesize_line(
                 level="warning",
                 stage="vo_synthesize",
             )
+            if attempt == 1:
+                from interview_mux.heavy_task_policy import reclaim_for_same_class_retry
+
+                reclaim_for_same_class_retry(
+                    ctx,
+                    consumer="chatterbox",
+                    fingerprint=reclaim_fp,
+                    exception=exc,
+                    stage="vo_synthesize",
+                )
             continue
 
-    # Locked ref exhausted — hard-stop (or let s2s fail-open to mlx when configured).
+    # One more same-class reclaim retry before mlx escalate (single fingerprint).
+    from interview_mux.heavy_task_policy import reclaim_for_same_class_retry
+
+    if reclaim_for_same_class_retry(
+        ctx,
+        consumer="chatterbox",
+        fingerprint=reclaim_fp,
+        exception=last_exc,
+        stage="vo_synthesize",
+    ):
+        try:
+            entry = _synthesize_once(
+                ctx,
+                line,
+                ref=ref,
+                out_wav=out_wav,
+                voice_ref_id=ref_id,
+                attempt=3,
+            )
+            if entry.get("qc_pass") is not False:
+                from interview_mux.s2s_runner import promote_synthesized_vo
+
+                promote_synthesized_vo(ctx, line_id=line_id, src=out_wav)
+                return out_wav
+            last_entry = entry
+        except Exception as exc:
+            last_exc = exc
+
+    # Locked ref exhausted — on timeout, one mlx/s2s step-down (WS3); else hard-stop.
+    if last_exc and ("timed out" in str(last_exc).lower() or "timeout" in str(last_exc).lower()):
+        try:
+            from interview_mux.s2s_runner import synthesize_line as s2s_synthesize_line
+
+            ctx.log(
+                f"Chatterbox hang/timeout for {line_id} — one mlx/s2s fidelity step-down",
+                level="warning",
+                stage="vo_synthesize",
+            )
+            return s2s_synthesize_line(ctx, line, dest_dir=dest_dir)
+        except Exception as mlx_exc:
+            raise LocalRuntimeUnavailable(
+                f"Chatterbox timeout and mlx step-down failed: {mlx_exc}"
+            ) from mlx_exc
     if last_entry and last_entry.get("qc_pass") is False:
         notes = last_entry.get("qc_notes") or "speech_qa_failed"
         raise LocalRuntimeUnavailable(

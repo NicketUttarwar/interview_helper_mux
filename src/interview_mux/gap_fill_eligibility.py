@@ -136,7 +136,12 @@ def clear_gap_fill_skip(ctx: RunContext, *, reason: str = "upstream_invalidation
             overrides = dict(adapt.get("operator_overrides") or {})
             if overrides.pop("gap_fill_skipped", None) is not None:
                 adapt["operator_overrides"] = overrides
-                ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+                ctx.write_json(
+                    "understanding/flow_adaptation.json",
+                    adapt,
+                    skip_handoff=True,
+                    stage_key="missing_framing",
+                )
 
     ctx.log(
         f"Gap-fill skip cleared ({reason}) — will re-evaluate before missing_framing.",
@@ -468,7 +473,12 @@ def operator_skip_gap_fill(
     overrides["gap_framing_enabled"] = False
     overrides["pickup_speaker_confirmed"] = True
     adapt["operator_overrides"] = overrides
-    ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        adapt,
+        skip_handoff=True,
+        stage_key="missing_framing",
+    )
 
     def _disable_framing(meta: dict[str, Any]) -> None:
         meta["gap_framing_enabled"] = False

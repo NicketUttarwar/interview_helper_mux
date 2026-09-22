@@ -248,7 +248,7 @@
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "block_mix",
     "g_listen_enabled": true,
-    "g_listen_mode": "block",
+    "g_listen_mode": "warn",
     "max_palettes": 6,
     "max_assets": 24,
     "max_assets_flow1": 24,
@@ -498,11 +498,16 @@
     "clap_timeout_sec": 120,
     "ssl_enabled": false
   },
+  "_comment_seed_policy": "Hard-freeze sticky seed stages (A4). Soft freeze never sticky. Extra stage ids for future seal no-ops.",
+  "seed_policy": {
+    "freeze_sticky_extra_stages": []
+  },
   "_comment_local_gpu": "Machine-wide serialize for GPU/unified-memory consumers. One MusicGen/Chatterbox/MMAudio/MLX/DeepFilter subprocess at a time; after each exits, wait cooldown_sec before the next may start (prevents M1 16GB Metal thrash).",
   "local_gpu": {
     "serialize": true,
     "cooldown_sec": 5,
     "abort_backoff_sec": 30,
+    "reclaim_settle_sec": 5,
     "lock_timeout_sec": 7200,
     "consumers": [
       "musicgen",
@@ -672,7 +677,9 @@
     "model": "DeepFilterNet3",
     "postfilter": false,
     "compensate_delay": true,
-    "request_timeout_sec": 600
+    "request_timeout_sec": 600,
+    "timeout_sec_per_file": 90,
+    "max_request_timeout_sec": 2400
   },
   "_comment_mmaudio": "Local MMAudio text-to-audio (hkchengrex/MMAudio clone)",
   "mmaudio": {
@@ -680,6 +687,8 @@
     "model_id": "large_44k_v2",
     "device": "auto",
     "request_timeout_sec": 900,
+    "max_request_timeout_sec": 2400,
+    "ref_duration_sec": 8.0,
     "default_duration_sec": 8.0,
     "min_duration_sec": 3.0,
     "max_duration_sec": 8.0,
@@ -781,6 +790,7 @@
     "request_timeout_sec": 900,
     "cpu_request_timeout_sec": 300,
     "step_down_timeout_sec": 480,
+    "max_request_timeout_sec": 2400,
     "default_duration_sec": 10.0,
     "min_duration_sec": 4.0,
     "max_duration_sec": 24.0,
@@ -1256,6 +1266,9 @@
       "require_layup_per_native": true,
       "min_layup_coverage": 0.7,
       "min_nugget_air_coverage": 0.85,
+      "air_coverage_aspirational": true,
+      "air_coverage_max_attempts": 3,
+      "catastrophic_nugget_air_coverage": 0.0,
       "min_layup_words": 18,
       "max_layup_words": 90,
       "prefer_excluded_nuggets": true,

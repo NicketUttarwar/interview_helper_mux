@@ -969,7 +969,8 @@ def test_small_batch_llm_fail_refuses_hollow_done(
         _partial,
     )
 
-    gaps.run_gap_framing_compose(ctx)
+    with pytest.raises(RuntimeError, match="partial|incomplete|gap_report"):
+        gaps.run_gap_framing_compose(ctx)
     assert not ctx.is_done("gap_framing_compose")
 
 
@@ -983,4 +984,196 @@ def test_gap_framing_compose_sufficiency_allows_empty_gaps() -> None:
     assert len(rules) == 1
     assert rules[0].rule == "min_rows"
     assert rules[0].min_count == 0
+
+
+def test_gap_framing_compose_noop_under_layup_authority_no_llm(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): layup authority must no-op without LLM rewrite.
+
+    Regression for wrong ``write_staging.heal_or_refuse_mark`` import that raised
+    ImportError, was swallowed, and fell through into interviewer-script LLM —
+    wiping contentful before-VO (hosted_vo_floor_unmet / nugget_layup needs_operator).
+    """
+    import interview_mux.stages.gaps as gaps
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: True,
+    )
+
+    # Minimal committed gap_report already under layup authority (plan optional).
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "gaps": [
+                {
+                    "line_id": "vo_seed_seg_001",
+                    "segment_id": "seg_001",
+                    "placement": "before",
+                    "text": "Host line one for floor.",
+                    "delivery": "synthesize",
+                    "status": "active",
+                },
+                {
+                    "line_id": "vo_seed_seg_002",
+                    "segment_id": "seg_002",
+                    "placement": "before",
+                    "text": "Host line two for floor.",
+                    "delivery": "synthesize",
+                    "status": "active",
+                },
+                {
+                    "line_id": "vo_seed_seg_003",
+                    "segment_id": "seg_003",
+                    "placement": "before",
+                    "text": "Host line three for floor.",
+                    "delivery": "synthesize",
+                    "status": "active",
+                },
+            ],
+            "nugget_layup_authority": True,
+        },
+        skip_handoff=True,
+    )
+
+    llm_calls: list[str] = []
+
+    def _llm_boom(*_a, **_k):
+        llm_calls.append("called")
+        raise AssertionError("LLM must not run under layup authority no-op")
+
+    monkeypatch.setattr(gaps, "run_analysis_llm_stage", _llm_boom)
+    monkeypatch.setattr(
+        "interview_mux.llm_simple.run_llm_stage_simple",
+        _llm_boom,
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.publish_layup_plan_to_gap_report",
+        lambda _ctx: None,
+    )
+
+    before = ctx.read_json("understanding/gap_report.json")
+    gaps.run_gap_framing_compose(ctx)
+    after = ctx.read_json("understanding/gap_report.json")
+
+    assert llm_calls == [], "layup authority must no-op without LLM"
+    assert after.get("nugget_layup_authority") is True
+    assert len(after.get("gaps") or []) == len(before.get("gaps") or [])
+
+
+def test_gap_framing_compose_guard_exception_fail_closed_no_llm(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: non-ImportError guard failure under freeze → no-op, never LLM."""
+    import interview_mux.stages.gaps as gaps
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: True,
+    )
+
+    def _boom_freeze(*_a, **_k):
+        raise RuntimeError("simulated freeze_write_allowed failure")
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.freeze_write_allowed",
+        _boom_freeze,
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        lambda _ctx: False,
+    )
+
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "gaps": [
+                {
+                    "line_id": "vo_seed_seg_001",
+                    "segment_id": "seg_001",
+                    "placement": "before",
+                    "text": "Host line.",
+                    "delivery": "synthesize",
+                    "status": "active",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+
+    llm_calls: list[str] = []
+
+    def _llm_boom(*_a, **_k):
+        llm_calls.append("called")
+        raise AssertionError("LLM must not run on fail-closed guard error")
+
+    monkeypatch.setattr(
+        "interview_mux.llm_simple.run_llm_stage_simple",
+        _llm_boom,
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.publish_layup_plan_to_gap_report",
+        lambda _ctx: None,
+    )
+
+    gaps.run_gap_framing_compose(ctx)
+    assert llm_calls == []
+
+
+def test_gap_framing_compose_guard_exception_no_evidence_raises(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: guard failure with no layup/freeze evidence must not LLM or hollow-done."""
+    import interview_mux.stages.gaps as gaps
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: False,
+    )
+
+    def _boom_freeze(*_a, **_k):
+        raise RuntimeError("simulated freeze_write_allowed failure")
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.freeze_write_allowed",
+        _boom_freeze,
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        lambda _ctx: False,
+    )
+
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"gaps": []},
+        skip_handoff=True,
+    )
+
+    llm_calls: list[str] = []
+
+    def _llm_boom(*_a, **_k):
+        llm_calls.append("called")
+        raise AssertionError("LLM must not run")
+
+    monkeypatch.setattr(
+        "interview_mux.llm_simple.run_llm_stage_simple",
+        _llm_boom,
+    )
+
+    with pytest.raises(RuntimeError, match="refusing LLM fall-through"):
+        gaps.run_gap_framing_compose(ctx)
+    assert llm_calls == []
+    assert not ctx.is_done("gap_framing_compose")
 

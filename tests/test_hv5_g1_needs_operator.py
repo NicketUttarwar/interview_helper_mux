@@ -141,8 +141,39 @@ def test_hv5_record_line_keeps_hard_block(ctx: RunContext) -> None:
 
 def test_vs_b3_full_auto_rewrites_record_to_synth_automation_pending(
     ctx: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """VS-B3: Full-auto owns record-required lines via synth — no human stall."""
+    monkeypatch.setattr(
+        "interview_mux.mastering_hardening_config.gate_blocks",
+        lambda _g: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.approved_voice_reference_usable",
+        lambda _c: True,
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_host", "role": "interviewer", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"pickup_eligible_speaker_id": "spk_host"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {
+            "pickup_eligible_speaker_id": "spk_host",
+            "operator_overrides": {"pickup_speaker_confirmed": True},
+        },
+        skip_handoff=True,
+    )
     ctx.write_json(
         "understanding/gap_report.json",
         {"interviewer_lines": [_gap_line(delivery="record", severity="high")]},

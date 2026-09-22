@@ -89,7 +89,11 @@ def evaluate_dispatch(
     source: str = "driver",
     layer: str = "dispatch",
 ) -> DispatchVerdict:
-    """Decide whether this dispatch may proceed. Pure decision — no side effects.
+    """Decide whether this dispatch may proceed.
+
+    Side effect (once per RunContext): reclaim attempt budget when the product
+    fingerprint flips so Partial / full-auto resume after a real code patch is not
+    stranded behind pre-fix ``max_invokes`` / attempt_memo (DP-BUD1 A).
 
     ``layer="walk"`` additionally consults the attempt memo, because "do not
     re-offer" is a property of the walk, not of an explicit re-dispatch.
@@ -101,6 +105,18 @@ def evaluate_dispatch(
         return ALLOWED
     if not door_applies(ctx, layer=layer):
         return ALLOWED
+
+    if not getattr(ctx, "_budget_product_reclaim_checked", False):
+        try:
+            from interview_mux.identical_failures import reclaim_budget_on_product_flip
+
+            reclaim_budget_on_product_flip(ctx)
+        except Exception:
+            pass
+        try:
+            setattr(ctx, "_budget_product_reclaim_checked", True)
+        except Exception:
+            pass
 
     from interview_mux.homunculus.budget import dispatch_cap_refusal
 
@@ -183,6 +199,21 @@ def refuse_dispatch(
                 "refusal": verdict.reason,
                 "detail": detail,
             },
+        )
+    except Exception:
+        pass
+    # DP-BUD1 A: runner must not emit hollow "Finished" when outputs are still missing.
+    try:
+        refuses = getattr(ctx, "_dispatch_refuses", None)
+        if not isinstance(refuses, list):
+            refuses = []
+            setattr(ctx, "_dispatch_refuses", refuses)
+        refuses.append(
+            {
+                "stage": str(stage or ""),
+                "reason": str(verdict.reason or ""),
+                "source": str(source or ""),
+            }
         )
     except Exception:
         pass

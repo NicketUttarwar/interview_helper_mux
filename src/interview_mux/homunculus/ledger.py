@@ -38,6 +38,42 @@ def append_ledger(ctx: RunContext, entry: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def latest_budget_epoch_seq(ctx: RunContext) -> int:
+    """Seq of the newest ``budget_epoch`` row (0 when none).
+
+    Product-fingerprint flips stamp a new epoch so invoke caps reset for
+    incomplete producers after a real code patch (forensics patch-and-resume).
+    """
+    seq = 0
+    for row in read_ledger(ctx):
+        if row.get("kind") != "budget_epoch":
+            continue
+        try:
+            seq = max(seq, int(row.get("seq") or 0))
+        except (TypeError, ValueError):
+            continue
+    return seq
+
+
+def stamp_budget_epoch(
+    ctx: RunContext,
+    *,
+    fingerprint: str = "",
+    reason: str = "product_fingerprint",
+) -> dict[str, Any]:
+    """Append a budget epoch so subsequent count_* ignore prior invoke rows."""
+    return append_ledger(
+        ctx,
+        {
+            "kind": "budget_epoch",
+            "identity": "*",
+            "status": "reset",
+            "reason": str(reason or "product_fingerprint")[:80],
+            "fingerprint": str(fingerprint or "")[:64],
+        },
+    )
+
+
 def count_identity(ctx: RunContext, identity: str) -> int:
     """Count open invokes: started rows not closed by a matching failed status.
 
@@ -45,8 +81,16 @@ def count_identity(ctx: RunContext, identity: str) -> int:
     Failed attempts do not burn the cap. Nested ``llm`` rows for a stage that
     already has ``kind=stage`` (or host) dispatches are part of that invoke —
     they must not consume extra identity counts.
+
+    Rows at or before the latest ``budget_epoch`` seq do not count (product patch).
     """
-    rows = [r for r in read_ledger(ctx) if r.get("identity") == identity]
+    epoch = latest_budget_epoch_seq(ctx)
+    rows = [
+        r
+        for r in read_ledger(ctx)
+        if r.get("identity") == identity
+        and int(r.get("seq") or 0) > epoch
+    ]
     kinds = {r.get("kind") for r in rows}
     if "stage" in kinds or "host" in kinds:
         rows = [r for r in rows if r.get("kind") in {"stage", "host"}]

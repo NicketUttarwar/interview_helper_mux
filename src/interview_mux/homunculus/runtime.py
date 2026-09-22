@@ -119,19 +119,9 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                     return None
             except Exception:
                 pass
-        # Junction remaster unlinks .stage_done/mix at the start of remaster_mix_only.
-        # Re-dispatch mid-remaster (or after a loud fail) must not seed-block on mix
-        # when assembly already exists — junction owns the remaster (exec_11130).
+        # A1-1: remaster-in-flight lives in junction_recut_precedes_mix (no
+        # assembly.wav short-circuit). Live residuals still bypass mix.
         if stage == "junction_snip_qa" and earliest == "mix":
-            try:
-                if ctx.artifact_exists("master/assembly.wav"):
-                    return None
-            except Exception:
-                pass
-            # exec_11871: mix refuses on live incomplete-cut residuals and pins
-            # junction_snip_qa, but seed order put mix first — nobody could recut
-            # (predicate x3/3 halt). The junction ladder owns recut/fuse/omit on
-            # the EDL and drives its own remaster, so let it run before first mix.
             try:
                 from interview_mux.junction_snip_qa import junction_recut_precedes_mix
 
@@ -350,7 +340,7 @@ def dispatch_stage(
                     f"seed order: complete {vo_b} before running vo_synthesize"
                 )
         if stage in MIX_EPOCH_RUN_BLOCK:
-            mix_b = mix_epoch_block(ctx)
+            mix_b = mix_epoch_block(ctx, stage=stage)
             if mix_b:
                 raise RuntimeError(
                     f"cannot run {stage}: delivery epoch {mix_b} (wait for mmaudio_sfx)"

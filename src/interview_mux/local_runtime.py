@@ -158,11 +158,12 @@ def run_runtime_script(
 
     consumer = _canonical_runtime_id(runtime_id)
     proc: subprocess.CompletedProcess[str] | None = None
+    popen_ref: subprocess.Popen[str] | None = None
     try:
         with gpu_exclusive(consumer, ctx=run, stage=sid):
             if stdin_data is not None:
                 if run:
-                    proc = subprocess.Popen(
+                    popen_ref = subprocess.Popen(
                         cmd,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
@@ -171,10 +172,16 @@ def run_runtime_script(
                         cwd=str(cwd or repo_root()),
                         env=env,
                     )
-                    stdout, stderr = proc.communicate(stdin_data, timeout=timeout)
-                    if proc.returncode != 0:
+                    try:
+                        stdout, stderr = popen_ref.communicate(stdin_data, timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        from interview_mux.hang_escalation import kill_process_tree
+
+                        kill_process_tree(popen_ref)
+                        raise
+                    if popen_ref.returncode != 0:
                         run.log(
-                            f"Local runtime failed (exit {proc.returncode}): {label}",
+                            f"Local runtime failed (exit {popen_ref.returncode}): {label}",
                             level="error",
                             stage=sid,
                             detail={"stderr": (stderr or "")[:500], "stdout_tail": (stdout or "")[-300:]},
@@ -184,13 +191,15 @@ def run_runtime_script(
                             if line.strip():
                                 run.log(
                                     line,
-                                    level="info" if proc.returncode == 0 else "warning",
+                                    level="info" if popen_ref.returncode == 0 else "warning",
                                     stage=sid,
                                     detail={"stream": stream_name, "journey_kind": "execute"},
                                 )
-                    if proc.returncode == 0:
+                    if popen_ref.returncode == 0:
                         run.log(f"Done: {label}", level="success", stage=sid)
-                    proc = subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
+                    proc = subprocess.CompletedProcess(
+                        cmd, popen_ref.returncode, stdout or "", stderr or ""
+                    )
                 else:
                     proc = subprocess.run(
                         cmd,
@@ -217,7 +226,41 @@ def run_runtime_script(
                     check=False,
                 )
     except subprocess.TimeoutExpired as exc:
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} timed out after {timeout}s") from exc
+        try:
+            from interview_mux.hang_escalation import kill_process_tree
+
+            kill_process_tree(popen_ref)
+        except Exception:
+            pass
+        out_wav = (env_extra or {}).get("INTERVIEW_MUX_OUT_WAV") or ""
+        if not out_wav:
+            for i, a in enumerate(args):
+                if a in {"--output-wav", "--out-wav", "--output"} and i + 1 < len(args):
+                    out_wav = args[i + 1]
+                    break
+        if out_wav:
+            try:
+                from pathlib import Path as _P
+                from interview_mux.musicgen_runner import usable_musicgen_wav
+
+                p = _P(out_wav)
+                if usable_musicgen_wav(
+                    p,
+                    requested_seconds=float(
+                        (env_extra or {}).get("INTERVIEW_MUX_OUT_WAV_SEC") or 3.0
+                    ),
+                ):
+                    return subprocess.CompletedProcess(
+                        cmd,
+                        0,
+                        getattr(exc, "stdout", None) or "",
+                        f"timeout after {timeout}s; accepted usable wav",
+                    )
+            except Exception:
+                pass
+        raise LocalRuntimeUnavailable(
+            f"Local runtime {runtime_id} timed out after {timeout}s"
+        ) from exc
     if proc is not None:
         from interview_mux.heavy_task_policy import record_heavy_abort
 

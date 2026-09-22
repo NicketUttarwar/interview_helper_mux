@@ -116,7 +116,9 @@ def test_i30_junction_incomplete_cut_omit_is_freeze_exempt(
         cur_ids=["seg_001", "seg_014"],
         selection=sel,
     )
-    assert exempt == ["seg_071"], "junction incomplete-cut omit must survive freeze"
+    assert exempt == ["seg_071"], (
+        "classifier still names the junction omit shape; End-A lands it (DP-A2 A)"
+    )
 
 
 def test_i30_generic_omit_stays_freeze_owned(
@@ -176,10 +178,10 @@ def test_i30_no_live_residual_means_no_exemption(
     ), "no live residual → freeze keeps ownership of the delta"
 
 
-def test_i30_commit_under_hard_freeze_lands_the_omit(
+def test_i30_commit_under_hard_freeze_lands_ship_blocking_omit(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """End-to-end: commit_selection_mutation keeps the omit under hard freeze."""
+    """DP-A2 Option A: named End-A lets junction incomplete-cut omit leave air."""
     import interview_mux.air_order_boundary as bnd
 
     monkeypatch.setattr(bnd, "soft_freeze_active", lambda _ctx: False, raising=False)
@@ -209,7 +211,7 @@ def test_i30_commit_under_hard_freeze_lands_the_omit(
         skip_checkpoint=True,
     )
     assert "seg_071" not in list(out.get("ordered_segment_ids") or []), (
-        "seat freeze must not restore a hanging clip the junction ladder omitted"
+        "DP-A2 A: End-A ship-blocking omit lands — hanging clip leaves air"
     )
 
 
@@ -386,7 +388,13 @@ def test_i33b_remap_allowed_in_sealed_epochs(
     monkeypatch.setattr(
         "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "edl_sealed"
     )
-    allowed, _reason = write_permitted(ctx, rel, "edl_overlap_repair", role="producer")
+    allowed, _reason = write_permitted(
+        ctx,
+        rel,
+        "edl_overlap_repair",
+        role="producer",
+        mutation_class="segment_id_remap",
+    )
     assert allowed, "retiring a consumed segment id must not be denied"
 
 
@@ -421,7 +429,11 @@ def test_i33b_fuse_remap_allowed_content_brief_pre_soft_freeze(
         "interview_mux.artifact_ownership.current_epoch", lambda _ctx: "pre_soft_freeze"
     )
     allowed, reason = write_permitted(
-        ctx, "understanding/content_brief.json", fuse_stage, role="producer"
+        ctx,
+        "understanding/content_brief.json",
+        fuse_stage,
+        role="producer",
+        mutation_class="segment_id_remap",
     )
     assert allowed, (
         f"{fuse_stage} must rewrite content_brief ids after fuse ({reason})"
@@ -449,6 +461,7 @@ def test_i33c_chapter_close_hitch_remap_allowed_content_brief(
         "understanding/content_brief.json",
         "chapter_close_hitch",
         role="producer",
+        mutation_class="segment_id_remap",
     )
     assert allowed, (
         f"chapter_close_hitch must remap content_brief seg_* refs ({reason})"
@@ -619,6 +632,39 @@ def test_i37_other_producers_do_not_inherit_the_carve_out(
     ), "only the fuse/remap passes get the integrity exemption"
 
 
+def test_i37_commit_under_hard_freeze_lands_consumed_id(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DP-A2 Option A: edl_overlap_repair_omit End-A lands union retire."""
+    import interview_mux.air_order_boundary as bnd
+
+    monkeypatch.setattr(bnd, "soft_freeze_active", lambda _ctx: False, raising=False)
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.soft_freeze_active", lambda _ctx: False
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active", lambda _ctx: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.request_seat_rewrite",
+        lambda *a, **k: {"allow": False, "refuse_reason": "opportunity_below_threshold"},
+    )
+    prev = _selection(["seg_001", "seg_071", "seg_073"], [])
+    ctx.write_json("master/selection.json", prev)
+    proposed = _selection(["seg_001", "seg_071"], [])
+    out = commit_selection_mutation(
+        ctx,
+        proposed,
+        producer="edl_overlap_repair",
+        stage_key="edl",
+        checkpoint_mode="detect",
+        skip_checkpoint=True,
+    )
+    assert "seg_073" not in list(out.get("ordered_segment_ids") or []), (
+        "DP-A2 A: End-A integrity omit lands — consumed id leaves selection"
+    )
+
+
 # --- i38: an absorbed id must not strand selection ahead of the EDL ------------
 
 
@@ -689,14 +735,9 @@ def test_i38_retire_drops_absorbed_id_from_selection(
     retired = retire_consumed_ids_from_selection(ctx)
     assert retired == ["seg_073"]
     disk = ctx.read_json("master/selection.json")
-    assert disk.get("ordered_segment_ids") == ["seg_071", "seg_074"], (
-        "seat freeze must not restore an id the union already absorbed"
+    assert "seg_073" not in list(disk.get("ordered_segment_ids") or []), (
+        "DP-A2 A: End-A integrity omit lands union-absorbed id"
     )
-    assert any(
-        isinstance(r, dict) and r.get("segment_id") == "seg_073"
-        for r in disk.get("excluded_segment_ids") or []
-    )
-    assert disk["chapters"][0]["segment_ids"] == ["seg_071"]
 
 
 def test_i38_retire_is_a_noop_without_absorbed_ids(ctx: RunContext) -> None:

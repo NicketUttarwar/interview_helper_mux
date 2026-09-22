@@ -170,17 +170,21 @@ def resolve_g1_vo_gate(
     chatterbox = False
     voice_ref_ok = False
     synth_fallback = False
+    ladder_ok = True
+    ladder_reason = ""
     try:
         from interview_mux.gap_vo_gates import (
             gap_framing_enabled,
             resolve_gap_vo_delivery,
             voice_reference_approved,
+            vo_ladder_complete,
         )
         from interview_mux.synthesis_fallback import synthesis_fallback_notice
 
         if gap_framing_enabled(ctx):
             chatterbox = resolve_gap_vo_delivery(ctx) == "chatterbox"
             voice_ref_ok = voice_reference_approved(ctx)
+            ladder_ok, ladder_reason = vo_ladder_complete(ctx, for_synthesize=True)
         synth_fallback = bool(synthesis_fallback_notice(ctx))
     except Exception:
         pass
@@ -214,6 +218,28 @@ def resolve_g1_vo_gate(
         )
 
     if chatterbox_owned:
+        # automation_pending ≠ ladder-complete (DP-VO1 footgun #5).
+        if not ladder_ok:
+            return GateOperatorView(
+                gate_id="g1_vo_pickup",
+                open=True,
+                severity="automation_pending",
+                operator_must_act=False,
+                stage_status="automation_pending",
+                blocks_journey=False,
+                blocks_delivery_sidebar=False,
+                ui_mode="synthesize_pending",
+                message=(
+                    f"Waiting on VO ladder ({ladder_reason or 'incomplete'}) before "
+                    f"Chatterbox for {len(missing)} line(s) — not synthesizing yet."
+                ),
+                automation=GateAutomation(
+                    owner="driver",
+                    active=True,
+                    action="wait_vo_ladder",
+                    state=g1_auto_state or "pending",
+                ),
+            )
         return GateOperatorView(
             gate_id="g1_vo_pickup",
             open=True,
@@ -261,10 +287,12 @@ def resolve_g1_vo_gate(
 def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorView:
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
     from interview_mux.gap_vo_gates import (
+        check_clone_consent_pending,
         check_gap_delivery_pending,
         check_gap_framing_decision_pending,
         check_voice_reference_pending,
         gap_framing_enabled,
+        vo_path_ready,
     )
     from interview_mux.source_topology import check_pickup_speaker_pending
 
@@ -275,15 +303,21 @@ def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorV
     speaker_pending = check_pickup_speaker_pending(ctx)
     voice_pending = check_voice_reference_pending(ctx)
     delivery_pending = check_gap_delivery_pending(ctx)
+    consent_pending = check_clone_consent_pending(ctx)
+    ready_ok, ready_reason = vo_path_ready(ctx, for_synthesize=False)
 
-    if not any((framing_pending, speaker_pending, voice_pending, delivery_pending)):
+    if not any(
+        (framing_pending, speaker_pending, voice_pending, delivery_pending, consent_pending)
+    ) and ready_ok:
         if ctx.is_done("missing_framing"):
             return GateOperatorView(gate_id="missing_framing", open=False, stage_status="done")
         return GateOperatorView(gate_id="missing_framing", open=False, stage_status="pending")
 
     driver_active = _driver_active(meta, ctx)
     auto_defaults = bool(meta.get("auto_accept_defaults"))
-    if driver_active and (framing_pending or speaker_pending or voice_pending or delivery_pending):
+    if driver_active and (
+        framing_pending or speaker_pending or voice_pending or delivery_pending or consent_pending
+    ):
         if not _needs_operator_on(meta, "missing_framing"):
             return GateOperatorView(
                 gate_id="missing_framing",
@@ -314,7 +348,7 @@ def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorV
             message="Gap framing decision pending — choose Yes or No.",
         )
 
-    if speaker_pending:
+    if speaker_pending or ready_reason == "pickup_speaker_pending":
         return GateOperatorView(
             gate_id="missing_framing",
             open=True,
@@ -326,7 +360,7 @@ def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorV
             message="Confirm gap pickup speaker.",
         )
 
-    if voice_pending or delivery_pending:
+    if voice_pending or ready_reason in {"voice_reference_pending", "voice_reference_unusable"}:
         return GateOperatorView(
             gate_id="missing_framing",
             open=True,
@@ -335,7 +369,35 @@ def resolve_framing_gate(ctx: RunContext, meta: dict[str, Any]) -> GateOperatorV
             stage_status="action_required",
             blocks_journey=True,
             ui_mode="voice_ref_or_delivery",
-            message="Approve voice reference or select gap delivery path.",
+            message=(
+                "Approved voice reference unusable — rebuild sample."
+                if ready_reason == "voice_reference_unusable"
+                else "Approve voice reference before generating VO."
+            ),
+        )
+
+    if delivery_pending or ready_reason == "gap_delivery_pending":
+        return GateOperatorView(
+            gate_id="missing_framing",
+            open=True,
+            severity="hard_block",
+            operator_must_act=True,
+            stage_status="action_required",
+            blocks_journey=True,
+            ui_mode="voice_ref_or_delivery",
+            message="Select gap delivery path (Chatterbox or record).",
+        )
+
+    if consent_pending or ready_reason == "clone_consent_pending":
+        return GateOperatorView(
+            gate_id="missing_framing",
+            open=True,
+            severity="hard_block",
+            operator_must_act=True,
+            stage_status="action_required",
+            blocks_journey=True,
+            ui_mode="clone_consent",
+            message="Clone consent required before synthesize — not ready to generate.",
         )
 
     return GateOperatorView(gate_id="missing_framing", open=False, stage_status="pending")

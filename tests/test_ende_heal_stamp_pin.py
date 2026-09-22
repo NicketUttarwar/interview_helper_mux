@@ -110,9 +110,50 @@ def test_ende_empty_pin_driver_contract_source() -> None:
     assert 'or stage or "music_palette_compose"' not in fn
 
 
+def test_run_until_done_no_nested_delivery_order_import() -> None:
+    """Cascade (MUX_FORENSICS=0): nested DELIVERY_ORDER import → UnboundLocalError.
+
+    exec_13167: gate recompute / reuse-complete used DELIVERY_ORDER before a late
+    local import inside run_until_done bound the name for the whole function.
+    """
+    import ast
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    src = Path(__file__).resolve().parents[1] / "tools" / "full_auto_driver.py"
+    tree = ast.parse(src.read_text(encoding="utf-8"))
+    fn = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "run_until_done"
+    )
+    nested = [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.ImportFrom)
+        and any(a.name == "DELIVERY_ORDER" for a in (node.names or []))
+    ]
+    assert not nested, (
+        "run_until_done must use module-level DELIVERY_ORDER; "
+        f"found nested import(s) at lines {[n.lineno for n in nested]}"
+    )
+
+
 def test_ende_heal_pin_for_matches_ownership(ctx) -> None:
     from interview_mux.artifact_ownership import heal_pin_for
 
     assert heal_pin_for("seed_order_prereq", ctx=ctx) == ""
     assert heal_pin_for("hosted_vo_floor_unmet", ctx=ctx) == "nugget_layup_compose"
     assert heal_pin_for("master/transitions.json", ctx=ctx) == "transitions"
+
+
+def test_interrupt_smart_resume_selection_gate_and_sticky_clear() -> None:
+    """Cascade (MUX_FORENSICS=0): interrupt resume must not skip ranking; clear sticky interrupt."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    src = Path(__file__).resolve().parents[1] / "tools" / "full_auto_driver.py"
+    text = src.read_text(encoding="utf-8")
+    assert "G1 green but selection/ranking still open" in text
+    assert 'artifact_exists("master/selection.json")' in text
+    assert "cleared sticky infrastructure interrupt on gui_job" in text

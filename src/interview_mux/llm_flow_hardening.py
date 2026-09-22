@@ -292,23 +292,49 @@ def complete_llm_stage_or_halt(
         cfg=cfg,
     )
     if ok:
-        ctx.mark_done(stage_key)
-        return True
+        try:
+            from interview_mux.done_authority import try_mark_done
+
+            return bool(try_mark_done(ctx, stage_key))
+        except Exception as exc:
+            from interview_mux.artifact_ownership import AuthorityDenied
+
+            if isinstance(exc, AuthorityDenied):
+                return False
+            raise
 
     if stage_key == "segment_classification":
         from interview_mux.segment_good_enough import try_good_enough_advance
 
         ge = try_good_enough_advance(ctx, stage_key, None)
         if ge.cleared:
-            ctx.mark_done(stage_key)
+            try:
+                from interview_mux.done_authority import try_mark_done
+
+                if not try_mark_done(ctx, stage_key):
+                    return False
+            except Exception as exc:
+                from interview_mux.artifact_ownership import AuthorityDenied
+
+                if isinstance(exc, AuthorityDenied):
+                    return False
+                raise
             from interview_mux.gui_job_reconcile import reconcile_llm_gate_if_cleared
 
             reconcile_llm_gate_if_cleared(ctx, stage_key)
             return True
 
     if not flow_hardening_enabled(cfg):
-        ctx.mark_done(stage_key)
-        return True
+        try:
+            from interview_mux.done_authority import try_mark_done
+
+            return bool(try_mark_done(ctx, stage_key))
+        except Exception as exc:
+            from interview_mux.artifact_ownership import AuthorityDenied
+
+            if isinstance(exc, AuthorityDenied):
+                return False
+            raise
 
     fh = flow_hardening_cfg(cfg)
     rel = producer_artifact_path(stage_key)
@@ -410,11 +436,21 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
     except Exception:
         pass
 
-    post_master_ship = (
-        stage_key in SHIP_AFTER_MASTER
-        and committed_master_wav(ctx)
-        and ctx.is_done("master_finalize")
-    )
+    post_master_ship = False
+    try:
+        from interview_mux.done_authority import honest_finalize_seeded
+
+        post_master_ship = (
+            stage_key in SHIP_AFTER_MASTER
+            and committed_master_wav(ctx)
+            and honest_finalize_seeded(ctx)
+        )
+    except Exception:
+        post_master_ship = (
+            stage_key in SHIP_AFTER_MASTER
+            and committed_master_wav(ctx)
+            and ctx.is_done("master_finalize")
+        )
     for order in (ANALYSIS_ORDER, DELIVERY_ORDER):
         if stage_key not in order:
             continue
@@ -545,10 +581,20 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                     except Exception:
                         pass
                 # Assembly already rendered: missing transition-pair WAVs are
-                # mix last-chance work, not a vo_synthesize seed-front rewind.
+                # mix last-chance work, not a vo_synthesize seed-front rewind —
+                # BUT only when the *consumer* is mix/junction/finalize. Never
+                # skip incomplete vo_synthesize when walking toward edl /
+                # narrative (expanded WS2 O10).
                 if (
                     earlier == "vo_synthesize"
                     and ctx.artifact_exists("master/assembly.wav")
+                    and stage_key
+                    in {
+                        "mix",
+                        "junction_snip_qa",
+                        "master_finalize",
+                        *SHIP_AFTER_MASTER,
+                    }
                 ):
                     try:
                         from interview_mux.delivery_guardrails import (

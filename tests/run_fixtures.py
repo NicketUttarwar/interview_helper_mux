@@ -690,7 +690,7 @@ def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) ->
         "understanding/gap_report.json",
         minimal_gap_report(),
         merge_from_disk=False,
-        stage_key="optimal_questions",
+        stage_key="gap_framing_compose",
     )
     brief = {
         "version": 1,
@@ -723,7 +723,12 @@ def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) ->
         merge_from_disk=False,
         stage_key="content_context",
     )
-    ctx.mark_done("optimal_questions")
+    prev = getattr(ctx, "_mark_done_raw", False)
+    ctx._mark_done_raw = True
+    try:
+        ctx.mark_done("optimal_questions")
+    finally:
+        ctx._mark_done_raw = prev
 
 def minimal_flow2_selection(**patch: Any) -> dict[str, Any]:
     base: dict[str, Any] = {

@@ -114,7 +114,8 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     output = mastering.master_wav(ctx, assembly_rel, "master/master.wav", flow="podcast")
 
     assert output == run_dir / "master/master.wav"
-    assert ctx.done == ["master_finalize"]
+    assert ctx.done == []
+    assert any("await PMQ before mark_done" in msg for msg, _ in ctx.logs)
     assert len(calls) == 2
     assert all(c[0] == "ffmpeg" for c in calls)
     # Two-pass loudnorm: probe (null sink) then render.

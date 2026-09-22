@@ -38,6 +38,7 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/analysis-profile/verify"),
         ("PATCH", "/api/runs/{run_id}/investigation-queue/{item_id}"),
         ("POST", "/api/runs/{run_id}/milestones/preview-listened"),
+        ("POST", "/api/runs/{run_id}/milestones/preview-music"),
         ("POST", "/api/runs/{run_id}/transcript-review/complete"),
         ("POST", "/api/runs/{run_id}/vo/{line_id}"),
         ("POST", "/api/runs/{run_id}/vo/{line_id}/synthesize"),

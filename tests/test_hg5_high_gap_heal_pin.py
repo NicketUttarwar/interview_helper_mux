@@ -70,6 +70,54 @@ def test_hg5_authority_without_plan_pins_layup(ctx: RunContext) -> None:
     assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
 
 
+def test_hg5_probe_error_with_stamp_pins_layup_not_compose(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: authority helper boom + layup stamp → layup, never invent compose."""
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: True,
+    )
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("simulated layup authority probe failure")
+
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.gap_report_has_layup_authority",
+        _boom,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {**minimal_gap_report(), "nugget_layup_authority": True},
+        skip_handoff=True,
+    )
+    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+
+
+def test_hg5_probe_error_without_evidence_refuses_compose(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_enabled",
+        lambda: True,
+    )
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("simulated layup authority probe failure")
+
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.gap_report_has_layup_authority",
+        _boom,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        skip_handoff=True,
+    )
+    with pytest.raises(RuntimeError, match="refusing gap_framing_compose"):
+        high_gap_heal_resume_stage(ctx)
+
+
 def test_hg5_heal_navigate_and_classify_live_pin(ctx: RunContext) -> None:
     nav = heal_navigate(ctx, error=_HIGH_ERR, stage="gap_framing_compose")
     assert nav["from_stage"] == "gap_framing_compose"

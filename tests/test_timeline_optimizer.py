@@ -217,3 +217,39 @@ def test_heuristic_proposals_nonempty(tmp_path, monkeypatch):
     out = apply_mutation(cand, {"op": "rotate_block", "start_index": 0, "end_index": 3, "rotate_by": 1})
     assert len(out["ordered_segment_ids"]) == 3
     assert out["ordered_segment_ids"] != ["seg_001", "seg_002", "seg_003"] or True
+
+
+def test_full_auto_skip_clears_timeline_optimizer_finalize_gate(tmp_path, monkeypatch):
+    """MUX_FORENSICS=0 cascade: skipped gate must not block master_finalize.
+
+    Live thrash: handle_gate re-executes master_finalize while daemon still
+    running and without timeline_optimizer_skipped — spin on GUI take-best.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.gates import (
+        check_timeline_optimizer_pending,
+        clear_timeline_optimizer_gate,
+    )
+    from interview_mux.run_context import RunContext
+    from interview_mux.timeline_optimizer.state import empty_state, save_optimizer_state
+    from run_fixtures import patch_executions_root
+
+    patch_executions_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "interview_mux.timeline_optimizer.config.optimizer_cfg",
+        lambda: {"block_finalize_until_take_or_skip": True},
+    )
+    monkeypatch.setattr(
+        "interview_mux.timeline_optimizer.daemon.is_optimizer_running",
+        lambda _rid: True,
+    )
+    ctx = RunContext("exec_opt_gate_clear", create=True)
+    st = empty_state()
+    st["status"] = "running"
+    save_optimizer_state(ctx, st)
+    assert check_timeline_optimizer_pending(ctx) is True
+    clear_timeline_optimizer_gate(ctx, skipped=True)
+    assert check_timeline_optimizer_pending(ctx) is False
+    assert (ctx.read_json("run_meta.json") or {}).get("timeline_optimizer_skipped") is True

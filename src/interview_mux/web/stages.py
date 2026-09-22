@@ -307,8 +307,9 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Gap evaluation",
         "Find missing interviewer framing and context gaps in the recording.",
         "analysis",
-        ("understanding/gap_evaluations.json",),
-        ("understanding/gap_evaluations.json",),
+        # flow_adaptation: G-Framing / pickup confirm overrides (DP-GAP-PICKUP-CONFIRM A)
+        ("understanding/gap_evaluations.json", "understanding/flow_adaptation.json"),
+        ("understanding/gap_evaluations.json", "understanding/flow_adaptation.json"),
     ),
     StageInfo(
         "mastering_plan_confirm",
@@ -717,6 +718,11 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
             "master/transcript.json",
             "master/transcript.vtt",
             "master/transcript.txt",
+            # Per-asset sidecars remapped onto the master timeline (A-4 flush).
+            "glob:transcripts/transition/*.json",
+            "glob:transcripts/vo/*.json",
+            "glob:transcripts/speech/*.json",
+            "transcripts/index.json",
         ),
         (),
     ),

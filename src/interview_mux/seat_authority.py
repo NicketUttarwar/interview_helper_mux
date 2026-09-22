@@ -17,9 +17,22 @@ from interview_mux.run_context import RunContext
 SEAT_FREEZE_META_KEY = "vo_seats_freeze"
 
 # End-A constitution — mutations legal under soft/hard seat freeze without meta-gate.
-# Paperwork / shrink / orientation-landing / redundant-transition strip only.
+# Paperwork / shrink / orientation-landing / redundant-transition strip, plus
+# named ship-blocking omit/integrity repairs.
+# Packaging (CTA/sanitize) is End-A under *soft* freeze only — under hard freeze
+# it must pass meta-gate (prevents silent CTA order rewrites after VO freeze).
 # Never expand WAV demand (see HARD_FREEZE_FORBIDDEN_ACTIONS).
-HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(
+END_A_PACKAGING_ACTIONS: frozenset[str] = frozenset(
+    {
+        "media_ip_cta",
+        "media_ip_cta_editorial_omits",
+        "cta_omit",
+        "cta_prune",
+        "heal_on_air_cta",
+        "artifact_sanitize.selection",
+    }
+)
+END_A_CORE_ACTIONS: frozenset[str] = frozenset(
     {
         "omit_ledger_order_lock_rebuild",
         "omit_ledger_revive_orientation",
@@ -32,8 +45,56 @@ HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(
         "trim_pair_freeze",
         "framing_dedupe",
         "normalize_omit_ids",
+        "junction_incomplete_cut_omit",
+        "edl_overlap_repair_omit",
+        "segment_id_remap_omit",
+        # A′′ must-land under freeze (shrink / reattach / synth-fail unseat — never expand).
+        "hitch_reattach_vo",
+        "catastrophe_seated_bind_synth_failed",
+        "air_script_gap_omit_sync",
     }
 )
+HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(
+    set(END_A_CORE_ACTIONS) | set(END_A_PACKAGING_ACTIONS)
+)
+
+# Substring tokens that look like End-A but are not exact rows — refuse loudly.
+END_A_NEAR_MISS_TOKENS: tuple[str, ...] = (
+    "media_ip_cta",
+    "cta_omit",
+    "cta_prune",
+    "heal_on_air_cta",
+    "artifact_sanitize",
+    "junction_incomplete_cut",
+    "edl_overlap_repair",
+    "segment_id_remap",
+)
+
+
+def end_a_action_for_ship_blocking_omit(producer: str) -> str:
+    """Map selection-commit producer to the named End-A ship-omit action.
+
+    Unknown producers return "" — never default to junction omit (footgun #7).
+    """
+    from interview_mux.mix_junction_seat import SHIP_OMIT_PRODUCER_ACTIONS
+
+    p = str(producer or "").strip()
+    return str(SHIP_OMIT_PRODUCER_ACTIONS.get(p) or "")
+
+
+def end_a_near_miss_reason(reason: str) -> str:
+    """If reason contains an End-A-ish token but is not an exact allowlist row."""
+    exact = str(reason or "").strip()
+    if not exact:
+        return ""
+    if exact in HARD_FREEZE_ALLOWLIST_ACTIONS:
+        return ""
+    low = exact.lower()
+    for tok in END_A_NEAR_MISS_TOKENS:
+        if tok in low:
+            return f"end_a_near_miss:{tok}"
+    return ""
+
 
 # Explicitly illegal under hard freeze (expand / invent seats).
 HARD_FREEZE_FORBIDDEN_ACTIONS: frozenset[str] = frozenset(
@@ -47,12 +108,19 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def hard_freeze_action_permitted(action: str) -> bool:
-    """True if ``action`` is on the End-A allowlist (and not forbidden)."""
+def hard_freeze_action_permitted(action: str, ctx: RunContext | None = None) -> bool:
+    """True if ``action`` is End-A permitted for the current freeze depth.
+
+    Packaging rows: soft freeze only. Core paperwork/ship-omit: soft or hard.
+    """
     a = str(action or "").strip()
     if not a or a in HARD_FREEZE_FORBIDDEN_ACTIONS:
         return False
-    return a in HARD_FREEZE_ALLOWLIST_ACTIONS
+    if a in END_A_PACKAGING_ACTIONS:
+        if ctx is not None and hard_freeze_active(ctx):
+            return False
+        return a in HARD_FREEZE_ALLOWLIST_ACTIONS
+    return a in END_A_CORE_ACTIONS
 
 
 def hard_freeze_blocks_action(ctx: RunContext, action: str) -> bool:
@@ -62,7 +130,7 @@ def hard_freeze_blocks_action(ctx: RunContext, action: str) -> bool:
     a = str(action or "").strip()
     if a in HARD_FREEZE_FORBIDDEN_ACTIONS:
         return True
-    if a in HARD_FREEZE_ALLOWLIST_ACTIONS:
+    if hard_freeze_action_permitted(a, ctx):
         return False
     return True  # fail-closed on unknown seat mutations
 
@@ -146,9 +214,25 @@ def soft_freeze_active(ctx: RunContext) -> bool:
     return bool(fr.get("soft"))
 
 
+def freeze_artifact_proves_hard(fr: Any) -> bool:
+    """True only when freeze artifact is hard-sealed evidence (A4 thorough SSOT).
+
+    Never treats ``fingerprint`` alone as hard. Explicit ``hard: False`` wins
+    over a contradictory ``level`` string (soft+fingerprint+level=hard → not hard).
+    """
+    if not isinstance(fr, dict) or not fr:
+        return False
+    if fr.get("hard") is False:
+        return False
+    if fr.get("hard") is True:
+        return True
+    lvl = str(fr.get("level") or fr.get("mode") or "").strip().lower()
+    return lvl in {"hard", "hard_freeze"}
+
+
 def hard_freeze_active(ctx: RunContext) -> bool:
-    fr = read_seat_freeze(ctx)
-    return bool(fr.get("hard"))
+    """Live hard-freeze probe — same evidence law as sticky seed (A4 footgun #7)."""
+    return freeze_artifact_proves_hard(read_seat_freeze(ctx))
 
 
 def stamp_soft_seat_freeze(ctx: RunContext, *, reason: str = "air_contract_sanitize") -> dict[str, Any]:
@@ -156,6 +240,7 @@ def stamp_soft_seat_freeze(ctx: RunContext, *, reason: str = "air_contract_sanit
     row = {
         "soft": True,
         "hard": False,
+        "level": "soft",
         "fingerprint": fp,
         "soft_at": _utc_now(),
         "soft_reason": str(reason or "")[:160],
@@ -170,6 +255,7 @@ def stamp_soft_seat_freeze(ctx: RunContext, *, reason: str = "air_contract_sanit
     prev = read_seat_freeze(ctx)
     if prev.get("hard"):
         row["hard"] = True
+        row["level"] = "hard"
         row["hard_at"] = prev.get("hard_at")
         row["hard_reason"] = prev.get("hard_reason")
 
@@ -188,6 +274,7 @@ def stamp_hard_seat_freeze(ctx: RunContext, *, reason: str = "vo_synthesize") ->
     row = {
         "soft": True,
         "hard": True,
+        "level": "hard",
         "fingerprint": fp,
         "soft_at": prev.get("soft_at") or _utc_now(),
         "soft_reason": prev.get("soft_reason") or "implied",
@@ -225,6 +312,14 @@ def unlock_seat_freeze(
         if clear_soft:
             fr["soft"] = False
             fr["soft_unlocked_at"] = _utc_now()
+        # A4 footgun #1: keep ``level`` honest with hard/soft bits (never leave
+        # level=hard after hard unlock).
+        if fr.get("hard") is True:
+            fr["level"] = "hard"
+        elif fr.get("soft"):
+            fr["level"] = "soft"
+        else:
+            fr["level"] = "unlocked"
         fr["unlock_reason"] = str(reason or "")[:200]
         epoch[SEAT_FREEZE_META_KEY] = fr
         meta["delivery_epoch"] = epoch
@@ -324,10 +419,13 @@ def seat_mutation_allowed(
         return True, "unfrozen"
     if fr.get("one_shot_rewrite"):
         return True, "one_shot_token"
-    # End-A allowlist — paperwork / orientation / strip without meta-gate.
+    # End-A allowlist — paperwork / ship-omit (any freeze); packaging soft-only.
     reason_exact = str(reason or "").strip()
-    if hard_freeze_action_permitted(reason_exact):
+    if hard_freeze_action_permitted(reason_exact, ctx):
         return True, "end_a_allowlist"
+    near = end_a_near_miss_reason(reason_exact)
+    if near:
+        return False, near
     # Catastrophe unlocks — still subject to rewrite budget (not unlimited).
     # Hosted VO floor is NOT a catastrophe under hard freeze (ownership constitution).
     reason_l = str(reason or "").lower()
@@ -343,27 +441,13 @@ def seat_mutation_allowed(
         catastrophe = True
     if "catastrophe_hosted_vo_floor" in reason_l and not hard_freeze_active(ctx):
         catastrophe = True
-    # Selection packaging (CTA / sanitize) is not a VO-seat fingerprint rewrite —
-    # soft rewrite cap must not permanently block it (exec_11165 layup spin).
-    packaging = any(
-        x in reason_l
-        for x in (
-            "media_ip_cta",
-            "artifact_sanitize.selection",
-            "cta_omit",
-            "cta_prune",
-            "heal_on_air_cta",
-        )
-    )
+    # DP-A2 Option A: no packaging substring auto-allow. CTA/sanitize must use an
+    # exact End-A allowlist reason (checked above) or meta-gate / one-shot.
     ok, why = seat_rewrite_budget_ok(ctx)
-    if not ok and not packaging and not catastrophe:
+    if not ok and not catastrophe:
         return False, why
     if catastrophe:
         return True, "catastrophe_or_operator"
-    if packaging:
-        if not require_meta_gate:
-            return True, "packaging_budget_ok"
-        return False, "frozen_needs_meta_gate"
     if not require_meta_gate:
         return True, "budget_ok"
     # Caller must have already passed meta-gate; this helper is the freeze check.
@@ -610,6 +694,133 @@ def operator_seat_unlock_note(ctx: RunContext, *, reason: str) -> None:
         clear_soft=False,
     )
     _grant_one_shot_rewrite_token(ctx, reason=f"operator:{reason}")
+
+
+def note_ship_omit_blocked(
+    ctx: RunContext,
+    *,
+    producer: str,
+    action: str,
+    ids: list[str],
+) -> None:
+    """Durable note when classified ship-omit cannot land under End-A (footgun #7)."""
+
+    def _mut(meta: dict[str, Any]) -> None:
+        epoch = dict(meta.get("delivery_epoch") or {})
+        fr = dict(epoch.get(SEAT_FREEZE_META_KEY) or {})
+        fr["ship_omit_blocked_at"] = _utc_now()
+        fr["ship_omit_blocked_producer"] = str(producer or "")[:80]
+        fr["ship_omit_blocked_action"] = str(action or "")[:80]
+        fr["ship_omit_blocked_ids"] = [str(x) for x in (ids or [])[:12]]
+        epoch[SEAT_FREEZE_META_KEY] = fr
+        meta["delivery_epoch"] = epoch
+
+    try:
+        ctx.mutate_run_meta(_mut)
+    except Exception:
+        pass
+
+
+FROZEN_SEAT_DOCS: frozenset[str] = frozenset(
+    {
+        "understanding/gap_report.json",
+        "master/transitions.json",
+        "understanding/sound_design_plan.json",
+    }
+)
+
+# Seat-truth artifacts beyond the three docs (fingerprint / omit stamps).
+FROZEN_SEAT_TRUTH_RELS: frozenset[str] = frozenset(
+    {
+        "understanding/omit_ledger.json",
+        "mastering/mastering_plan.json",
+    }
+)
+
+
+def freeze_active(ctx: RunContext) -> bool:
+    try:
+        return bool(soft_freeze_active(ctx) or hard_freeze_active(ctx))
+    except Exception:
+        return False
+
+
+def freeze_blocks_raw_escape(ctx: RunContext, rel: str) -> bool:
+    """A′′: under freeze, ``_one_writer_raw`` must not bypass seat docs."""
+    rel_n = str(rel or "").replace("\\", "/").lstrip("./")
+    if rel_n not in FROZEN_SEAT_DOCS:
+        return False
+    return freeze_active(ctx)
+
+
+def frozen_seat_write_allowed(
+    ctx: RunContext,
+    rel: str,
+    *,
+    reason: str = "",
+) -> bool:
+    """True when gap / transitions / SDP may persist (unfrozen, End-A, or one-shot).
+
+    A′′ Global Freeze: no cue carve-out — unknown reasons skip-write while frozen.
+    """
+    rel_n = str(rel or "").replace("\\", "/").lstrip("./")
+    if rel_n not in FROZEN_SEAT_DOCS:
+        return True
+    if not freeze_active(ctx):
+        return True
+    try:
+        fr = read_seat_freeze(ctx)
+        if isinstance(fr, dict) and fr.get("one_shot_rewrite"):
+            return True
+    except Exception:
+        pass
+    if hard_freeze_action_permitted(reason, ctx):
+        return True
+    try:
+        ctx.log(
+            f"seat_freeze: skip write {rel_n} (not End-A; reason={reason or 'empty'})",
+            level="warning",
+            stage=str(reason or "") or None,
+        )
+    except Exception:
+        pass
+    return False
+
+
+def persist_frozen_seat_doc(
+    ctx: RunContext,
+    rel: str,
+    doc: Any,
+    *,
+    reason: str = "",
+    **write_kw: Any,
+) -> bool:
+    """Write gap / transitions / SDP under freeze only for End-A (or one-shot unlock).
+
+    Returns True if the write ran. A3-1: unknown reasons skip-write (freeze wins).
+    """
+    if not frozen_seat_write_allowed(ctx, rel, reason=reason):
+        return False
+    try:
+        fr = read_seat_freeze(ctx)
+        if isinstance(fr, dict) and fr.get("one_shot_rewrite"):
+            consume_one_shot_rewrite_token(ctx)
+    except Exception:
+        pass
+    rel_n = str(rel or "").replace("\\", "/").lstrip("./")
+    if rel_n == "understanding/gap_report.json" and isinstance(doc, dict):
+        from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
+
+        commit_gap_report_doc(
+            ctx,
+            doc,
+            reason=reason,
+            skip_handoff=bool(write_kw.get("skip_handoff", True)),
+            stage_key=write_kw.get("stage_key"),
+        )
+        return True
+    ctx.write_json(rel, doc, **write_kw)
+    return True
 
 
 def frozen_omitted_line_ids(ctx: RunContext) -> set[str]:

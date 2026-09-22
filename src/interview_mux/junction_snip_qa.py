@@ -31,6 +31,25 @@ from interview_mux.run_context import RunContext
 QA_REL = "master/junction_snip_qa.json"
 FEEL_REL = "master/junction_feel_audit.json"
 STAGE_ID = "junction_snip_qa"
+
+# Mix QC / coverage side effects written under junction staging during remaster.
+# Must promote or flush drops them and PMQ fails planned_music_preserved / outro.
+REMASTER_MIX_SIDE_EFFECTS: tuple[str, ...] = (
+    "master/edl.json",
+    "master/selection.json",
+    "master/assembly.wav",
+    "master/assembly_ledger.json",
+    "master/render_ledger.json",
+    "master/bridge_completeness.json",
+    "master/music_cue_coverage.json",
+    "master/listen_critic.json",
+    "master/bed_presence_qc.json",
+    "master/underbed_ab_qc.json",
+    "master/listenability_contract.json",
+    "sound_design/placement_adjustments.json",
+    "understanding/sound_design_plan.json",
+    "master/transitions/",
+)
 FEEL_STAGE_KEY = "junction_feel_audit"
 FEEL_PROMPT = "mastering/junction-feel-audit.system.txt"
 
@@ -576,46 +595,13 @@ def live_incomplete_cut_critical_findings(
 def junction_recut_precedes_mix(ctx: RunContext) -> bool:
     """True when the junction recut ladder must run ahead of the first mix.
 
-    exec_11871: run_mix refuses while live incomplete-cut criticals exist and
-    pins junction_snip_qa, but seed order / preflight / hardening all placed mix
-    first, so nobody could recut (predicate x3 halt). The ladder needs only
-    master/edl.json — the remaster it drives is what mints assembly.wav.
-
-    exec_13159: after criticals are healed, mix still refuses
-    ``assembly_not_rendered_from_current_edl`` while junction preflight demands
-    ``master/assembly.wav`` — accept preview/stale-missing so remaster can land.
+    SSOT facade: ``mix_junction_seat.junction_precedes_mix`` (Partial Zero seat
+    authority). Remaster-in-flight is an explicit ``remaster_owner``, not bare
+    unmarked mix.
     """
-    try:
-        live = live_incomplete_cut_critical_findings(ctx)
-        assembly_missing = not ctx.artifact_exists("master/assembly.wav")
-        assembly_stale = False
-        try:
-            from interview_mux.air_order import mix_stale_versus_live
+    from interview_mux.mix_junction_seat import junction_precedes_mix
 
-            assembly_stale = bool(mix_stale_versus_live(ctx))
-        except Exception:
-            # Fall back: preview-only counts as not yet mix-landed.
-            assembly_stale = assembly_missing or (
-                ctx.artifact_exists("master/assembly_preview.wav")
-                and not ctx.artifact_exists("master/assembly.wav")
-            )
-        if not live and not assembly_missing and not assembly_stale:
-            return False
-        # A *stale* assembly.wav from an earlier mix does not clear the residual:
-        # mix is still not done and still refuses, while the seed-order gate held
-        # junction behind mix — exec_11871 ping-ponged mix ⇄ junction_snip_qa every
-        # 5 minutes on seg_014 chapter_bleed_incomplete. Only a mix that actually
-        # landed (done + assembly) hands the ladder back its post-mix position.
-        if (
-            ctx.is_done("mix")
-            and ctx.artifact_exists("master/assembly.wav")
-            and not live
-            and not assembly_stale
-        ):
-            return False
-        return True
-    except Exception:
-        return False
+    return bool(junction_precedes_mix(ctx))
 
 
 def clear_stale_incomplete_cut_residuals(ctx: RunContext) -> bool:
@@ -1686,7 +1672,6 @@ def apply_junction_repairs(
         else {}
     )
     applied: list[dict[str, Any]] = []
-    music_adjs: list[dict[str, Any]] = []
     excluded: set[str] = set()
     exclude_reasons: dict[str, str] = {}
     changed = False
@@ -2120,7 +2105,9 @@ def apply_junction_repairs(
                 applied.append({**f, "status": "applied", "clamped_to_ms": rec})
                 break
 
-    # Music fades → placement adjustments
+    # Music fades → placement adjustments (only mark applied when mix would apply)
+    from interview_mux.placement_qa import music_repair_would_apply
+
     for f in findings:
         if f.get("action") != "adjust_music_fade":
             continue
@@ -2129,25 +2116,34 @@ def apply_junction_repairs(
         if not aid:
             continue
         xf = int(detail.get("suggested_crossfade_ms") or conf.get("music_soft_crossfade_ms") or 180)
-        music_adjs.append(
-            {
-                "asset_id": aid,
-                "action": "adjust_crossfade",
-                "suggested_crossfade_ms": xf,
-                "reason": "junction_snip_qa:music_hard_transition",
-                "provenance": {
-                    "rule_id": "junction_snip_qa",
-                    "source_artifact": QA_REL,
-                    "detail": str(f.get("evidence") or ""),
-                },
-                "adaptive_level_source": "default",
-            }
-        )
-        applied.append({**f, "status": "applied", "suggested_crossfade_ms": xf})
-        changed = True
-
-    if music_adjs:
-        _merge_placement_adjustments(ctx, music_adjs)
+        adj_row = {
+            "asset_id": aid,
+            "action": "adjust_crossfade",
+            "suggested_crossfade_ms": xf,
+            "reason": "junction_snip_qa:music_hard_transition",
+            "provenance": {
+                "rule_id": "junction_snip_qa",
+                "source_artifact": QA_REL,
+                "detail": str(f.get("evidence") or ""),
+            },
+            "adaptive_level_source": "default",
+        }
+        # Persist first so music_repair_would_apply can see durable hint.
+        _merge_placement_adjustments(ctx, [adj_row])
+        if music_repair_would_apply(
+            ctx, {**f, **adj_row, "detail": {**detail, "suggested_crossfade_ms": xf}}
+        ):
+            applied.append({**f, "status": "applied", "suggested_crossfade_ms": xf})
+            changed = True
+        else:
+            applied.append(
+                {
+                    **f,
+                    "status": "detect_only",
+                    "suggested_crossfade_ms": xf,
+                    "reason": "music_repair_not_mix_applicable",
+                }
+            )
 
     # Strip orphan VO targeting excluded speech (e.g. vo_micro exclude left the
     # preceding vo_pickup on the timeline).
@@ -2522,6 +2518,7 @@ def _sync_edl_speech_bounds_from_nle(
 def remaster_mix_only(ctx: RunContext) -> None:
     """Rebuild mix from current EDL (and placement adjustments) without wiping EDL."""
     from interview_mux.assembly_ledger import write_assembly_ledger
+    from interview_mux.mix_junction_seat import remaster_session
     from interview_mux.stages import assembly
     from interview_mux.transition_vo import (
         commit_current_transition_wavs,
@@ -2529,106 +2526,99 @@ def remaster_mix_only(ctx: RunContext) -> None:
     )
     from interview_mux.write_staging import promote_staged_side_effects
 
-    refuse_mix_if_live_incomplete_cuts(ctx)
-    marker = ctx.final_path(".stage_done", "mix")
-    if marker.is_file():
+    with remaster_session(ctx, owner="junction"):
+        refuse_mix_if_live_incomplete_cuts(ctx)
+        marker = ctx.final_path(".stage_done", "mix")
+        if marker.is_file():
+            try:
+                marker.unlink()
+            except OSError:
+                pass
         try:
-            marker.unlink()
-        except OSError:
-            pass
-    try:
-        commit_current_transition_wavs(ctx)
-        restamp_edl_transition_source_paths(ctx)
-    except Exception as exc:
-        ctx.log(
-            f"junction remaster VO resync: {exc}",
-            level="warning",
-            stage=STAGE_ID,
-        )
-    if ctx.artifact_exists("master/edl.json"):
-        try:
-            edl_sync = ctx.read_json("master/edl.json")
-            if isinstance(edl_sync, dict):
-                edl_sync, synced = _sync_edl_speech_bounds_from_nle(ctx, edl_sync)
-                if synced:
-                    from interview_mux.air_order import write_live_edl
-
-                    write_live_edl(ctx, edl_sync, source=STAGE_ID)
-                    ctx.log(
-                        "junction remaster: re-seated EDL bounds from NLE overrides",
-                        level="info",
-                        stage=STAGE_ID,
-                    )
-        except Exception as sync_exc:
+            commit_current_transition_wavs(ctx)
+            restamp_edl_transition_source_paths(ctx)
+        except Exception as exc:
             ctx.log(
-                f"junction remaster NLE bound sync: {sync_exc}",
+                f"junction remaster VO resync: {exc}",
                 level="warning",
                 stage=STAGE_ID,
             )
-    ledger = write_assembly_ledger(ctx)
-    if not ledger.get("complete", True):
-        clips = []
+        if ctx.artifact_exists("master/edl.json"):
+            try:
+                edl_sync = ctx.read_json("master/edl.json")
+                if isinstance(edl_sync, dict):
+                    edl_sync, synced = _sync_edl_speech_bounds_from_nle(ctx, edl_sync)
+                    if synced:
+                        from interview_mux.air_order import write_live_edl
+
+                        write_live_edl(ctx, edl_sync, source=STAGE_ID)
+                        ctx.log(
+                            "junction remaster: re-seated EDL bounds from NLE overrides",
+                            level="info",
+                            stage=STAGE_ID,
+                        )
+            except Exception as sync_exc:
+                ctx.log(
+                    f"junction remaster NLE bound sync: {sync_exc}",
+                    level="warning",
+                    stage=STAGE_ID,
+                )
+        ledger = write_assembly_ledger(ctx)
+        if not ledger.get("complete", True):
+            clips = []
+            if ctx.artifact_exists("master/edl.json"):
+                edl_now = ctx.read_json("master/edl.json")
+                if isinstance(edl_now, dict):
+                    clips = [
+                        c for c in (edl_now.get("clips") or []) if isinstance(c, dict)
+                    ]
+            has_speech = any(str(c.get("type") or "") == "speech" for c in clips)
+            # Full EDL rebuild drops listenability-seated host VO. Bound nudges keep speech.
+            if not has_speech:
+                assembly.run_edl(ctx)
+                ledger = write_assembly_ledger(ctx)
+                if not ledger.get("complete", True):
+                    raise RuntimeError(
+                        f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
+                    )
         if ctx.artifact_exists("master/edl.json"):
             edl_now = ctx.read_json("master/edl.json")
             if isinstance(edl_now, dict):
-                clips = [c for c in (edl_now.get("clips") or []) if isinstance(c, dict)]
-        has_speech = any(str(c.get("type") or "") == "speech" for c in clips)
-        # Full EDL rebuild drops listenability-seated host VO. Bound nudges keep speech.
-        if not has_speech:
-            assembly.run_edl(ctx)
-            ledger = write_assembly_ledger(ctx)
-            if not ledger.get("complete", True):
-                raise RuntimeError(
-                    f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
-                )
-    if ctx.artifact_exists("master/edl.json"):
-        edl_now = ctx.read_json("master/edl.json")
-        if isinstance(edl_now, dict):
-            from interview_mux.listenability_guards import remediate_listenability_edl
+                from interview_mux.listenability_guards import remediate_listenability_edl
 
-            edl_now, notes = remediate_listenability_edl(ctx, edl_now)
-            if notes:
-                from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
+                edl_now, notes = remediate_listenability_edl(ctx, edl_now)
+                if notes:
+                    from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
 
-                if validate_flow1_edl_narrative(ctx, edl_now):
-                    pass
-                else:
-                    from interview_mux.air_order import write_live_edl
+                    if validate_flow1_edl_narrative(ctx, edl_now):
+                        pass
+                    else:
+                        from interview_mux.air_order import write_live_edl
 
-                    write_live_edl(ctx, edl_now, source="junction_snip_qa")
-    assembly.run_mix(ctx)
-    from interview_mux.seam_autopsy import write_render_ledger
+                        write_live_edl(ctx, edl_now, source="junction_snip_qa")
+        # Remaster must run under mix write-staging — otherwise assembly/ledger land
+        # in junction pending and are dropped (exec_13167: newer uncommitted pending
+        # + hollow mark_done after remaster).
+        from interview_mux.write_staging import run_nested_staged_stage
 
-    write_render_ledger(ctx)
-    # EDL/assembly are owned by edl/mix for invalidation — promote as side effects
-    # so junction flush does not delete the remastered render.
-    # Mix QC artifacts (coverage / listen_critic / bed presence) are written while
-    # junction staging is active; StageInfo does not claim them, so flush would
-    # drop them and PMQ then fails planned_music_preserved / episode_close_outro.
-    promote_staged_side_effects(
-        ctx,
-        (
-            "master/edl.json",
-            "master/selection.json",
-            "master/assembly.wav",
-            "master/assembly_ledger.json",
-            "master/render_ledger.json",
-            "master/bridge_completeness.json",
-            "master/music_cue_coverage.json",
-            "master/listen_critic.json",
-            "master/bed_presence_qc.json",
-            "master/underbed_ab_qc.json",
-            "master/listenability_contract.json",
-            "sound_design/placement_adjustments.json",
-            "understanding/sound_design_plan.json",
-            "master/transitions/",
-        ),
-        stage_id=STAGE_ID,
-    )
-    # Promote may rewrite edl.json after assembly.wav; keep HX-2 mtime seat.
-    from interview_mux.air_order import ensure_assembly_mtime_seats_edl
+        run_nested_staged_stage(ctx, "mix", lambda: assembly.run_mix(ctx))
+        from interview_mux.seam_autopsy import write_render_ledger
 
-    ensure_assembly_mtime_seats_edl(ctx)
+        write_render_ledger(ctx)
+        # EDL/assembly are owned by edl/mix for invalidation — promote as side effects
+        # so junction flush does not delete the remastered render.
+        # Mix QC artifacts (coverage / listen_critic / bed presence) are written while
+        # junction staging is active; StageInfo does not claim them, so flush would
+        # drop them and PMQ then fails planned_music_preserved / episode_close_outro.
+        promote_staged_side_effects(
+            ctx,
+            REMASTER_MIX_SIDE_EFFECTS,
+            stage_id=STAGE_ID,
+        )
+        # Promote may rewrite edl.json after assembly.wav; keep HX-2 mtime seat.
+        from interview_mux.air_order import ensure_assembly_mtime_seats_edl
+
+        ensure_assembly_mtime_seats_edl(ctx)
 
 
 def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bool, int]:
@@ -2688,6 +2678,12 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
 
     ok_budget, used = junction_remaster_budget_ok(ctx)
     if not ok_budget and not is_commitment:
+        try:
+            from interview_mux.mix_junction_seat import abandon_remaster
+
+            abandon_remaster(ctx, reason=f"budget_exhaust:{path}")
+        except Exception:
+            pass
         pin = junction_budget_exhaust_hard_pin(ctx)
         ctx.log(
             f"junction_snip_qa: remaster refused ({path}) used={used} pin={pin}",

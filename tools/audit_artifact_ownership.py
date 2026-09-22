@@ -64,6 +64,29 @@ def _collect_literal_write_paths(src_root: Path) -> set[str]:
     return found
 
 
+def _sidecar_kind_folder_globs() -> list[str]:
+    """A-5: KIND_FOLDERS → transcripts/{speech,vo,transition}/*.json catalog globs."""
+    from interview_mux.asset_transcripts import KIND_FOLDERS
+
+    return [f"transcripts/{folder}/*.json" for folder in KIND_FOLDERS.values()]
+
+
+def _audit_sidecar_kind_folders(findings: list[dict]) -> None:
+    """Hard-fail when dynamic sidecar helpers lack ALLOW rows (not blanket **)."""
+    from interview_mux.artifact_ownership import row_for_path
+
+    for glob_path in _sidecar_kind_folder_globs():
+        # Concrete sample under each folder must resolve via catalog globs.
+        sample = glob_path.replace("*.json", "_audit_sample.json")
+        if row_for_path(sample) is None and row_for_path(glob_path) is None:
+            findings.append(
+                {
+                    "kind": "missing_sidecar_allow",
+                    "path": glob_path,
+                }
+            )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--execution-id", default="", help="exec_* id under ASSETS/executions")
@@ -103,6 +126,8 @@ def main() -> int:
                 }
             )
 
+    _audit_sidecar_kind_folders(findings)
+
     if args.write_sites_only:
         print(
             json.dumps(
@@ -112,10 +137,16 @@ def main() -> int:
                     "unknown_write_sites": sum(
                         1 for f in findings if f["kind"] == "unknown_path_write_site"
                     ),
+                    "missing_sidecar_allow": sum(
+                        1 for f in findings if f["kind"] == "missing_sidecar_allow"
+                    ),
                 },
                 indent=2,
             )
         )
+        missing_sidecar = any(f["kind"] == "missing_sidecar_allow" for f in findings)
+        if missing_sidecar:
+            return 1
         if findings and not args.allow_unknown_write_sites:
             return 1
         return 0

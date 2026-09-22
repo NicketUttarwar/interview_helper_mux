@@ -140,6 +140,8 @@ def test_operator_guard_waits_for_pause_lock_release(tmp_path: Path, monkeypatch
 
 
 def test_run_guard_still_busy_for_live_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
     ctx = _ctx(tmp_path, monkeypatch)
     runner = JobRunner()
     lock = runner._lock_for(ctx.run_id)
@@ -147,7 +149,13 @@ def test_run_guard_still_busy_for_live_pipeline(tmp_path: Path, monkeypatch: pyt
     runner._record_lock_holder(ctx.run_id)
     ctx.write_json(
         "gui_job.json",
-        {"status": "running", "stage": "ingest", "mode": "stage", "message": "Running ingest…"},
+        {
+            "status": "running",
+            "stage": "ingest",
+            "mode": "stage",
+            "message": "Running ingest…",
+            "worker_pid": os.getpid(),
+        },
     )
     try:
         with pytest.raises(RunBusyError):
@@ -155,3 +163,37 @@ def test_run_guard_still_busy_for_live_pipeline(tmp_path: Path, monkeypatch: pyt
                 pass
     finally:
         runner._release_thread_lock(ctx.run_id, lock)
+
+
+def test_run_guard_zombie_running_without_worker_pid_not_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade: status=running + no worker_pid must not count as legitimate busy."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    runner = JobRunner()
+    ctx.write_json(
+        "gui_job.json",
+        {
+            "status": "running",
+            "stage": "edl",
+            "mode": "delivery",
+            "message": "zombie after error",
+            "worker_pid": None,
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+    assert runner._holder_thread_alive(ctx.run_id) is False
+    assert runner._is_legitimate_pipeline_busy(ctx.run_id) is False
+    with runner.run_guard(ctx.run_id, operator_priority=True):
+        pass
+
+
+def test_run_guard_no_holder_never_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    runner = JobRunner()
+    ctx.write_json(
+        "gui_job.json",
+        {"status": "running", "stage": "edl", "worker_pid": None},
+    )
+    assert runner._holder_thread_alive(ctx.run_id) is False
+    assert runner._is_legitimate_pipeline_busy(ctx.run_id) is False

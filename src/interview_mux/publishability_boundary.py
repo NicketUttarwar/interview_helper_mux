@@ -409,6 +409,16 @@ def _check_pending_writes(ctx: RunContext) -> list[PublishabilityViolation]:
     ]
 
 
+# Commitment diverge is a remaster signal for mix — never an incomplete-cut.
+# Mapping it to incomplete_cut_unresolved deadlocks pre_mix (exec_13167:
+# publishability blocked … incomplete_cut_unresolved — assembly_not_rendered…).
+_REMASTER_ONLY_SEAM_REASONS = frozenset(
+    {
+        "assembly_not_rendered_from_current_edl",
+    }
+)
+
+
 def _seam_autopsy_blocking_reasons(ctx: RunContext) -> list[str]:
     """HX-3 1B: live ``master/seam_autopsy.json`` first, ``mastering/`` fallback."""
     from interview_mux.seam_autopsy import AUTOPSY_REL
@@ -424,6 +434,15 @@ def _seam_autopsy_blocking_reasons(ctx: RunContext) -> list[str]:
             continue
         return [str(r) for r in (autopsy.get("blocking_reasons") or []) if str(r).strip()]
     return []
+
+
+def _incomplete_cut_seam_reasons(ctx: RunContext) -> list[str]:
+    """Seam blockers that are true incomplete-cut / residual — not remaster-only."""
+    return [
+        r
+        for r in _seam_autopsy_blocking_reasons(ctx)
+        if r not in _REMASTER_ONLY_SEAM_REASONS
+    ]
 
 
 def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
@@ -444,6 +463,11 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
         # real mix stage keeps this refusal.
         if getattr(ctx, "_junction_snip_qa_inner", False):
             return []
+        # Mix remaster is the owner of commitment diverge — do not refuse pre_mix
+        # solely because seam_autopsy still lists assembly_not_rendered.
+        if active_stage_id() == "mix" and not live_incomplete_cut_critical_findings(ctx):
+            if not _incomplete_cut_seam_reasons(ctx):
+                return []
     except Exception:
         pass
     # Stale pending/committed incomplete-cut stamps must not block mix when the
@@ -499,7 +523,7 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
             except Exception:
                 pass
     if not out:
-        reasons = _seam_autopsy_blocking_reasons(ctx)
+        reasons = _incomplete_cut_seam_reasons(ctx)
         if reasons:
             out.append(
                 PublishabilityViolation(

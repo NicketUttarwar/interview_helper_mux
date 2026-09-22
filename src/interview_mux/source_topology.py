@@ -577,7 +577,11 @@ def pickup_speaker_confirmed(ctx: RunContext) -> bool:
 
 
 def check_pickup_speaker_pending(ctx: RunContext) -> bool:
-    """True when topology exists but operator has not confirmed gap pickup speaker."""
+    """True when topology exists but operator has not confirmed gap pickup speaker.
+
+    ``missing_framing`` done does **not** clear this — confirm stamp is required
+    (general improvements A4 / vo_path_ready SSOT).
+    """
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
     from interview_mux.gap_vo_gates import check_gap_framing_decision_pending, gap_framing_enabled
 
@@ -590,8 +594,6 @@ def check_pickup_speaker_pending(ctx: RunContext) -> bool:
     if not ctx.artifact_exists("understanding/source_topology.json"):
         return False
     if not ctx.is_done("source_topology_build"):
-        return False
-    if ctx.is_done("missing_framing"):
         return False
     from interview_mux.pipeline import ANALYSIS_ORDER
 
@@ -918,12 +920,22 @@ def apply_flow_adaptation_patch(ctx: RunContext, patch: dict[str, Any]) -> dict[
             raise ValueError(f"Unknown speaker_id: {speaker_id}")
         _apply_pickup_speaker(topo, adapt, speaker_id)
 
-    ctx.write_json("understanding/flow_adaptation.json", adapt)
+    # DP-GAP-PICKUP-CONFIRM A: stamp ALLOW owners — never inherit active stage
+    # (gap_framing_compose / delivery_brief would AuthorityDeny).
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        adapt,
+        stage_key="missing_framing",
+    )
     if ctx.artifact_exists("understanding/source_topology.json") and isinstance(topo, dict):
         if patch.get("segmentation_policy"):
             topo["segmentation_policy"] = adapt["segmentation_policy"]
         if pickup_id is not None:
-            ctx.write_json("understanding/source_topology.json", topo)
+            ctx.write_json(
+                "understanding/source_topology.json",
+                topo,
+                stage_key="source_topology_build",
+            )
     ctx.log(
         "Flow adaptation updated by operator",
         level="action",
@@ -951,9 +963,18 @@ def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) ->
     overrides = dict(adapt.get("operator_overrides") or {})
     overrides["pickup_speaker_confirmed"] = True
     adapt["operator_overrides"] = overrides
-    ctx.write_json("understanding/flow_adaptation.json", adapt)
+    # DP-GAP-PICKUP-CONFIRM A: ALLOW owner is missing_framing (not active stage).
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        adapt,
+        stage_key="missing_framing",
+    )
     if topo:
-        ctx.write_json("understanding/source_topology.json", topo)
+        ctx.write_json(
+            "understanding/source_topology.json",
+            topo,
+            stage_key="source_topology_build",
+        )
     ctx.log(
         f"Gap pickup speaker confirmed: {selected}",
         level="action",

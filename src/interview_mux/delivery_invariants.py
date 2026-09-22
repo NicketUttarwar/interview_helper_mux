@@ -111,8 +111,17 @@ def live_producer_authority(ctx: RunContext, stage: str) -> bool:
             )
             from interview_mux.gates import check_g1_vo
 
+            # G1 green ⇒ refuse re-adjudicate / WAV purge (anti-thrash).
+            # G1 green ≠ seed_complete for music/seal — authority for restamp
+            # requires seed_complete so consumers do not treat adjudicate as ready.
             seal_adjudicate_stale_when_g1_green(ctx)
-            return bool(seed_stage_complete(ctx, "vo_line_adjudicate") or not check_g1_vo(ctx))
+            if seed_stage_complete(ctx, "vo_line_adjudicate"):
+                return True
+            # Still seal stale when G1 green (anti-purge), but not live authority
+            # for restamp-as-ready toward music consumers.
+            if not check_g1_vo(ctx):
+                return False
+            return False
         if stage == "master_finalize":
             # End-E: file presence alone is not live authority — integrity required.
             return committed_master_integrity_ok(ctx)
@@ -131,7 +140,37 @@ def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> 
             tail = low.split("before running ", 1)[1]
             consumer = tail.split()[0].strip(".:;")
             if consumer and consumer != pin:
+                # SDP → never jump to mix while music epoch incomplete.
+                if pin == "sound_design_plan" and consumer == "mix":
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            MUSIC_BEFORE_MIX,
+                            music_epoch_complete,
+                            seed_stage_complete,
+                        )
+
+                        if not music_epoch_complete(ctx):
+                            for sid in MUSIC_BEFORE_MIX:
+                                if not seed_stage_complete(ctx, sid):
+                                    return sid
+                    except Exception:
+                        pass
                 return consumer
+        except Exception:
+            pass
+    # sound_design_plan restamp → earliest incomplete MUSIC_BEFORE_MIX (not mix).
+    if pin == "sound_design_plan":
+        try:
+            from interview_mux.delivery_guardrails import (
+                MUSIC_BEFORE_MIX,
+                music_epoch_complete,
+                seed_stage_complete,
+            )
+
+            if not music_epoch_complete(ctx):
+                for sid in MUSIC_BEFORE_MIX:
+                    if not seed_stage_complete(ctx, sid):
+                        return sid
         except Exception:
             pass
     defaults = {

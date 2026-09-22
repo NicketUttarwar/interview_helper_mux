@@ -910,13 +910,9 @@ def stage_artifact_incompleteness(
         ):
             return None
     if stage_id == "master_finalize":
-        from interview_mux.delivery_invariants import committed_master_integrity_ok
+        from interview_mux.done_authority import finalize_incompleteness
 
-        if not committed_master_integrity_ok(ctx):
-            return (
-                "master_finalize hollow — resume master_finalize: "
-                "committed master.wav missing/truncated/pending"
-            )
+        return finalize_incompleteness(ctx)
     if stage_id == "chapter_close_hitch":
         hitch = _hitch_layup_adopt_incompleteness(ctx)
         if hitch:
@@ -1455,6 +1451,29 @@ def stage_artifact_incompleteness(
             )
     if stage_id == "edl":
         try:
+            from interview_mux.gates import check_g1_vo
+
+            g1 = check_g1_vo(ctx)
+            if g1:
+                return "g1_open — refuse edl complete: " + ", ".join(str(x) for x in g1[:4])
+        except Exception:
+            pass
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if not seed_stage_complete(ctx, "vo_synthesize"):
+                return "vo_synthesize incomplete — refuse edl complete"
+            if not seed_stage_complete(ctx, "sound_design_vo_finalize"):
+                # Soft: finalize may be marker-lag after seated WAVs; only block
+                # when incompleteness is open (not mere missing done mark).
+                fin_inc = stage_artifact_incompleteness(
+                    ctx, "sound_design_vo_finalize"
+                )
+                if fin_inc:
+                    return f"sound_design_vo_finalize incomplete — {fin_inc}"
+        except Exception:
+            pass
+        try:
             from interview_mux.artifact_sanitize.registry import vo_sanitary_errors
 
             vo_errs = vo_sanitary_errors(ctx)
@@ -1900,6 +1919,11 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "g1_vo_incomplete": "vo_synthesize",
     "incomplete_cut_unresolved": "junction_snip_qa",
     "voice_reference_pending": "missing_framing",
+    "gap_delivery_pending": "missing_framing",
+    "clone_consent_pending": "missing_framing",
+    "pickup_speaker_pending": "missing_framing",
+    "voice_reference_unusable": "missing_framing",
+    "vo_path_not_ready": "missing_framing",
     "assembly_seating_stale": "mix",
     "mix_unseated": "mix",
     "mix_outputs_seated": "mix",
@@ -1917,6 +1941,9 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "transitions_missing": "transitions",
     "missing_transitions": "transitions",
     "g1_incomplete": "vo_synthesize",
+    # vo_g1 before bare premature_complete — substring match must not steal G1 → transitions
+    "vo_g1": "vo_synthesize",
+    # Bare token only; producer_pin_for_token parses premature_complete:stage:<sid> / :vo_g1
     "premature_complete": "transitions",
     "chapter_close_hitch": "chapter_close_hitch",
     "nugget_corpus_mine": "nugget_corpus_mine",
@@ -1957,40 +1984,6 @@ for _sid in DELIVERY_ORDER:
     PRODUCER_PIN_TABLE.setdefault(f"artifact_missing:{_sid}", str(_sid))
 
 
-def incompleteness_resume_stage(reason: str, *, stage_id: str = "") -> str:
-    """Map incompleteness prose / tokens to heal-registry resume stage."""
-    text = str(reason or "").lower()
-    sid = str(stage_id or "").strip()
-    try:
-        from interview_mux.delivery_invariants import parse_seed_order_producer
-
-        if "seed order" in text or "seed_order" in text:
-            named = parse_seed_order_producer(reason)
-            if named:
-                return named
-    except Exception:
-        pass
-    try:
-        from interview_mux.heal_routing import resume_stage_for_error_class
-
-        if "g1" in text or "pickup" in text:
-            return resume_stage_for_error_class("g1_vo_incomplete", default="vo_synthesize")
-        if "sdp" in text or "theme wav" in text or "mmaudio" in text:
-            return resume_stage_for_error_class("mmaudio_incomplete", default="mmaudio_sfx")
-        if "on_a_roll" in text or "incomplete_cut" in text:
-            return resume_stage_for_error_class(
-                "incomplete_cut_unresolved", default="junction_snip_qa"
-            )
-        if "shape-core" in text or "research dossier" in text:
-            return "mastering_research_rollup"
-    except Exception:
-        pass
-    for token, pin in PRODUCER_PIN_TABLE.items():
-        if token and token in text:
-            return str(pin)
-    return sid or ""
-
-
 def _resume_stage_allowlist() -> set[str]:
     from interview_mux.v2.config import ANALYSIS_ORDER
 
@@ -2023,7 +2016,11 @@ def parse_resume_stage_from_reason(reason: str) -> str | None:
 
 
 def incompleteness_resume_stage(ctx: RunContext, consumer_stage: str) -> str | None:
-    """Structured resume for a consumer's incompleteness (same branch, not regex)."""
+    """Structured resume for a consumer's incompleteness (same branch, not regex).
+
+    PIN_PREMATURE B6: **sole** live API — ``(ctx, consumer_stage)``. There is no
+    shadowed prose-only overload; thrash/heal must call this signature only.
+    """
     sid = str(consumer_stage or "").strip()
     if not sid:
         return None
@@ -2234,11 +2231,20 @@ def voice_ref_heal_resume_stage(
 ) -> str | None:
     """HG-4 / Stage Clinic TCA-B2: open voice-ref pins missing_framing, never topic_coverage_audit / edl."""
     blob = f"{error} {stage}".strip().lower()
-    if (
-        "voice_reference_pending" in blob
-        or "voice reference gate" in blob
-        or "approve interviewer voice" in blob
-    ):
+    ladder_tokens = (
+        "voice_reference_pending",
+        "voice reference gate",
+        "approve interviewer voice",
+        "gap_delivery_pending",
+        "gap delivery gate",
+        "clone_consent_pending",
+        "voice clone gate",
+        "pickup_speaker_pending",
+        "gap pickup speaker gate",
+        "voice_reference_unusable",
+        "vo_path_not_ready",
+    )
+    if any(tok in blob for tok in ladder_tokens):
         return "missing_framing"
     sid = str(stage or "").strip()
     if ctx is not None and sid == "topic_coverage_audit":
@@ -2246,6 +2252,15 @@ def voice_ref_heal_resume_stage(
             from interview_mux.gap_vo_gates import check_voice_reference_pending
 
             if check_voice_reference_pending(ctx):
+                # Refuse remap onto an already-complete framing pin (spine-freeze thrash).
+                if ctx.is_done("missing_framing") and (
+                    stage_artifact_incompleteness(ctx, "missing_framing") is None
+                ):
+                    return None
+                # Real TCA producer incompleteness wins over voice-ref pickup race.
+                tca_inc = stage_artifact_incompleteness(ctx, "topic_coverage_audit")
+                if tca_inc and "coverage_audit" in str(tca_inc).lower():
+                    return None
                 return "missing_framing"
         except Exception:
             pass
@@ -2298,7 +2313,8 @@ def pass2_gap_heal_resume_stage(
 
             freeze = bool(soft_freeze_active(ctx))
         except Exception:
-            freeze = False
+            # Probe failed — fail-closed: assume freeze so we never invent W1.
+            freeze = True
     if writer:
         return writer
     if freeze:
@@ -2332,8 +2348,29 @@ def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
         )
         if gap_report_has_layup_authority(gap if isinstance(gap, dict) else None):
             return "nugget_layup_compose"
-    except Exception:
-        pass
+    except Exception as exc:
+        # Prefer layup only with on-disk evidence; never invent compose writer.
+        try:
+            from interview_mux.nugget_layup import PLAN_REL as _PLAN_REL
+
+            if ctx.artifact_exists(_PLAN_REL):
+                return "nugget_layup_compose"
+        except Exception:
+            pass
+        try:
+            gap = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else {}
+            )
+            if isinstance(gap, dict) and gap.get("nugget_layup_authority"):
+                return "nugget_layup_compose"
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"high_gap_heal_resume_stage: layup/authority probe failed; "
+            f"refusing gap_framing_compose default ({exc})"
+        ) from exc
     return "gap_framing_compose"
 
 
@@ -2405,9 +2442,121 @@ def edl_heal_resume_stage(ctx: RunContext | None = None) -> str:
     return "edl"
 
 
+# Named premature_complete:<class> suffixes that must not fall through to bare
+# "premature_complete" → transitions (exec_13165 substring steal).
+_PREMATURE_NAMED_CLASSES: frozenset[str] = frozenset(
+    {
+        "vo_g1",
+        "g1_vo",
+        "g1_incomplete",
+        "music_epoch",
+        "mix_seat",
+        "finalize_inputs",
+        "phase_a_edl",
+        "delivery_blocked",
+        "incomplete_after_conductor",
+        "mastering_shape_llm_hollow",
+    }
+)
+
+
+def premature_class_pin(
+    fail_key: str, ctx: RunContext | None = None
+) -> str | None:
+    """Parse ``premature_complete:<class>`` → producer pin via canonical resume.
+
+    Returns None when the token is not a premature_complete key (caller falls
+    through). Bare ``premature_complete`` alone → transitions. Named classes
+    never substring-steal to transitions.
+    """
+    key = str(fail_key or "").strip().lower()
+    if "premature_complete" not in key:
+        return None
+    import re as _re_pc
+
+    stage_m = _re_pc.search(r"premature_complete:stage:([a-z0-9_]+)", key)
+    if stage_m:
+        return stage_m.group(1)
+    if "vo_g1" in key or "g1_vo" in key or "g1_incomplete" in key:
+        if ctx is not None:
+            try:
+                from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+                return resolve_g1_vo_open_resume(ctx)
+            except Exception:
+                pass
+            try:
+                from interview_mux.thrash_hardening import (
+                    FAIL_CLASS_VO_G1,
+                    canonical_resume_pin,
+                )
+
+                return canonical_resume_pin(ctx, FAIL_CLASS_VO_G1)
+            except Exception:
+                pass
+        return "vo_synthesize"
+    # Named class after premature_complete: (music_epoch, mix_seat, …)
+    cls_m = _re_pc.search(r"premature_complete:([a-z0-9_]+)", key)
+    cls = cls_m.group(1) if cls_m else ""
+    if cls == "stage":
+        # stage: without sid already handled; treat as bare.
+        cls = ""
+    if cls in _PREMATURE_NAMED_CLASSES:
+        # Static / analysis pins before canonical (which may fall through to edl).
+        static = {
+            "music_epoch": "mmaudio_sfx",
+            "mix_seat": "mix",
+            "finalize_inputs": "edl",
+            "phase_a_edl": "edl",
+            "delivery_blocked": "edl",
+            "incomplete_after_conductor": "edl",
+            "mastering_shape_llm_hollow": "mastering_research_rollup",
+        }
+        if cls == "mastering_shape_llm_hollow":
+            return static[cls]
+        if ctx is not None and cls:
+            try:
+                from interview_mux.thrash_hardening import canonical_resume_pin
+
+                pin = str(canonical_resume_pin(ctx, cls, hint="") or "").strip()
+                if pin:
+                    return pin
+            except Exception:
+                pass
+        if cls in static:
+            return static[cls]
+        if cls in PRODUCER_PIN_TABLE:
+            return PRODUCER_PIN_TABLE[cls]
+        return "transitions"
+    if cls:
+        # B3-1: unknown premature_complete:<class> is not a fake stage id.
+        return "transitions"
+    if key == "premature_complete" or key.endswith(":premature_complete"):
+        return "transitions"
+    # Key contains premature_complete but no named class — still transitions
+    # only when no other named class substring is present.
+    for named in _PREMATURE_NAMED_CLASSES:
+        if named in key:
+            break
+    else:
+        if "premature_complete:stage:" not in key:
+            return "transitions"
+    return None
+
+
 def producer_pin_for_token(
     token: str, *, default: str = "", ctx: RunContext | None = None
 ) -> str:
+    """Map an error / incompleteness token to the earliest heal producer.
+
+    PIN_PREMATURE family SSOT (Partial Zero B1+B2+B3):
+    - **B1** Compound: score ``mix_unseated``-family vs ``premature_complete:*``;
+      longest needle wins; length ties prefer non-``mix`` (VO structured over seating).
+    - **B2** Table walk: exact / delimited tokens and spaced phrases only — never
+      bare stage-id substring (``\"mix\" in \"remix …\"``).
+    - **B3** Unknown ``premature_complete:<class>`` → ``transitions``, never the
+      class string as a fake stage id.
+    """
     key = str(token or "").strip().lower()
     # End-E: seed-order always parses the named producer — never sealed consumer default.
     if "seed order" in key or "seed_order" in key:
@@ -2443,8 +2592,26 @@ def producer_pin_for_token(
         return fuse_oscillation_heal_resume_stage(ctx, error=token)
     if "heard_wav_flow" in key:
         return "vo_synthesize"
+    scored: list[tuple[int, str]] = []
     if "mix unseated" in key or "mix_unseated" in key or "mix_outputs_seated" in key:
-        return "mix"
+        needle = (
+            "mix_outputs_seated"
+            if "mix_outputs_seated" in key
+            else ("mix_unseated" if "mix_unseated" in key else "mix unseated")
+        )
+        scored.append((len(needle), "mix"))
+    pc_pin = premature_class_pin(token, ctx)
+    if pc_pin is not None:
+        import re as _re_sc
+
+        m = _re_sc.search(r"premature_complete(?::[a-z0-9_]+)*", key)
+        nlen = len(m.group(0)) if m else len("premature_complete")
+        scored.append((nlen, pc_pin))
+    if scored:
+        # B1: longest needle wins; ties prefer non-mix so structured premature
+        # classes beat mix_unseated / mix_outputs_seated at equal length.
+        scored.sort(key=lambda t: (t[0], t[1] != "mix"), reverse=True)
+        return scored[0][1]
     if "music_incomplete" in key:
         if ctx is not None:
             try:
@@ -2477,9 +2644,30 @@ def producer_pin_for_token(
         return edl_heal_resume_stage(ctx)
     if key in PRODUCER_PIN_TABLE:
         return PRODUCER_PIN_TABLE[key]
+    # B2-2: exact tokens / structured phrases only — never bare stage-id substring
+    # (``"mix" in "remix bed failed"``). Whole-key and delimited tokens win by length.
+    import re as _re_pin
+
+    scored_exact: list[tuple[int, str]] = []
+    tokens = _re_pin.findall(r"[a-z0-9_]+(?::[a-z0-9_]+)*", key)
+    seen_tok: set[str] = set()
+    for tok in tokens:
+        if tok in seen_tok:
+            continue
+        seen_tok.add(tok)
+        if tok in PRODUCER_PIN_TABLE:
+            pin = PRODUCER_PIN_TABLE[tok]
+            if pin:
+                scored_exact.append((len(tok), pin))
     for needle, pin in PRODUCER_PIN_TABLE.items():
-        if needle and needle in key:
-            return pin
+        if not needle or not pin:
+            continue
+        # Multi-word / spaced phrases (e.g. "vo_finalize refused") — whole phrase only.
+        if " " in needle and needle in key:
+            scored_exact.append((len(needle), pin))
+    if scored_exact:
+        scored_exact.sort(key=lambda t: t[0], reverse=True)
+        return scored_exact[0][1]
     return default
 
 

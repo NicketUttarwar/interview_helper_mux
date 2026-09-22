@@ -630,6 +630,94 @@ def test_repair_gap_report_coerces_null_nugget_ids_and_gap_type(
     assert any(row.get("action") == "default_gap_type" for row in applied)
 
 
+def test_repair_gap_report_coerces_null_line_category_origin_and_oo(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_gap_cat_nulls")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+        skip_handoff=True,
+    )
+    patched, applied = repair_gap_report(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "gap_type": "missing_setup",
+                    "text": (
+                        "Bootstrapped growth to thirty crore set the bar before outside capital."
+                    ),
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "line_category": None,
+                    "origin": None,
+                }
+            ],
+            "opening_orientation": {
+                "sequence": None,
+                "target_segment_id": None,
+                "omit_reason": None,
+                "required": None,
+                "omitted": None,
+            },
+        },
+    )
+    line = patched["interviewer_lines"][0]
+    assert isinstance(line["line_category"], str) and line["line_category"]
+    assert line["origin"] == ""
+    oo = patched["opening_orientation"]
+    assert oo["sequence"] == ""
+    assert oo["target_segment_id"] == ""
+    assert oo["omit_reason"] == ""
+    assert oo["required"] is False
+    assert oo["omitted"] is False
+    assert any(row.get("action") == "default_line_category" for row in applied)
+
+
+def test_repair_gap_evaluations_coerces_explicit_null_leaves(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.artifact_repairs import repair_gap_evaluations
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_eval_nulls")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+        skip_handoff=True,
+    )
+    patched, applied = repair_gap_evaluations(
+        ctx,
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_001",
+                    "self_explanatory": None,
+                    "gap_type": "missing_setup",
+                    "severity": "high",
+                    "listener_confusion": None,
+                    "recommended_framing": None,
+                    "duplicate_claim_cluster": None,
+                    "candidate_for_summary": None,
+                }
+            ]
+        },
+    )
+    row = patched["evaluations"][0]
+    assert row["listener_confusion"] == ""
+    assert row["recommended_framing"] == "none"
+    assert row["duplicate_claim_cluster"] == ""
+    assert row["self_explanatory"] is True
+    assert row["candidate_for_summary"] is False
+    assert any(row.get("action") == "null_to_empty_string" for row in applied)
+
+
 def test_repair_gap_report_restamps_air_contract_omits(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

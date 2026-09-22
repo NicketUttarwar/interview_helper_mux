@@ -706,6 +706,12 @@ def guard_spoken_copy(
             "purpose": purpose,
         }
     if fallback and not fallback_errors:
+        # Mid-sentence fragments are not listener-facing bridges (exec_13167:
+        # fallback "alone does not settle…" → selected_continuity_broken).
+        fb = str(fallback or "").strip()
+        if fb[:1].islower() or _MALFORMED_END.search(fb):
+            fallback_errors = ["spoken_mid_sentence_fallback"]
+    if fallback and not fallback_errors:
         return {
             "action": "fallback",
             "text": fallback,

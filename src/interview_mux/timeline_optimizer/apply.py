@@ -235,41 +235,28 @@ def take_best_candidate(
         except Exception:
             pass
 
+        from interview_mux.seat_authority import persist_frozen_seat_doc
+
         if isinstance(best.get("transitions"), dict):
-            ctx.write_json("master/transitions.json", best["transitions"])
+            persist_frozen_seat_doc(
+                ctx,
+                "master/transitions.json",
+                best["transitions"],
+                reason="optimizer_promote_transitions",
+            )
         if isinstance(best.get("gap_report"), dict):
-            # B13: promoting a candidate that reseats gap_report under freeze needs allow.
-            allow_gap = True
-            try:
-                from interview_mux.seat_authority import (
-                    gate_seat_mutation,
-                    hard_freeze_active,
-                    soft_freeze_active,
-                )
-
-                if soft_freeze_active(ctx) or hard_freeze_active(ctx):
-                    allow_gap = gate_seat_mutation(
-                        ctx,
-                        reason="optimizer_promote_gap_report",
-                        symptoms=["timeline_optimizer"],
-                    )
-            except Exception:
-                # Fail-closed under freeze: refuse gap promote on gate error
-                try:
-                    from interview_mux.seat_authority import (
-                        hard_freeze_active,
-                        soft_freeze_active,
-                    )
-
-                    if soft_freeze_active(ctx) or hard_freeze_active(ctx):
-                        allow_gap = False
-                except Exception:
-                    allow_gap = False
-            if allow_gap:
-                ctx.write_json("understanding/gap_report.json", best["gap_report"])
+            persist_frozen_seat_doc(
+                ctx,
+                "understanding/gap_report.json",
+                best["gap_report"],
+                reason="optimizer_promote_gap_report",
+            )
         if isinstance(best.get("sound_design_plan"), dict):
-            ctx.write_json(
-                "understanding/sound_design_plan.json", best["sound_design_plan"]
+            persist_frozen_seat_doc(
+                ctx,
+                "understanding/sound_design_plan.json",
+                best["sound_design_plan"],
+                reason="optimizer_promote_sdp",
             )
         if order_changed:
             from interview_mux.synthetic_framing import run_synthetic_framing_plan

@@ -720,13 +720,26 @@ def run_adjudicate_batches(
             ctx=ctx,
             stage=STAGE_ID,
         ):
-            runner(
-                ctx,
-                STAGE_ID,
-                "vo/vo-line-adjudicate.system.txt",
-                build_input,
-                persist_batch,
-            )
+            # Batches must not mark_done — primary adjudication.json is sealed
+            # only after all batches (exec_13167 hollow mark_done mid-batch).
+            try:
+                runner(
+                    ctx,
+                    STAGE_ID,
+                    "vo/vo-line-adjudicate.system.txt",
+                    build_input,
+                    persist_batch,
+                    auto_complete=False,
+                )
+            except TypeError:
+                # Test doubles may omit auto_complete kwarg.
+                runner(
+                    ctx,
+                    STAGE_ID,
+                    "vo/vo-line-adjudicate.system.txt",
+                    build_input,
+                    persist_batch,
+                )
 
     prior = _prior_adjudication(ctx)
     prior_lines = list(prior.get("lines") or [])
@@ -735,12 +748,58 @@ def run_adjudicate_batches(
         lid = str(row.get("line_id") or "")
         if lid:
             by_id[lid] = row
+    # OpenAI envelope allows null on required-looking leaves; disk schema wants
+    # string/array. Coerce at seal so write_json cannot heal-spin (exec_13163).
+    gap_by_id = {
+        str(L.get("line_id") or ""): L
+        for L in (gap_report.get("interviewer_lines") or [])
+        if isinstance(L, dict) and L.get("line_id")
+    }
+    sealed_rows: list[dict[str, Any]] = []
+    for row in by_id.values():
+        if not isinstance(row, dict):
+            continue
+        sealed_rows.append(_seal_adjudication_row(dict(row), gap_by_id))
     ctx.write_json(
         ADJUDICATION_REL,
-        {"version": 1, "lines": list(by_id.values()), "batch_count": (len(ordered) + batch_size - 1) // batch_size},
+        {
+            "version": 1,
+            "lines": sealed_rows,
+            "batch_count": (len(ordered) + batch_size - 1) // batch_size,
+        },
         stage_key=STAGE_ID,
     )
     return all_rows
+
+
+def _seal_adjudication_row(
+    out: dict[str, Any], gap_by_id: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Coerce envelope-null leaves to disk-legal types before persist."""
+    lid = str(out.get("line_id") or "")
+    gap_line = gap_by_id.get(lid) or {}
+    if out.get("final_text") is None:
+        out["final_text"] = str(gap_line.get("text") or out.get("text") or "")
+    elif not isinstance(out.get("final_text"), str):
+        out["final_text"] = str(out.get("final_text") or "")
+    if "target_segment_id" in out and out.get("target_segment_id") is None:
+        out["target_segment_id"] = str(
+            gap_line.get("targets_segment_id")
+            or gap_line.get("target_segment_id")
+            or ""
+        )
+    elif "target_segment_id" in out and not isinstance(out.get("target_segment_id"), str):
+        out["target_segment_id"] = str(out.get("target_segment_id") or "")
+    for sk in ("flow_rationale", "nugget_disposition", "input_hash"):
+        if sk in out and out.get(sk) is None:
+            out[sk] = ""
+        elif sk in out and not isinstance(out.get(sk), str):
+            out[sk] = str(out.get(sk) or "")
+    if "nugget_ids" in out and out.get("nugget_ids") is None:
+        out["nugget_ids"] = []
+    elif "nugget_ids" in out and not isinstance(out.get("nugget_ids"), list):
+        out["nugget_ids"] = []
+    return out
 
 
 def run_intro_compose(
@@ -783,6 +842,38 @@ def run_intro_compose(
         if adjudicate_cfg().get("full_resynth_on_adjudicate_change", True):
             nuke_all_synth_wavs_on_adjudicate_change(ctx)
     return gap_report, list(intro.get("nugget_ids") or nugget_ids)
+
+
+def _persist_adjudicate_gap(
+    ctx: RunContext, gap_report: dict[str, Any], *, reason: str = STAGE_ID
+) -> None:
+    try:
+        from interview_mux.seat_authority import persist_frozen_seat_doc
+
+        if not persist_frozen_seat_doc(
+            ctx, GAP_REL, gap_report, reason=reason, stage_key=STAGE_ID
+        ):
+            ctx.log(
+                "vo_line_adjudicate: seat freeze skip-write (not End-A)",
+                level="warning",
+                stage=STAGE_ID,
+            )
+            return
+    except Exception as exc:
+        # A′′ fail-closed under freeze — never raw-write past the gate.
+        try:
+            from interview_mux.seat_authority import freeze_active
+
+            if freeze_active(ctx):
+                ctx.log(
+                    f"vo_line_adjudicate: freeze fail-closed after persist error: {exc}",
+                    level="error",
+                    stage=STAGE_ID,
+                )
+                return
+        except Exception:
+            return
+        ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
 
 
 def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
@@ -829,7 +920,7 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
         if need_ids:
             adjudication_rows = run_adjudicate_batches(ctx, need_ids, gap_report)
             gap_report, _actions = apply_adjudicate_results(ctx, gap_report, adjudication_rows, layup_plan=plan)
-            ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
+            _persist_adjudicate_gap(ctx, gap_report)
         else:
             skip_reason = "unchanged_or_flow_ok"
             settled_ids = [
@@ -851,7 +942,7 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
 
     gap_report, intro_nugget_ids = run_intro_compose(ctx, gap_report)
     if intro_nugget_ids:
-        ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
+        _persist_adjudicate_gap(ctx, gap_report)
 
     allocation = persist_allocation_plan(
         ctx,
@@ -874,6 +965,10 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
         corpus if isinstance(corpus, dict) else {},
         hard=True,
     )
+    # Workstream B: goal miss under aspirational is advisory (compose may have
+    # already accepted). Structural refuse only when coverage errors remain
+    # (catastrophic floor / aspirational off) — do not hard-rewind solely for
+    # under-goal coverage when compose accepted the advisory path.
     if not cov.get("ok"):
         msg = "Nugget air coverage below floor after adjudicate+intro: " + "; ".join(
             str(e) for e in (cov.get("errors") or [])[:4]
@@ -889,6 +984,15 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
                 stage=STAGE_ID,
                 reason="nugget_air_coverage_below_floor",
             )
+    elif cov.get("warnings") and cov.get("air_coverage_aspirational"):
+        ctx.log(
+            "Nugget air coverage under aspirational goal after adjudicate+intro "
+            f"(coverage={cov.get('nugget_air_coverage')}; "
+            f"goal={cov.get('min_nugget_air_coverage')}) — advisory only",
+            level="warning",
+            stage=STAGE_ID,
+            detail={"allocation": allocation, "warnings": cov.get("warnings")},
+        )
 
     # Q1A+: coverage may fail-open, but seated synthesize VO must stay comprehensible.
     # Scrub edit-structure nouns left by adjudicate LLM before the hard gate.
@@ -908,7 +1012,7 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
             line["text"] = cleaned
             scrubbed_any = True
     if scrubbed_any:
-        ctx.write_json(GAP_REL, gap_report, stage_key=STAGE_ID)
+        _persist_adjudicate_gap(ctx, gap_report)
 
     vo_errs = synthesize_vo_comprehensibility_errors(gap_report)
     if vo_errs:

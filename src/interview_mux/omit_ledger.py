@@ -623,12 +623,16 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
     if not stamped:
         return 0
     report["interviewer_lines"] = lines
-    try:
-        from interview_mux.write_staging import write_committed_json
+    from interview_mux.seat_authority import persist_frozen_seat_doc
 
-        write_committed_json(ctx, "understanding/gap_report.json", report)
-    except Exception:
-        ctx.write_json("understanding/gap_report.json", report)
+    if not persist_frozen_seat_doc(
+        ctx,
+        "understanding/gap_report.json",
+        report,
+        reason="stamp_gap_omit_flags",
+        skip_handoff=True,
+    ):
+        return 0
     return stamped
 
 
@@ -692,7 +696,15 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
     if changed:
         gap = dict(gap)
         gap["interviewer_lines"] = new_lines
-        ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+        from interview_mux.seat_authority import persist_frozen_seat_doc
+
+        persist_frozen_seat_doc(
+            ctx,
+            "understanding/gap_report.json",
+            gap,
+            reason="omit_ledger_revive_orientation",
+            skip_handoff=True,
+        )
 
     if ctx.artifact_exists(OMIT_LEDGER_REL):
         try:

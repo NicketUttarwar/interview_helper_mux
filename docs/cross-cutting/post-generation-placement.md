@@ -222,7 +222,25 @@ Record in `run_meta.sfx_listen_results[]` and `gui_log.jsonl` (`sfx_post_listen_
 
 When `sound_design.placement_qa_enabled: true`, `placement_qa.py` runs after **`mmaudio_sfx_flow*`** (merging `mmaudio_qa` hints) and on mix refresh. It writes **`sound_design/placement_adjustments.json`** with conservative level/crossfade hints (missing WAV, suspiciously small file, default bed duck).
 
-At mix, `apply_placement_adjustments()` reads that file and applies `suggested_level_db_delta` / `suggested_crossfade_ms` to SDP cue copies before `flow1_overlays_from_sdp` / Flow 2 overlay builders compute final `level_db`. Cue validation against the plan remains `post_sound_plan_*` cross-validate — placement QA does not run at plan persist (no WAVs yet).
+At mix, `apply_placement_adjustments()` reads that file and applies `suggested_level_db_delta` / `suggested_crossfade_ms` / pad / snip / music placement hints to SDP cue copies before `flow1_overlays_from_sdp` / Flow 2 overlay builders compute final `level_db`. Cue validation against the plan remains `post_sound_plan_*` cross-validate — placement QA does not run at plan persist (no WAVs yet).
+
+### Merge ownership (remaster-safe)
+
+`placement_adjustments.json` is **merge-only** across writers (mmaudio QA, placement QA regenerate, junction music fades). Remaster must not wipe durable intent:
+
+| Field family | Examples | Merge rule |
+|--------------|----------|------------|
+| Crossfade floors | `suggested_crossfade_ms` | Keep max prior floor |
+| Pads | `suggested_pad_ms`, `pad_ms`, `pad_before_ms`, `pad_after_ms` | Keep max / prior when new omits |
+| Snip overrides | `snip_override`, `snip_overrides` | Preserve when new omits |
+| Music placement hints | `placement_hint`, `music_placement`, `suggested_placement` | Preserve when new omits |
+| Untouched asset ids | prior junction-only rows | Keep if remaster-owned |
+
+Helper: `_merge_preserve_remaster_fields` (alias `_merge_preserve_crossfade_floors`).
+
+### Detect = apply
+
+A music/junction repair is only marked **applied** when `music_repair_would_apply(ctx, hint)` is true: the hint is durable in adjustments **and** the mix consumer (`apply_placement_adjustments`) would read it. Detect-only without an apply path stays `detect_only` — never a silent “fixed.”
 
 ---
 
@@ -231,6 +249,7 @@ At mix, `apply_placement_adjustments()` reads that file and applies `suggested_l
 | Function | File | Role |
 |----------|------|------|
 | `run_placement_qa` / `apply_placement_adjustments` | `placement_qa.py` | Post-SFX hints + mix-time apply |
+| `_merge_preserve_remaster_fields` / `music_repair_would_apply` | `placement_qa.py` | Merge ownership + detect=apply |
 | `maybe_run_placement_qa` | `placement_qa.py` | Called from `sfx_mmaudio.py` after generation |
 | `flow1_overlays_from_sdp` | `sound_design.py` | Bed loop/trim + stinger overlays |
 | `resolve_stinger_position_ms` | `sound_design.py` | Pause-tail alignment |
@@ -238,4 +257,4 @@ At mix, `apply_placement_adjustments()` reads that file and applies `suggested_l
 | `validate_pre_mix` | `sdp_cross_validate.py` | Asset + cue completeness before mux |
 | `mix_contract` | `understanding.py` | SAP-driven caps and duck defaults |
 
-**Related:** [sound-design.md](./sound-design.md) · [operator-sound-and-mix.md](../workflows/operator-sound-and-mix.md) · [stage-quality-scorecard.md](./stage-quality-scorecard.md)
+**Related:** [sound-design.md](./sound-design.md) · [operator-sound-and-mix.md](../workflows/operator-sound-and-mix.md) · [stage-quality-scorecard.md](./stage-quality-scorecard.md) · [publishability-contract.md](./publishability-contract.md)
