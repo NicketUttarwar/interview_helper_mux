@@ -85,32 +85,54 @@ _ENTITY_IGNORE = {
     "Beyond",
     "Building",
     "But",
+    "Business",
+    "Budget",
+    "Capital",
+    "Challenge",
     "Choosing",
+    "Company",
+    "Culture",
+    "Customer",
     "Each",
     "Every",
     "Facing",
+    "Failure",
     "Finding",
     "For",
     "Getting",
+    "Growth",
     "How",
     "In",
+    "Leadership",
     "Let",
     "Looking",
     "Making",
+    "Margin",
+    "Market",
     "Moving",
     "Next",
     "Okay",
     "Once",
+    "Opportunity",
     "Outside",
+    "Performance",
+    "Pressure",
+    "Product",
+    "Revenue",
     "Right",
+    "Risk",
     "So",
     "Stepping",
+    "Strategy",
+    "Success",
     "Taking",
+    "Team",
     "That",
     "The",
     "These",
     "This",
     "Those",
+    "Trust",
     "Turning",
     "Well",
     "What",
@@ -546,6 +568,21 @@ def _grounded_fallback(evidence: dict[str, Any]) -> str:
     return ""
 
 
+def _soften_mid_sentence_fallback(text: str) -> str:
+    """Capitalize or prefix mid-sentence fragments into listener-facing openers.
+
+    Mirrors ``edl_narrative_remutate._repair_mid_sentence_transition_openers``.
+    """
+    fb = normalize_script(text)
+    if not fb:
+        return ""
+    if fb[:1].islower():
+        return f"That {fb}"
+    if _MALFORMED_END.search(fb):
+        return fb.rstrip("—,;:") + "."
+    return fb[:1].upper() + fb[1:] if fb else ""
+
+
 def _person_name_like(person: str) -> bool:
     """True when ``person`` is a short name, not a clause stuffed into verified_person."""
     words = [w for w in str(person or "").split() if w]
@@ -708,9 +745,17 @@ def guard_spoken_copy(
     if fallback and not fallback_errors:
         # Mid-sentence fragments are not listener-facing bridges (exec_13167:
         # fallback "alone does not settle…" → selected_continuity_broken).
+        # Soften instead of hard-blocking (exec_13177: entity-stripped
+        # "Performance …" → lowercase fragment thrash).
         fb = str(fallback or "").strip()
         if fb[:1].islower() or _MALFORMED_END.search(fb):
-            fallback_errors = ["spoken_mid_sentence_fallback"]
+            softened = _soften_mid_sentence_fallback(fb)
+            if softened and not spoken_copy_violations(
+                softened, evidence=ev, seen_texts=seen_texts
+            ):
+                fallback = softened
+            else:
+                fallback_errors = ["spoken_mid_sentence_fallback"]
     if fallback and not fallback_errors:
         return {
             "action": "fallback",

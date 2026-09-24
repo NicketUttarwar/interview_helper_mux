@@ -1,0 +1,107 @@
+{
+  "gaps": [],
+  "nugget_layup_authority": true,
+  "opening_orientation": {
+    "line_id": "vo_preface_episode_orientation",
+    "sequence": "intro_music_body",
+    "native_cold_open_segment_id": null,
+    "target_segment_id": "seg_002",
+    "required": true
+  },
+  "interviewer_lines": [
+    {
+      "line_id": "vo_preface_episode_orientation",
+      "gap_type": "missing_setup",
+      "line_category": "episode_preface",
+      "text": "In this conversation, oneCell.ai\u2019s proposed cell-biopsy approach combines circulating tumour cells, multi-omics and AI to give oncologists and drug developers earlier, more actionable views of evolving cancer. Let's hear how that opening beat lands.",
+      "targets_segment_id": "seg_002",
+      "placement": "before",
+      "delivery": "synthesize",
+      "supports_segment_ids": [
+        "seg_002"
+      ],
+      "rationale": "Orient the listener to the guest, topic, and stakes before the body.",
+      "extracted_from": {
+        "artifact": "understanding/content_brief.json",
+        "path": "episode_promise|logline|thesis|guest_name|topics"
+      },
+      "origin": "deterministic_orientation_guard",
+      "episode_orientation": true,
+      "opening_sequence": "intro_music_body",
+      "allow_music_bed_overlap": true,
+      "orientation_missions": [
+        "guest_identity",
+        "conversation_topic",
+        "listener_stakes"
+      ],
+      "recompose_action": "kept",
+      "vo_shape": "third_person",
+      "clone_adjacency_exempt": true
+    },
+    {
+      "line_id": "vo_layup_seg_007",
+      "gap_type": "nugget_layup",
+      "line_category": "extracted_context",
+      "text": "OneCell. ai describes its work as combining AI with single-cell analysis for cancer diagnostics and therapeutics. The starting point is why personalised treatment still begins with an invasive tissue biopsy. Why conventional tissue biopsy is invasive and difficult to repeat?",
+      "targets_segment_id": "seg_007",
+      "placement": "before",
+      "delivery": "synthesize",
+      "supports_segment_ids": [
+        "seg_007"
+      ],
+      "rationale": "The excluded company description establishes the technology's domain before the discussion turns to tissue biopsy.",
+      "origin": "nugget_layup",
+      "nugget_ids": [
+        "nug_001"
+      ],
+      "recovery_of_talking_point_ids": [
+        "tp_003",
+        "tp_006"
+      ],
+      "forward_cue_ok": true,
+      "word_count": 39,
+      "severity": "high",
+      "cta_cover": true,
+      "cta_cover_regenerate": true,
+      "clone_adjacency_exempt": true,
+      "vo_shape": "third_person",
+      "voice_speaker_id": "spk_1"
+    },
+    {
+      "line_id": "vo_layup_seg_037",
+      "gap_type": "nugget_layup",
+      "line_category": "extracted_context",
+      "text": "The platform is intended to provide real-time tumour profiles for patient selection and therapy response. The next question is whether that information can identify the right participant before a clinical trial begins. How the assay is proposed to screen participants for clinical trials?",
+      "targets_segment_id": "seg_037",
+      "placement": "before",
+      "delivery": "synthesize",
+      "supports_segment_ids": [
+        "seg_037"
+      ],
+      "rationale": "The excluded introductory claim makes the transition from OncoInsight reporting to trial recruitment concrete.",
+      "origin": "nugget_layup",
+      "nugget_ids": [
+        "nug_002"
+      ],
+      "recovery_of_talking_point_ids": [
+        "tp_004",
+        "tp_006"
+      ],
+      "forward_cue_ok": true,
+      "word_count": 43,
+      "severity": "high",
+      "voice_speaker_id": "spk_1",
+      "vo_shape": "third_person",
+      "clone_adjacency_exempt": true
+    }
+  ],
+  "_meta": {
+    "sanitize": {
+      "ok": true,
+      "source": "artifact_sanitize.gap_report",
+      "actions": 0,
+      "hash": "21e8e03393a8d2f3aca128fd",
+      "selection_order_hash": "99b0030ff1f857a1"
+    }
+  }
+}

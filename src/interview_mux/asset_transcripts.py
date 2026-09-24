@@ -148,13 +148,32 @@ def vo_speaker_id(ctx: RunContext, line: dict[str, Any] | None = None) -> str:
     return "host"
 
 
+def _remap_stage_write_kwargs() -> dict[str, Any]:
+    """Fuse/hitch/overlap remap writers must stamp mutation_class on index/sidecars.
+
+    ``transcripts/index.json`` is on SEGMENT_ID_REMAP_PATHS; without
+    ``mutation_class=segment_id_remap`` remap stages hit authority_denied before
+    the operational allow (pre_ranking soft-fail / desync).
+    """
+    try:
+        from interview_mux.artifact_ownership import SEGMENT_ID_REMAP_STAGES
+        from interview_mux.write_staging import active_stage_id
+
+        stage = str(active_stage_id() or "").strip()
+    except Exception:
+        return {}
+    if not stage or stage not in SEGMENT_ID_REMAP_STAGES:
+        return {}
+    return {"stage_key": stage, "mutation_class": "segment_id_remap"}
+
+
 def _write_sidecar(ctx: RunContext, doc: dict[str, Any]) -> str:
     kind = str(doc["kind"])
     asset_id = str(doc["asset_id"])
     rel = sidecar_rel(kind, asset_id)
     parent = ctx.path(rel).parent
     parent.mkdir(parents=True, exist_ok=True)
-    ctx.write_json(rel, doc, skip_handoff=True)
+    ctx.write_json(rel, doc, skip_handoff=True, **_remap_stage_write_kwargs())
     return rel
 
 
@@ -327,7 +346,7 @@ def rewrite_index(ctx: RunContext) -> dict[str, Any]:
         )
     index = {"schema_version": SCHEMA_VERSION, "entries": entries}
     ctx.path("transcripts").mkdir(parents=True, exist_ok=True)
-    ctx.write_json(INDEX_REL, index, skip_handoff=True)
+    ctx.write_json(INDEX_REL, index, skip_handoff=True, **_remap_stage_write_kwargs())
     return index
 
 

@@ -596,6 +596,16 @@ export interface RunData {
         action?: string;
         state?: string;
       };
+      hosted_vo_floor?: {
+        status?: string;
+        need?: number;
+        have?: number;
+        have_gap?: number;
+        have_edl?: number;
+        cause?: string | null;
+        resume_producer?: string;
+        prose?: string;
+      };
     }
   >;
   resilience?: {

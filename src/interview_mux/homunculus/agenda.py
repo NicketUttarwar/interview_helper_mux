@@ -91,6 +91,7 @@ def unmark_hollow_prepare_stages(ctx: RunContext) -> list[str]:
     """Clear .stage_done for prepare stages that never wrote their artifacts."""
     cleared: list[str] = []
     for stage in G0_LOCKED_RERUN_STAGES:
+        # DETECTION_ONLY_IS_DONE: hollow stamp detection → unmark, never skip work.
         if ctx.is_done(stage) and not prepare_outputs_present(ctx, stage):
             unmark_stage_only(ctx, stage)
             cleared.append(stage)
@@ -192,14 +193,18 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
             inc_after = stage_artifact_incompleteness(ctx, stage_id)
         except Exception:
             inc_after = "incompleteness_check_failed"
-        if inc_after or not ctx.is_done(stage_id):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if inc_after or not seed_stage_complete(ctx, stage_id):
             if stage_id not in pending:
                 pending.append(stage_id)
 
     for stage, rel in DELIVERY_ANALYSIS_PREREQS:
         if gap_skipped and stage in _GAP_FILL_ANALYSIS_PREREQS:
             if ctx.artifact_exists(rel):
-                if not ctx.is_done(stage):
+                from interview_mux.delivery_guardrails import seed_stage_complete
+
+                if not seed_stage_complete(ctx, stage):
                     heal_or_refuse_mark(ctx, stage, force=True)
                 _keep_if_incomplete(stage, already_healed=True)
                 continue
@@ -217,11 +222,14 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
                 pending.append(stage)
                 continue
             if stage == "source_topology_build" and inc:
+                # DETECTION_ONLY_IS_DONE: hollow/stale topology — attempt heal then keep pending.
                 if ctx.is_done(stage):
                     heal_or_refuse_mark(ctx, stage)
                 pending.append(stage)
                 continue
-            if ctx.is_done(stage) and not inc:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if seed_stage_complete(ctx, stage):
                 continue
             _keep_if_incomplete(stage)
             continue
@@ -246,7 +254,9 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
         except Exception:
             if not ctx.artifact_exists("transcript/review_queue.json"):
                 return
-        if not ctx.is_done(stage):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, stage):
             heal_or_refuse_mark(ctx, stage, force=True)
         raise RuntimeError(
             f"cannot {action} transcript_review_build: G0 is closed"
@@ -260,7 +270,9 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
     # (e.g. content_brief archived by a heal; seed-order still needs content_context).
     if not has_art:
         return
-    if not ctx.is_done(stage):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if not seed_stage_complete(ctx, stage):
         heal_or_refuse_mark(ctx, stage, force=True)
     raise RuntimeError(
         f"cannot {action} {stage}: timeline artifacts exist after G0; "
@@ -336,9 +348,8 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
 MUSIC_SKIP_GUARD = frozenset(
     {"sfx_prompt_craft", "mmaudio_sfx", "music_palette_compose", "mix"}
 )
-MUSIC_REQUIRES_ASSEMBLY = frozenset(
-    {"music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"}
-)
+# Alias of delivery_guardrails.MUSIC_REQUIRES_ASSEMBLY (Always-HAU dual-set DoD).
+from interview_mux.delivery_guardrails import MUSIC_REQUIRES_ASSEMBLY  # noqa: E402
 
 IDENTICAL_ERROR_REL = "mastering/homunculus/identical_stage_errors.json"
 IDENTICAL_ERROR_CAP = 3
@@ -398,6 +409,7 @@ def _refuse_topology_skip_without_samples(ctx: RunContext, stage: str) -> None:
 
 def _block_hollow_skip(ctx: RunContext, stage: str) -> None:
     """10C: refuse skip when .stage_done lies — unmark once, fingerprint escalation."""
+    # DETECTION_ONLY_IS_DONE: hollow stamp without outputs → unmark / escalate.
     if not ctx.is_done(stage) or stage_outputs_present(ctx, stage):
         return
     fingerprint = HOLLOW_SKIP_FP.format(stage=stage)
@@ -409,6 +421,7 @@ def _block_hollow_skip(ctx: RunContext, stage: str) -> None:
     exhausted = bool(hit.get("exhausted"))
     if count <= 1:
         unmark_hollow_delivery_producers(ctx, {stage})
+        # DETECTION_ONLY_IS_DONE: still stamped after hollow unmark → force clear.
         if ctx.is_done(stage):
             unmark_stage_only(ctx, stage)
     payload: dict[str, Any] = {
@@ -510,6 +523,20 @@ def earliest_incomplete_seed_stage(
         if phase == "delivery":
             if seed_stage_complete(ctx, sid):
                 continue
+            # HAU speech-first: MusicGen/SFX wait until mix seats assembly
+            # (exec_13170: constrain_conductor pinned mix → music_palette).
+            try:
+                from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
+                from interview_mux.mix_junction_seat import next_delivery_seat
+
+                if sid in MUSIC_BEFORE_MIX and not seed_stage_complete(ctx, "mix"):
+                    pin = next_delivery_seat(ctx)
+                    if pin == "mix" and (not candidates or "mix" in candidates):
+                        return "mix"
+                    if pin and pin != sid:
+                        continue
+            except Exception:
+                pass
             # Late-added spoken transition pairs after assembly must not yank the
             # conductor back to vo_synthesize — mix last-chance synths them.
             if sid == "vo_synthesize" and ctx.artifact_exists("master/assembly.wav"):
@@ -544,22 +571,29 @@ def earliest_incomplete_seed_stage(
                     inc = None
                 if inc and "transition pairs missing" in str(inc):
                     continue
-            return sid
-        # Analysis: full seed-order walk (ignore candidates membership).
-        if ctx.is_done(sid) and stage_outputs_present(ctx, sid):
             try:
-                if stage_artifact_incompleteness(ctx, sid) is None:
-                    continue
+                from interview_mux.hosted_vo_authority import seed_walk_pin_for_hollow_hosted_vo
+
+                return seed_walk_pin_for_hollow_hosted_vo(ctx, sid)
             except Exception:
-                continue
-            return sid
+                return sid
+        # Analysis: full seed-order walk (ignore candidates membership).
+        from interview_mux.done_authority import may_skip_as_complete
+
+        if may_skip_as_complete(ctx, sid):
+            continue
         if stage_outputs_present(ctx, sid):
             try:
                 if stage_artifact_incompleteness(ctx, sid) is None:
                     continue
             except Exception:
                 pass
-        return sid
+        try:
+            from interview_mux.hosted_vo_authority import seed_walk_pin_for_hollow_hosted_vo
+
+            return seed_walk_pin_for_hollow_hosted_vo(ctx, sid)
+        except Exception:
+            return sid
     return None
 
 
@@ -600,6 +634,12 @@ def constrain_conductor_to_seed_front(
                     front = "junction_snip_qa"
             except Exception:
                 pass
+        try:
+            from interview_mux.hosted_vo_authority import seed_walk_pin_for_hollow_hosted_vo
+
+            front = seed_walk_pin_for_hollow_hosted_vo(ctx, front)
+        except Exception:
+            pass
         if phase == "delivery" and remaining[0] != front:
             try:
                 from interview_mux.delivery_guardrails import record_wasted_work
@@ -671,6 +711,8 @@ def _pre_ranking_rounds_present(ctx: RunContext) -> bool:
     (and even a post_sanitize rounds file). Those must not satisfy
     ``connector_fuse_pass_pre_ranking`` or remaining_stages drops the pass,
     ranking looks done, and maybe_require then loops on a self-prerequisite.
+
+    H6-B: ``skip_reason=missing_manifest`` is not present (broken upstream).
     """
     if not ctx.artifact_exists(_PRE_RANKING_ROUNDS):
         return False
@@ -680,7 +722,11 @@ def _pre_ranking_rounds_present(ctx: RunContext) -> bool:
         return False
     if not isinstance(doc, dict):
         return False
-    return str(doc.get("pass_id") or "") == "pre_ranking"
+    if str(doc.get("pass_id") or "") != "pre_ranking":
+        return False
+    if str(doc.get("skip_reason") or "") == "missing_manifest":
+        return False
+    return True
 
 
 def _final_mtime(ctx: RunContext, *parts: str) -> float | None:
@@ -946,6 +992,10 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
             return stage_artifact_incompleteness(ctx, stage) is None
         except Exception:
             return ctx.artifact_exists("understanding/gap_evaluations.json")
+    if stage == "optimal_questions":
+        # Alias of gap_framing_compose (same disk primary). Hollow-refuse must not
+        # treat the alias as outputs_missing when compose artifacts are present.
+        return stage_outputs_present(ctx, "gap_framing_compose")
     if stage == "vernacular_segment_sanitize":
         try:
             from interview_mux.stage_completion import stage_artifact_incompleteness
@@ -1037,8 +1087,11 @@ def unmark_hollow_delivery_producers(
                 heal_mmaudio_qa_wav_parity(ctx)
             except Exception:
                 pass
-            if stage_outputs_present(ctx, stage) and not ctx.is_done(stage):
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if stage_outputs_present(ctx, stage) and not seed_stage_complete(ctx, stage):
                 heal_or_refuse_mark(ctx, stage, force=True)
+        # DETECTION_ONLY_IS_DONE: hollow stamp census for unmark (never advance/skip).
         hollow_missing = ctx.is_done(stage) and not stage_outputs_present(ctx, stage)
         hollow_incomplete = False
         if ctx.is_done(stage) and not hollow_missing:
@@ -1226,8 +1279,10 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
     # plus G1 incompleteness so hollow VO / music cannot drop off the agenda.
     if phase != "delivery":
         rem: list[str] = []
+        from interview_mux.done_authority import may_skip_as_complete
+
         for sid in _order_for(phase):
-            if ctx.is_done(sid):
+            if may_skip_as_complete(ctx, sid):
                 continue
             # HS-1: island/fuse outputs complete the analysis seat even without
             # a done marker (wrappers historically skipped heal-mark).
@@ -1240,13 +1295,15 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
     remutate_force: set[str] = set()
     try:
         from interview_mux.delivery_invariants import active_remutate_stages
+        from interview_mux.done_authority import land_honest
 
         # Cleared markers with leftover artifacts must still walk (exec_10066:
         # remutate dropped air/transitions/edl off remaining → mix seed thrash).
+        # Hollow stamps are not land-honest → stay forced onto the agenda.
         remutate_force = {
             sid
             for sid in active_remutate_stages(ctx)
-            if not ctx.is_done(sid)
+            if not land_honest(ctx, sid)
         }
     except Exception:
         remutate_force = set()
@@ -1288,19 +1345,32 @@ def ship_after_master_remaining(ctx: RunContext) -> list[str]:
 def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
     """Mark unmarked pre-master delivery holes once master_finalize has already shipped.
 
+    Hollow-pass B+ R3: never hollow-stamp — ``may_post_master_backfill`` requires
+    outputs present; stamp via ``try_mark_done`` (raw only if needed after outputs).
+
     vo_synthesize was inserted between edl_narrative_audit and edl. Runs that
     already mixed/finalized must not rewind; persist a pair-gap report from
-    on-disk transition WAVs and close the marker.
+    on-disk transition WAVs and close the marker when outputs exist.
     """
-    if not ctx.final_path("master", "master.wav").is_file() or not ctx.is_done(
-        "master_finalize"
-    ):
+    if not ctx.final_path("master", "master.wav").is_file():
         return []
+    # DETECTION_ONLY_IS_DONE: post-master hole-fill mode — master.wav shipped and
+    # finalize was claimed. Walk/advance still uses seed_stage_complete below.
+    if not ctx.is_done("master_finalize"):
+        return []
+    from interview_mux.done_authority import (
+        may_post_master_backfill,
+        raw_stamp_session,
+        try_mark_done,
+    )
+
     filled: list[str] = []
     for stage in DELIVERY_ORDER:
         if stage in SHIP_AFTER_MASTER:
             break
-        if ctx.is_done(stage):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if seed_stage_complete(ctx, stage):
             continue
         if stage == "vo_synthesize":
             try:
@@ -1321,18 +1391,29 @@ def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
             except Exception:
                 ctx.write_json(
                     "mastering/vo_synthesize.json",
-                    {"still_missing_pairs": [], "last_source": "post_master_hole_backfill"},
+                    {
+                        "still_missing_pairs": [],
+                        "last_source": "post_master_hole_backfill",
+                    },
                     skip_handoff=True,
                     stage_key="vo_synthesize",
                 )
-        # Master already shipped — hollow-stamp unmarked pre-master holes so
-        # seed-front cannot rewind into VO/sanitize thrash after finalize.
-        prev_raw = getattr(ctx, "_mark_done_raw", False)
-        ctx._mark_done_raw = True
-        try:
-            ctx.mark_done(stage, force=True)
-        finally:
-            ctx._mark_done_raw = prev_raw
+        if not may_post_master_backfill(ctx, stage):
+            ctx.log(
+                f"homunculus skip backfill {stage}: outputs missing (hollow_pass R3)",
+                level="warning",
+                stage=stage,
+            )
+            continue
+        stamped = try_mark_done(ctx, stage, force=True)
+        if not stamped:
+            try:
+                with raw_stamp_session(ctx, "post_master_backfill"):
+                    stamped = try_mark_done(ctx, stage, force=True)
+            except Exception:
+                stamped = False
+        if not stamped:
+            continue
         filled.append(stage)
         ctx.log(
             f"homunculus backfilled pre-master hole {stage} (master already exists)",
@@ -1464,6 +1545,8 @@ def schedule_stage(ctx: RunContext, stage: str, *, before: str | None = None) ->
     else:
         order.insert(0, stage)
     doc["scheduled"] = order
+    # DETECTION_ONLY_IS_DONE: schedule remaining list for operator display;
+    # walk/advance uses remaining_stages / may_skip_as_complete.
     doc["remaining"] = [s for s in order if not ctx.is_done(s) and s not in skipped_stages(ctx)]
     ctx.write_json(AGENDA_REL, doc)
     append_ledger(
@@ -1799,13 +1882,17 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             gap_skipped = False
     for prereq_stage, rel in DELIVERY_ANALYSIS_PREREQS:
         if gap_skipped and prereq_stage in _GAP_FILL_ANALYSIS_PREREQS:
-            if ctx.artifact_exists(rel) and not ctx.is_done(prereq_stage):
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if ctx.artifact_exists(rel) and not seed_stage_complete(ctx, prereq_stage):
                 heal_or_refuse_mark(ctx, prereq_stage, force=True)
             continue
         if not ctx.artifact_exists(rel):
             blockers.append(f"missing_artifact:{rel}")
             continue
-        if not ctx.is_done(prereq_stage):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if not seed_stage_complete(ctx, prereq_stage):
             blockers.append(f"stage_not_done:{prereq_stage}")
     skip = skipped_stages(ctx)
     for up in prereq_chain:
@@ -1957,7 +2044,9 @@ def rerun_with_impact(ctx: RunContext, stage: str) -> dict[str, Any]:
                 pin = sid
                 break
         except Exception:
-            if not ctx.is_done(sid):
+            from interview_mux.done_authority import land_honest
+
+            if not land_honest(ctx, sid):
                 pin = sid
                 break
     append_ledger(
@@ -2003,7 +2092,12 @@ def _walk_sequence(ctx: RunContext, walk_stages: list[str], *, reason: str):
 def _constrain_delivery_walk_for_sticky(
     ctx: RunContext, stages: list[str]
 ) -> list[str]:
-    """While sticky HARD is active, permit its producer pin and nothing else."""
+    """While sticky HARD is active, permit its producer pin and nothing else.
+
+    If the sticky pin is already seed-complete, clear the halt and allow the
+    remainder walk — otherwise a sealed SDP (etc.) blocks adjudicate/synth
+    forever (exec_13170 incomplete-after-conductor ↔ sound_design_plan).
+    """
     try:
         sticky = (
             ctx.read_json("operator/sticky_heal.json")
@@ -2016,7 +2110,31 @@ def _constrain_delivery_walk_for_sticky(
     if not isinstance(active, dict):
         return list(stages)
     pin = str(active.get("pin") or "").strip()
-    if pin and pin in stages:
+    if not pin:
+        return list(stages)
+
+    pin_sealed = False
+    try:
+        from interview_mux.thrash_hardening import sticky_pin_is_sealed
+
+        pin_sealed = bool(sticky_pin_is_sealed(ctx, pin))
+    except Exception:
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            pin_sealed = bool(seed_stage_complete(ctx, pin))
+        except Exception:
+            pin_sealed = False
+    if pin_sealed:
+        try:
+            cleared = dict(sticky)
+            cleared.pop("active_halt", None)
+            ctx.write_json("operator/sticky_heal.json", cleared, skip_handoff=True)
+        except Exception:
+            pass
+        return list(stages)
+
+    if pin in stages:
         return [pin]
     raise RuntimeError(
         "Delivery incomplete after conductor — sticky halt refuses multi-stage "
@@ -2064,8 +2182,11 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
         except Exception:
             pass
         for stage in _walk_sequence(ctx, walk_stages, reason=reason):
-            if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
+            from interview_mux.done_authority import may_skip_as_complete
+
+            if may_skip_as_complete(ctx, stage):
                 continue
+            # DETECTION_ONLY_IS_DONE: hollow stamp without outputs → unmark then run.
             if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
                 unmark_stage_only(ctx, stage)
             if stage in skipped_stages(ctx) and stage_outputs_present(ctx, stage):
@@ -2075,11 +2196,16 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 _refuse_delivery_timeline_rewind(ctx, stage, action="walk")
                 _refuse_music_before_assembly(ctx, stage, action="walk")
             except RuntimeError as exc:
-                if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
+                from interview_mux.delivery_guardrails import seed_stage_complete
+
+                if prepare_outputs_present(ctx, stage) and not seed_stage_complete(
+                    ctx, stage
+                ):
                     from interview_mux.stage_completion import heal_or_refuse_mark
 
                     heal_or_refuse_mark(ctx, stage, force=True)
-                if "assembly audio missing" in str(exc):
+                exc_text = str(exc)
+                if "assembly audio missing" in exc_text:
                     ctx.log(
                         f"music_deferred: {stage} — pin assembly_preview",
                         level="warning",
@@ -2102,6 +2228,47 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                             ctx, restart, reason="music_deferred_pin_assembly"
                         )
                         return
+                # HAU: preview-only assembly blocks MusicGen — do not silent-continue
+                # (exec_13170: ESR walk skipped music → hollow Finished). Speech-first
+                # mix seats assembly.wav so music can admit afterward.
+                if stage in MUSIC_REQUIRES_ASSEMBLY and (
+                    "assembly_preview_only" in exc_text
+                    or "assembly_not_seated" in exc_text
+                    or "assembly_not_ready_for_music" in exc_text
+                ):
+                    try:
+                        from interview_mux.mix_junction_seat import (
+                            beds_deferred_for_mix,
+                            hold_speech_first_mix,
+                        )
+
+                        if hold_speech_first_mix(ctx, "mix") or beds_deferred_for_mix(ctx):
+                            # Only walk mix — never re-queue MUSIC_REQUIRES_ASSEMBLY
+                            # stages here (exec_13170: recursive hau_speech_first
+                            # grew mix+mmaudio+sfx+music and thrashed).
+                            if reason == "hau_speech_first_before_music":
+                                ctx.log(
+                                    f"hau_speech_first: skip blocked {stage} until "
+                                    "mix seats assembly (already in speech-first walk)",
+                                    level="warning",
+                                    stage="mix",
+                                )
+                                continue
+                            ctx.log(
+                                f"hau_speech_first: {stage} blocked ({exc_text[:120]}) "
+                                "— walk mix to seat assembly before MusicGen",
+                                level="warning",
+                                stage="mix",
+                            )
+                            walk_seed_agenda(
+                                ctx,
+                                ["mix"],
+                                reason="hau_speech_first_before_music",
+                            )
+                            return
+                    except Exception:
+                        pass
+                    raise
                 continue
             if stage == "transcript_review":
                 # 3A: remainder walk must not sign G0 off. Driver owns complete_g0 / wait.
@@ -2168,8 +2335,9 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 # gap_framing_compose → hollow analysis Finished — DP-BUD1 A).
                 try:
                     from interview_mux.defect_ledger import SHIP_BAR_CRITICAL_STAGES
+                    from interview_mux.llm_flow_hardening import FLOW_CRITICAL_LLM_STAGES
 
-                    must_land = set(SHIP_BAR_CRITICAL_STAGES) | {
+                    must_land = set(SHIP_BAR_CRITICAL_STAGES) | set(FLOW_CRITICAL_LLM_STAGES) | {
                         "gap_framing_compose",
                         "missing_framing",
                     }
@@ -2287,7 +2455,13 @@ def run_homunculus_phase(
         if committed_master_wav(ctx) and honest_finalize_seeded(ctx):
             filled = backfill_delivery_holes_after_master(ctx)
             if filled:
-                remaining = [s for s in remaining if s not in filled and not ctx.is_done(s)]
+                from interview_mux.done_authority import may_skip_as_complete
+
+                remaining = [
+                    s
+                    for s in remaining
+                    if s not in filled and not may_skip_as_complete(ctx, s)
+                ]
                 write_agenda(ctx, phase, remaining, source="conductor")
         try:
             from interview_mux.delivery_guardrails import music_epoch_complete
@@ -2295,6 +2469,7 @@ def run_homunculus_phase(
 
             if delivery_sdp_present(ctx) and music_epoch_complete(ctx):
                 from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
+                from interview_mux.done_authority import land_honest
 
                 kept: list[str] = []
                 for sid in remaining:
@@ -2306,14 +2481,16 @@ def run_homunculus_phase(
                         except Exception:
                             pass
                     if sid in MUSIC_BEFORE_MIX and music_epoch_complete(ctx):
-                        if not ctx.is_done(sid):
+                        if not land_honest(ctx, sid):
                             heal_or_refuse_mark(ctx, sid, force=True)
-                        ctx.log(
-                            f"homunculus keeping {sid} — music epoch complete",
-                            level="info",
-                            stage=sid,
-                        )
-                        continue
+                        if land_honest(ctx, sid):
+                            ctx.log(
+                                f"homunculus keeping {sid} — music epoch complete",
+                                level="info",
+                                stage=sid,
+                            )
+                            continue
+                        # Hollow after heal → stay on agenda (do not skip work).
                     kept.append(sid)
                 if kept != remaining:
                     remaining = kept
@@ -2541,6 +2718,22 @@ def run_homunculus_phase(
                 )
                 if wait_row is not None:
                     lease = str(wait_row.get("lease_stage") or pin or still[0])
+                    # HAU: ESR wait must not walk MusicGen while only preview
+                    # assembly exists — prefer speech-first mix to seat.
+                    try:
+                        from interview_mux.mix_junction_seat import (
+                            music_admit_block_reason,
+                            next_delivery_seat,
+                        )
+
+                        if lease in MUSIC_REQUIRES_ASSEMBLY and music_admit_block_reason(
+                            ctx
+                        ):
+                            pin = next_delivery_seat(ctx)
+                            if pin:
+                                lease = pin
+                    except Exception:
+                        pass
                     ctx.log(
                         "homunculus delivery ESR wait "
                         f"({wait_row.get('why')}); resume={lease}",

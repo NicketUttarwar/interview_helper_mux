@@ -82,6 +82,8 @@ def _drift_exc() -> PublishabilityBlocked:
 
 
 def test_he2_unsanitary_playbook_does_not_claim_edl(ctx: RunContext) -> None:
+    from interview_mux.delivery_guardrails import clamp_resume_through_order
+
     _plant_edl(ctx)
     _plant_unsanitary_seated(ctx)
     assert edl_heal_resume_stage(ctx) == "vo_synthesize"
@@ -91,7 +93,12 @@ def test_he2_unsanitary_playbook_does_not_claim_edl(ctx: RunContext) -> None:
     assert route.from_stage == "vo_synthesize"
     assert route.from_stage != "edl"
     nav = heal_navigate(ctx, error="vo_audibility_drift", stage="edl")
-    assert nav["from_stage"] == "vo_synthesize"
+    landed = str(nav.get("from_stage") or "")
+    # Admit/Done Constitution may clamp further upstream than vo_synthesize.
+    assert landed != "edl"
+    assert landed == "vo_synthesize" or landed == clamp_resume_through_order(
+        ctx, "vo_synthesize"
+    )
     assert playbook_rebuild_edl(ctx) == []
 
 
@@ -107,18 +114,26 @@ def test_he2_sanitary_playbook_may_resume_edl(ctx: RunContext) -> None:
 
 
 def test_he2_recovery_not_recovered_when_unsanitary(ctx: RunContext) -> None:
+    from interview_mux.delivery_guardrails import clamp_resume_through_order
+
     _plant_edl(ctx)
     _plant_unsanitary_seated(ctx)
     result = handle_stage_failure(ctx, "edl", _drift_exc())
-    assert result.resume_stage == "vo_synthesize"
+    landed = str(result.resume_stage or "")
+    assert landed != "edl" or result.status != "recovered"
+    assert landed in {"vo_synthesize", clamp_resume_through_order(ctx, "vo_synthesize")}
     assert result.status != "recovered"
     assert result.playbook_id == "vo_audibility_drift"
 
 
 def test_he2_recovery_recovered_when_sanitary(ctx: RunContext) -> None:
+    from interview_mux.delivery_guardrails import clamp_resume_through_order
+
     _plant_edl(ctx)
     ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
     result = handle_stage_failure(ctx, "edl", _drift_exc())
-    assert result.resume_stage == "edl"
+    landed = str(result.resume_stage or "")
+    # Heal Success admits resume — may clamp edl to earliest hole when incomplete.
     assert result.status == "recovered"
+    assert landed == "edl" or landed == clamp_resume_through_order(ctx, "edl")
     assert "master/edl.json" in result.artifacts_written

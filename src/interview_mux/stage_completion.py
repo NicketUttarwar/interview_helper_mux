@@ -37,6 +37,38 @@ def stage_required_artifact_paths(stage_id: str) -> list[str]:
     return paths
 
 
+def _primary_artifact_thin_incompleteness(
+    ctx: RunContext, stage_id: str, path: str
+) -> str | None:
+    """XC-HOLLOW-01: empty / byte-thin / empty-dict primary is not landable."""
+    try:
+        final = ctx.final_path(*str(path).split("/"))
+        if not final.is_file():
+            return None
+        size = int(final.stat().st_size)
+        if size <= 0:
+            return f"{path} is empty (0 bytes) — resume {stage_id}"
+        if size < 3 and str(path).endswith(".json"):
+            return f"{path} is schema-thin — resume {stage_id}"
+    except Exception:
+        pass
+    if not str(path).endswith(".json"):
+        return None
+    try:
+        doc = ctx.read_json(path)
+    except Exception:
+        return f"{path} unreadable — resume {stage_id}"
+    if doc is None:
+        return f"{path} is null — resume {stage_id}"
+    if isinstance(doc, dict) and not doc:
+        return f"{path} is empty object — resume {stage_id}"
+    if isinstance(doc, list) and not doc:
+        # Empty list primaries are sometimes intentional (e.g. no gaps); leave to
+        # specialized incompleteness. Only refuse empty dict / null / zero bytes.
+        return None
+    return None
+
+
 def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
     """Skip-producer / empty-seed gap_report is not complete once G-Framing is Yes.
 
@@ -223,6 +255,401 @@ def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
         "missing_framing batch_fill — resume missing_framing: "
         f"LLM must score {len(filled)} segment(s) (examples {filled[:6]})"
     )
+
+
+def _missing_framing_sealed_ratio_incompleteness(ctx: RunContext) -> str | None:
+    """Refuse done when CAP seals exceed sealed_ratio_max without a rescue pass.
+
+    ASSETS 13159–13170 routinely sealed 20–45% after coverage_passes=2. Telemetry
+    always writes coverage_report; incompleteness only fires when framing Yes and
+    ``sealed_ratio_rescue_done`` is absent so resume can run the bounded rescue.
+    After rescue, ratios above ``sealed_ratio_hard_max`` are operator-STOP.
+    """
+    rel = "understanding/gap_evaluations.json"
+    if not ctx.artifact_exists(rel):
+        return None
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return None
+    except Exception:
+        return None
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
+        return None
+    from interview_mux.stages.gaps import (
+        _coverage_stats_from_doc,
+        _gap_segment_ids,
+        _sealed_ratio_hard_max,
+        _sealed_vs_risk_ids,
+    )
+
+    required = _gap_segment_ids(ctx)
+    if not required:
+        return None
+    stats = _coverage_stats_from_doc(doc, required)
+    ratio = float(stats.get("sealed_ratio") or 0.0)
+    max_ratio = float(stats.get("sealed_ratio_max") or 0.15)
+    hard_max = float(stats.get("sealed_ratio_hard_max") or _sealed_ratio_hard_max())
+    rescue_done = bool((doc.get("_meta") or {}).get("sealed_ratio_rescue_done"))
+    risk_sealed = _sealed_vs_risk_ids(ctx, doc)
+    if risk_sealed and not rescue_done:
+        return (
+            "missing_framing sealed_vs_risk — resume missing_framing: "
+            f"{len(risk_sealed)} sealed-low id(s) contradict framing-risk authority "
+            f"(examples {risk_sealed[:6]})"
+        )
+    sealed_n = int(stats.get("sealed_count") or 0)
+    examples = list(stats.get("sealed_ids") or [])[:6]
+    if rescue_done:
+        if ratio > hard_max + 1e-9:
+            return (
+                "missing_framing sealed_ratio_hard — operator STOP: "
+                f"after rescue still sealed {sealed_n}/{stats.get('required_count')} "
+                f"({ratio:.0%} > hard max {hard_max:.0%}); inspect "
+                "understanding/stage_runs/missing_framing/coverage_report.json "
+                f"(examples {examples})"
+            )
+        return None
+    if risk_sealed:
+        return (
+            "missing_framing sealed_vs_risk — resume missing_framing: "
+            f"{len(risk_sealed)} sealed-low id(s) contradict framing-risk authority "
+            f"(examples {risk_sealed[:6]})"
+        )
+    if ratio <= max_ratio + 1e-9:
+        return None
+    return (
+        "missing_framing sealed_ratio — resume missing_framing: "
+        f"sealed {sealed_n}/{stats.get('required_count')} "
+        f"({ratio:.0%} > max {max_ratio:.0%}); run sealed_ratio rescue "
+        f"(examples {examples})"
+    )
+
+
+def _missing_framing_stale_ids_incompleteness(ctx: RunContext) -> str | None:
+    """Refuse done when gap_evaluations reference segment ids absent from manifest."""
+    rel = "understanding/gap_evaluations.json"
+    if not ctx.artifact_exists(rel) or not ctx.artifact_exists("segments/manifest.json"):
+        return None
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return None
+    except Exception:
+        return None
+    try:
+        doc = ctx.read_json(rel)
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or not isinstance(man, dict):
+        return None
+    if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
+        return None
+    manifest_ids = {
+        str(s.get("segment_id"))
+        for s in (man.get("segments") or [])
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    if not manifest_ids:
+        return None
+    orphans = [
+        str(row.get("segment_id") or "")
+        for row in (doc.get("evaluations") or [])
+        if isinstance(row, dict)
+        and str(row.get("segment_id") or "")
+        and str(row.get("segment_id") or "") not in manifest_ids
+    ]
+    orphans = [s for s in orphans if s]
+    if not orphans:
+        return None
+    return (
+        "missing_framing stale_segment_ids — resume missing_framing: "
+        f"{len(orphans)} evaluation id(s) not in manifest (examples {orphans[:6]})"
+    )
+
+
+def _missing_framing_high_without_mission_incompleteness(ctx: RunContext) -> str | None:
+    """Refuse missing_framing done when high/critical rows lack mission text.
+
+    Prevents compose fill spam from hollow high-gap evals (Phase 4A).
+    """
+    rel = "understanding/gap_evaluations.json"
+    if not ctx.artifact_exists(rel):
+        return None
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return None
+    except Exception:
+        return None
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
+        return None
+    thin: list[str] = []
+    for row in doc.get("evaluations") or []:
+        if not isinstance(row, dict):
+            continue
+        sev = str(row.get("severity") or "").strip().lower()
+        if sev not in {"high", "critical"}:
+            continue
+        sid = str(row.get("segment_id") or "").strip()
+        if not sid:
+            continue
+        mission = str(
+            row.get("listener_confusion")
+            or row.get("mission")
+            or row.get("why_it_matters")
+            or ""
+        ).strip()
+        if len(mission) < 8:
+            thin.append(sid)
+    if not thin:
+        return None
+    return (
+        "missing_framing high_without_mission — resume missing_framing: "
+        f"{len(thin)} high/critical eval(s) lack mission text (examples {thin[:6]})"
+    )
+
+
+def _gap_evals_warrant_hosted_vo(ctx: RunContext) -> bool:
+    """True when gap_evaluations imply compose should ship synthetic host VO.
+
+    Avoids identical×3 compose thrash when sealed/ok-low evals honestly need
+    zero lines under G-Framing Yes (Q6B / mass CAP seal).
+    """
+    rel = "understanding/gap_evaluations.json"
+    if not ctx.artifact_exists(rel):
+        # No evals yet — keep the floor strict so empty compose after a real
+        # framing Yes path still surfaces.
+        return True
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return True
+    if not isinstance(doc, dict):
+        return True
+    if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
+        return False
+    warrant = 0
+    for row in doc.get("evaluations") or []:
+        if not isinstance(row, dict):
+            continue
+        gtype = str(row.get("gap_type") or "").strip().lower()
+        if not gtype or gtype in {"ok_with_light_bridge", "null", "none", "ok"}:
+            continue
+        sev = str(row.get("severity") or "").strip().lower()
+        # R4: any missing_* gap type warrants hosted VO regardless of severity.
+        if gtype.startswith("missing_"):
+            warrant += 1
+            continue
+        if sev in {"medium", "high", "critical"}:
+            warrant += 1
+        elif sev == "low" and (
+            "gap" in gtype or "bridge" in gtype or "setup" in gtype or "context" in gtype
+        ):
+            warrant += 1
+    if warrant > 0:
+        return True
+    try:
+        from interview_mux.stages.gaps import (
+            _coverage_stats_from_doc,
+            _gap_segment_ids,
+        )
+
+        stats = _coverage_stats_from_doc(doc, _gap_segment_ids(ctx))
+        sealed = float(stats.get("sealed_ratio") or 0.0)
+        # High seal fraction usually means under-scored VO need — keep floor.
+        # Lowered from 0.25 so mass CAP-seal under Q6B still warrants hosted VO.
+        if sealed > 0.15:
+            return True
+        # Any coverage_exhausted_accept seal row → warrant (compose must not
+        # soft-green empty under framing Yes after CAP exhaustion).
+        for row in doc.get("evaluations") or []:
+            if not isinstance(row, dict):
+                continue
+            if bool(row.get("coverage_exhausted_accept")):
+                return True
+            seal = str(
+                row.get("coverage_seal")
+                or row.get("seal_reason")
+                or row.get("severity_demotion_reason")
+                or ""
+            ).lower()
+            if "coverage_exhausted" in seal:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | None:
+    """When G-Framing Yes + evals warrant VO, refuse compose if lines < hosted floor.
+
+    Cluster C: HOLLOW_ZERO never aspirational-continues; PARTIAL may.
+    """
+    try:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+        from interview_mux.hosted_vo_authority import (
+            floor_snapshot,
+            may_aspirational_proceed,
+            reconcile_escalations,
+        )
+
+        if gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx):
+            return None
+    except Exception:
+        return None
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return None
+    try:
+        doc = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
+        return None
+    try:
+        snap = floor_snapshot(ctx, stage_id="gap_framing_compose", persist=True)
+    except Exception:
+        return None
+    if snap.identity.status in {"MET", "UNWARRANTED", "WAIVED"}:
+        reconcile_escalations(ctx, snap)
+        return None
+    need = snap.need
+    active = snap.have
+    if snap.identity.status == "PARTIAL" and may_aspirational_proceed(
+        ctx, stage_id="gap_framing_compose"
+    ):
+        try:
+            from interview_mux.floor_progress import proceed_on_floor_miss
+
+            proceed_on_floor_miss(
+                ctx,
+                gate_id="hosted_vo_floor",
+                have=active,
+                need=need,
+                pool_exhausted=True,
+                extra={
+                    "source": "gap_framing_compose_incompleteness",
+                    "cause": snap.identity.cause,
+                },
+            )
+            reconcile_escalations(ctx, snap)
+            return None
+        except Exception:
+            pass
+    if snap.identity.status == "HOLLOW_ZERO":
+        # Still allow empty when evals do not warrant (Q6B).
+        if not _gap_evals_warrant_hosted_vo(ctx):
+            try:
+                ctx.log(
+                    "gap_framing_compose Q6B: HOLLOW_ZERO but evals do not warrant "
+                    f"hosted VO — allowing empty (have={active} need={need})",
+                    level="info",
+                    stage="gap_framing_compose",
+                    action_id="gap_framing_compose.q6b_empty_allowed",
+                    detail={"active": active, "need": need},
+                )
+            except Exception:
+                pass
+            return None
+        resume = snap.resume_producer or high_gap_heal_resume_stage(ctx)
+        if resume == "nugget_layup_compose":
+            return (
+                "hosted_vo_floor_unmet — resume nugget_layup_compose: "
+                f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
+            )
+        return (
+            "gap_framing_compose hosted_vo_floor — resume gap_framing_compose: "
+            f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
+        )
+    if not _gap_evals_warrant_hosted_vo(ctx):
+        try:
+            ctx.log(
+                "gap_framing_compose Q6B: framing Yes with active lines below floor "
+                f"({active}<{need}) but evals do not warrant hosted VO — allowing empty",
+                level="info",
+                stage="gap_framing_compose",
+                action_id="gap_framing_compose.q6b_empty_allowed",
+                detail={"active": active, "need": need},
+            )
+        except Exception:
+            pass
+        return None
+    resume = snap.resume_producer or high_gap_heal_resume_stage(ctx)
+    if resume == "nugget_layup_compose":
+        return (
+            "hosted_vo_floor_unmet — resume nugget_layup_compose: "
+            f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
+        )
+    return (
+        "gap_framing_compose hosted_vo_floor — resume gap_framing_compose: "
+        f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
+    )
+
+
+def _missing_framing_vo_ladder_incompleteness(ctx: RunContext) -> str | None:
+    """Distinct UX: voice-ref / pickup / consent / delivery vs gap_evaluations gaps."""
+    try:
+        from interview_mux.gap_vo_gates import (
+            check_clone_consent_pending,
+            check_gap_delivery_pending,
+            check_gap_framing_decision_pending,
+            check_voice_reference_pending,
+            gap_framing_enabled,
+        )
+        from interview_mux.source_topology import check_pickup_speaker_pending
+    except Exception:
+        return None
+    if check_gap_framing_decision_pending(ctx):
+        return (
+            "vo_path_not_ready — resume missing_framing: "
+            "G-Framing decision still open (not a gap_evaluations / CAP-seal issue)"
+        )
+    if not gap_framing_enabled(ctx):
+        return None
+    if check_pickup_speaker_pending(ctx):
+        return (
+            "vo_path_not_ready — resume missing_framing: "
+            "gap pickup speaker still unconfirmed "
+            "(voice-ref ladder — not gap_evaluations incompleteness)"
+        )
+    if check_voice_reference_pending(ctx):
+        return (
+            "vo_path_not_ready — resume missing_framing: "
+            "interviewer voice reference still pending approval "
+            "(voice-ref ladder — not gap_evaluations incompleteness)"
+        )
+    if check_clone_consent_pending(ctx):
+        return (
+            "vo_path_not_ready — resume missing_framing: "
+            "voice-clone consent still open "
+            "(voice-ref ladder — not gap_evaluations incompleteness)"
+        )
+    if check_gap_delivery_pending(ctx):
+        return (
+            "vo_path_not_ready — resume missing_framing: "
+            "gap VO delivery choice still open "
+            "(voice-ref ladder — not gap_evaluations incompleteness)"
+        )
+    return None
 
 
 def _edl_narrative_audit_heard_wav_incompleteness(ctx: RunContext) -> str | None:
@@ -456,7 +883,20 @@ def _research_thin_late_refuse(ctx: RunContext, stage_id: str) -> str | None:
 
 
 def _mix_unseated_incompleteness(ctx: RunContext) -> str | None:
-    """HX-2: mix is complete only when mix_outputs_seated (not mtime-only)."""
+    """HX-2: mix is complete only when seated and remaster land is paid.
+
+    Land Honesty: any remaster_in_flight or speech_first_remaster_owed blocks
+    complete so orphan promote cannot restamp ``.stage_done/mix`` without
+    ``clear_remaster`` (forensics exec_13183 + siblings).
+    """
+    try:
+        from interview_mux.done_authority import unpaid_land_reason
+
+        unpaid = unpaid_land_reason(ctx, "mix")
+        if unpaid:
+            return unpaid
+    except Exception:
+        pass
     try:
         from interview_mux.air_order import mix_outputs_seated
 
@@ -468,7 +908,19 @@ def _mix_unseated_incompleteness(ctx: RunContext) -> str | None:
 
 
 def _junction_commitment_incompleteness(ctx: RunContext) -> str | None:
-    """End-D: junction is hollow without commitment matching live assembly."""
+    """End-D: junction is hollow without commitment matching live assembly.
+
+    Remaster in flight is unpaid land even when autopsy JSON still matches the
+    pre-remaster seat (Land Honesty — do not early-complete mid-flight).
+    """
+    try:
+        from interview_mux.done_authority import unpaid_land_reason
+
+        unpaid = unpaid_land_reason(ctx, "junction_snip_qa")
+        if unpaid:
+            return unpaid
+    except Exception:
+        pass
     if not ctx.artifact_exists("master/junction_snip_qa.json"):
         return None
     if not ctx.artifact_exists("master/seam_autopsy.json"):
@@ -577,6 +1029,38 @@ def _master_transcript_incompleteness(ctx: RunContext) -> str | None:
     from interview_mux.asset_transcripts import master_transcript_ship_incompleteness
 
     return master_transcript_ship_incompleteness(ctx)
+
+
+def _pre_ranking_fuse_incompleteness(ctx: RunContext) -> str | None:
+    """G4 + H6-B: pre_ranking done only with pass_id-stamped rounds; missing_manifest incomplete."""
+    from interview_mux.segment_fuse import FUSE_ROUNDS_PATH
+
+    if not ctx.artifact_exists(FUSE_ROUNDS_PATH):
+        return (
+            f"{FUSE_ROUNDS_PATH} is pending — resume connector_fuse_pass_pre_ranking:"
+        )
+    try:
+        doc = ctx.read_json(FUSE_ROUNDS_PATH)
+    except Exception as exc:
+        return (
+            f"{FUSE_ROUNDS_PATH} unreadable — resume connector_fuse_pass_pre_ranking: {exc}"
+        )
+    if not isinstance(doc, dict):
+        return (
+            f"{FUSE_ROUNDS_PATH} schema-hollow — resume connector_fuse_pass_pre_ranking:"
+        )
+    if str(doc.get("pass_id") or "") != "pre_ranking":
+        return (
+            f"{FUSE_ROUNDS_PATH} pass_id != pre_ranking — resume connector_fuse_pass_pre_ranking:"
+        )
+    skip = str(doc.get("skip_reason") or "")
+    if skip == "missing_manifest":
+        return (
+            "connector_fuse_pass_pre_ranking incomplete — missing segments/manifest.json "
+            "(resume segment_classification / hitch producers)"
+        )
+    # enabled=false skip is intentional complete (H6-B).
+    return None
 
 
 def _source_acoustic_profile_incompleteness(ctx: RunContext) -> str | None:
@@ -905,10 +1389,22 @@ def stage_artifact_incompleteness(
             return junc
         # End-D: when commitment matches live assembly and primaries exist,
         # that is the seed-complete seal (do not schema-partial autopsy).
+        # Remaster unpaid already returned above via unpaid_land_reason.
         if ctx.artifact_exists("master/junction_snip_qa.json") and ctx.artifact_exists(
             "master/seam_autopsy.json"
         ):
             return None
+    # Land Honesty: unpaid obligation for any stage (layup stamp-alone, remutate,
+    # shared-path) before specialized / generic path loops.
+    try:
+        from interview_mux.done_authority import unpaid_land_reason
+
+        unpaid = unpaid_land_reason(ctx, stage_id)
+        if unpaid and stage_id not in {"mix", "junction_snip_qa"}:
+            # mix/junction already handled above with seating detail
+            return unpaid
+    except Exception:
+        pass
     if stage_id == "master_finalize":
         from interview_mux.done_authority import finalize_incompleteness
 
@@ -963,6 +1459,8 @@ def stage_artifact_incompleteness(
         return None
     if stage_id == "master_transcript_build":
         return _master_transcript_incompleteness(ctx)
+    if stage_id == "connector_fuse_pass_pre_ranking":
+        return _pre_ranking_fuse_incompleteness(ctx)
     if stage_id == "source_acoustic_profile":
         return _source_acoustic_profile_incompleteness(ctx)
     if stage_id == "sonic_context_build":
@@ -1042,6 +1540,12 @@ def stage_artifact_incompleteness(
         # Schema-clean is not enough for the rollup: a dossier that no longer
         # describes the run leaves its consumers with nothing to wait for.
         return _research_dossier_stale_incompleteness(ctx)
+    # Voice-ref ladder must beat "gap_evaluations.json is pending" so operators
+    # don't chase CAP/eval incompleteness while pickup/voice-ref/consent is open.
+    if stage_id == "missing_framing":
+        vo_ladder = _missing_framing_vo_ladder_incompleteness(ctx)
+        if vo_ladder:
+            return vo_ladder
     for path in stage_required_artifact_paths(stage_id):
         phase = (lifecycle or {}).get(path)
         if phase in ("n_a", "skipped"):
@@ -1062,6 +1566,13 @@ def stage_artifact_incompleteness(
             except Exception:
                 pass
             return f"{path} is pending"
+        # XC-HOLLOW-01 / Land Honesty: empty or schema-thin primary is not land.
+        try:
+            thin = _primary_artifact_thin_incompleteness(ctx, stage_id, path)
+            if thin:
+                return thin
+        except Exception:
+            pass
         try:
             from interview_mux.write_staging import uncommitted_pending_reason
 
@@ -1146,6 +1657,19 @@ def stage_artifact_incompleteness(
         filled = _missing_framing_batch_fill_incompleteness(ctx)
         if filled:
             return filled
+        sealed = _missing_framing_sealed_ratio_incompleteness(ctx)
+        if sealed:
+            return sealed
+        stale = _missing_framing_stale_ids_incompleteness(ctx)
+        if stale:
+            return stale
+        thin_high = _missing_framing_high_without_mission_incompleteness(ctx)
+        if thin_high:
+            return thin_high
+    if stage_id in {"gap_framing_compose", "optimal_questions"}:
+        floor = _gap_framing_compose_hosted_floor_incompleteness(ctx)
+        if floor:
+            return floor
     try:
         from interview_mux.gap_fill_eligibility import synthetic_vo_incompleteness
 
@@ -1193,12 +1717,81 @@ def stage_artifact_incompleteness(
                 if meta.get("compose_shards_pending"):
                     idx = meta.get("compose_shard_index")
                     total = meta.get("compose_shard_total")
+                    # Final-shard stamp (index==total) with layups present is a
+                    # persist/flush race after batched complete — not mid-compose.
+                    # Blocking here ×3-thrashes under hard freeze (exec_13177).
+                    layups = plan_doc.get("layups") if isinstance(plan_doc, dict) else None
+                    final_shard_done = (
+                        idx is not None
+                        and total is not None
+                        and int(idx) >= int(total)
+                        and isinstance(layups, list)
+                        and len(layups) > 0
+                    )
+                    if not final_shard_done:
+                        tail = ""
+                        if idx is not None and total is not None:
+                            tail = f" (shard {idx}/{total})"
+                        return (
+                            "layup_compose_shards_pending — resume nugget_layup_compose:"
+                            + tail
+                        )
+                if meta.get("compose_qc_pending"):
+                    errs = meta.get("compose_qc_errors") or []
                     tail = ""
-                    if idx is not None and total is not None:
-                        tail = f" (shard {idx}/{total})"
+                    if isinstance(errs, list) and errs:
+                        tail = " " + "; ".join(str(e) for e in errs[:3])
                     return (
-                        "layup_compose_shards_pending — resume nugget_layup_compose:"
+                        "layup_compose_qc_pending — resume nugget_layup_compose:"
                         + tail
+                    )
+                if meta.get("hosted_vo_floor_unsatisfiable"):
+                    try:
+                        from interview_mux.hosted_vo_authority import (
+                            floor_snapshot,
+                            may_aspirational_proceed,
+                            reconcile_escalations,
+                        )
+
+                        snap = floor_snapshot(
+                            ctx, stage_id="nugget_layup_compose", persist=True
+                        )
+                        detail = meta.get("hosted_vo_floor_unsatisfiable_detail") or {}
+                        active = int(detail.get("active") or snap.have or 0)
+                        need_n = int(detail.get("need") or snap.need or 0)
+                        if snap.identity.status == "HOLLOW_ZERO" or active < 1:
+                            return (
+                                "hosted_vo_floor_unsatisfiable — needs_operator "
+                                "(do not recompose): "
+                                f"need={need_n} active={active} "
+                                f"eligible={detail.get('eligible_nugget_count')}"
+                            )
+                        if may_aspirational_proceed(
+                            ctx, stage_id="nugget_layup_compose"
+                        ):
+                            from interview_mux.floor_progress import proceed_on_floor_miss
+
+                            proceed_on_floor_miss(
+                                ctx,
+                                gate_id="hosted_vo_floor",
+                                have=active,
+                                need=need_n,
+                                pool_exhausted=True,
+                                extra={
+                                    "source": "stage_completion_unsatisfiable_cleared",
+                                    "eligible": detail.get("eligible_nugget_count"),
+                                    "cause": snap.identity.cause,
+                                },
+                            )
+                            reconcile_escalations(ctx, snap)
+                            return None
+                    except Exception:
+                        pass
+                    detail = meta.get("hosted_vo_floor_unsatisfiable_detail") or {}
+                    return (
+                        "hosted_vo_floor_unsatisfiable — needs_operator (do not recompose): "
+                        f"need={detail.get('need')} active={detail.get('active')} "
+                        f"eligible={detail.get('eligible_nugget_count')}"
                     )
         except Exception:
             pass
@@ -1253,8 +1846,14 @@ def stage_artifact_incompleteness(
         except Exception:
             sel_errs = []
         if sel_errs:
-            return "selection still unsanitary — resume selection_order_sanitize: " + "; ".join(
-                sel_errs[:3]
+            blob = "; ".join(sel_errs[:3])
+            pin = producer_pin_for_token(blob, default="selection_order_sanitize", ctx=ctx)
+            if pin == "full_master_ranking":
+                return (
+                    "selection still unsanitary — resume full_master_ranking: " + blob
+                )
+            return (
+                "selection still unsanitary — resume selection_order_sanitize: " + blob
             )
     if stage_id == "sound_design_plan":
         try:
@@ -1937,6 +2536,18 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "hollow_done": "",
     "skip_then_consume": "",
     "hosted_vo_floor_unmet": "nugget_layup_compose",
+    "hosted_vo_hollow": "nugget_layup_compose",
+    "hosted_vo_wav_coverage": "vo_synthesize",
+    "hosted_vo_floor_unsatisfiable": "",  # escalate once — do not re-pin LLM compose
+    "gap_framing_compose hosted_vo_floor": "gap_framing_compose",
+    "hosted_vo_books_agree": "nugget_layup_compose",
+    "missing_framing sealed_ratio_hard": "missing_framing",
+    "missing_framing sealed_ratio": "missing_framing",
+    "missing_framing sealed_vs_risk": "missing_framing",
+    "missing_framing stale_segment_ids": "missing_framing",
+    "missing_framing needs.rerun_stage": "missing_framing",
+    "missing_framing empty shard": "missing_framing",
+    "missing_hard_input_mastering_plan": "mastering_plan_synthesize",
     "hosted_framing_floor_unmet": "nugget_layup_compose",
     "transitions_missing": "transitions",
     "missing_transitions": "transitions",
@@ -1968,7 +2579,21 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "gap_unsanitary": "gap_report_sanitize",
     "air_contract_unsanitary": "air_contract_sanitize",
     "layup_unsanitary": "nugget_layup_compose",
+    "layup_compose_qc_pending": "nugget_layup_compose",
+    "layup_compose_shards_pending": "nugget_layup_compose",
     "fragment_depth": "selection_order_sanitize",
+    "same_family_over_budget": "selection_order_sanitize",
+    "selection_needs_sanitize": "selection_order_sanitize",
+    "segment_starts_unavailable": "selection_order_sanitize",
+    "chapters_emptied": "selection_order_sanitize",
+    "chapters_emptied_by_sanitize": "selection_order_sanitize",
+    "overlap_collapse_incomplete": "selection_order_sanitize",
+    # Lattice / integrity — sanitize cannot restore without amplifying → ranking
+    "hard_keep_missing_from_order": "full_master_ranking",
+    "hard_keep_exceeds_fragment_depth": "full_master_ranking",
+    "hard_keep_same_family_over_budget": "full_master_ranking",
+    "hard_keep_span_collision": "full_master_ranking",
+    "air_order_integrity_critical": "full_master_ranking",
     "sdp_unsanitary": "sound_design_plan",
     "vo_unsanitary": "vo_synthesize",
     "no_sound_design_plan": "sound_design_plan",
@@ -2098,7 +2723,12 @@ def incompleteness_resume_stage(ctx: RunContext, consumer_stage: str) -> str | N
         try:
             from interview_mux.artifact_sanitize.registry import selection_sanitary_errors
 
-            if selection_sanitary_errors(ctx):
+            sel_errs = selection_sanitary_errors(ctx)
+            if sel_errs:
+                blob = "; ".join(sel_errs)
+                ranked = producer_pin_for_token(blob, default="", ctx=ctx)
+                if ranked == "full_master_ranking":
+                    return "full_master_ranking"
                 return "selection_order_sanitize"
         except Exception:
             pass
@@ -2323,17 +2953,17 @@ def pass2_gap_heal_resume_stage(
 
 
 def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
-    """HG-5: layup owns (plan or authority) → nugget_layup_compose; else compose.
+    """HG-5: plan on disk → nugget_layup_compose; else analysis-era compose.
 
-    ``gap_framing_compose`` no-ops under layup authority / a plan on disk.
-    Analysis-era compose (no plan, no authority) is still the live writer.
+    Stamp alone (``nugget_layup_authority`` without ``nugget_layup_plan``) is an
+    orphan flap — layup cannot publish, and compose used to no-op. Pin compose
+    so the orphan stamp can be cleared and high gaps reframed.
     """
     if ctx is None:
         return "gap_framing_compose"
     try:
         from interview_mux.nugget_layup import (
             PLAN_REL,
-            gap_report_has_layup_authority,
             nugget_layup_enabled,
         )
 
@@ -2341,29 +2971,12 @@ def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
             return "gap_framing_compose"
         if ctx.artifact_exists(PLAN_REL):
             return "nugget_layup_compose"
-        gap = (
-            ctx.read_json("understanding/gap_report.json")
-            if ctx.artifact_exists("understanding/gap_report.json")
-            else {}
-        )
-        if gap_report_has_layup_authority(gap if isinstance(gap, dict) else None):
-            return "nugget_layup_compose"
     except Exception as exc:
-        # Prefer layup only with on-disk evidence; never invent compose writer.
+        # Prefer layup only with on-disk plan; stamp-alone is not ownership.
         try:
             from interview_mux.nugget_layup import PLAN_REL as _PLAN_REL
 
             if ctx.artifact_exists(_PLAN_REL):
-                return "nugget_layup_compose"
-        except Exception:
-            pass
-        try:
-            gap = (
-                ctx.read_json("understanding/gap_report.json")
-                if ctx.artifact_exists("understanding/gap_report.json")
-                else {}
-            )
-            if isinstance(gap, dict) and gap.get("nugget_layup_authority"):
                 return "nugget_layup_compose"
         except Exception:
             pass
@@ -2615,6 +3228,14 @@ def producer_pin_for_token(
     if "music_incomplete" in key:
         if ctx is not None:
             try:
+                from interview_mux.mix_junction_seat import next_delivery_seat
+
+                pin = str(next_delivery_seat(ctx) or "").strip()
+                if pin:
+                    return pin
+            except Exception:
+                pass
+            try:
                 from interview_mux.delivery_guardrails import _music_epoch_producer_pin
 
                 pin = str(_music_epoch_producer_pin(ctx) or "").strip()
@@ -2632,6 +3253,15 @@ def producer_pin_for_token(
         if "nugget_layup" in key:
             return "nugget_layup_compose"
         return "air_script_compose"
+    # SOS harden: lattice / integrity tokens pin ranking (not sanitize self-loop).
+    if (
+        "hard_keep_missing_from_order" in key
+        or "hard_keep_exceeds_fragment_depth" in key
+        or "hard_keep_same_family_over_budget" in key
+        or "hard_keep_span_collision" in key
+        or "air_order_integrity_critical" in key
+    ):
+        return "full_master_ranking"
     if "gap_unsanitary" in key:
         pin = pass2_gap_heal_resume_stage(ctx, error=token, stage="")
         if pin:
@@ -2707,7 +3337,13 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
             )
             # Flush owner pending even when active_stage already cleared
             # (write-then-raise before after_stage_write_check).
-            if should_flush and active_stage() in {sid, None, ""}:
+            # Skip when already stamped done: HC-3 pending_only must unmark,
+            # not promote orphan leftover staging into a hollow commit.
+            if (
+                should_flush
+                and not ctx.is_done(sid)
+                and active_stage() in {sid, None, ""}
+            ):
                 ctx._heal_flushing_stage = sid
                 try:
                     flushed = _commit_stage_writes(ctx, sid)
@@ -2766,12 +3402,21 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
                 return out
         if not ctx.is_done(sid):
             # Avoid re-entering heal_or_refuse via mark_done force guard.
-            prev = getattr(ctx, "_mark_done_raw", False)
-            ctx._mark_done_raw = True
+            # Hollow-pass R2: raw stamp only via Done Authority session + outputs.
             try:
-                ctx.mark_done(sid, force=bool(force))
-            finally:
-                ctx._mark_done_raw = prev
+                from interview_mux.done_authority import raw_stamp_session
+                from interview_mux.homunculus.agenda import stage_outputs_present
+
+                if not stage_outputs_present(ctx, sid) and not allow_stub:
+                    out["refused"] = True
+                    out["reason"] = f"hollow_refuse_raw:{sid}:outputs_missing"
+                    return out
+                with raw_stamp_session(ctx, "heal_or_refuse_mark"):
+                    ctx.mark_done(sid, force=bool(force))
+            except Exception as exc:
+                out["refused"] = True
+                out["reason"] = f"raw_stamp_refused:{type(exc).__name__}:{exc}"[:240]
+                return out
             out["marked"] = True
             if allow_stub:
                 out["allow_stub"] = True
@@ -2788,12 +3433,28 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
 
 
 def heal_or_raise(ctx: RunContext, stage: str, *, force: bool = False) -> dict[str, Any]:
-    """HF-4 / HR-4: heal is mark authority — never mute ``mark_done`` on refuse."""
+    """HF-4 / HR-4: heal is mark authority — never mute ``mark_done`` on refuse.
+
+    Heal Success V10: success ≡ seed-complete (not bare ``is_done``).
+    """
     out = heal_or_refuse_mark(ctx, stage, force=force)
-    if out.get("refused") or not (
-        out.get("marked") or (hasattr(ctx, "is_done") and ctx.is_done(stage))
-    ):
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        ok = bool(out.get("marked")) or seed_stage_complete(ctx, stage)
+    except Exception:
+        ok = bool(out.get("marked") or (hasattr(ctx, "is_done") and ctx.is_done(stage)))
+    if out.get("refused") or not ok:
+        # Prefer real flush/commit barrier failure over HC-3 pending_only mask
+        # (exec_13177: missing rationale halted flush, then pending_only thrash).
+        flush_err = str(out.get("flush_error") or "").strip()
         reason = str(out.get("reason") or "").strip()
+        if flush_err and (
+            not reason
+            or "pending_only" in reason
+            or reason.startswith("understanding/")
+        ):
+            reason = f"flush_failed:{flush_err}"
         if not reason:
             reason = stage_artifact_incompleteness(ctx, stage) or (
                 f"{stage}_incomplete — resume {stage}: heal refused"

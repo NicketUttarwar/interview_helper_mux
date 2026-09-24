@@ -1,0 +1,8 @@
+{
+  "source_run": "exec_13183_d19c15b58ab4_20260924T001619Z",
+  "fingerprints": [
+    "sanitize_refused:selection: segment_starts_unavailable",
+    "selection_commit_refused \u2014 resume nugget_layup_compose: master/selection.json: schema validation failed \u2014 media_ip_cta.3: 'clearly_media_ip_pitch' is a required property; media_ip_cta.3: additional properties are not allowed ('action', ...)"
+  ],
+  "letter_family_sample": []
+}

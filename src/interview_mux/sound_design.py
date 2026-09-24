@@ -914,15 +914,36 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             },
         )
         if missing_music_assets or shortened_preserved_assets:
-            raise RuntimeError(
-                "mix: approved music assets missing or shortened: "
-                + ", ".join(
-                    [
-                        *(f"missing:{x}" for x in missing_music_assets),
-                        *(f"shortened:{x}" for x in shortened_preserved_assets),
-                    ]
+            # HAU speech-first: beds deferred until MusicGen admit + remaster.
+            speech_first = False
+            try:
+                from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                speech_first = bool(beds_deferred_for_mix(ctx))
+            except Exception:
+                speech_first = False
+            if speech_first:
+                ctx.log(
+                    "mix: speech-first defer missing/shortened beds — "
+                    + ", ".join(
+                        [
+                            *(f"missing:{x}" for x in missing_music_assets[:8]),
+                            *(f"shortened:{x}" for x in shortened_preserved_assets[:8]),
+                        ]
+                    ),
+                    level="warning",
+                    stage="mix",
                 )
-            )
+            else:
+                raise RuntimeError(
+                    "mix: approved music assets missing or shortened: "
+                    + ", ".join(
+                        [
+                            *(f"missing:{x}" for x in missing_music_assets),
+                            *(f"shortened:{x}" for x in shortened_preserved_assets),
+                        ]
+                    )
+                )
 
         ctx.log(
             (
@@ -1171,7 +1192,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             )
 
             msg = "listenability_contract: " + "; ".join(listen_report.get("failures") or [])
-            if is_aspirational_enabled(ctx):
+            aspirational = is_aspirational_enabled(ctx)
+            try:
+                from interview_mux.floor_progress import listenability_aspirational
+
+                aspirational = aspirational or listenability_aspirational(ctx)
+            except Exception:
+                pass
+            if aspirational:
                 register_quality_candidate(ctx, family="listenability")
                 increment_family_attempt(ctx, "listenability")
                 if family_attempts_exhausted(ctx, "listenability"):
@@ -1187,6 +1215,21 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     detail={"stage": "mix"},
                     aspirational_proceeded=family_attempts_exhausted(ctx, "listenability"),
                 )
+                try:
+                    from interview_mux.floor_progress import record_floor_advisory
+
+                    record_floor_advisory(
+                        ctx,
+                        "listenability_contract",
+                        {
+                            "failures": list(listen_report.get("failures") or [])[:8],
+                            "stage": "mix",
+                        },
+                        aspirational_proceeded=True,
+                        mirror_quality=False,
+                    )
+                except Exception:
+                    pass
                 ctx.log(msg + " (aspirational advisory)", level="warning", stage="mix")
             elif listen_report.get("fail_closed") and creative_delivery_required():
                 import os
@@ -1595,8 +1638,26 @@ def flow1_overlays_from_sdp(
             continue
 
         if wav is None:
-            from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
+            from interview_mux.theme_slot_integrity import (
+                is_speech_free_theme_role,
+                refuse_silent_theme_overlay,
+            )
 
+            # HAU speech-first: omit missing theme beds; remaster after MusicGen.
+            try:
+                from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                if beds_deferred_for_mix(ctx) and is_speech_free_theme_role(
+                    asset_role_early
+                ):
+                    ctx.log(
+                        f"mix: speech-first skip missing theme {asset_id!r}",
+                        level="info",
+                        stage="mix",
+                    )
+                    continue
+            except Exception:
+                pass
             silent_err = refuse_silent_theme_overlay(
                 role=asset_role_early,
                 asset_id=asset_id,
@@ -1614,7 +1675,10 @@ def flow1_overlays_from_sdp(
         else:
             base = load_audio(wav)
             missing_asset = False
-            from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
+            from interview_mux.theme_slot_integrity import (
+                is_speech_free_theme_role,
+                refuse_silent_theme_overlay,
+            )
 
             silent_err = refuse_silent_theme_overlay(
                 role=asset_role_early,
@@ -1623,6 +1687,20 @@ def flow1_overlays_from_sdp(
                 audio=base,
             )
             if silent_err:
+                try:
+                    from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                    if beds_deferred_for_mix(ctx) and is_speech_free_theme_role(
+                        asset_role_early
+                    ):
+                        ctx.log(
+                            f"mix: speech-first skip inaudible theme {asset_id!r}",
+                            level="info",
+                            stage="mix",
+                        )
+                        continue
+                except Exception:
+                    pass
                 raise RuntimeError(silent_err)
 
         if placement in {"under_segment", "under_segment_span"}:
@@ -1850,6 +1928,13 @@ def flow1_overlays_from_sdp(
         if asset_role in {"theme_cold_open", "theme_outro"} and missing_asset:
             from interview_mux.theme_slot_integrity import refuse_silent_theme_overlay
 
+            try:
+                from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                if beds_deferred_for_mix(ctx):
+                    continue
+            except Exception:
+                pass
             err = refuse_silent_theme_overlay(
                 role=asset_role, asset_id=asset_id, missing_asset=True
             )

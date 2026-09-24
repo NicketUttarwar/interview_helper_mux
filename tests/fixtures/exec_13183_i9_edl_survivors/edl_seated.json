@@ -1,0 +1,991 @@
+{
+  "version": 1,
+  "ordered_segment_ids": [
+    "seg_002",
+    "seg_007",
+    "seg_011",
+    "seg_012",
+    "seg_014",
+    "seg_016",
+    "seg_017",
+    "seg_018",
+    "seg_020",
+    "seg_021",
+    "seg_023",
+    "seg_026",
+    "seg_027",
+    "seg_028",
+    "seg_029",
+    "seg_030",
+    "seg_031",
+    "seg_034",
+    "seg_035",
+    "seg_036",
+    "seg_037",
+    "seg_039",
+    "seg_040",
+    "seg_041",
+    "seg_042",
+    "seg_043",
+    "seg_045",
+    "seg_046",
+    "seg_047",
+    "seg_053",
+    "seg_054",
+    "seg_056",
+    "seg_057",
+    "seg_058",
+    "seg_059"
+  ],
+  "clips": [
+    {
+      "type": "vo_pickup",
+      "line_id": "vo_preface_episode_orientation",
+      "targets_segment_id": "seg_002",
+      "placement": "before",
+      "voice_speaker_id": "spk_1",
+      "clone_adjacency_exempt": true,
+      "gap_type": "missing_setup",
+      "line_category": "episode_preface",
+      "episode_orientation": true,
+      "opening_sequence": "intro_music_body",
+      "allow_music_bed_overlap": true,
+      "script_hash": "ba509a6200632b345a03543901e8de4ab19b9b50a46e10441c8269f0e51dde0a",
+      "context_hash": "be9fabf19c78e3c8c2188c6b172e5d172834a8f07073f42e23db2f5de3552ade",
+      "source_path": "vo_pickup/synthesized/vo_preface_episode_orientation.wav",
+      "duration_ms": 17280,
+      "timeline_start_ms": 0,
+      "mix_overlap_ms": 0
+    },
+    {
+      "type": "silence",
+      "air_kind": "opening_music",
+      "duration_ms": 14400,
+      "timeline_start_ms": 17200,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_002",
+      "source_start_ms": 26119,
+      "source_end_ms": 48810,
+      "timeline_start_ms": 31520,
+      "duration_ms": 22691,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_002",
+      "air_bound_before_ms": [
+        26119,
+        48810
+      ],
+      "air_bound_after_ms": [
+        26119,
+        48810
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 54131,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "vo_pickup",
+      "line_id": "vo_layup_seg_007",
+      "targets_segment_id": "seg_007",
+      "placement": "before",
+      "voice_speaker_id": "spk_1",
+      "clone_adjacency_exempt": true,
+      "gap_type": "nugget_layup",
+      "line_category": "extracted_context",
+      "episode_orientation": false,
+      "allow_music_bed_overlap": false,
+      "script_hash": "da7c16750c4ed86de8d45232ccf1140995be19e4b8ae65f135d58b739a70e9e9",
+      "context_hash": "5c5408b04de9b48cbde13aa7345bf67fa1c828de3fe93469c3818ba517213b3b",
+      "source_path": "vo_pickup/synthesized/vo_layup_seg_007.wav",
+      "duration_ms": 19720,
+      "timeline_start_ms": 55851,
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "after_vo",
+      "duration_ms": 1800,
+      "timeline_start_ms": 75491,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_007",
+      "source_start_ms": 186560,
+      "source_end_ms": 264260,
+      "timeline_start_ms": 77211,
+      "duration_ms": 77700,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_009",
+      "air_bound_before_ms": [
+        151660,
+        264260
+      ],
+      "air_bound_after_ms": [
+        186560,
+        264260
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "transition",
+      "after_segment_id": "seg_007",
+      "before_segment_id": "seg_011",
+      "text": "A blood draw, though, contains signals that need careful interpretation.",
+      "transition_type": "chapter",
+      "duration_ms": 4600,
+      "timeline_start_ms": 154722,
+      "script_hash": "850c82064afed737ab0e2cb47c5b3baa9635b240189bfe7a68abef4600a9a6d5",
+      "voice_speaker_id": "spk_1",
+      "source_path": "master/transitions/tr_seg_007_seg_011.wav",
+      "mix_overlap_ms": 189
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 552,
+      "timeline_start_ms": 159242,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_011",
+      "source_start_ms": 364080,
+      "source_end_ms": 416610,
+      "timeline_start_ms": 159714,
+      "duration_ms": 52530,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_011",
+      "air_bound_before_ms": [
+        364080,
+        416610
+      ],
+      "air_bound_after_ms": [
+        364080,
+        416610
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 212164,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "clone_adjacency_hitch": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_012",
+      "source_start_ms": 469580,
+      "source_end_ms": 504800,
+      "timeline_start_ms": 213884,
+      "duration_ms": 35220,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_012",
+      "air_bound_before_ms": [
+        469580,
+        504870
+      ],
+      "air_bound_after_ms": [
+        469580,
+        504870
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 249024,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "clone_adjacency_hitch": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_014",
+      "source_start_ms": 647360,
+      "source_end_ms": 699600,
+      "timeline_start_ms": 250744,
+      "duration_ms": 52240,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_016",
+      "air_bound_before_ms": [
+        640500,
+        699770
+      ],
+      "air_bound_after_ms": [
+        647360,
+        699770
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_016",
+      "source_start_ms": 700320,
+      "source_end_ms": 722800,
+      "timeline_start_ms": 302784,
+      "duration_ms": 22480,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_017",
+      "air_bound_before_ms": [
+        700320,
+        723080
+      ],
+      "air_bound_after_ms": [
+        700320,
+        723080
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_017",
+      "source_start_ms": 723540,
+      "source_end_ms": 777990,
+      "timeline_start_ms": 325085,
+      "duration_ms": 54450,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_018",
+      "air_bound_before_ms": [
+        723540,
+        777990
+      ],
+      "air_bound_after_ms": [
+        723540,
+        777990
+      ],
+      "mix_overlap_ms": 179
+    },
+    {
+      "segment_id": "seg_018",
+      "source_start_ms": 778540,
+      "source_end_ms": 934340,
+      "timeline_start_ms": 379336,
+      "duration_ms": 155800,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_019",
+      "air_bound_before_ms": [
+        778540,
+        938860
+      ],
+      "air_bound_after_ms": [
+        778540,
+        934340
+      ],
+      "mix_overlap_ms": 199
+    },
+    {
+      "segment_id": "seg_020",
+      "source_start_ms": 939280,
+      "source_end_ms": 1049200,
+      "timeline_start_ms": 534944,
+      "duration_ms": 109920,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_022",
+      "air_bound_before_ms": [
+        939280,
+        1049470
+      ],
+      "air_bound_after_ms": [
+        939280,
+        1049470
+      ],
+      "mix_overlap_ms": 192
+    },
+    {
+      "segment_id": "seg_021",
+      "source_start_ms": 1050200,
+      "source_end_ms": 1203240,
+      "timeline_start_ms": 644664,
+      "duration_ms": 153040,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_023",
+      "air_bound_before_ms": [
+        1050200,
+        1211330
+      ],
+      "air_bound_after_ms": [
+        1050200,
+        1203240
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_023",
+      "source_start_ms": 1212860,
+      "source_end_ms": 1283150,
+      "timeline_start_ms": 797540,
+      "duration_ms": 70290,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_026",
+      "air_bound_before_ms": [
+        1211740,
+        1283150
+      ],
+      "air_bound_after_ms": [
+        1212860,
+        1283150
+      ],
+      "mix_overlap_ms": 164
+    },
+    {
+      "segment_id": "seg_026",
+      "source_start_ms": 1284880,
+      "source_end_ms": 1306800,
+      "timeline_start_ms": 867630,
+      "duration_ms": 21920,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_028",
+      "air_bound_before_ms": [
+        1284470,
+        1306940
+      ],
+      "air_bound_after_ms": [
+        1284880,
+        1306940
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_027",
+      "source_start_ms": 1307560,
+      "source_end_ms": 1416400,
+      "timeline_start_ms": 889350,
+      "duration_ms": 108840,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_029",
+      "air_bound_before_ms": [
+        1307560,
+        1416610
+      ],
+      "air_bound_after_ms": [
+        1307560,
+        1416610
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_028",
+      "source_start_ms": 1416820,
+      "source_end_ms": 1457480,
+      "timeline_start_ms": 998005,
+      "duration_ms": 40660,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_030",
+      "air_bound_before_ms": [
+        1416820,
+        1457480
+      ],
+      "air_bound_after_ms": [
+        1416820,
+        1457480
+      ],
+      "mix_overlap_ms": 185
+    },
+    {
+      "segment_id": "seg_029",
+      "source_start_ms": 1458240,
+      "source_end_ms": 1500640,
+      "timeline_start_ms": 1038498,
+      "duration_ms": 42400,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine+disjoint_cap",
+      "air_bound_ideal_window_id": "hitch_cut_031",
+      "air_bound_before_ms": [
+        1458240,
+        1500640
+      ],
+      "air_bound_after_ms": [
+        1458240,
+        1500620
+      ],
+      "mix_overlap_ms": 167
+    },
+    {
+      "segment_id": "seg_030",
+      "source_start_ms": 1503180,
+      "source_end_ms": 1591900,
+      "timeline_start_ms": 1080715,
+      "duration_ms": 88720,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_032",
+      "air_bound_before_ms": [
+        1500700,
+        1591900
+      ],
+      "air_bound_after_ms": [
+        1503180,
+        1591900
+      ],
+      "mix_overlap_ms": 183
+    },
+    {
+      "type": "transition",
+      "after_segment_id": "seg_030",
+      "before_segment_id": "seg_031",
+      "text": "Turning a richer cell profile into a clinical test raises regulatory standards.",
+      "transition_type": "chapter",
+      "duration_ms": 6000,
+      "timeline_start_ms": 1169235,
+      "script_hash": "8e8d820a68f5e4d0d9be943227d38536b24330a192b3b15ced396f17e7969267",
+      "voice_speaker_id": "spk_1",
+      "source_path": "master/transitions/tr_seg_030_seg_031.wav",
+      "mix_overlap_ms": 200
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 720,
+      "timeline_start_ms": 1175155,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_031",
+      "source_start_ms": 1599800,
+      "source_end_ms": 1608840,
+      "timeline_start_ms": 1175795,
+      "duration_ms": 9040,
+      "type": "speech",
+      "air_bound_reason": "ideal_window_clamp+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_033",
+      "air_bound_before_ms": [
+        1599800,
+        1616420
+      ],
+      "air_bound_after_ms": [
+        1599800,
+        1608840
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_034",
+      "source_start_ms": 1617200,
+      "source_end_ms": 1716110,
+      "timeline_start_ms": 1184656,
+      "duration_ms": 98910,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_036",
+      "air_bound_before_ms": [
+        1617200,
+        1716110
+      ],
+      "air_bound_after_ms": [
+        1617200,
+        1716110
+      ],
+      "mix_overlap_ms": 179
+    },
+    {
+      "segment_id": "seg_035",
+      "source_start_ms": 1716460,
+      "source_end_ms": 1892190,
+      "timeline_start_ms": 1283373,
+      "duration_ms": 175730,
+      "type": "speech",
+      "air_bound_reason": "budget_hinge_trim+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_037",
+      "air_bound_before_ms": [
+        1716460,
+        2052369
+      ],
+      "air_bound_after_ms": [
+        1716460,
+        1892190
+      ],
+      "mix_overlap_ms": 193
+    },
+    {
+      "segment_id": "seg_036",
+      "source_start_ms": 2052520,
+      "source_end_ms": 2119530,
+      "timeline_start_ms": 1458915,
+      "duration_ms": 67010,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_038",
+      "air_bound_before_ms": [
+        2052369,
+        2119530
+      ],
+      "air_bound_after_ms": [
+        2052520,
+        2119530
+      ],
+      "mix_overlap_ms": 188
+    },
+    {
+      "type": "vo_pickup",
+      "line_id": "vo_layup_seg_037",
+      "targets_segment_id": "seg_037",
+      "placement": "before",
+      "voice_speaker_id": "spk_1",
+      "clone_adjacency_exempt": true,
+      "gap_type": "nugget_layup",
+      "line_category": "extracted_context",
+      "episode_orientation": false,
+      "allow_music_bed_overlap": false,
+      "script_hash": "6a1336c2b8e60aa43b1a1955e609e3d1c27da561546196f4f4aa0b2ad49d1c63",
+      "context_hash": "dd5900e402f05b42d77427f471a333a6e09b4180b3bb03c20f185481bf246325",
+      "source_path": "vo_pickup/synthesized/vo_layup_seg_037.wav",
+      "duration_ms": 18120,
+      "timeline_start_ms": 1525743,
+      "mix_overlap_ms": 182
+    },
+    {
+      "type": "silence",
+      "air_kind": "after_vo",
+      "duration_ms": 1800,
+      "timeline_start_ms": 1543783,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_037",
+      "source_start_ms": 2120080,
+      "source_end_ms": 2150000,
+      "timeline_start_ms": 1545503,
+      "duration_ms": 29920,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_039",
+      "air_bound_before_ms": [
+        2120080,
+        2174210
+      ],
+      "air_bound_after_ms": [
+        2120080,
+        2150290
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "before_answer",
+      "duration_ms": 1800,
+      "timeline_start_ms": 1575343,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_039",
+      "source_start_ms": 2174880,
+      "source_end_ms": 2219200,
+      "timeline_start_ms": 1577063,
+      "duration_ms": 44320,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_041",
+      "air_bound_before_ms": [
+        2174880,
+        2219200
+      ],
+      "air_bound_after_ms": [
+        2174880,
+        2219200
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_040",
+      "source_start_ms": 2219620,
+      "source_end_ms": 2306000,
+      "timeline_start_ms": 1621197,
+      "duration_ms": 86380,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_042",
+      "air_bound_before_ms": [
+        2219620,
+        2306790
+      ],
+      "air_bound_after_ms": [
+        2219620,
+        2306790
+      ],
+      "mix_overlap_ms": 186
+    },
+    {
+      "segment_id": "seg_041",
+      "source_start_ms": 2307740,
+      "source_end_ms": 2361600,
+      "timeline_start_ms": 1707389,
+      "duration_ms": 53860,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_043",
+      "air_bound_before_ms": [
+        2307740,
+        2361730
+      ],
+      "air_bound_after_ms": [
+        2307740,
+        2361730
+      ],
+      "mix_overlap_ms": 188
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 1761169,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_042",
+      "source_start_ms": 2366500,
+      "source_end_ms": 2376720,
+      "timeline_start_ms": 1762889,
+      "duration_ms": 10220,
+      "type": "speech",
+      "air_bound_reason": "outgoing_last_word+edge_refine+outgoing_last_word",
+      "air_bound_ideal_window_id": "hitch_cut_044",
+      "air_bound_before_ms": [
+        2366500,
+        2376720
+      ],
+      "air_bound_after_ms": [
+        2366500,
+        2376720
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_043",
+      "source_start_ms": 2377180,
+      "source_end_ms": 2418400,
+      "timeline_start_ms": 1772909,
+      "duration_ms": 41220,
+      "type": "speech",
+      "air_bound_reason": "conceptual_hinge_trim+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_045",
+      "air_bound_before_ms": [
+        2376720,
+        2428700
+      ],
+      "air_bound_after_ms": [
+        2377180,
+        2418970
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_045",
+      "source_start_ms": 2429240,
+      "source_end_ms": 2442400,
+      "timeline_start_ms": 1813929,
+      "duration_ms": 13160,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_048",
+      "air_bound_before_ms": [
+        2429240,
+        2442830
+      ],
+      "air_bound_after_ms": [
+        2429240,
+        2442830
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_046",
+      "source_start_ms": 2443540,
+      "source_end_ms": 2483200,
+      "timeline_start_ms": 1826889,
+      "duration_ms": 39660,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_049",
+      "air_bound_before_ms": [
+        2443540,
+        2483460
+      ],
+      "air_bound_after_ms": [
+        2443540,
+        2483460
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_047",
+      "source_start_ms": 2567759,
+      "source_end_ms": 2633590,
+      "timeline_start_ms": 1866349,
+      "duration_ms": 65831,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_056",
+      "air_bound_before_ms": [
+        2483940,
+        2633590
+      ],
+      "air_bound_after_ms": [
+        2567759,
+        2633590
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "segment_id": "seg_053",
+      "source_start_ms": 2633940,
+      "source_end_ms": 2724400,
+      "timeline_start_ms": 1931980,
+      "duration_ms": 90460,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_057",
+      "air_bound_before_ms": [
+        2633940,
+        2724590
+      ],
+      "air_bound_after_ms": [
+        2633940,
+        2724590
+      ],
+      "mix_overlap_ms": 200
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 2022360,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "clone_adjacency_hitch": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_054",
+      "source_start_ms": 2908200,
+      "source_end_ms": 2923620,
+      "timeline_start_ms": 2024080,
+      "duration_ms": 15420,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_059",
+      "air_bound_before_ms": [
+        2908200,
+        2923620
+      ],
+      "air_bound_after_ms": [
+        2908200,
+        2923620
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 2039420,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_056",
+      "source_start_ms": 2987960,
+      "source_end_ms": 3003600,
+      "timeline_start_ms": 2041140,
+      "duration_ms": 15640,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_060",
+      "air_bound_before_ms": [
+        2987960,
+        3003960
+      ],
+      "air_bound_after_ms": [
+        2987960,
+        3003960
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 2056700,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_057",
+      "source_start_ms": 3005860,
+      "source_end_ms": 3051600,
+      "timeline_start_ms": 2058420,
+      "duration_ms": 45740,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_061",
+      "air_bound_before_ms": [
+        3005860,
+        3052070
+      ],
+      "air_bound_after_ms": [
+        3005860,
+        3052070
+      ],
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_058",
+      "source_start_ms": 3052680,
+      "source_end_ms": 3184730,
+      "timeline_start_ms": 2103961,
+      "duration_ms": 132050,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_062",
+      "air_bound_before_ms": [
+        3052680,
+        3184730
+      ],
+      "air_bound_after_ms": [
+        3052680,
+        3184730
+      ],
+      "mix_overlap_ms": 199
+    },
+    {
+      "type": "silence",
+      "air_kind": "chapter_hinge",
+      "duration_ms": 1800,
+      "timeline_start_ms": 2235931,
+      "required_seam_hitch": true,
+      "preserve_planned_music": true,
+      "mix_overlap_ms": 80
+    },
+    {
+      "segment_id": "seg_059",
+      "source_start_ms": 3193240,
+      "source_end_ms": 3278640,
+      "timeline_start_ms": 2237651,
+      "duration_ms": 85400,
+      "type": "speech",
+      "air_bound_reason": "ideal_hinge_snap+edge_refine",
+      "air_bound_ideal_window_id": "hitch_cut_063",
+      "air_bound_before_ms": [
+        3193240,
+        3345740
+      ],
+      "air_bound_after_ms": [
+        3193240,
+        3278980
+      ],
+      "mix_overlap_ms": 80
+    }
+  ],
+  "gap_placements": [
+    {
+      "line_id": "vo_preface_episode_orientation",
+      "targets_segment_id": "seg_002",
+      "placement": "before",
+      "timeline_start_ms": 0
+    },
+    {
+      "line_id": "vo_layup_seg_007",
+      "targets_segment_id": "seg_007",
+      "placement": "before",
+      "timeline_start_ms": 43571
+    },
+    {
+      "line_id": "vo_layup_seg_037",
+      "targets_segment_id": "seg_037",
+      "placement": "before",
+      "timeline_start_ms": 1518583
+    }
+  ],
+  "timeline_duration_ms": 2323051,
+  "gap_report_line_count": 3,
+  "vo_pickup_clip_count": 3,
+  "transition_clip_count": 2,
+  "silence_clip_count": 14,
+  "warnings": {
+    "missing_vo_files": [],
+    "gap_targets_not_in_selection": [],
+    "missing_segment_lookups": [],
+    "missing_transition_audio": [],
+    "suppressed_clone_adjacency": [
+      "transition:seg_011->seg_012",
+      "transition:seg_012->seg_014",
+      "transition:seg_053->seg_054"
+    ],
+    "clone_adjacency_id_mismatch_kept": []
+  },
+  "mux_scope": "full_mix",
+  "order_content_hash": "99b0030ff1f857a1",
+  "order_lock": {
+    "version": 1,
+    "revision": 8,
+    "authority": "master/selection.json",
+    "ordered_segment_ids": [
+      "seg_002",
+      "seg_007",
+      "seg_011",
+      "seg_012",
+      "seg_014",
+      "seg_016",
+      "seg_017",
+      "seg_018",
+      "seg_020",
+      "seg_021",
+      "seg_023",
+      "seg_026",
+      "seg_027",
+      "seg_028",
+      "seg_029",
+      "seg_030",
+      "seg_031",
+      "seg_034",
+      "seg_035",
+      "seg_036",
+      "seg_037",
+      "seg_039",
+      "seg_040",
+      "seg_041",
+      "seg_042",
+      "seg_043",
+      "seg_045",
+      "seg_046",
+      "seg_047",
+      "seg_053",
+      "seg_054",
+      "seg_056",
+      "seg_057",
+      "seg_058",
+      "seg_059"
+    ],
+    "order_content_hash": "99b0030ff1f857a1",
+    "created_by": "artifact_sanitize.selection",
+    "supersedes": "rev:7:48933a84b18b48d5"
+  },
+  "air_order_generation": 8
+}

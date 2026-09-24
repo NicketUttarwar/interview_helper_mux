@@ -352,8 +352,11 @@ def persist_mixed_diarization_fallback(ctx: Any, *, notes: str = "") -> list[str
         sync_speakers_to_state(ctx, enriched)
     except Exception:
         pass
-    if not ctx.is_done("speaker_roles"):
-        ctx.mark_done("speaker_roles")
+    from interview_mux.delivery_guardrails import seed_stage_complete
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    if not seed_stage_complete(ctx, "speaker_roles"):
+        heal_or_refuse_mark(ctx, "speaker_roles", force=True)
     return ["understanding/speakers.json"]
 
 

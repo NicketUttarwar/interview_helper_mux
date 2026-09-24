@@ -131,10 +131,16 @@ def validate_post_sound_palettes(ctx: RunContext) -> list[str]:
     return errors
 
 
-def validate_post_sound_plan(ctx: RunContext) -> list[str]:
-    """Validate podcast SDP assets/cues against selection; unique-asset caps are soft only."""
+def validate_post_sound_plan(
+    ctx: RunContext, doc: dict[str, Any] | None = None
+) -> list[str]:
+    """Validate podcast SDP assets/cues against selection; unique-asset caps are soft only.
+
+    Pass ``doc`` to validate an in-memory plan before commit (compose must not
+    poison disk with a density-refused body — exec_13177 i14b).
+    """
     errors: list[str] = []
-    sdp = _sdp(ctx)
+    sdp = doc if isinstance(doc, dict) else _sdp(ctx)
     cfg = merged_config()
     sd = cfg.get("sound_design") or {}
     enforce_cap = bool(sd.get("enforce_unique_asset_cap", False))
@@ -204,22 +210,32 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
     assets_by_id = {
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
     }
+    from interview_mux.creative_delivery import sdp_compose_deferred
+
+    deferred = sdp_compose_deferred(sdp if isinstance(sdp, dict) else {})
     under_seg_count = 0
     for cue in cues:
         if not isinstance(cue, dict):
             continue
-        for key in ("segment_id", "after_segment_id", "before_segment_id"):
+        for key in (
+            "segment_id",
+            "after_segment_id",
+            "before_segment_id",
+            "under_segment_id",
+        ):
             sid = cue.get(key)
             if sid and selection_ids and str(sid) not in selection_ids:
                 errors.append(f"cue {cue.get('cue_id')}: {key}={sid} not in selection")
-        if cue.get("placement") == "under_segment" and palette_seg_ids:
+        # Palette membership + strict cue_slots are compose-owned while deferred
+        # (placeholder beds must not thrash post-commit / heal inject loops).
+        if cue.get("placement") == "under_segment" and palette_seg_ids and not deferred:
             seg = cue.get("segment_id")
             if seg and str(seg) not in palette_seg_ids:
                 errors.append(f"bed cue segment {seg} outside palettes")
         if cue.get("placement") == "under_segment":
             under_seg_count += 1
             seg = str(cue.get("segment_id") or "")
-            if underscore in {"skip", "sparse_or_skip"}:
+            if not deferred and underscore in {"skip", "sparse_or_skip"}:
                 errors.append(f"under_segment cue {cue.get('cue_id')} forbidden when underscore={underscore}")
             if seg and seg in overlap_high:
                 errors.append(f"bed cue segment {seg} banned for overlap_high")
@@ -232,7 +248,7 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
                     errors.append(
                         f"bed cue {cue.get('cue_id')} level_db {level} outside bed_level_db_range {bed_range}"
                     )
-            if policy and strict_slots() and seg:
+            if not deferred and policy and strict_slots() and seg:
                 allowed = slot_by_seg.get(seg) or set()
                 aid = str(cue.get("asset_id") or "")
                 role = str((assets_by_id.get(aid) or {}).get("role") or cue.get("role") or "theme_underscore")

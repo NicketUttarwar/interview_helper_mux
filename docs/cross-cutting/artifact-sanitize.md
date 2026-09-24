@@ -54,11 +54,11 @@ Thin delivery stages in [`DELIVERY_ORDER`](../../src/interview_mux/v2/config.py)
 
 | Stage | Artifact | Role |
 |-------|----------|------|
-| `selection_order_sanitize` | `master/selection.json` | After ranking; non-amplifying air-order cleanup |
+| `selection_order_sanitize` | `master/selection.json` | After ranking; non-amplifying air-order cleanup. Prefers hard-keeps; **refuses** (pins `full_master_ranking`) when depth/family/span cannot be met without dropping a hard-keep. Seat-freeze restore must not stamp `sanitize.ok=True` over an unsanitary order. |
 | `gap_report_sanitize` | `understanding/gap_report.json` | After `nugget_layup_compose`; W1 shape/dedupe/lock |
 | `air_contract_sanitize` | `mastering/mastering_plan.json` (+ omit mirror) | After `air_script_seams`; W3 seats ↔ flags ↔ ledger |
 
-Recovery maps `selection_unsanitary` / `gap_unsanitary` / `air_contract_unsanitary` / `sanitize_refused:*` to these stage pins (not broader producers).
+Recovery maps `selection_unsanitary` / `gap_unsanitary` / `air_contract_unsanitary` / `sanitize_refused:*` to these stage pins. Lattice / integrity tokens (`hard_keep_*`, `air_order_integrity_critical`) pin **`full_master_ranking`** — sanitize does not amplify.
 
 ---
 

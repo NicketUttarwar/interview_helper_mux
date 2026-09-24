@@ -239,6 +239,47 @@ def effective_air_contract(
     return {"status": "required", "entry": None}
 
 
+def _wav_backed_vo_line_ids(ctx: RunContext) -> set[str]:
+    """Line ids with an on-disk (or vo_synthesize pending) pickup stem."""
+    found: set[str] = set()
+    roots: list[Any] = []
+    try:
+        roots.append(ctx.final_path("vo_pickup"))
+    except Exception:
+        pass
+    try:
+        from interview_mux.write_staging import staging_root
+
+        roots.append(staging_root(ctx, "vo_synthesize") / "vo_pickup")
+    except Exception:
+        pass
+    for pickup in roots:
+        if pickup is None:
+            continue
+        try:
+            if not pickup.exists():
+                continue
+        except Exception:
+            continue
+        for base in (
+            pickup / "matched",
+            pickup / "synthesized",
+            pickup / "clean",
+            pickup / "normalized",
+            pickup,
+        ):
+            try:
+                if not base.is_dir():
+                    continue
+                for wav in base.glob("*.wav"):
+                    stem = str(wav.stem or "").strip()
+                    if stem:
+                        found.add(stem)
+            except Exception:
+                continue
+    return found
+
+
 def reconcile_edl_with_omit_ledger(
     ctx: RunContext,
     *,
@@ -295,6 +336,60 @@ def reconcile_edl_with_omit_ledger(
                 lid = str(line.get("line_id") or "").strip()
                 if lid:
                     protected_line_ids.add(lid)
+        except Exception:
+            pass
+    # Seated air-script VO must never be purged — omit-ledger rows can lag a
+    # later reseat (exec_13177: purged vo_layup_seg_003c right after synth).
+    protect_load_failed = False
+    try:
+        from interview_mux.air_script import seated_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        protected_line_ids |= {
+            str(x) for x in seated_vo_line_ids(load_plan_raw(ctx)) if x
+        }
+    except Exception as exc:
+        protect_load_failed = True
+        try:
+            ctx.log(
+                f"omit_ledger: seated protect load failed — skip purge ({exc})",
+                level="warning",
+                stage="omit_ledger",
+            )
+        except Exception:
+            pass
+    # Seat-lag harden: also protect any line that already has a pickup WAV
+    # even when mastering_plan seats have not been rewritten yet.
+    try:
+        protected_line_ids |= _wav_backed_vo_line_ids(ctx)
+    except Exception as exc:
+        protect_load_failed = True
+        try:
+            ctx.log(
+                f"omit_ledger: wav protect load failed — skip purge ({exc})",
+                level="warning",
+                stage="omit_ledger",
+            )
+        except Exception:
+            pass
+    if protect_load_failed:
+        return {"removed": [], "updated": False, "protect_load_failed": True}
+    # Drop stale active omit rows for seated lines so line_is_omitted agrees.
+    if protected_line_ids and isinstance(ledger, dict):
+        try:
+            mutated = ledger
+            for lid in sorted(protected_line_ids):
+                for row in list(active_entries(mutated, subject_id=lid)):
+                    if str(row.get("decision") or "omit") != "omit":
+                        continue
+                    mutated = supersede_entry(
+                        mutated,
+                        subject_id=lid,
+                        kind=str(row.get("kind") or "") or None,
+                    )
+            if mutated is not ledger:
+                write_omit_ledger(ctx, mutated)
+                ledger = mutated
         except Exception:
             pass
     for entry in active_entries(ledger):
@@ -547,9 +642,13 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
     try:
         from interview_mux.seat_authority import gate_seat_mutation, soft_freeze_active
 
+        # End-A reason must match HARD_FREEZE_ALLOWLIST (`stamp_gap_omit_flags`).
+        # A near-miss token here (omit_ledger_stamp_gap_skips) was soft/hard blocked
+        # by rewrite cap while G1 still demanded WAV for ledger-omitted lines
+        # (exec_13177 vo_g1 thrash: 003b/003c/010/018).
         if soft_freeze_active(ctx) and not gate_seat_mutation(
             ctx,
-            reason="omit_ledger_stamp_gap_skips",
+            reason="stamp_gap_omit_flags",
             symptoms=["omit_ledger"],
         ):
             return 0
@@ -604,6 +703,34 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
         need = min_synthetic_vo_lines(ctx)
     except Exception:
         require_floor = False
+    # Cluster C: never stamp-omit orientation under HEARD_KEEP / HOLLOW_MINT.
+    try:
+        from interview_mux.hosted_vo_authority import decide_orientation
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        ordered: list[str] = []
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            ordered = [
+                str(x) for x in ((sel or {}).get("ordered_segment_ids") or []) if x
+            ]
+        gap_doc = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
+        if isinstance(gap_doc, dict) and ordered:
+            disp = decide_orientation(ctx, gap_doc, ordered)
+            if disp.disposition in {"HEARD_KEEP", "HOLLOW_MINT", "KEEP_REQUIRED"}:
+                candidates = [
+                    c
+                    for c in candidates
+                    if not (
+                        isinstance(c, dict) and is_episode_orientation(c)
+                    )
+                ]
+    except Exception:
+        pass
     active_now = sum(1 for row in lines if not row.get("skipped_optional"))
     if require_floor:
         max_stamp = max(0, active_now - need)
@@ -687,9 +814,13 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
             new_lines.append(row)
             continue
         updated = dict(row)
-        if updated.get("skipped_optional") or updated.get("air_script_omit"):
-            updated["skipped_optional"] = False
-            updated.pop("air_script_omit", None)
+        cleared = False
+        from interview_mux.opening_orientation import clear_stale_orientation_waive_stamps
+
+        updated, stamp_cleared = clear_stale_orientation_waive_stamps(updated)
+        if stamp_cleared:
+            cleared = True
+        if cleared:
             changed = True
             notes.append(f"cleared_gap_skip:{oid}")
         new_lines.append(updated)
@@ -718,6 +849,46 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
                 write_omit_ledger(ctx, ledger)
                 changed = True
                 notes.append(f"superseded_omit_skips:{before}:{oid}")
+
+    # Soft-freeze persist_air_script_omits may no-op on fingerprint match and leave
+    # required orientation in omitted_line_ids (exec_13177). Reseat here under End-A.
+    try:
+        from interview_mux.air_script import (
+            build_vo_seats,
+            filter_gap_lines_for_air_script,
+            load_air_script,
+        )
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.seat_authority import persist_frozen_seat_doc
+
+        plan = load_plan_raw(ctx)
+        if isinstance(plan, dict) and load_air_script(plan):
+            gap_now = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else gap
+            )
+            filtered = filter_gap_lines_for_air_script(
+                gap_now if isinstance(gap_now, dict) else gap, plan, ctx=ctx
+            )
+            seats = build_vo_seats(plan, filtered if isinstance(filtered, dict) else gap)
+            script = dict(load_air_script(plan) or {})
+            prior = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+            if seats != prior:
+                script["vo_seats"] = seats
+                plan_out = dict(plan)
+                plan_out["air_script"] = script
+                if persist_frozen_seat_doc(
+                    ctx,
+                    "mastering/mastering_plan.json",
+                    plan_out,
+                    reason="omit_ledger_revive_orientation",
+                    skip_handoff=True,
+                ):
+                    changed = True
+                    notes.append(f"reseated_orientation:{oid}")
+    except Exception:
+        pass
     return {"changed": changed, "notes": notes, "line_id": oid}
 
 

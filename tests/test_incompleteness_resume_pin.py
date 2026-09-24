@@ -14,9 +14,9 @@ def test_selection_unsanitary_heal_navigate_pins_sanitize(
 ) -> None:
     patch_executions_root(monkeypatch, tmp_path)
     ctx = isolated_run_ctx(tmp_path, "exec_5583_pin")
-    (ctx.run_dir / ".stage_done" / "nugget_layup_compose").write_text(
-        "done\n", encoding="utf-8"
-    )
+    # Ranking must be seed-complete so clamp does not leapfrog sanitize → ranking.
+    for sid in ("full_master_ranking", "nugget_layup_compose"):
+        (ctx.run_dir / ".stage_done" / sid).write_text("done\n", encoding="utf-8")
     reason = (
         "selection_unsanitary — resume selection_order_sanitize: "
         "fragment_depth_exceeded"

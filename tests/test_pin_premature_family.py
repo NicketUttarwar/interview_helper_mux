@@ -66,6 +66,11 @@ def test_b1_mix_seat_compound_does_not_invent_fake_stage(ctx) -> None:
         "music_palette_compose",
         "sfx_prompt_craft",
         "mmaudio_sfx",
+        # HAU / next_delivery_seat may land on early delivery producers
+        "topic_coverage_audit",
+        "selection_order_sanitize",
+        "nugget_layup_compose",
+        "transitions",
     }
     assert "mix_seat" not in pin
 

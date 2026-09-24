@@ -296,7 +296,7 @@ def persist_gap_framing_companion_artifacts(
             row["placement"] = "before"
         normalized.append(normalize_interviewer_line(row, eligible=eligible, delivery=vo_delivery))
     plan = build_gap_framing_plan(ctx, normalized)
-    ctx.write_json(GAP_FRAMING_PLAN_REL, plan)
+    ctx.write_json(GAP_FRAMING_PLAN_REL, plan, stage_key="gap_framing_compose")
     _write_interviewer_script(ctx, normalized)
     artifacts["interviewer_lines"] = normalized
 

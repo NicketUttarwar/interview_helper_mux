@@ -628,7 +628,7 @@ Call graphs resolved from `pipeline._analysis_stage_fns` (AST). Incompleteness =
 - Likelihood: L2 | Severity: S3
 - Evidence: `src/interview_mux/pipeline.py` _analysis_stage_fns; `_run_gap_framing_compose_stage`; `stage_completion.stage_artifact_incompleteness` hit=yes
 - Suggested fix-cluster: `framing-shard`
-- Status: OPEN_RISK
+- Status: LIKELY_MITIGATED_ON_HEAD (2026-09-22 harden: StageInfo companions, analysis-era ladder skip, fill/demote honesty, warrant budget, missing_framing admit, layup flap, forward-cue flush block; residual R1 LLM content)
 
 ### STG-delivery_brief_build — stage `delivery_brief_build`
 - Surface: stage
@@ -848,8 +848,8 @@ Call graphs resolved from `pipeline._analysis_stage_fns` (AST). Incompleteness =
 - Surface: `gap_framing_compose` → `gap_report.json`
 - Call graph: payload (gap evals + degraded plan summary) → compose LLM → repair/fill/demote; on LLM fail still persists healed seed
 - Why weak: Consumes soft-gate plan narrative_mode; can ship thin VO under “complete”
-- Likelihood: L2 | Severity: S3 | Status: OPEN_RISK
-- Evidence: `run_gap_framing_compose` try/except fill path
+- Likelihood: L2 | Severity: S3 | Status: LIKELY_MITIGATED_ON_HEAD (compose_plan_bind_mode advisory until consumers_bind; demote refuse under warrant; fill fail-closed)
+- Evidence: `run_gap_framing_compose` try/except fill path; `compose_plan_bind_mode`
 - Fix-cluster: `framing-shard` + pass2-confirm
 
 ### HX-01 — Prompt stock vs runtime: mastering/* mostly dead

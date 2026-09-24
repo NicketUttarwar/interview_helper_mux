@@ -289,6 +289,25 @@ def require_disfluency_review_clear(ctx: RunContext) -> None:
     return
 
 
+def operator_reconcile_hosted_vo_floor(
+    ctx: RunContext,
+    *,
+    stage_id: str | None = None,
+) -> dict:
+    """Refresh hosted VO floor SSOT after operator warrant/waive (G-Framing / G1)."""
+    from interview_mux.hosted_vo_authority import (
+        floor_identity_to_dict,
+        floor_snapshot,
+        identify_hosted_vo_floor,
+        reconcile_escalations,
+    )
+
+    ident = identify_hosted_vo_floor(ctx, persist=True, stage_id=stage_id)
+    snap = floor_snapshot(ctx, stage_id=stage_id, persist=False)
+    reconcile_escalations(ctx, snap)
+    return floor_identity_to_dict(ident)
+
+
 def g1_vo_was_skipped_optional(ctx: RunContext) -> bool:
     """True when the operator skipped optional G1 VO pickup for this run.
 
@@ -432,13 +451,30 @@ def _check_g1_vo_uncached(ctx: RunContext) -> list[str]:
             omitted = omitted_vo_line_ids(load_plan_raw(ctx))
     except Exception:
         omitted = set()
+    # Omit ledger is SSOT for layup_skip / gap_line_skip — honor even when freeze
+    # blocked gap skipped_optional stamps (exec_13177 vo_g1 × thrash).
+    ledger_omitted: set[str] = set()
+    try:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, line_is_omitted
+
+        if ctx.artifact_exists(OMIT_LEDGER_REL):
+            ledger = ctx.read_json(OMIT_LEDGER_REL)
+            if isinstance(ledger, dict):
+                for row in ledger.get("entries") or []:
+                    if not isinstance(row, dict) or not row.get("active"):
+                        continue
+                    sid = str(row.get("subject_id") or "").strip()
+                    if sid and line_is_omitted(ledger, sid):
+                        ledger_omitted.add(sid)
+    except Exception:
+        ledger_omitted = set()
     missing: list[str] = []
     by_line: dict[str, list[dict]] = {}
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or not _line_requires_vo(line):
             continue
         lid = str(line.get("line_id") or "").strip()
-        if not lid or lid in omitted:
+        if not lid or lid in omitted or lid in ledger_omitted:
             continue
         by_line.setdefault(lid, []).append(line)
     from interview_mux.stages.assembly import resolve_vo_pickup_path
@@ -752,6 +788,23 @@ def check_edl_narrative_qc(
             apply_episode_vo_identity_to_edl(ctx, edl)
         except Exception:
             pass
+    # Pre-clean selection before the first parity check. EDL build already omits
+    # blank/unusable speech; comparing against a dirty ordered_segment_ids list
+    # raises SystemExit before repair can land (exec_13183 seg_025 thrash →
+    # wrong resume into nugget_layup_compose).
+    try:
+        from interview_mux.artifact_repairs import repair_edl_narrative_selection
+
+        pre_notes = repair_edl_narrative_selection(ctx)
+        if pre_notes:
+            ctx.log(
+                f"EDL narrative pre-repair ({len(pre_notes)} action(s))",
+                level="info",
+                stage=stage,
+                detail=pre_notes[:8],
+            )
+    except Exception as exc:
+        ctx.log(f"EDL narrative pre-repair skipped: {exc}", level="warning", stage=stage)
     errors = validate_flow1_edl_narrative(ctx, edl)
     if errors:
         try:

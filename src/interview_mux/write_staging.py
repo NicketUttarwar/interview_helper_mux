@@ -350,7 +350,13 @@ def write_committed_json(
 
 
 def write_mirrored_json(ctx: RunContext, rel: str, data: Any) -> Path:
-    """Write JSON to the committed final path and update every pending staging copy."""
+    """Write JSON to the committed final path and sync existing pending copies.
+
+    Do **not** invent a new active-stage pending twin after commit — that leaves
+    pending mtime newer than final and trips HC-3 ``newer uncommitted pending``
+    on the same stage's ``heal_or_raise`` (exec_13170 selection_order_sanitize).
+    Existing pending files are updated in place so mid-stage readers stay current.
+    """
     from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
 
     data = prepare_edl_payload_for_disk(ctx, rel, data)
@@ -364,13 +370,8 @@ def write_mirrored_json(ctx: RunContext, rel: str, data: Any) -> Path:
             if not stage_dir.is_dir():
                 continue
             candidate = stage_dir.joinpath(*rel.split("/"))
-            active = _active_stage.get()
             if candidate.is_file():
                 fs_write_json(candidate, data)
-            elif active and stage_dir.name == active and operator_visible_staging_path(active, rel):
-                candidate.parent.mkdir(parents=True, exist_ok=True)
-                fs_write_json(candidate, data)
-                record_pending_approval(ctx, active)
     return final
 
 
@@ -386,13 +387,8 @@ def write_mirrored_text(ctx: RunContext, rel: str, text: str) -> Path:
             if not stage_dir.is_dir():
                 continue
             candidate = stage_dir.joinpath(*rel.split("/"))
-            active = _active_stage.get()
             if candidate.is_file():
                 fs_write_text(candidate, text)
-            elif active and stage_dir.name == active and operator_visible_staging_path(active, rel):
-                candidate.parent.mkdir(parents=True, exist_ok=True)
-                fs_write_text(candidate, text)
-                record_pending_approval(ctx, active)
     return final
 
 
@@ -791,11 +787,18 @@ def uncommitted_pending_reason(ctx: RunContext, rel: str) -> str | None:
     if not primary.is_file():
         return f"{rel} is pending_only"
     try:
-        if staged.stat().st_mtime_ns > primary.stat().st_mtime_ns:
-            return f"{rel} has newer uncommitted pending"
+        if staged.stat().st_mtime_ns <= primary.stat().st_mtime_ns:
+            return None
     except OSError:
         return f"{rel} has newer uncommitted pending"
-    return None
+    # Mirrored commit sync can leave pending mtime newer with identical bytes
+    # (write_mirrored updates existing shadows after final). Content-equal is sealed.
+    try:
+        if staged.read_bytes() == primary.read_bytes():
+            return None
+    except OSError:
+        pass
+    return f"{rel} has newer uncommitted pending"
 
 
 def artifact_exists_resolved(ctx: RunContext, rel: str) -> bool:
@@ -843,7 +846,13 @@ def expand_audio_output_paths(ctx: RunContext, specs: Iterable[str]) -> list[str
 
 
 def operator_visible_staging_path(stage_id: str, rel: str) -> bool:
-    """True when a staged relative path is an operator-facing stage output."""
+    """True when a staged relative path is an operator-facing stage output.
+
+    VO pickup owner stages always promote any ``vo_pickup/**`` path so a
+    StageInfo subpath regression cannot rmtree-drop rendered takes (exec_13177).
+    """
+    if is_vo_pickup_rel(rel) and stage_id in VO_PICKUP_OWNER_STAGES:
+        return True
     from interview_mux.web.stages import STAGE_BY_ID
 
     info = STAGE_BY_ID.get(stage_id)
@@ -1634,6 +1643,25 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             return flushed
         assert_stage_artifacts_complete(ctx, stage_id)
         post = after_flush_resilience(ctx, stage_id, flushed)
+        # Heal Success V3: retry/halt with acceptance fail must not mark_done.
+        try:
+            from interview_mux.heal_success import may_mark_after_flush
+
+            may_mark, mark_reason = may_mark_after_flush(
+                ctx,
+                stage_id,
+                resilience_action=str(post.action or ""),
+                acceptance_ok=post.acceptance_ok,
+            )
+        except Exception:
+            may_mark, mark_reason = True, "ok"
+        if not may_mark:
+            raise ValueError(
+                "Post-flush heal success refused: "
+                + mark_reason
+                + "; "
+                + "; ".join(post.reasons[:4] or ["unacceptable"])
+            )
         if post.action == "halt" and post.acceptance_ok is False:
             raise ValueError(
                 "Post-flush resilience failed: " + "; ".join(post.reasons[:4] or ["unacceptable"])

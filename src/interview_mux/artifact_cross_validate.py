@@ -158,7 +158,12 @@ def validate_cross_artifacts_for_stage(
     *,
     staged: bool = False,
 ) -> list[str]:
-    """Cross-validate using staged producer artifacts when ``staged=True``."""
+    """Cross-validate using staged producer artifacts when ``staged=True``.
+
+    For checkpoints that read via ``_committed_json``, arm the pending overlay so
+    pre-flush acceptance sees the stage's pending writes (exec_13174: post_narrative
+    falsely reported master/narrative_plan.json missing while pending existed).
+    """
     checkpoint = STAGE_CHECKPOINTS.get(stage_key)
     if not checkpoint:
         return []
@@ -171,7 +176,8 @@ def validate_cross_artifacts_for_stage(
         return _validate_boundary_document(doc)
     if checkpoint == "post_segmentation":
         return _validate_post_segmentation_staged(ctx)
-    return validate_cross_artifacts(ctx, checkpoint)
+    with cross_validate_pending_overlay(ctx, stage_key):
+        return validate_cross_artifacts(ctx, checkpoint)
 
 def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
     """Return human-readable cross-validation errors (empty = pass)."""
@@ -262,6 +268,7 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
                     f"Fix artifacts and re-run from --from-stage {stage_key}."
                 )
             if soft_errors:
+                # Heal Success V11: soft cross-validate ≠ recovered / advance success.
                 summary = "; ".join(soft_errors[:4])
                 enqueue_investigations(
                     ctx,
@@ -565,7 +572,13 @@ def _validate_post_ranking(ctx: RunContext) -> list[str]:
                 changed = True
         if changed:
             try:
-                ctx.write_json("master/narrative_plan.json", plan, stage_key="narrative_arc_plan", skip_handoff=True)
+                ctx.write_json(
+                    "master/narrative_plan.json",
+                    plan,
+                    stage_key="full_master_ranking",
+                    mutation_class="narrative_metadata_align",
+                    skip_handoff=True,
+                )
             except Exception:
                 pass
             plan = _committed_json(ctx, "master/narrative_plan.json")

@@ -9,6 +9,14 @@ import {
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 
+interface HostedVoFloorSnapshot {
+  status?: string;
+  need?: number;
+  have?: number;
+  resume_producer?: string;
+  prose?: string;
+}
+
 interface GapGatePayload {
   gap_framing_enabled?: boolean;
   gap_framing_decision_pending?: boolean;
@@ -16,6 +24,22 @@ interface GapGatePayload {
   llm_recommended_framing?: string | null;
   llm_framing_rationale?: string | null;
   pipeline_mode?: { mode?: string; decided_by?: string } | null;
+  hosted_vo_floor?: HostedVoFloorSnapshot | null;
+}
+
+function HostedVoFloorHint({ floor }: { floor: HostedVoFloorSnapshot }) {
+  const status = floor.status || "unknown";
+  if (status === "UNWARRANTED" || status === "WAIVED" || status === "MET") {
+    return null;
+  }
+  const need = floor.need ?? "—";
+  const have = floor.have ?? "—";
+  return (
+    <p className="hint sm" data-testid="hosted-vo-floor-hint">
+      Hosted VO floor: {have}/{need} ({status})
+      {floor.resume_producer ? ` — resume ${floor.resume_producer}` : null}
+    </p>
+  );
 }
 
 export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
@@ -93,6 +117,7 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
     return (
       <section className="gap-framing-panel panel-inset" data-testid="gap-framing-panel">
         <p className="hint sm">✓ Gap framing enabled — continue with speaker and voice reference gates.</p>
+        {payload.hosted_vo_floor ? <HostedVoFloorHint floor={payload.hosted_vo_floor} /> : null}
       </section>
     );
   }
@@ -104,6 +129,7 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
   return (
     <section className="gap-framing-panel panel-inset" data-testid="gap-framing-panel">
       <h4>Add interviewer gap framing?</h4>
+      {payload?.hosted_vo_floor ? <HostedVoFloorHint floor={payload.hosted_vo_floor} /> : null}
       {payload?.llm_recommended_framing ? (
         <p className="hint sm gap-framing-llm-hint" data-testid="gap-framing-llm-hint">
           LLM suggests:{" "}

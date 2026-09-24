@@ -12,8 +12,6 @@ outputs:
 - path: master/edl_narrative_audit.json
   schema: edl_narrative_audit_artifact.schema.json
   staging: true
-- path: master/selection.json
-  staging: true
 inputs:
   hard:
   - path: understanding/content_brief.json

@@ -7,6 +7,22 @@ import { isV2Enabled } from "../../utils/v2Phases";
 import { shouldAdvanceAfterGatePost, shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import { gateOperatorMustAct, g1AutomationPending } from "../../utils/operatorGates";
 
+type HostedVoFloorSnapshot = {
+  status?: string;
+  need?: number;
+  have?: number;
+  resume_producer?: string;
+};
+
+function hostedVoFloorFromRun(run: unknown): HostedVoFloorSnapshot | null {
+  if (!run || typeof run !== "object") return null;
+  const gates = (run as { operator_gates?: Record<string, { hosted_vo_floor?: HostedVoFloorSnapshot }> })
+    .operator_gates;
+  const fromGate = gates?.g1_vo_pickup?.hosted_vo_floor;
+  if (fromGate?.status) return fromGate;
+  return null;
+}
+
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   const {
     run,
@@ -209,6 +225,11 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   const hideManualCapture = synthOnly && automationPending && !operatorMustAct;
   const missing = activeLines.filter((l) => !l.recorded_file).length;
   const recorded = activeLines.length - missing;
+  const hostedFloor = hostedVoFloorFromRun(run);
+  const showHostedFloor =
+    hostedFloor &&
+    hostedFloor.status &&
+    !["UNWARRANTED", "WAIVED", "MET"].includes(hostedFloor.status);
 
   return (
     <>
@@ -222,6 +243,12 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           ? `${recorded}/${activeLines.length} pickup line(s) ready`
           : "No pickup lines required."}
       </p>
+      {showHostedFloor ? (
+        <p className="hint sm" data-testid="g1-hosted-vo-floor-hint">
+          Hosted VO floor: {hostedFloor.have ?? "—"}/{hostedFloor.need ?? "—"} ({hostedFloor.status})
+          {hostedFloor.resume_producer ? ` — resume ${hostedFloor.resume_producer}` : null}
+        </p>
+      ) : null}
       {automationPending && !operatorMustAct ? (
         <p className="hint callout info" data-testid="g1-synth-pending">
           Chatterbox is synthesizing gap VO lines in the background — no recording needed.

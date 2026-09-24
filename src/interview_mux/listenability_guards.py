@@ -430,7 +430,6 @@ def evaluate_listenability(
     from interview_mux.creative_delivery import creative_delivery_required
 
     guards = listenability_guards_cfg()
-    failures: list[str] = []
     metrics: dict[str, Any] = {}
 
     if not creative_delivery_required():
@@ -468,19 +467,27 @@ def evaluate_listenability(
         "bands": {k: guards[k] for k in guards},
     }
 
-    def _below(name: str, value: float, key: str) -> None:
+    # R8-A: objective floors hard-fail; taste-band ratios warn only.
+    hard_failures: list[str] = []
+    soft_failures: list[str] = []
+
+    def _soft_below(name: str, value: float, key: str) -> None:
         floor = float(guards[key])
         if value + 0.001 < floor:
-            failures.append(f"{name} {value:.3f} < min {floor:.3f}")
+            soft_failures.append(f"{name} {value:.3f} < min {floor:.3f}")
 
-    def _above(name: str, value: float, key: str) -> None:
+    def _soft_above(name: str, value: float, key: str) -> None:
         ceil = float(guards[key])
         if value > ceil + 0.001:
-            failures.append(f"{name} {value:.3f} > max {ceil:.3f}")
+            soft_failures.append(f"{name} {value:.3f} > max {ceil:.3f}")
 
-    _below("bed_coverage", bed_cov, "bed_coverage_min_ratio")
-    _above("bed_coverage", bed_cov, "bed_coverage_max_ratio")
-    _below("bed_quartile_presence", bed_q, "bed_quartile_presence_min_ratio")
+    # Objective: zero/near-zero bed coverage or missing required music roles.
+    if bed_cov + 1e-9 < 0.01:
+        hard_failures.append(f"bed_coverage {bed_cov:.3f} ~0 (objective floor)")
+    else:
+        _soft_below("bed_coverage", bed_cov, "bed_coverage_min_ratio")
+        _soft_above("bed_coverage", bed_cov, "bed_coverage_max_ratio")
+    _soft_below("bed_quartile_presence", bed_q, "bed_quartile_presence_min_ratio")
 
     # Host conversation bands — only when gap framing produced (or should produce) VO.
     enforce_host = False
@@ -494,33 +501,41 @@ def evaluate_listenability(
         gr = ctx.read_json("understanding/gap_report.json")
         lines = (gr.get("interviewer_lines") or []) if isinstance(gr, dict) else []
         if lines:
-            _below("host_vo_coverage", host_cov, "host_vo_coverage_min_ratio")
-            _above("host_vo_coverage", host_cov, "host_vo_coverage_max_ratio")
-            _below("host_vo_duration", host_dur, "host_vo_duration_min_ratio")
-            _above("host_vo_duration", host_dur, "host_vo_duration_max_ratio")
-            _below("host_vo_quartile_presence", host_q, "host_vo_quartile_presence_min_ratio")
+            _soft_below("host_vo_coverage", host_cov, "host_vo_coverage_min_ratio")
+            _soft_above("host_vo_coverage", host_cov, "host_vo_coverage_max_ratio")
+            _soft_below("host_vo_duration", host_dur, "host_vo_duration_min_ratio")
+            _soft_above("host_vo_duration", host_dur, "host_vo_duration_max_ratio")
+            _soft_below("host_vo_quartile_presence", host_q, "host_vo_quartile_presence_min_ratio")
             if uncovered > float(guards["uncovered_high_gap_max_ratio"]) + 0.001:
-                failures.append(f"uncovered_high_gap_ratio {uncovered:.3f} exceeds max")
+                # High-gap uncovered is an objective VO completeness miss.
+                hard_failures.append(f"uncovered_high_gap_ratio {uncovered:.3f} exceeds max")
 
-    _below("hinge_stinger_coverage", hinge_c, "hinge_stinger_coverage_min_ratio")
-    _above("hinge_stinger_coverage", hinge_c, "hinge_stinger_coverage_max_ratio")
+    _soft_below("hinge_stinger_coverage", hinge_c, "hinge_stinger_coverage_min_ratio")
+    _soft_above("hinge_stinger_coverage", hinge_c, "hinge_stinger_coverage_max_ratio")
     if edl is not None:
-        _below("intentional_air", air_r, "intentional_air_min_ratio")
-        _above("intentional_air", air_r, "intentional_air_max_ratio")
+        _soft_below("intentional_air", air_r, "intentional_air_min_ratio")
+        _soft_above("intentional_air", air_r, "intentional_air_max_ratio")
     if gap_scored + 0.001 < float(guards["gap_eval_scored_min_ratio"]) and enforce_host:
-        failures.append(
+        soft_failures.append(
             f"gap_eval_scored {gap_scored:.3f} < min {guards['gap_eval_scored_min_ratio']:.3f}"
         )
     if missing_roles:
-        failures.append(f"missing_sfx_roles:{','.join(missing_roles)}")
+        hard_failures.append(f"missing_sfx_roles:{','.join(missing_roles)}")
 
+    fail_closed = bool(float(guards.get("fail_closed") or 0) >= 0.5)
+    # Blocking verdict only on objective hard failures when fail_closed.
+    blocking = bool(hard_failures) and fail_closed
+    all_failures = hard_failures + soft_failures
     return {
         "version": 1,
-        "verdict": "pass" if not failures else "fail",
-        "failures": failures,
+        "verdict": "fail" if blocking else ("warning" if all_failures else "pass"),
+        "failures": hard_failures if blocking else all_failures,
+        "hard_failures": hard_failures,
+        "soft_failures": soft_failures,
         "metrics": metrics,
         "stage": stage,
-        "fail_closed": bool(float(guards.get("fail_closed") or 0) >= 0.5),
+        "fail_closed": fail_closed,
+        "blocking": blocking,
     }
 
 

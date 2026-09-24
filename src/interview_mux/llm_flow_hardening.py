@@ -128,6 +128,14 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
         from interview_mux.gates import require_post_listen_clear
 
         require_post_listen_clear(ctx, stage=stage_key)
+        # HAU speech-first: seats assembly before beds — skip SFX/mmaudio spend gates.
+        try:
+            from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+            if beds_deferred_for_mix(ctx):
+                return
+        except Exception:
+            pass
         sound_cfg = merged_config().get("sound_design") or {}
         if bool(sound_cfg.get("block_mix_on_mmaudio_qa_fail", False)):
             if ctx.artifact_exists("sound_design/mmaudio_qa.json"):
@@ -655,6 +663,16 @@ def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None
                 from interview_mux.junction_snip_qa import junction_recut_precedes_mix
 
                 if junction_recut_precedes_mix(ctx):
+                    return
+            except Exception:
+                pass
+        # HAU speech-first: do not require MusicGen artifact before mix seats.
+        if stage_key == "mix":
+            try:
+                from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
+                from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                if beds_deferred_for_mix(ctx) and earliest in MUSIC_BEFORE_MIX:
                     return
             except Exception:
                 pass

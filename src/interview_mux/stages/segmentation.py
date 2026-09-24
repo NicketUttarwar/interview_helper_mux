@@ -84,7 +84,8 @@ def run_boundaries(ctx: RunContext) -> None:
             if not report.get("reject") and bool(
                 segmentation_cfg().get("reject_coarse_fallback", True)
             ):
-                if not ctx.is_done("boundary_detection"):
+                from interview_mux.delivery_guardrails import seed_stage_complete
+                if not seed_stage_complete(ctx, "boundary_detection"):
                     heal_or_refuse_mark(ctx, "boundary_detection", force=True)
                 ctx.log(
                     "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries "
@@ -106,7 +107,8 @@ def run_boundaries(ctx: RunContext) -> None:
             if not report.get("reject") and not bool(
                 segmentation_cfg().get("reject_coarse_fallback", True)
             ):
-                if not ctx.is_done("boundary_detection"):
+                from interview_mux.delivery_guardrails import seed_stage_complete
+                if not seed_stage_complete(ctx, "boundary_detection"):
                     heal_or_refuse_mark(ctx, "boundary_detection", force=True)
                 ctx.log(
                     "boundary_detection: skipped LLM — ideal_cuts bind (reject_coarse_fallback=false)",
@@ -836,7 +838,8 @@ def run_classification(ctx: RunContext) -> None:
             level="info",
             stage="segment_classification",
         )
-        if not ctx.is_done("segment_classification"):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+        if not seed_stage_complete(ctx, "segment_classification"):
             heal_or_refuse_mark(ctx, "segment_classification", force=True)
         # SC-B4: share topic bootstrap + selection-seed refresh with LLM path.
         # Specialists only when classification payload can be built (hard deps).

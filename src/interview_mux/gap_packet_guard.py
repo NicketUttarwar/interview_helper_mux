@@ -103,6 +103,45 @@ def assert_gap_packet_richness(stage_key: str, payload: dict[str, Any]) -> None:
         raise ValueError(
             f"{stage_key} packet missing required keys: {', '.join(missing)}"
         )
+    if stage_key == "gap_framing_compose":
+        _assert_high_gap_ids_in_compose_packet(payload)
+
+
+def _assert_high_gap_ids_in_compose_packet(payload: dict[str, Any]) -> None:
+    """Fail-closed when high-severity evals for this shard lack segment context."""
+    evals = payload.get("gap_evaluations")
+    if not isinstance(evals, dict):
+        return
+    high_ids = [
+        str(r.get("segment_id") or "").strip()
+        for r in (evals.get("evaluations") or [])
+        if isinstance(r, dict)
+        and str(r.get("severity") or "").lower() == "high"
+        and str(r.get("segment_id") or "").strip()
+    ]
+    if not high_ids:
+        return
+    ordered = {
+        str(s).strip()
+        for s in (payload.get("ordered_segment_ids") or [])
+        if str(s).strip()
+    }
+    segs = payload.get("segments")
+    rows = segs.get("segments") if isinstance(segs, dict) else segs
+    seg_ids: set[str] = set()
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and row.get("segment_id"):
+                seg_ids.add(str(row.get("segment_id")).strip())
+    context_ids = ordered | seg_ids
+    if not context_ids:
+        return
+    missing_ctx = [sid for sid in high_ids if sid not in context_ids]
+    if missing_ctx:
+        raise ValueError(
+            "gap_framing_compose packet missing segment context for high-gap "
+            f"ids: {', '.join(missing_ctx[:12])}"
+        )
 
 
 def host_packet_from_user_text(text: str) -> dict[str, Any] | None:

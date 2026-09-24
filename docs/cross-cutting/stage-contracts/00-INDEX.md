@@ -76,24 +76,24 @@ records what has to be defused before switching them on.
 | `audio_probe_build` | process | analysis/run_golden_facts.json, transcript/protected_zones.json, transcript/speaker_flows.json, vernacular/probe_report.json, vernacular/audio_tags_by_flow.json |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
-| `chapter_close_hitch` | process | mastering/chapter_close_hitch.json, mastering/chapter_close_hitch/intent_plan.json, mastering/chapter_close_hitch/remap.json, understanding/episode_structure_compact.txt, segments/boundaries.json, mastering/chapter_close_hitch/hitch_keepers.json, mastering/chapter_close_hitch/pre_keepers.json, mastering/chapter_close_hitch/omit_ledger.json, mastering/chapter_close_hitch/vo_snapshot.json, master/narrative_plan.qc.json |
+| `chapter_close_hitch` | process | mastering/chapter_close_hitch.json, mastering/chapter_close_hitch/intent_plan.json, mastering/chapter_close_hitch/remap.json, understanding/episode_structure_compact.txt, understanding/flow_adaptation.json, segments/boundaries.json, mastering/chapter_close_hitch/hitch_keepers.json, mastering/chapter_close_hitch/pre_keepers.json, mastering/chapter_close_hitch/omit_ledger.json, mastering/chapter_close_hitch/vo_snapshot.json, master/narrative_plan.qc.json |
 | `connector_fuse_pass` | llm_full | analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, segments/manifest.json |
-| `connector_fuse_pass_pre_ranking` | llm_full | analysis/connector_fuse_rounds.json, segments/manifest.json |
+| `connector_fuse_pass_pre_ranking` | llm_full | analysis/connector_fuse_rounds.json, segments/manifest.json, segments/boundaries.json, analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, analysis/connector_seam_verdicts.json |
 | `connector_seam_adjudicate` | meta | analysis/connector_seam_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | understanding/delivery_brief.json |
 | `edl` | process | master/edl.json, master/transitions/ |
-| `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json, master/selection.json |
+| `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
 | `edl_narrative_refine` | meta | — |
 | `episode_cover_generate` | llm_full | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json, publish/cover_candidates/ |
 | `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |
 | `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | understanding/episode_structure.json, understanding/episode_structure_compact.txt |
 | `framing_posture_decide` | llm_full | understanding/framing_posture_decision.json |
-| `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/order_reconcile.json, master/story_health.json, mastering/media_ip_cta.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, analysis/stt_lexicon_islands.json |
+| `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/story_health.json, master/order_reconcile.json, mastering/media_ip_cta.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, analysis/stt_lexicon_islands.json |
 | `g1_vo_pickup` | gate | — |
-| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, understanding/speaker_delivery_plan.json |
+| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, glob:understanding/llm_calls/gap_framing_compose/**, glob:understanding/stage_runs/gap_framing_compose/**, understanding/speaker_delivery_plan.json |
 | `gap_framing_recompose` | deterministic | understanding/gap_framing_recompose.json, understanding/nugget_layup_plan.json, understanding/refinement_skip_copy.json |
 | `gap_report_sanitize` | process | understanding/gap_report.json |
 | `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json, understanding/ideal_cuts_selection_seed.json, segments/boundaries.json |
@@ -116,7 +116,7 @@ records what has to be defused before switching them on.
 | `mastering_research_waves` | process | mastering/research/waves.json, mastering/research/ |
 | `mastering_shape_agenda` | process | mastering/shape/agenda.json, mastering/shape/eval_rubric.json, glob:mastering/evidence_packets/*.json |
 | `mastering_shape_candidates` | process | mastering/shape/candidates.json, mastering/shape/diversity_report.json, glob:mastering/evidence_packets/*.json |
-| `missing_framing` | llm_full | understanding/gap_evaluations.json |
+| `missing_framing` | llm_full | understanding/gap_evaluations.json, understanding/flow_adaptation.json, glob:understanding/llm_calls/missing_framing/**, glob:understanding/stage_runs/missing_framing/** |
 | `mix` | process | master/assembly.wav, master/music_cue_coverage.json |
 | `mmaudio_sfx` | process | sound_design/mmaudio_qa.json, sound_design/assets/, master/sfx/ |
 | `music_palette_compose` | llm_full | sound_design/music_palette_compose.json, understanding/sound_design_plan.json |
@@ -157,4 +157,4 @@ records what has to be defused before switching them on.
 | `vernacular_segment_sanitize` | process | vernacular/resplit_report.json, segments/manifest.json, analysis/vernacular_must_keep.json, transcript/protected_zones.json |
 | `vo_ingest` | gate | vo_pickup/ |
 | `vo_line_adjudicate` | llm_full | understanding/vo_line_adjudication.json, understanding/gap_report.json, understanding/nugget_allocation_plan.json |
-| `vo_synthesize` | process | mastering/vo_synthesize.json, master/transitions/, vo_pickup/synthesized/ |
+| `vo_synthesize` | process | mastering/vo_synthesize.json, master/transitions/, vo_pickup/synthesized/, vo_pickup/ |

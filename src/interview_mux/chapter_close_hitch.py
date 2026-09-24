@@ -1286,6 +1286,7 @@ def _ensure_inner_walk_gates(ctx: RunContext) -> None:
             set_gap_framing_enabled,
         )
         from interview_mux.source_topology import (
+            confirm_pickup_speaker,
             pickup_eligible_speaker_id,
             pickup_speaker_confirmed,
         )
@@ -1300,20 +1301,13 @@ def _ensure_inner_walk_gates(ctx: RunContext) -> None:
         if not pickup_speaker_confirmed(ctx):
             sid = pickup_eligible_speaker_id(ctx)
             if sid:
-                adapt = (
-                    ctx.read_json("understanding/flow_adaptation.json")
-                    if ctx.artifact_exists("understanding/flow_adaptation.json")
-                    else {}
+                # Honest ownership: hitch is an ALLOW co-owner of flow_adaptation.
+                confirm_pickup_speaker(
+                    ctx,
+                    speaker_id=sid,
+                    writer_stage="chapter_close_hitch",
+                    reason="inner_walk_gate_auto_confirm",
                 )
-                if isinstance(adapt, dict):
-                    overrides = dict(adapt.get("operator_overrides") or {})
-                    overrides["pickup_speaker_confirmed"] = True
-                    adapt["operator_overrides"] = overrides
-                    if not adapt.get("pickup_eligible_speaker_id"):
-                        adapt["pickup_eligible_speaker_id"] = sid
-                    ctx.write_json(
-                        "understanding/flow_adaptation.json", adapt, skip_handoff=True
-                    )
     except Exception:
         return
 
@@ -1387,6 +1381,18 @@ def remap_intent_plan(
     remapped["chapters"] = kept
     if not kept:
         reasons.append("all_chapters_empty")
+        # Rebuild single body chapter from surviving new_ids (never land []).
+        ordered = sorted(new_ids)
+        if ordered:
+            remapped["chapters"] = [
+                {
+                    "chapter_id": "ch_01_body",
+                    "title": "Episode body",
+                    "suggested_open_segment_id": ordered[0],
+                    "segment_ids": ordered,
+                }
+            ]
+            reasons.append("rebuilt_single_chapter_from_new_ids")
     cons = remapped.get("ordering_constraints")
     if isinstance(cons, list):
         cleaned = []
@@ -1633,7 +1639,13 @@ def apply_chapter_authority(
             adopted = "qc_plan"
         else:
             adopted = "remapped_intent_infeasible_qc_unusable"
-    ctx.write_json(NARRATIVE_REL, plan, skip_handoff=True, stage_key="narrative_arc_plan")
+    ctx.write_json(
+        NARRATIVE_REL,
+        plan,
+        skip_handoff=True,
+        stage_key=STAGE_ID,
+        mutation_class="hitch_chapter_authority",
+    )
     return {
         "adopted": adopted,
         "infeasible_reasons": reasons,
@@ -1670,19 +1682,10 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
     if not ctx.artifact_exists(NARRATIVE_REL) and not ctx.artifact_exists(INTENT_REL):
-        _write_latch(
-            ctx,
-            {
-                "version": 1,
-                "status": "committed",
-                "seq": 1,
-                "skipped": True,
-                "reason": "no_narrative_plan",
-                "generated_at": _now(),
-            },
+        # Never hollow-skip: pin narrative_arc_plan and refuse hitch complete.
+        raise RuntimeError(
+            "seed order: complete narrative_arc_plan before running chapter_close_hitch"
         )
-        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
-        return
 
     if ctx.artifact_exists(INTENT_REL):
         intent = ctx.read_json(INTENT_REL)

@@ -251,38 +251,13 @@ def _preserve_frozen_selection_order(
     refuse_reason: str,
     ctx: RunContext,
 ) -> dict[str, Any]:
-    """Keep frozen air order and restamp so sanitize stamp cannot go stale."""
+    """Keep frozen air order; stamp ok only when restored order is sanitary."""
     restored = dict(out)
     restored["ordered_segment_ids"] = list(prev_ids)
     if isinstance(previous, dict):
         for key in ("order_content_hash", "order_lock", "order_lock_source"):
             if key in previous:
                 restored[key] = previous.get(key)
-    try:
-        from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
-
-        restored = stamp_sanitize_meta(
-            restored,
-            ok=True,
-            source=f"seat_freeze_preserve:{producer}",
-            actions_n=0,
-            extra={
-                "preserved_order": True,
-                "refused": str(refuse_reason or "")[:120],
-            },
-            content_keys=["ordered_segment_ids", "order_content_hash"],
-        )
-    except Exception:
-        pass
-    try:
-        ctx.log(
-            "seat_freeze: preserved selection order "
-            f"(refused:{refuse_reason or 'meta_gate'}; producer={producer})",
-            level="warning",
-            stage=stage_key or producer,
-        )
-    except Exception:
-        pass
     # Restoring prior order can leave exclude_rationales pointing at air ids.
     try:
         from interview_mux.artifact_repairs import prune_stale_exclude_rationales
@@ -302,7 +277,173 @@ def _preserve_frozen_selection_order(
             restored, _ = prune_stale_exclude_rationales(restored)
     except Exception:
         pass
+    sanitary_ok = True
+    sanitary_reason = ""
+    try:
+        from interview_mux.artifact_sanitize.selection import sanitize_master_selection
+        from interview_mux.artifact_sanitize.selection import (
+            _lattice_and_integrity_errs,
+            _shape_sanitary_errs,
+        )
+
+        dry = sanitize_master_selection(ctx, restored)
+        shape_errs = _shape_sanitary_errs(
+            ctx,
+            [str(s) for s in (restored.get("ordered_segment_ids") or []) if s],
+            restored,
+        )
+        lint_errs = _lattice_and_integrity_errs(ctx, restored)
+        # Dry sanitize may mutate; judge the restored order itself.
+        mutating = [
+            a
+            for a in (dry.actions or [])
+            if str((a or {}).get("action") or "")
+            not in {"bump_order_lock", "prune_stale_exclude_rationales", "reconcile_ordered_vs_excluded"}
+        ]
+        if shape_errs or lint_errs or (not dry.ok) or mutating:
+            sanitary_ok = False
+            bits = list(shape_errs or []) + list(lint_errs or [])
+            if not dry.ok:
+                bits.extend(list(dry.errors or [])[:2])
+            if mutating:
+                bits.append(
+                    "selection_needs_sanitize:"
+                    + ",".join(str(a.get("action") or "") for a in mutating[:4])
+                )
+            sanitary_reason = "; ".join(bits[:4]) or "freeze_restore_unsanitary"
+    except Exception:
+        sanitary_ok = False
+        sanitary_reason = "freeze_restore_unsanitary"
+    try:
+        from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+
+        restored = stamp_sanitize_meta(
+            restored,
+            ok=sanitary_ok,
+            source=f"seat_freeze_preserve:{producer}",
+            actions_n=0,
+            extra={
+                "preserved_order": True,
+                "refused": str(refuse_reason or "")[:120],
+                **(
+                    {"freeze_restore_unsanitary": sanitary_reason[:160]}
+                    if not sanitary_ok
+                    else {}
+                ),
+            },
+            content_keys=["ordered_segment_ids", "order_content_hash"],
+        )
+    except Exception:
+        pass
+    try:
+        ctx.log(
+            "seat_freeze: preserved selection order "
+            f"(refused:{refuse_reason or 'meta_gate'}; producer={producer}"
+            + (
+                f"; unsanitary:{sanitary_reason[:80]}"
+                if not sanitary_ok
+                else ""
+            )
+            + ")",
+            level="warning",
+            stage=stage_key or producer,
+        )
+    except Exception:
+        pass
     return restored
+
+
+_ACCOUNTABLE_CO_WRITERS = frozenset(
+    {
+        "selection_order_sanitize",
+        "air_script_compose",
+        "nugget_layup_compose",
+        "artifact_sanitize.selection",
+    }
+)
+
+
+def _accountable_co_writer_shrink(
+    ctx: RunContext,
+    previous: dict[str, Any] | None,
+    proposed: dict[str, Any],
+    *,
+    producer: str,
+    stage_key: str,
+) -> dict[str, Any]:
+    """Restore unexplained membership shrinks for sanitize/Pass A co-writers.
+
+    Drops covered by omit ledger / CTA / exclude_rationales are allowed; bare
+    silent shrink (no reason) is refused by restoring the prior id into order.
+    """
+    if producer not in _ACCOUNTABLE_CO_WRITERS and stage_key not in _ACCOUNTABLE_CO_WRITERS:
+        return proposed
+    prev_ids = [str(s) for s in ((previous or {}).get("ordered_segment_ids") or []) if s]
+    cur_ids = [str(s) for s in (proposed.get("ordered_segment_ids") or []) if s]
+    if not prev_ids or not cur_ids:
+        return proposed
+    dropped = [s for s in prev_ids if s not in set(cur_ids)]
+    if not dropped:
+        return proposed
+    explained: set[str] = set()
+    try:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL
+
+        if ctx.artifact_exists(OMIT_LEDGER_REL):
+            ledger = ctx.read_json(OMIT_LEDGER_REL)
+            for row in (ledger or {}).get("omits") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    explained.add(str(row["segment_id"]))
+            for sid in (ledger or {}).get("omitted_segment_ids") or []:
+                if sid:
+                    explained.add(str(sid))
+    except Exception:
+        pass
+    try:
+        from interview_mux.media_ip_cta import never_touch_segment_ids
+
+        explained |= {str(s) for s in never_touch_segment_ids(ctx) if s}
+    except Exception:
+        pass
+    for row in proposed.get("excluded_segment_ids") or []:
+        sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+        if sid:
+            explained.add(sid)
+    rationales = (
+        proposed.get("exclude_rationales")
+        if isinstance(proposed.get("exclude_rationales"), dict)
+        else {}
+    )
+    explained |= {str(k) for k in rationales if k}
+    unexplained = [s for s in dropped if s not in explained]
+    if not unexplained:
+        return proposed
+    # Restore unexplained drops into their prior relative positions (append after
+    # surviving prefix for simplicity).
+    out = dict(proposed)
+    restored = list(cur_ids)
+    have = set(restored)
+    for sid in unexplained:
+        if sid not in have:
+            restored.append(sid)
+            have.add(sid)
+    out["ordered_segment_ids"] = restored
+    try:
+        from interview_mux.order_hash import bump_order_lock
+
+        out = bump_order_lock(out, source=f"{producer}:restore_silent_shrink")
+    except Exception:
+        pass
+    try:
+        ctx.log(
+            f"co_writer_fingerprint: restored {len(unexplained)} silently-shrunk id(s)",
+            level="warning",
+            stage=stage_key or producer,
+            detail={"restored": unexplained[:12]},
+        )
+    except Exception:
+        pass
+    return out
 
 
 def commit_selection_mutation(
@@ -331,6 +472,14 @@ def commit_selection_mutation(
     try:
         previous = _previous_selection(ctx)
         out = dict(selection)
+        # §4A: co-writer silent shrink outside omit ledger is refused (restore prior
+        # membership for unexplained drops; omit-ledger / CTA drops stay).
+        try:
+            out = _accountable_co_writer_shrink(
+                ctx, previous, out, producer=producer, stage_key=stage_key
+            )
+        except Exception:
+            pass
         result = CheckpointResult()
         if not skip_checkpoint:
             out, result = checkpoint_air_order(
@@ -348,6 +497,10 @@ def commit_selection_mutation(
 
         # Sanitize-last: non-amplifying sanitize after any repair/checkpoint, before disk.
         from interview_mux.artifact_sanitize.selection import sanitize_master_selection
+        from interview_mux.media_ip_cta import normalize_media_ip_cta_rows
+
+        # Dig #2 residue: coerce CTA rows to selection schema before sanitize/validate.
+        out = normalize_media_ip_cta_rows(out)
 
         sanitize_result = sanitize_master_selection(ctx, out)
         if not sanitize_result.ok:
@@ -356,6 +509,8 @@ def commit_selection_mutation(
                 + "; ".join((sanitize_result.errors or ["unknown"])[:4])
             )
         out = sanitize_result.doc if isinstance(sanitize_result.doc, dict) else out
+        # Re-normalize after sanitize in case CTA rows were re-touched.
+        out = normalize_media_ip_cta_rows(out)
 
         # b8: under seat freeze, order-changing selection commits need meta-gate
         # allow. On refuse: preserve frozen order (no-op) — same pattern as
@@ -389,14 +544,34 @@ def commit_selection_mutation(
                         producer=producer,
                     )
                     end_a_action = end_a_action_for_ship_blocking_omit(producer)
+                    # Layup / media-IP CTA: omit-only shrink under soft freeze is
+                    # End-A packaging (exec_13177) — _ship_blocking_omit_ids only
+                    # names junction incomplete-cut, so packaging must self-qualify.
+                    cur_set = set(cur_ids)
+                    omit_only = [s for s in prev_ids if s in cur_set] == cur_ids and bool(
+                        [s for s in prev_ids if s not in cur_set]
+                    )
+                    packaging_cta = False
+                    if omit_only and end_a_action:
+                        try:
+                            from interview_mux.seat_authority import (
+                                END_A_PACKAGING_ACTIONS,
+                            )
+
+                            packaging_cta = end_a_action in END_A_PACKAGING_ACTIONS
+                        except Exception:
+                            packaging_cta = False
+                    enda_ids = list(classified) if classified else (
+                        [s for s in prev_ids if s not in cur_set] if packaging_cta else []
+                    )
                     if (
-                        classified
+                        enda_ids
                         and end_a_action
                         and hard_freeze_action_permitted(end_a_action, ctx)
                     ):
                         ctx.log(
-                            "seat_freeze: End-A ship-blocking omit permitted "
-                            f"({end_a_action}; {', '.join(classified[:6])}; "
+                            "seat_freeze: End-A omit permitted "
+                            f"({end_a_action}; {', '.join(enda_ids[:6])}; "
                             f"producer={producer})",
                             level="info",
                             stage=stage_key or producer,
@@ -431,7 +606,7 @@ def commit_selection_mutation(
                                 "order_change": True,
                                 "source": producer,
                                 "stage_key": stage_key,
-                                "ship_omit_ids": list(classified or [])[:12],
+                                "ship_omit_ids": list(enda_ids or classified or [])[:12],
                                 "end_a_action": end_a_action,
                             },
                             reason=(

@@ -200,6 +200,10 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     if not ctx.artifact_exists("understanding/content_brief.json"):
         errors.append("understanding/content_brief.json missing")
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        errors.append(
+            "mastering/mastering_plan.json missing — resume mastering_plan_synthesize"
+        )
     if not ctx.artifact_exists("segments/manifest.json"):
         errors.append("segments/manifest.json missing")
     else:
@@ -224,6 +228,40 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
                 errors.append(
                     "speakers.json role_tape_conflict: interviewer/guest labels contradict tape"
                 )
+    # Starved host packet — fail closed before LLM spend when speakers claim a host
+    # but tape has no interviewer-framed segments.
+    if ctx.artifact_exists("understanding/speakers.json") and ctx.artifact_exists(
+        "segments/manifest.json"
+    ):
+        try:
+            speakers = ctx.read_json("understanding/speakers.json")
+            roles = speakers.get("speakers") if isinstance(speakers, dict) else None
+            has_host = False
+            if isinstance(roles, list):
+                for sp in roles:
+                    if not isinstance(sp, dict):
+                        continue
+                    role = str(sp.get("role") or sp.get("speaker_role") or "").lower()
+                    if role in {"interviewer", "host", "moderator"}:
+                        has_host = True
+                        break
+            if has_host:
+                man = ctx.read_json("segments/manifest.json")
+                typed = [
+                    s
+                    for s in ((man or {}).get("segments") or [])
+                    if isinstance(s, dict)
+                    and str(s.get("type") or "")
+                    in {"interviewer_question", "interviewer_prompt", "host_turn"}
+                ]
+                if not typed:
+                    errors.append(
+                        "starved_host_packet: speakers name a host but manifest "
+                        "has no interviewer-framed segments — resume speaker_roles "
+                        "or segment_classification"
+                    )
+        except Exception:
+            pass
     return errors
 
 

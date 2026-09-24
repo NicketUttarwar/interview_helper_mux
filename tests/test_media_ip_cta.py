@@ -2188,13 +2188,20 @@ def test_cta_omit_excluded_in_order() -> None:
             _seg("seg_010", "Early detection of the tumor changing.", start=4000, end=8000),
         ),
     )
-    ctx.write_json(
-        "master/selection.json",
-        {
-            "ordered_segment_ids": ["seg_054", "seg_010"],
-            "excluded_segment_ids": [{"segment_id": "seg_054", "reason": "media_ip_cta"}],
-            "exclude_rationales": {"seg_054": "media_ip_cta sponsor bumper"},
-        },
+    # Bypass selection sanitize (would strip excludes still on ordered).
+    import json
+
+    sel_path = ctx.path("master", "selection.json")
+    sel_path.parent.mkdir(parents=True, exist_ok=True)
+    sel_path.write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": ["seg_054", "seg_010"],
+                "excluded_segment_ids": [{"segment_id": "seg_054", "reason": "media_ip_cta"}],
+                "exclude_rationales": {"seg_054": "media_ip_cta sponsor bumper"},
+            }
+        ),
+        encoding="utf-8",
     )
     execute_cta_omit_from_needs(ctx, [])
     sel = ctx.read_json("master/selection.json")

@@ -105,6 +105,10 @@ def test_must_precede_table_covers_edl_spine() -> None:
     assert "edl" in MUST_PRECEDE["listen_delight_audit"]
     assert "vo_synthesize" in MUST_PRECEDE["edl"]
     assert producer_ready is seed_stage_complete or callable(producer_ready)
+    # Always-HAU: beds are not producers of mix (exec_13170 follow-through).
+    assert MUST_PRECEDE["mix"] == ("edl",)
+    assert "mmaudio_sfx" not in MUST_PRECEDE["mix"]
+    assert "music_palette_compose" not in MUST_PRECEDE["mix"]
 
 
 # --- Expanded WS2 (non-EDL attached-plan collision set) ---
@@ -376,13 +380,13 @@ def test_sticky_seed_mark_refuses_hollow(
 
 
 def test_premature_cap_applies_regardless_of_automation_flag() -> None:
-    """O15: premature_cap_hard_pin is the shared pin (automation no longer skips)."""
+    """O15: premature_cap applies to automation and GUI via shared helper."""
     import inspect
 
     from interview_mux.web import runner as runner_mod
 
     src = inspect.getsource(runner_mod.JobRunner)
-    assert "premature_cap_hard_pin" in src
+    assert "apply_premature_cap_for_execute" in src
     assert "Expanded WS2 O15" in src
     # Must not be gated solely inside `if not automation_driver_run` block.
     assert "premature_cap applies to automation and GUI" in src

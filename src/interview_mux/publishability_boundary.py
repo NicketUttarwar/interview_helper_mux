@@ -209,21 +209,53 @@ def _check_phantom_vo(
         if not lid or lid in edl_line_ids:
             continue
         try:
+            from interview_mux.hosted_vo_authority import (
+                ORIENTATION_LINE_ID,
+                assert_books_agree,
+                decide_orientation,
+                identify_hosted_vo_floor,
+            )
+
+            if lid == ORIENTATION_LINE_ID and isinstance(gap_report, dict):
+                ordered: list[str] = []
+                if ctx.artifact_exists("master/selection.json"):
+                    sel = ctx.read_json("master/selection.json")
+                    if isinstance(sel, dict):
+                        ordered = [
+                            str(x)
+                            for x in (sel.get("ordered_segment_ids") or [])
+                            if x
+                        ]
+                decision = decide_orientation(ctx, gap_report, ordered)
+                if decision.disposition in {"HEARD_KEEP", "HOLLOW_MINT"}:
+                    ident = identify_hosted_vo_floor(ctx, persist=True)
+                    books = assert_books_agree(ctx)
+                    detail = (
+                        f"orientation {decision.disposition}: remint via ensure/apply "
+                        f"({ident.prose})"
+                    )
+                    if books:
+                        detail += f" books={books[0][:120]}"
+                    out.append(
+                        PublishabilityViolation(
+                            error_class="vo_audibility_drift",
+                            code="hosted_vo_remint_needed",
+                            detail=detail,
+                            line_id=lid,
+                            segment_id=str(line.get("targets_segment_id") or ""),
+                        )
+                    )
+                    continue
+        except Exception:
+            pass
+        try:
             from interview_mux.stages.assembly import resolve_vo_pickup_path
 
             wav = resolve_vo_pickup_path(ctx, line)
         except Exception:
             wav = None
         if wav is not None and wav.is_file():
-            out.append(
-                PublishabilityViolation(
-                    error_class="vo_audibility_drift",
-                    code="phantom_vo",
-                    detail=f"WAV exists without EDL vo_pickup for {lid}",
-                    line_id=lid,
-                    segment_id=str(line.get("targets_segment_id") or ""),
-                )
-            )
+            out.append(_phantom_vo_violation(ctx, line, lid))
             continue
         # Fallback: on-disk synth/clean WAV without G1-green resolve still counts
         # as phantom (publishability must see bytes, not only audit-bound paths).
@@ -236,21 +268,50 @@ def _check_phantom_vo(
                         continue
                     candidate = base / f"{key}.wav"
                     if candidate.is_file():
-                        out.append(
-                            PublishabilityViolation(
-                                error_class="vo_audibility_drift",
-                                code="phantom_vo",
-                                detail=f"WAV exists without EDL vo_pickup for {lid}",
-                                line_id=lid,
-                                segment_id=str(line.get("targets_segment_id") or ""),
-                            )
-                        )
+                        out.append(_phantom_vo_violation(ctx, line, lid))
                         raise StopIteration
         except StopIteration:
             pass
         except Exception:
             pass
     return out
+
+
+def _phantom_vo_violation(
+    ctx: RunContext, line: dict[str, Any], lid: str
+) -> PublishabilityViolation:
+    """Tag survivor-class phantoms as edl_survivor_wipe so heal pins EDL rebuild."""
+    detail = f"WAV exists without EDL vo_pickup for {lid}"
+    code = "phantom_vo"
+    try:
+        from interview_mux.hosted_vo_authority import (
+            edl_before_line_survives,
+            identify_hosted_vo_floor,
+        )
+
+        if edl_before_line_survives(line, after_vo_stack=True):
+            ident = identify_hosted_vo_floor(ctx, persist=False)
+            origin = str(line.get("origin") or "")
+            code = "edl_survivor_wipe"
+            if ident.cause == "edl_survivor_wipe":
+                detail = (
+                    f"edl_survivor_wipe: {lid} WAV on disk but not seated "
+                    f"(origin={origin}; {ident.prose}) — rebuild edl"
+                )
+            else:
+                detail = (
+                    f"edl_survivor_wipe: survivor-class {lid} WAV without EDL seat "
+                    f"(origin={origin}) — rebuild edl, do not remint"
+                )
+    except Exception:
+        pass
+    return PublishabilityViolation(
+        error_class="vo_audibility_drift",
+        code=code,
+        detail=detail,
+        line_id=lid,
+        segment_id=str(line.get("targets_segment_id") or ""),
+    )
 
 
 def _check_unseated_required_vo(

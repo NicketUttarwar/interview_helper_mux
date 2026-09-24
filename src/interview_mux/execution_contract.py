@@ -29,6 +29,36 @@ LADDER_TIERS: tuple[str, ...] = (
     "tier_d_logged_waive",
 )
 
+# Plan-mutating tiers write mastering_plan under air_contract_sanitize ownership.
+# Analysis-era consumers (esp. gap_framing_compose) must not run them — live
+# AuthorityDenied on mastering_plan (exec_13167/13168/13170/13174).
+_PLAN_MUTATING_LADDER_TIERS: frozenset[str] = frozenset(
+    {
+        "tier_c_opening_omit_unseat",
+        "tier_d_logged_waive",
+    }
+)
+
+
+def _consumer_is_analysis_era(consumer_stage: str) -> bool:
+    stage = str(consumer_stage or "").strip()
+    if not stage:
+        return False
+    try:
+        from interview_mux.v2.config import ANALYSIS_ORDER
+
+        return stage in ANALYSIS_ORDER or stage == "optimal_questions"
+    except Exception:
+        return stage in {
+            "missing_framing",
+            "gap_framing_compose",
+            "optimal_questions",
+            "mastering_plan_confirm",
+            "delivery_brief_build",
+            "soundscape_policy_build",
+            "episode_structure_compose",
+        }
+
 
 def _vo_ladder_id_sets(ctx: RunContext) -> tuple[list[str], list[str], list[str]]:
     """Seated / omitted / skip IDs for a size-independent ladder fingerprint."""
@@ -377,6 +407,34 @@ def _tier_c_opening_omit_unseat(ctx: RunContext) -> list[str]:
     return list(dict.fromkeys(written))
 
 
+def _tier_d_target_is_required_orientation(
+    gap: dict[str, Any] | None,
+    lid: str,
+) -> bool:
+    """True when VO ladder must not waive a still-required opening orientation."""
+    if not isinstance(gap, dict):
+        return False
+    meta = gap.get("opening_orientation")
+    if not isinstance(meta, dict) or not meta.get("required"):
+        return False
+    # Still required: never ladder-waive orientation (even with omitted half-state).
+    from interview_mux.opening_orientation import ORIENTATION_LINE_ID, is_episode_orientation
+
+    oid = str(meta.get("line_id") or "").strip()
+    if lid and oid and lid == oid:
+        return True
+    if lid and lid == ORIENTATION_LINE_ID:
+        return True
+    for row in gap.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("line_id") or "").strip() != lid:
+            continue
+        return bool(is_episode_orientation(row))
+    # No matching line but lid names orientation — refuse meta-only flip.
+    return bool(lid) and (lid == oid or lid == ORIENTATION_LINE_ID)
+
+
 def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list[str]:
     try:
         from interview_mux.seat_authority import gate_seat_mutation
@@ -403,6 +461,39 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
         else ORIENTATION_LINE_ID
     )
     written: list[str] = []
+
+    gap_early: dict[str, Any] | None = None
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            raw = ctx.read_json("understanding/gap_report.json")
+            if isinstance(raw, dict):
+                gap_early = raw
+        except Exception:
+            gap_early = None
+
+    # Constitution: required opening orientation is non-waivable by VO ladder
+    # (publishability T0-4). Escalate via ladder exhaust → vo_synthesize heal.
+    if _tier_d_target_is_required_orientation(gap_early, lid):
+        try:
+            ctx.log(
+                "tier_d_refused_required_orientation",
+                level="warning",
+                stage="execution_contract",
+                detail={"line_id": lid or "orientation"},
+            )
+        except Exception:
+            pass
+        try:
+            from interview_mux.recovery_controller import append_remediation_log
+
+            append_remediation_log(
+                ctx,
+                action="tier_d_refused_required_orientation",
+                detail=lid or "orientation",
+            )
+        except Exception:
+            pass
+        return []
 
     if ctx.artifact_exists("mastering/mastering_plan.json"):
         from interview_mux.air_script import load_air_script
@@ -436,7 +527,7 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
 
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return written
-    gap = ctx.read_json("understanding/gap_report.json")
+    gap = gap_early if isinstance(gap_early, dict) else ctx.read_json("understanding/gap_report.json")
     if not isinstance(gap, dict):
         return written
     lines_out: list[dict[str, Any]] = []
@@ -465,7 +556,32 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
     out = dict(gap)
     out["interviewer_lines"] = lines_out
     # Persist omit meta so filter_gap_lines / ORIENTATION_ALWAYS cannot un-omit.
-    if found or lid:
+    # Only when not still-required (gated above). Require both omitted+required=false.
+    # CRITICAL: only touch opening_orientation meta when the waived *line* is
+    # orientation — waiving vo_question_* must not mark orientation omitted
+    # (exec_13181: waived_line_id=vo_question_seg_009 flipped required=false →
+    # preface omit-sync → hosted_vo_floor 2<3 thrash).
+    waived_row = next(
+        (
+            r
+            for r in lines_out
+            if isinstance(r, dict) and str(r.get("line_id") or "").strip() == lid
+        ),
+        None,
+    )
+    waive_is_orientation = bool(
+        lid
+        and (
+            lid == ORIENTATION_LINE_ID
+            or (isinstance(waived_row, dict) and is_episode_orientation(waived_row))
+            or (
+                isinstance(gap_early, dict)
+                and str((gap_early.get("opening_orientation") or {}).get("line_id") or "").strip()
+                == lid
+            )
+        )
+    )
+    if waive_is_orientation and (found or lid):
         meta = out.get("opening_orientation")
         meta = dict(meta) if isinstance(meta, dict) else {}
         meta["omitted"] = True
@@ -477,6 +593,16 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
         out["opening_orientation"] = meta
     ctx.write_json("understanding/gap_report.json", out)
     written.append("understanding/gap_report.json")
+    # Omit removed audible cover — demote leftover high gaps so compose lint
+    # cannot stay dirty while omit-wins holds (exec_13170 seg_007).
+    try:
+        from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+        demote_uncovered_high_gaps(
+            ctx, gap_report=out, origin="post_commit_uncovered_high"
+        )
+    except Exception:
+        pass
     reconcile_execution_contract(ctx, reason="tier_d_logged_waive")
     try:
         from interview_mux.recovery_controller import append_remediation_log
@@ -720,8 +846,26 @@ def run_vo_contract_ladder(
     primary_violation = classify_vo_violation(violations[0])
     last_tier = ""
     artifacts: list[str] = []
+    analysis_era = _consumer_is_analysis_era(consumer_stage)
+    if analysis_era:
+        ctx.log(
+            "vo_contract ladder: analysis-era consumer — skipping plan-mutating "
+            f"tiers ({', '.join(sorted(_PLAN_MUTATING_LADDER_TIERS))})",
+            level="warning",
+            stage=consumer_stage or "execution_contract",
+            detail={"consumer_stage": consumer_stage, "violations": violations[:4]},
+        )
 
     for tier in LADDER_TIERS[tier_index:]:
+        if analysis_era and tier in _PLAN_MUTATING_LADDER_TIERS:
+            ctx.log(
+                f"vo_contract ladder skip {tier} under analysis consumer "
+                f"{consumer_stage} (mastering_plan owned by air_contract_sanitize)",
+                level="info",
+                stage=consumer_stage or "execution_contract",
+                detail={"tier": tier},
+            )
+            continue
         last_tier = tier
         try:
             if tier == "tier_a_publish_orientation":
@@ -751,6 +895,35 @@ def run_vo_contract_ladder(
                 artifacts=list(dict.fromkeys(artifacts)),
                 resume_stage=_resume_after_ladder(consumer_stage),
             )
+
+    # Analysis-era: do not escalate through plan-mutate; pin compose/high-gap fill.
+    if analysis_era and violations:
+        pin = "gap_framing_compose"
+        if str(consumer_stage or "").strip() in {"missing_framing", "optimal_questions"}:
+            pin = str(consumer_stage).strip()
+        _write_vo_repair_plan(
+            ctx,
+            tier="analysis_era_skip_plan_mutate",
+            violations=list(violations or []),
+            consumer_stage=consumer_stage,
+            fingerprint=fp,
+            last_outcome="analysis_era_skip",
+            detail="plan_mutating_tiers_skipped",
+        )
+        _log_ladder_action(
+            ctx,
+            tier="analysis_era_skip_plan_mutate",
+            status="escalate",
+            consumer_stage=consumer_stage,
+        )
+        return LadderResult(
+            tier="analysis_era_skip_plan_mutate",
+            recovered=False,
+            contract_ok=False,
+            violations=list(violations or []),
+            detail="plan_mutating_tiers_skipped_for_analysis_consumer",
+            resume_stage=pin,
+        )
 
     # HV-1: exhaust keeps the repair plan open and pins vo_synthesize.
     fp_end = _vo_ladder_fingerprint(ctx, violations)

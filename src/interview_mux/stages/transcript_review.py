@@ -187,6 +187,8 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
     if not ctx.artifact_exists("transcript/corrections.json"):
         _write_transcript_json(ctx, "transcript/corrections.json", {"corrections": {}})
     materialize_transcript(ctx, source="review_complete")
+    # DETECTION_ONLY_IS_DONE: invalidate downstream when speaker_roles was stamped
+    # (hollow or honest) — review rewrite must not leave stale roles.
     if ctx.is_done("speaker_roles"):
         from interview_mux.pipeline import ANALYSIS_ORDER
 
@@ -196,7 +198,9 @@ def mark_transcript_review_complete(ctx: RunContext) -> None:
         chunk["reviewed"] = True
     _write_transcript_json(ctx, "transcript/review_queue.json", queue)
     ctx.mark_done("transcript_review")
-    if not ctx.is_done("transcript_review"):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if not seed_stage_complete(ctx, "transcript_review"):
         raise RuntimeError(
             "transcript_review mark_done refused — G0 sign-off did not stick "
             "(check authority / stage_outputs_present)."

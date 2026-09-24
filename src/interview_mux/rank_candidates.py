@@ -99,6 +99,7 @@ def pick_best_order(
     hook_segment_id: str | None = None,
     brief_min_sec: float | None = None,
     brief_ideal_sec: float | None = None,
+    ctx: Any = None,
 ) -> dict[str, Any]:
     """Score candidates and return rank_candidates doc + winner order.
 
@@ -126,6 +127,17 @@ def pick_best_order(
             brief_min_sec=brief_min_sec,
             brief_ideal_sec=brief_ideal_sec,
         )
+        open_critical = False
+        if ctx is not None:
+            try:
+                from interview_mux.open_shape_repair import candidate_has_open_shape_criticals
+
+                open_critical = candidate_has_open_shape_criticals(ctx, ordered)
+            except Exception:
+                open_critical = False
+        if open_critical:
+            # Refuse Shape/chapter/seed winners with broken opens vs ranking.
+            score -= 50.0
         scored.append(
             {
                 "source": str(cand.get("source") or "unknown"),
@@ -133,6 +145,7 @@ def pick_best_order(
                 "score": round(score, 2),
                 "story_health_verdict": health.get("verdict"),
                 "bridge_count": len(bridges.get("pairs") or []),
+                "open_shape_critical": open_critical,
             }
         )
 
@@ -144,7 +157,22 @@ def pick_best_order(
             "ordered_segment_ids": [],
         }
 
-    scored.sort(key=lambda r: float(r.get("score") or -999), reverse=True)
+    # Prefer candidates without open-shape criticals when scores are close.
+    scored.sort(
+        key=lambda r: (
+            0 if r.get("open_shape_critical") else 1,
+            float(r.get("score") or -999),
+        ),
+        reverse=True,
+    )
+    # Among remaining, if top non-ranking still has open criticals and ranking
+    # does not, force ranking.
+    ranking_rows = [r for r in scored if r.get("source") == "ranking"]
+    if ranking_rows and scored[0].get("source") != "ranking":
+        if scored[0].get("open_shape_critical") and not ranking_rows[0].get(
+            "open_shape_critical"
+        ):
+            scored = ranking_rows + [r for r in scored if r.get("source") != "ranking"]
     winner = scored[0]
     win_ids = [str(s) for s in (winner.get("ordered_segment_ids") or []) if s]
     seen: set[str] = set()

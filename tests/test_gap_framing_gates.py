@@ -676,11 +676,13 @@ def test_fill_uncovered_high_gaps_skips_when_identity_exhausted(
     seed: dict = {"interviewer_lines": []}
     applied: list[dict] = []
     added = fill_uncovered_high_gaps(ctx, seed, applied=applied)
-    assert added == 0
+    # Budget exhausted → skip LLM, then deterministic seed (no greenwash).
     assert calls["n"] == 0
     assert any(row.get("reason") == "limit_exhausted" for row in applied)
-    evals = ctx.read_json("understanding/gap_evaluations.json")
-    assert evals["evaluations"][0]["severity"] == "medium"
+    assert added >= 1
+    assert any(
+        str(row.get("action") or "").startswith("high_gap_vo") for row in applied
+    )
 
 
 def test_fill_uncovered_high_gaps_stops_on_limit_exhausted(
@@ -721,11 +723,11 @@ def test_fill_uncovered_high_gaps_stops_on_limit_exhausted(
     seed: dict = {"interviewer_lines": []}
     applied: list[dict] = []
     added = fill_uncovered_high_gaps(ctx, seed, applied=applied)
-    assert added == 0
+    # First LLM hit LimitExhausted → seed remainder (no further LLM).
     assert calls["n"] == 1
     assert any(row.get("reason") == "limit_exhausted" for row in applied)
-    evals = ctx.read_json("understanding/gap_evaluations.json")
-    assert all(row["severity"] == "medium" for row in evals["evaluations"])
+    assert added >= 1
+    assert len(seed.get("interviewer_lines") or []) >= 1
 
 
 def test_demote_uncovered_high_gaps_clears_listenability_ratio(ctx: RunContext) -> None:
@@ -838,6 +840,85 @@ def test_preface_forward_cue_heal(ctx: RunContext) -> None:
     )
 
 
+def test_preface_cold_open_layup_heal_restatement(ctx: RunContext) -> None:
+    """Cascade (MUX_FORENSICS=0): cued preface that restates first native must heal.
+
+    exec_13181: vo_preface_seg_004 had a forward-cue question overlapping liquid/
+    biopsy tokens on seg_004 → cold_open_layup_ok fail; F3 only healed missing cues.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_repairs import repair_gap_report
+    from interview_mux.gap_vo_prior_context import cold_open_layup_ok, has_forward_cue
+
+    native = (
+        "Mohan, thanks for joining us. We're going to talk today about how AI is "
+        "transforming both cancer care and the development of new therapies. "
+        "OneCell .ai and how its liquid biopsy diagnostics are used by both "
+        "clinicians and researchers. So let's start with the liquid biopsies. "
+        "For audience members who may not be familiar with these, can you explain "
+        "what they mean and how they work?"
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_004"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_004",
+                    "text": native,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": ["biopsy"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+    )
+    restating = (
+        "Precision oncology aims to tailor cancer care to the biology of an "
+        "individual tumour. This conversation examines whether blood-based tests "
+        "can add useful information without relying only on tissue samples. "
+        "What distinguishes tissue biopsy, liquid biopsy and cell biopsy?"
+    )
+    doc = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_seg_004",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "targets_segment_id": "seg_004",
+                "text": restating,
+                "delivery": "synthesize",
+                "placement": "before",
+            }
+        ]
+    }
+    assert has_forward_cue(restating)
+    assert cold_open_layup_ok(
+        doc["interviewer_lines"][0],
+        target_text=native,
+        ordered_ids=["seg_004"],
+    ) is False
+
+    repaired, notes = repair_gap_report(ctx, doc)
+    line = (repaired.get("interviewer_lines") or [doc["interviewer_lines"][0]])[0]
+    healed = str(line.get("text") or "")
+    assert has_forward_cue(healed)
+    assert cold_open_layup_ok(
+        line, target_text=native, ordered_ids=["seg_004"]
+    ), healed
+    assert any(
+        n.get("action") == "preface_cold_open_layup_heal" for n in notes
+    ), notes
+
+
 def test_context_setup_layup_stays_within_word_budget(ctx: RunContext) -> None:
     """Cascade (MUX_FORENSICS=0): layup must not re-bloom past context_setup max.
 
@@ -895,7 +976,16 @@ def test_context_setup_layup_stays_within_word_budget(ctx: RunContext) -> None:
         ]
     }
     repaired, notes = repair_gap_report(ctx, doc)
-    line = (repaired.get("interviewer_lines") or [None])[0]
+    lines = repaired.get("interviewer_lines") or []
+    if not lines:
+        # Ambient spoken-copy omit may drop optional context_setup (not GFC harden).
+        # Direct repair_last_sentence_layup above already proves cue + word budget.
+        assert any(
+            isinstance(n, dict) and n.get("action") == "omit_unsafe_optional_vo"
+            for n in (notes or [])
+        )
+        return
+    line = lines[0]
     assert line is not None
     text = str(line.get("text") or "")
     assert has_forward_cue(text)

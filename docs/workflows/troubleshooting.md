@@ -199,6 +199,17 @@ STT and diarization run locally in `ASSETS/local_speech/venv` (`stages/transcrib
 |---------|----------------|---------|--------|
 | Absurd segment count | Over-splitting | `segments/boundaries.json` | `--from-stage boundary_detection` with clearer brief |
 | Wrong gap types | STT errors in segment text | `segments/manifest.json` text | Fix G0 transcript first, then `--from-stage missing_framing` |
+| `missing_framing sealed_ratio` / `sealed_vs_risk` | CAP seal fraction high or sealed-low vs framing-risk authority (specialist ∪ chapter/talking-point proxies) | `understanding/stage_runs/missing_framing/coverage_report.json` (`framing_risk_*`) | Resume `missing_framing` for bounded rescue |
+| `missing_framing sealed_ratio_hard` | Still sealed > `sealed_ratio_hard_max` after rescue | same coverage_report | Operator STOP — inspect seals; do not CAP-accept |
+| `vo_path_not_ready` / voice-ref ladder | Pickup / voice-ref / consent / delivery open | G-Framing gate UI | Finish VO ladder — not a gap_evaluations CAP issue |
+| `missing_framing empty shard after retry` | Proactive LLM shard returned no evaluations | gui_log `missing_framing.shard_empty_retry` | Fix OpenAI/network; re-run `--from-stage missing_framing` |
+| `gap_framing_compose hosted_vo_floor` | G-Framing Yes + evals warrant VO but too few lines | `understanding/gap_report.json` + `gap_evaluations.json` | With `progress_floors.hosted_vo.aspirational` (default): revive discarded soft-omits then advisory-continue. Legacy: re-run compose; check eval severity |
+| `nugget_layup_compose` hollow / `hosted_vo_floor_unmet` | G-Framing Yes floor unmet after publish or mid-restart wipe | `nugget_layup_plan.json`, `gap_report.json`, `run_meta.floor_advisories` | Persist QC-gates before authority publish; hollow preserve / floor topup / deterministic materialize / revive discarded. Default progress floors → advisory proceed (not re-pin LLM). Legacy `hosted_vo_floor_unsatisfiable` only when `progress_floors.enabled: false` |
+| `layup_compose_qc_pending` | Craft/coverage QC failed without publishing dirty gap | plan `_meta.compose_qc_pending` | Resume compose once; craft spine/skip or degraded regen — not gap wipe |
+| `layup_unsanitary` / open high-salience | QC / sanitize refuse | `nugget_layup_qc.json`, corpus | Recover/park salience; sparse_omit stamps justified skips; aspirational air coverage is advisory |
+| `incomplete_after_conductor` pin=layup | Conductor progress while layup incomplete / leapfrog | seed-front (NAP) + layup markers | Cap/heal clamp to earliest incomplete; freeze-safe CTA skip under soft/hard freeze |
+| `seated_bind_stale:vo_layup_*` | Layup rewrite left old WAVs | `vo_pickup/`, gap line text | Rewrite invalidates touched WAVs + unmarks `vo_synthesize` |
+| `missing_hard_input_mastering_plan` | MF dispatched without plan | `mastering/mastering_plan.json` | `--from-stage mastering_plan_synthesize` |
 | `value_analysis_skip_no_wav` in log | Auto-extract enabled but `ingest/normalized.wav` missing | `gui_log.jsonl` `stage=content_context` or `value_analysis_extract` | Expected fail-open — transcript profile still extracts; run ingest before audio profile or disable `value_analysis.audio_features` |
 | Trust-dip flags in `value_features.json` | RMS proxy flagged listener-trust windows (H-ING-03) | `understanding/value_features.json` `profiles.transcript.quality_trajectory_flags` | Review flagged windows in GUI log (`value_features: N trust-dip flags`); re-run `--from-stage value_analysis_extract` or `python tools/extract_value_features.py --run-id <id> --profile transcript` |
 | `Pre-stage specialist comprehension_risk_blind failed` | Specialist timeout/API error (fail-open) | `understanding/stage_runs/missing_framing/specialist_comprehension_risk_blind.json` | `missing_framing` continues without risks; fix API/network; re-run `--from-stage missing_framing`; optional investigation enqueued when flow hardening on |
@@ -211,6 +222,10 @@ STT and diarization run locally in `ASSETS/local_speech/venv` (`stages/transcrib
 | Symptom | Likely cause | Inspect | Action |
 |---------|----------------|---------|--------|
 | Duplicate `segment_id` in order | Model error | `master/selection.json` | `--from-stage full_master_ranking`; fix manifest if ids wrong |
+| `authority_denied:…segments/manifest.json:full_master_ranking` | CTA recut child materialize under ranking | `media_ip_cta` / NLE splits | Ranking is a co-producer with `mutation_class=cta_child_materialize`; side-write fails soft — selection still commits |
+| `full_master_ranking:incomplete_no_persistable` | Empty LLM order + no salvage | envelopes under `llm_calls/full_master_ranking` | Driver tries last envelope then chapter/Shape/hard-keep fallback before halt |
+| `story_health` fail after ranking | Soft narrative/bridge issues | `master/story_health.json`, `operator/ranking_glue_pin.json` | Selection still commits; pin `transitions` / seam — do not rewind ranking |
+| Remutate undoes cold open | Late selection rewrite of first slots | `edl_narrative_remutate` | Open-window freeze keeps first 3 slots unless `open_window_override` |
 | Constraint violation | `narrative_plan.ordering_constraints` impossible | `narrative_plan.json` + `selection.json` | Edit plan or re-run `narrative_arc_plan` |
 | Topic missing in master | Excluded without rationale | `selection.excluded_segment_ids`, `coverage_audit` | Re-audit or adjust exclusions |
 | Coverage misses quiet vital claim | Emphasis-weighted gap not in `coverage_audit` | `master/coverage_audit.json`, `gui_log.jsonl` `emphasis_regions count=` | Re-run `--from-stage topic_coverage_audit`; verify `ingest/normalized.wav` for H-F1N-02 emphasis; check `emphasis_regions` in volley |

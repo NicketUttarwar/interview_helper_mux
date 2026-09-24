@@ -133,15 +133,31 @@ def edl_sanitary_errors(ctx: Any) -> list[str]:
     if not ctx.artifact_exists(REL):
         return [f"{REL} missing"]
     errs: list[str] = []
-    if not ctx.artifact_exists(LEDGER_REL):
-        errs.append(f"{LEDGER_REL} missing")
     try:
         doc = ctx.read_json(REL)
     except Exception as exc:
         return [f"{REL} unreadable: {exc}"]
     if not isinstance(doc, dict):
         return [f"{REL} invalid"]
+    # Ledger is co-emitted by edl — missing ledger must not block re-running edl
+    # (exec_13183: edl_unsanitary ledger missing → heal cannot reseat phantom VO).
+    if not ctx.artifact_exists(LEDGER_REL):
+        try:
+            from interview_mux.assembly_ledger import write_assembly_ledger
+
+            write_assembly_ledger(ctx, edl=doc)
+        except Exception:
+            pass
+        if not ctx.artifact_exists(LEDGER_REL):
+            errs.append(f"{LEDGER_REL} missing")
     result = sanitize_edl(ctx, doc)
     if not result.ok:
         errs.extend(result.errors or ["edl sanitize refused"])
+    # Cluster C: gap omit XOR EDL/WAV orientation seat.
+    try:
+        from interview_mux.hosted_vo_authority import assert_books_agree
+
+        errs.extend(assert_books_agree(ctx))
+    except Exception:
+        pass
     return errs

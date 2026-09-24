@@ -160,3 +160,90 @@ def test_hosted_floor_does_not_reseat_omit_wins(
     assert LINE_ID not in (seats.get("seated_line_ids") or [])
     fixed = ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]
     assert fixed.get("skipped_optional")
+
+
+def test_execution_contract_waive_survives_hosted_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """exec_13170: tier-D waive must stay omit-wins even if flags were stripped."""
+    from interview_mux.vo_contract import (
+        ensure_gap_line_on_air,
+        mark_gap_line_not_on_air,
+        omit_wins_skip_reason,
+        validate_vo_contract,
+    )
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx = isolated_run_ctx(tmp_path, "f3_tier_d_waive")
+    _homunculus(ctx)
+    lid = "vo_context_seg_011"
+    stamped = mark_gap_line_not_on_air(
+        {
+            "line_id": lid,
+            "delivery": "synthesize",
+            "gap_type": "missing_setup",
+            "targets_segment_id": "seg_011",
+            "placement": "before",
+            "required": True,
+            "text": "What changed for patients after the trial readout?",
+            "severity": "high",
+        },
+        reason_code="execution_contract_waive",
+        compensating_path="tier_d_logged_waive",
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [stamped],
+            "opening_orientation": {
+                "omitted": True,
+                "waived_line_id": lid,
+                "required": False,
+            },
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "beats": [],
+                "vo_seats": {
+                    "seated_line_ids": [],
+                    "omitted_line_ids": [lid],
+                },
+            }
+        },
+        skip_handoff=True,
+    )
+    assert omit_wins_skip_reason(stamped) is True
+    # Simulate thrash that cleared flags but left durable waive markers.
+    stripped = dict(stamped)
+    stripped.pop("skipped_optional", None)
+    stripped.pop("air_script_omit", None)
+    stripped.pop("skip_reason_code", None)
+    assert omit_wins_skip_reason(stripped) is True
+    assert ensure_gap_line_on_air(stripped).get("omit_notes")
+    reseated = ensure_hosted_framing_vo_seats(ctx)
+    assert lid not in reseated
+    seats = ctx.read_json("mastering/mastering_plan.json")["air_script"]["vo_seats"]
+    assert lid not in (seats.get("seated_line_ids") or [])
+    assert lid in (seats.get("omitted_line_ids") or [])
+    repair_vo_contract_drift(ctx)
+    assert not any("lacks skip/omit" in v for v in validate_vo_contract(ctx))
+    fixed = next(
+        r
+        for r in ctx.read_json("understanding/gap_report.json")["interviewer_lines"]
+        if r.get("line_id") == lid
+    )
+    assert fixed.get("skipped_optional") is True
+    assert fixed.get("air_script_omit") is True
+    assert str(fixed.get("skip_reason_code") or "") == "execution_contract_waive"

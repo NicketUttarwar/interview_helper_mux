@@ -261,15 +261,27 @@ def apply_cheap_remediation(ctx: RunContext) -> list[str]:
         # carries mix-time levels). Raising here aborted the junction commitment
         # remaster mid-render — exec_11871 `authority_denied … edl_sealed`.
         return [f"{a}:advisory_sdp_sealed" for a in actions]
-    from interview_mux.seat_authority import persist_frozen_seat_doc
+    from interview_mux.seat_authority import persist_frozen_seat_doc_verified
 
-    if not persist_frozen_seat_doc(
+    touched = [
+        str(c.get("cue_id") or "")
+        for c in bed_cues
+        if isinstance(c, dict) and c.get("cue_id")
+    ]
+    result = persist_frozen_seat_doc_verified(
         ctx,
         "understanding/sound_design_plan.json",
         sdp,
         reason="soundscape_bed_trim",
-    ):
-        return [f"{a}:advisory_sdp_seat_freeze" for a in actions]
+        touched_cue_ids=touched or None,
+    )
+    if not result.get("ok"):
+        return [
+            f"{a}:advisory_sdp_seat_freeze"
+            if result.get("skipped")
+            else f"{a}:verify_failed"
+            for a in actions
+        ]
     return actions
 
 
@@ -359,20 +371,28 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
         ):
             try:
                 from interview_mux.artifact_repairs import repair_sound_design_plan
-                from interview_mux.seat_authority import persist_frozen_seat_doc
+                from interview_mux.seat_authority import (
+                    hard_freeze_active,
+                    persist_frozen_seat_doc,
+                )
 
-                if ctx.artifact_exists("understanding/sound_design_plan.json"):
+                if hard_freeze_active(ctx):
+                    # Locked NO: seed_repair expands beds under hard freeze.
+                    actions.append("bed_seed_repair_skipped_hard_freeze")
+                elif ctx.artifact_exists("understanding/sound_design_plan.json"):
                     sdp = ctx.read_json("understanding/sound_design_plan.json")
                     fixed, notes = repair_sound_design_plan(
                         ctx, sdp if isinstance(sdp, dict) else {}
                     )
-                    persist_frozen_seat_doc(
+                    if not persist_frozen_seat_doc(
                         ctx,
                         "understanding/sound_design_plan.json",
                         fixed,
                         reason="soundscape_bed_seed_repair",
-                    )
-                    actions.extend([str(n.get("action") or n) for n in notes[-8:]])
+                    ):
+                        actions.append("bed_seed_repair_skipped_seat_freeze")
+                    else:
+                        actions.extend([str(n.get("action") or n) for n in notes[-8:]])
             except Exception as exc:
                 actions.append(f"bed_seed_repair_failed:{exc}"[:120])
         report["remediation_actions"] = actions
@@ -399,7 +419,17 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
             "< min" in f and (f.startswith("bed_coverage") or f.startswith("hinge_stinger_coverage"))
             for f in failures
         )
-        if fail_closed() and not only_min_coverage_shortfall:
+        density_asp = False
+        try:
+            from interview_mux.floor_progress import (
+                record_floor_advisory,
+                soundscape_density_aspirational,
+            )
+
+            density_asp = soundscape_density_aspirational(ctx)
+        except Exception:
+            density_asp = False
+        if fail_closed() and not only_min_coverage_shortfall and not density_asp:
             report["verdict"] = "fail_closed"
             ctx.log(
                 f"soundscape_verify fail_closed: {report.get('failures')}",
@@ -408,8 +438,19 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
             )
         else:
             report["verdict"] = "warning"
-            if fail_closed() and only_min_coverage_shortfall:
+            if fail_closed() and (only_min_coverage_shortfall or density_asp):
                 report["fail_closed_softened"] = True
+            if density_asp:
+                try:
+                    record_floor_advisory(
+                        ctx,
+                        "soundscape_density",
+                        {"failures": failures[:8], "source": "soundscape_verify"},
+                        aspirational_proceeded=True,
+                        mirror_quality=True,
+                    )
+                except Exception:
+                    pass
             ctx.log(
                 f"soundscape_verify warning (shipping): {report.get('failures')}",
                 level="warning",

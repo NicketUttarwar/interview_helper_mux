@@ -1473,26 +1473,67 @@ def persist_transitions_doc(
     *,
     stage_key: str | None = None,
     skip_handoff: bool = False,
+    reason: str = "",
 ) -> dict[str, Any]:
-    """Write ``master/transitions.json`` after retaining adjacency-required pairs."""
+    """Write ``master/transitions.json`` after retaining adjacency-required pairs.
+
+    ``reason`` is the seat-freeze / End-A action id (not the writer stage). When
+    omitted, falls back to ``stage_key`` then ``persist_transitions_doc``.
+    """
     from interview_mux.artifact_sanitize.one_writer import commit_transitions_doc
 
+    enda_reason = str(reason or stage_key or "persist_transitions_doc").strip()
+    incoming = dict(doc or {"transitions": []})
     retained_path = commit_transitions_doc(
         ctx,
-        dict(doc or {"transitions": []}),
+        incoming,
         stage_key=stage_key,
         skip_handoff=skip_handoff,
-        reason=stage_key or "persist_transitions_doc",
+        reason=enda_reason,
     )
     try:
         loaded = ctx.read_json("master/transitions.json")
         if isinstance(loaded, dict):
+            # Freeze skip-write returns the path without mutating disk. Detect
+            # silent stale re-reads so callers do not claim mint success.
+            def _pair_set(d: dict[str, Any]) -> set[tuple[str, str]]:
+                out: set[tuple[str, str]] = set()
+                for key in ("transitions", "deferred_transition_pairs"):
+                    for row in d.get(key) or []:
+                        if not isinstance(row, dict):
+                            continue
+                        a = str(row.get("after_segment_id") or "").strip()
+                        b = str(row.get("before_segment_id") or "").strip()
+                        if a and b:
+                            out.add((a, b))
+                return out
+
+            want = _pair_set(incoming)
+            got = _pair_set(loaded)
+            missing = want - got
+            if missing and any(
+                isinstance(r, dict) and r.get("auto_minted")
+                for r in (incoming.get("transitions") or [])
+                if (
+                    str(r.get("after_segment_id") or ""),
+                    str(r.get("before_segment_id") or ""),
+                )
+                in missing
+            ):
+                raise ValueError(
+                    "transitions persist refused under seat freeze "
+                    f"(reason={enda_reason}; missing_pairs="
+                    + ",".join(f"{a}->{b}" for a, b in sorted(missing)[:6])
+                    + ")"
+                )
             return loaded
+    except ValueError:
+        raise
     except Exception:
         pass
     # Fallback — path was written; return input shape
     _ = retained_path
-    return dict(doc or {"transitions": []})
+    return incoming
 
 
 def _pre_mix_window(ctx: RunContext) -> bool:

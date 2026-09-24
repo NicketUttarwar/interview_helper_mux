@@ -118,6 +118,40 @@ def test_5f_sticky_halt_constrains_delivery_walk(tmp_path: Path) -> None:
     assert _constrain_delivery_walk_for_sticky(ctx, stages) == ["edl_narrative_audit"]
 
 
+def test_sticky_sealed_pin_clears_and_allows_remainder_walk(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """exec_13170: sealed SDP sticky must not refuse vo_line_adjudicate walk."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.homunculus.agenda import _constrain_delivery_walk_for_sticky
+    from run_fixtures import mark_done_raw
+
+    ctx = isolated_run_ctx(tmp_path, "ws5_sticky_sealed")
+    # Minimal SDP artifact so seed_stage_complete can pass when we stub it.
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid == "sound_design_plan",
+    )
+    ctx.write_json(
+        "operator/sticky_heal.json",
+        {
+            "active_halt": {
+                "pin": "sound_design_plan",
+                "halt": True,
+                "kind": "incomplete_after_conductor",
+            }
+        },
+        skip_handoff=True,
+    )
+    stages = ["vo_line_adjudicate", "vo_synthesize", "edl"]
+    out = _constrain_delivery_walk_for_sticky(ctx, stages)
+    assert out == stages
+    sticky = ctx.read_json("operator/sticky_heal.json")
+    assert not sticky.get("active_halt")
+
+
 def test_dual_driver_claim_refuses_live_foreign_owner(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -11,7 +11,17 @@ Derived answers:
 - ``must_verify_commitment`` (A5: when assembly.wav exists)
 - ``remaster_session`` / ``begin_remaster`` / ``clear_remaster`` / ``remaster_in_flight``
 - ``note_speech_first_mix`` / ``maybe_remaster_after_music_epoch``
+- ``speech_first_remaster_owed`` / ``ensure_speech_first_remaster`` — block ship skip
+- ``clear_mix_epoch_for_speech_first`` — sole mix_epoch_block speech-first clear (FG2)
 - ``optional_beds_until_remaster`` via ``allow_speech_first_mix`` (all modes)
+- ``beds_deferred_for_mix`` — soft theme/SFX gates while stamp set + music incomplete
+- ``next_delivery_seat`` — sole mix-vs-music resume/heal/filter pin (F1/F10/F11)
+
+Allowed production callers of seating choice: ``next_delivery_seat`` (or
+``beds_deferred_for_mix`` soft-gates only). Do not add resume/heal branches on
+raw ``allow_speech_first_mix`` outside this module. Guardrails ``mix_epoch_block``
+must use ``clear_mix_epoch_for_speech_first`` / remaster-owed helpers — never import
+``allow_speech_first_mix`` directly.
 """
 
 from __future__ import annotations
@@ -41,6 +51,10 @@ SHIP_OMIT_PRODUCER_ACTIONS: dict[str, str] = {
     "segment_id_remap": "segment_id_remap_omit",
     "junction_snip_qa": "junction_incomplete_cut_omit",
     "junction": "junction_incomplete_cut_omit",
+    # Layup / host CTA prune (End-A packaging — soft freeze only).
+    "media_ip_cta": "media_ip_cta",
+    "nugget_layup_compose": "media_ip_cta",
+    "media_ip_cta.heal_on_air_cta_residue": "heal_on_air_cta",
 }
 
 
@@ -79,6 +93,35 @@ def remaster_owner(ctx: RunContext) -> str:
 
 def remaster_in_flight(ctx: RunContext) -> bool:
     return bool(remaster_owner(ctx))
+
+
+def music_epoch_pre_beds_seat(ctx: RunContext) -> bool:
+    """True when music_epoch remaster is in flight and assembly predates that stamp.
+
+    Orphan promote can restamp ``.stage_done/mix`` from the speech-first seat
+    without ``clear_remaster`` (exec_13183). A remaster land rewrites assembly
+    after ``remaster_started_at`` — that seat is allowed to mark_done + clear.
+    """
+    if remaster_owner(ctx) != "music_epoch":
+        return False
+    prev = _read_epoch_row(ctx)
+    started = str(
+        prev.get("remaster_started_at") or prev.get("music_epoch_remaster_at") or ""
+    ).strip()
+    if not started:
+        return True
+    try:
+        asm = ctx.final_path("master", "assembly.wav")
+        if not asm.is_file() or asm.stat().st_size <= 0:
+            return True
+        asm_ts = datetime.fromtimestamp(asm.stat().st_mtime, tz=timezone.utc)
+        # ISO stamps from ``_utc_now`` are timezone-aware.
+        start_ts = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        if start_ts.tzinfo is None:
+            start_ts = start_ts.replace(tzinfo=timezone.utc)
+        return asm_ts < start_ts
+    except Exception:
+        return True
 
 
 def begin_remaster(ctx: RunContext, *, owner: str = "junction") -> None:
@@ -160,6 +203,128 @@ def note_speech_first_mix(ctx: RunContext) -> None:
     _write_epoch_row(ctx, {**prev, "speech_first_mix_at": _utc_now()})
 
 
+def beds_deferred_for_mix(ctx: RunContext) -> bool:
+    """True while beds may be soft-skipped for first-seat mix (F2).
+
+    Use this for theme/SFX/completeness soft gates — not live
+    ``allow_speech_first_mix`` alone (false after seat while stamp remains).
+    False once music epoch is complete (remaster must hard-require beds).
+    """
+    try:
+        from interview_mux.delivery_guardrails import music_epoch_complete
+
+        if music_epoch_complete(ctx):
+            return False
+    except Exception:
+        pass
+    prev = _read_epoch_row(ctx)
+    if prev.get("speech_first_mix_at"):
+        return True
+    return allow_speech_first_mix(ctx)
+
+
+def next_delivery_seat(ctx: RunContext) -> str:
+    """Always-HAU seating-order SSOT — sole mix-vs-music resume pin (F1/F10/F11).
+
+    Order:
+    1. Phase-A / EDL holes
+    2. Junction-first when authority requires
+    3. Music-complete + speech-first stamp → remaster mix (never speech-first again)
+    4. ``allow_speech_first_mix`` → mix
+    5. Earliest incomplete music-epoch producer
+    6. Mix / junction / finalize
+    """
+    try:
+        from interview_mux.delivery_guardrails import (
+            MUSIC_BEFORE_MIX,
+            PHASE_A_STAGES,
+            music_epoch_complete,
+            seed_stage_complete,
+        )
+    except Exception:
+        MUSIC_BEFORE_MIX = (
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+        )
+        PHASE_A_STAGES = ()
+        music_epoch_complete = lambda _c: False  # noqa: E731
+        seed_stage_complete = lambda _c, _s: False  # noqa: E731
+
+    # When Phase A is sealed, do not rewind to hollow audit/producer holes —
+    # seating law owns mix↔music from here (path_to_master / premature_cap).
+    phase_a_open = True
+    try:
+        from interview_mux.delivery_guardrails import phase_a_sealed
+
+        phase_a_open = not bool(phase_a_sealed(ctx))
+    except Exception:
+        phase_a_open = True
+    if phase_a_open:
+        for sid in PHASE_A_STAGES:
+            try:
+                if not seed_stage_complete(ctx, sid):
+                    return str(sid)
+            except Exception:
+                continue
+
+    try:
+        if not seed_stage_complete(ctx, "edl"):
+            return "edl"
+    except Exception:
+        pass
+
+    demote_hollow_mix_done(ctx)
+
+    try:
+        if junction_precedes_mix(ctx):
+            return "junction_snip_qa"
+    except Exception:
+        pass
+
+    prev = _read_epoch_row(ctx)
+    speech_stamp = bool(prev.get("speech_first_mix_at"))
+    try:
+        music_done = bool(music_epoch_complete(ctx))
+    except Exception:
+        music_done = False
+
+    # F1 / remaster-owed: after music, never jump to junction while beds remaster pending.
+    if music_done and (
+        speech_stamp or bool(prev.get("preview_era_music_at"))
+    ):
+        if speech_first_remaster_owed(ctx):
+            ensure_speech_first_remaster(ctx)
+            return "mix"
+        if remaster_owner(ctx) == "music_epoch" or not mix_is_seed_complete(ctx):
+            return "mix"
+        try:
+            if not seed_stage_complete(ctx, "junction_snip_qa"):
+                return "junction_snip_qa"
+        except Exception:
+            return "junction_snip_qa"
+        return "master_finalize"
+
+    if allow_speech_first_mix(ctx):
+        return "mix"
+
+    for sid in MUSIC_BEFORE_MIX:
+        try:
+            if not seed_stage_complete(ctx, sid):
+                return str(sid)
+        except Exception:
+            return str(sid)
+
+    if not mix_is_seed_complete(ctx):
+        return "mix"
+    try:
+        if not seed_stage_complete(ctx, "junction_snip_qa"):
+            return "junction_snip_qa"
+    except Exception:
+        return "junction_snip_qa"
+    return "master_finalize"
+
+
 def maybe_remaster_after_music_epoch(ctx: RunContext) -> bool:
     """After music completes post speech-first / preview-era seat, force a bed remaster.
 
@@ -202,6 +367,59 @@ def maybe_remaster_after_music_epoch(ctx: RunContext) -> bool:
         )
     except Exception:
         pass
+    return True
+
+
+def speech_first_remaster_owed(ctx: RunContext) -> bool:
+    """True when speech-first/preview-era beds remaster has not finished after music.
+
+    Prevents junction/finalize from clearing ``mix_epoch_block`` while the
+    speech-only seat still needs a bed remaster land.
+    """
+    prev = _read_epoch_row(ctx)
+    speech_first = bool(prev.get("speech_first_mix_at"))
+    preview_era = bool(prev.get("preview_era_music_at"))
+    if not speech_first and not preview_era:
+        return False
+    try:
+        from interview_mux.delivery_guardrails import music_epoch_complete
+
+        if not music_epoch_complete(ctx):
+            return False
+    except Exception:
+        return False
+    if remaster_owner(ctx) == "music_epoch":
+        return True
+    if not prev.get("music_epoch_remaster_at"):
+        if speech_first:
+            return True
+        return assembly_kind(ctx) in {"seated", "unseated"}
+    return False
+
+
+def ensure_speech_first_remaster(ctx: RunContext) -> bool:
+    """Stamp music-epoch remaster when owed; return True if remaster still owed."""
+    if not speech_first_remaster_owed(ctx):
+        return False
+    prev = _read_epoch_row(ctx)
+    if remaster_owner(ctx) != "music_epoch" and not prev.get("music_epoch_remaster_at"):
+        maybe_remaster_after_music_epoch(ctx)
+    # Land Honesty: demote hollow mix whenever remaster is still owed (not only
+    # pre-beds mtime) so orphan promote cannot restamp without clear_remaster.
+    if remaster_in_flight(ctx) or speech_first_remaster_owed(ctx):
+        demote_hollow_mix_done(ctx)
+    return speech_first_remaster_owed(ctx)
+
+
+def clear_mix_epoch_for_speech_first(ctx: RunContext) -> bool:
+    """FG2-safe clear for ``mix_epoch_block(stage=\"mix\")`` only.
+
+    Sole guardrails entry for speech-first mix epoch clear — do not import
+    ``allow_speech_first_mix`` into delivery_guardrails for this path.
+    """
+    if not allow_speech_first_mix(ctx):
+        return False
+    note_speech_first_mix(ctx)
     return True
 
 
@@ -386,6 +604,15 @@ def allow_speech_first_mix(ctx: RunContext) -> bool:
     return assembly_kind(ctx) in {"preview", "unseated"}
 
 
+def hold_speech_first_mix(ctx: RunContext, resume: str) -> bool:
+    """True when a mix resume must hold speech-first (not yank to MusicGen).
+
+    Sole resume/heal hold API — callers must not use raw ``allow_speech_first_mix``.
+    Soft theme/SFX gates use ``beds_deferred_for_mix`` instead.
+    """
+    return str(resume or "").strip() == "mix" and allow_speech_first_mix(ctx)
+
+
 def heard_assembly(ctx: RunContext) -> dict[str, Any]:
     """One heard-assembly SSOT — preview is light mode of the same seating system.
 
@@ -442,12 +669,26 @@ def who_runs_next(ctx: RunContext) -> WhoRuns:
 
 
 def mix_is_seed_complete(ctx: RunContext) -> bool:
-    """Mix is seed-complete only when seated for the live EDL (not hollow marker)."""
+    """Mix is seed-complete only when seated and remaster land is paid.
+
+    Any remaster_in_flight / speech_first_remaster_owed is never seed-complete
+    (Land Honesty — mtime bump alone must not greenwash).
+    """
     try:
         if not ctx.is_done("mix"):
             return False
     except Exception:
         return False
+    try:
+        from interview_mux.done_authority import unpaid_land_reason
+
+        if unpaid_land_reason(ctx, "mix") is not None:
+            return False
+    except Exception:
+        if remaster_in_flight(ctx) or speech_first_remaster_owed(ctx):
+            return False
+        if music_epoch_pre_beds_seat(ctx):
+            return False
     try:
         from interview_mux.air_order import mix_outputs_seated
 
@@ -457,7 +698,7 @@ def mix_is_seed_complete(ctx: RunContext) -> bool:
 
 
 def demote_hollow_mix_done(ctx: RunContext) -> bool:
-    """Unmark hollow ``.stage_done/mix`` when outputs are not seated. True if demoted."""
+    """Unmark hollow ``.stage_done/mix`` when outputs are not seated / remaster unpaid."""
     try:
         if not ctx.is_done("mix"):
             return False
@@ -466,9 +707,21 @@ def demote_hollow_mix_done(ctx: RunContext) -> bool:
         marker = ctx.final_path(".stage_done", "mix")
         if marker.is_file():
             marker.unlink()
+        reason = "not mix_outputs_seated"
+        try:
+            from interview_mux.done_authority import unpaid_land_reason
+
+            unpaid = unpaid_land_reason(ctx, "mix")
+            if unpaid:
+                reason = unpaid.split(":", 1)[0].strip() or "remaster unpaid"
+        except Exception:
+            if music_epoch_pre_beds_seat(ctx):
+                reason = "music_epoch pre-beds seat"
+            elif remaster_in_flight(ctx):
+                reason = "remaster in flight"
         try:
             ctx.log(
-                "seat_authority: demoted hollow mix .stage_done (not mix_outputs_seated)",
+                f"seat_authority: demoted hollow mix .stage_done ({reason})",
                 level="warning",
                 stage="mix",
             )
@@ -507,6 +760,8 @@ def read_seat_snapshot(ctx: RunContext) -> dict[str, Any]:
         "music_admit_block_reason": music_admit_block_reason(ctx),
         "must_verify_commitment": must_verify_commitment(ctx),
         "allow_speech_first_mix": allow_speech_first_mix(ctx),
+        "beds_deferred_for_mix": beds_deferred_for_mix(ctx),
+        "next_delivery_seat": next_delivery_seat(ctx),
         "preview_music_gate": preview_music_gate_open(ctx),
         "beds_policy": BEDS_POLICY,
         "mix_is_seed_complete": mix_is_seed_complete(ctx),

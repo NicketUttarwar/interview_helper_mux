@@ -396,6 +396,18 @@ def vo_path_ready(
         return False, "voice_reference_unusable"
     if for_synthesize and resolve_gap_vo_delivery(ctx) == "chatterbox":
         if _intended_synthesize_line_count(ctx) < 1:
+            try:
+                from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+                ident = identify_hosted_vo_floor(
+                    ctx, stage_id="vo_synthesize", persist=True
+                )
+                suffix = (
+                    f"{ident.status}:{ident.prose} resume={ident.resume_producer}"
+                )
+                return False, f"no_synthesize_lines:{suffix}"
+            except Exception:
+                pass
             # Rewrite path may arm lines; still refuse hollow synth-all with no targets.
             return False, "no_synthesize_lines"
     return True, ""
@@ -628,6 +640,23 @@ def require_vo_path_ready(
             f"VO ladder: Chatterbox stability blocked ({token}) — "
             "finish layup/transitions before synth."
         )
+    elif reason.startswith("no_synthesize_lines"):
+        base = _VO_PATH_EXIT.get(
+            "no_synthesize_lines",
+            "Gap VO gate: no synthesize lines armed — compose or rewrite record→synth first.",
+        )
+        if reason == "no_synthesize_lines":
+            try:
+                from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+                ident = identify_hosted_vo_floor(
+                    ctx, stage_id="vo_synthesize", persist=True
+                )
+                prose = f"{base} — {ident.prose} resume={ident.resume_producer}"
+            except Exception:
+                prose = base
+        else:
+            prose = f"{base} ({reason.split(':', 1)[-1]})"
     else:
         prose = _VO_PATH_EXIT.get(reason, f"Gap VO path not ready ({reason})")
     if reason == "pickup_speaker_pending":
@@ -944,7 +973,19 @@ def gap_gate_payload_for_run(ctx: RunContext) -> dict[str, Any]:
 
     _ready_ok, _ready_reason = vo_path_ready(ctx, for_synthesize=False)
     _ladder_ok, _ladder_reason = vo_ladder_complete(ctx, for_synthesize=True)
-    return {
+    hosted_vo_floor: dict[str, Any] | None = None
+    try:
+        from interview_mux.hosted_vo_authority import (
+            floor_identity_to_dict,
+            identify_hosted_vo_floor,
+        )
+
+        hosted_vo_floor = floor_identity_to_dict(
+            identify_hosted_vo_floor(ctx, persist=False)
+        )
+    except Exception:
+        hosted_vo_floor = None
+    payload = {
         **consent_payload(ctx),
         "clone_consent_required": clone_consent_required(ctx),
         "clone_consent_pending": check_clone_consent_pending(ctx),
@@ -966,6 +1007,9 @@ def gap_gate_payload_for_run(ctx: RunContext) -> dict[str, Any]:
         # G1 automation_pending ≠ ladder-complete (DP-VO1 A+).
         "vo_ladder_complete": {"ok": _ladder_ok, "reason_code": _ladder_reason},
     }
+    if isinstance(hosted_vo_floor, dict):
+        payload["hosted_vo_floor"] = hosted_vo_floor
+    return payload
 
 
 def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:

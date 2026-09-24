@@ -184,6 +184,13 @@ FREEZE_WRITE_POLICY: tuple[FreezeWritePolicyRow, ...] = (
         "transition_repair",
         ("pre_soft_freeze", "soft_freeze", "hard_freeze"),
     ),
+    # Ranking CTA recut seats split children on the manifest so lattice/orphan
+    # checks see real rows (exec_13168/13170 authority_denied under ranking).
+    FreezeWritePolicyRow(
+        "full_master_ranking",
+        "cta_child_materialize",
+        ("pre_soft_freeze", "soft_freeze"),
+    ),
 )
 
 
@@ -262,11 +269,13 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     ),
     # source_topology_build authors the base doc; missing_framing / G-Framing
     # mutates operator_overrides (gap_framing_enabled) via gap_vo_gates
-    # (exec_13157 AuthorityDenied under missing_framing).
+    # (exec_13157 AuthorityDenied under missing_framing). chapter_close_hitch
+    # may auto-confirm pickup during inner walk without spoofing MF ownership.
     _row(
         "understanding/flow_adaptation.json",
         "source_topology_build",
         "missing_framing",
+        "chapter_close_hitch",
         mode="committed_ok",
     ),
     _row(
@@ -314,6 +323,9 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         # seat its survivor row on the manifest — exec_11871 aborted junction's
         # commitment remaster on this DENY.
         "edl_overlap_repair",
+        # Ranking CTA/NLE recut materializes split children so they are not
+        # orphan-dropped (exec_13168/13170 authority_denied under ranking).
+        "full_master_ranking",
         "segment_classification",
         end="A",
     ),
@@ -432,6 +444,9 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "full_master_ranking",
         "selection_order_sanitize",
         "selection",  # legacy stage_key used by air_order_boundary / ranking helpers
+        # Layup CTA prune must persist during compose (exec_13177 / HR-2):
+        # without this producer, pre_soft_freeze deny fingerprints junction_snip_qa.
+        "nugget_layup_compose",
         # Junction is the delivery-time cut authority: an incomplete cut that is
         # unrecoverable within its clip is resolved by fuse-into-neighbor or omit,
         # which drops the segment from selection (F5 fixtures assert this, and
@@ -788,6 +803,7 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         end="C",
     ),
     _row("understanding/gap_vo_context_audit.json", "gap_framing_compose", mode="operational", end="C"),
+    _row("understanding/gap_vo_rebudget_after_selection.json", "full_master_ranking", mode="operational", end="C"),
     _row("understanding/gap_fill_skip.json", "ops", mode="operational", end="ops"),
     # Voice reference gate (GUI approve + candidate collect) — exec_11871 unknown_path.
     _row(
@@ -966,8 +982,14 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("master/remediation_run_log.json", "ops", mode="operational", end="ops"),
     _row("master/listenability_contract.json", "mix", mode="operational", end="D"),
     _row("master/listener_scorecard.json", "master_finalize", mode="operational", end="F"),
-    _row("master/narrative_plan.qc.json", "narrative_arc_plan", mode="operational", end="C"),
-    _row("master/order_reconcile.json", "edl", mode="operational", end="C"),
+    _row("master/narrative_plan.qc.json", "chapter_close_hitch", end="C"),
+    _row(
+        "master/order_reconcile.json",
+        "full_master_ranking",
+        "edl",
+        mode="operational",
+        end="C",
+    ),
     _row("master/quality_candidates.json", "ops", mode="operational", end="ops"),
     _row("master/optimizer/archive.json", "ops", mode="operational", end="ops"),
     _row("master/optimizer/best_candidate.json", "ops", mode="operational", end="ops"),
@@ -1015,7 +1037,13 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("master/underbed_ab_qc.json", "mix", mode="operational", end="D"),
     _row("master/listen_critic.json", "mix", mode="operational", end="D"),
     _row("understanding/music_brief.json", "sound_design_plan", mode="operational", end="D"),
-    _row("understanding/speaker_delivery_plan.json", "ops", mode="operational", end="ops"),
+    _row(
+        "understanding/speaker_delivery_plan.json",
+        "full_master_ranking",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
     _row("mastering/voice_clone_audit.json", "vo_synthesize", mode="operational", end="B"),
     _row("master/junction_feel_audit.json", "junction_snip_qa", mode="operational", end="D"),
     _row("master/junction_thought_complete.json", "junction_snip_qa", mode="operational", end="D"),
@@ -1159,6 +1187,11 @@ ONE_WRITER_RAW_ALLOWLIST: frozenset[str] = frozenset(
 # L3 heal tokens → owner (extends PRODUCER_PIN_TABLE; no sealed default).
 HEAL_TOKEN_OWNERS: dict[str, str] = {
     "hosted_vo_floor_unmet": "nugget_layup_compose",
+    "hosted_vo_hollow": "nugget_layup_compose",
+    "hosted_vo_wav_coverage": "vo_synthesize",
+    "hosted_vo_floor_unsatisfiable": "",  # escalate once — never re-pin LLM compose
+    "hosted_vo_books_agree": "nugget_layup_compose",
+    "layup_compose_qc_pending": "nugget_layup_compose",
     "hosted_framing_floor_unmet": "nugget_layup_compose",
     "resume nugget_layup_compose": "nugget_layup_compose",
     "resume gap_framing_compose": "gap_framing_compose",
@@ -1464,6 +1497,32 @@ def _build_allow() -> tuple[AllowRow, ...]:
             verb="persist",
         )
     )
+    # Hitch chapter adopt / QC remint — must use hitch's own stage_key + mutation
+    # (never spoof narrative_arc_plan).
+    rows.append(
+        AllowRow(
+            path="master/narrative_plan.json",
+            stage="chapter_close_hitch",
+            role="producer",
+            epochs=("pre_soft_freeze", "soft_freeze", "hard_freeze", ""),
+            write_mode="one_writer",
+            allowed_mutations=("hitch_chapter_authority",),
+            verb="persist",
+        )
+    )
+    # Ranking / reconcile constraint align under freeze-safe class.
+    for align_stage in ("full_master_ranking", "sound_design_plan", "edl"):
+        rows.append(
+            AllowRow(
+                path="master/narrative_plan.json",
+                stage=align_stage,
+                role="producer",
+                epochs=("pre_soft_freeze", "soft_freeze", "hard_freeze", ""),
+                write_mode="one_writer",
+                allowed_mutations=("narrative_metadata_align",),
+                verb="persist",
+            )
+        )
     # Common operational / ledger paths (not stage primaries).
     for path in (
         "understanding/refinement_ledger.json",
@@ -1820,6 +1879,25 @@ def write_permitted(
     if rel.startswith("../") or rel.startswith("/") or ".." in rel.split("/"):
         return False, "cross_exec_isolation"
 
+    # Anti-spoof: hitch must not forge narrative_arc_plan stage_key on live plan.
+    if verb == "persist" and stage and rel == "master/narrative_plan.json":
+        try:
+            from interview_mux.write_staging import active_stage_id
+
+            active = str(active_stage_id() or "").strip()
+        except Exception:
+            active = ""
+        if (
+            active == "chapter_close_hitch"
+            and stage == "narrative_arc_plan"
+        ):
+            return False, "stage_key_spoof:hitch_must_not_claim_narrative_arc_plan"
+        if stage == "chapter_close_hitch" and mutation not in {
+            "hitch_chapter_authority",
+            "segment_id_remap",
+        }:
+            return False, "mutation_class_required:hitch_chapter_authority"
+
     ok_ver, ver_msg = (True, "")
     if ctx is not None and verb == "persist":
         ok_ver, ver_msg = check_matrix_version(ctx)
@@ -1870,15 +1948,17 @@ def write_permitted(
 
     # Remap authority is narrower than producer authority. Every persist made by
     # a remap stage on the shared walker surface must identify the integrity-only
-    # mutation class declared by its ALLOW row.
+    # mutation class declared by its ALLOW row — except hitch chapter adopt.
     if (
         verb == "persist"
         and stage in SEGMENT_ID_REMAP_STAGES
         and rel in SEGMENT_ID_REMAP_PATHS
     ):
-        if mutation != "segment_id_remap":
+        if mutation == "hitch_chapter_authority" and rel == "master/narrative_plan.json":
+            pass  # hitch chapter adopt ALLOW (not pure id remap)
+        elif mutation != "segment_id_remap":
             return False, "mutation_class_required:segment_id_remap"
-        if not any(
+        elif not any(
             a.path == rel
             and a.stage == stage
             and a.verb == verb
@@ -1899,7 +1979,7 @@ def write_permitted(
 
     # Role pin-only: heal/gui/driver cannot persist owner bodies unless ALLOW
     if role_s in {"heal", "gui", "driver"} and verb == "persist":
-        if not _allow_match(rel, stage, role_s, field_set, epoch, verb):
+        if not _allow_match(rel, stage, role_s, field_set, epoch, verb, mutation):
             # Nested VO under EDL: vo_synthesize producer persist still OK
             if stage in row.producers:
                 return True, "owner_rerun"
@@ -1920,7 +2000,7 @@ def write_permitted(
             return False, "hard_freeze_blocks_compose_copy"
         return True, "owner_rerun"
 
-    if _allow_match(rel, stage, role_s, field_set, epoch, verb):
+    if _allow_match(rel, stage, role_s, field_set, epoch, verb, mutation):
         return True, "allow"
 
     if not stage and role_s == "ops":
@@ -1934,8 +2014,107 @@ def write_permitted(
 
     if not fail_closed():
         return True, "not_allow_warn"
-    suggested = row.authoritative or (row.producers[-1] if row.producers else "")
+    suggested = _suggested_owner_for_deny(
+        ctx, rel, stage=stage, epoch=epoch, row=row
+    )
     return False, f"not_allow:owner={suggested}"
+
+
+def parse_authority_denied_resume(
+    err: str,
+    *,
+    ctx: Any = None,
+    denied_stage: str = "",
+) -> str:
+    """Resume pin from ``authority_denied:verb:path:writer:epoch:suggested`` blobs.
+
+    Never returns the denied writer when an ALLOW owner is in the message or
+    ownership table (exec_13183 mix→listen_delight thrash).
+    """
+    text = str(err or "").strip()
+    low = text.lower()
+    if "authority_denied" not in low:
+        return ""
+    # Prefer parenthetical owner= from write_permitted reason.
+    import re
+
+    m = re.search(r"owner=([a-z0-9_]+)", low)
+    if m:
+        owner = m.group(1)
+        if owner and owner != str(denied_stage or "").strip():
+            return owner
+    parts = text.split(":")
+    # authority_denied : verb : path : writer : epoch : suggested …
+    path = ""
+    writer = str(denied_stage or "").strip()
+    suggested = ""
+    if len(parts) >= 6:
+        path = parts[2].strip()
+        writer = parts[3].strip() or writer
+        suggested = parts[5].strip().split()[0].split("(")[0]
+    elif len(parts) >= 4:
+        path = parts[2].strip()
+        writer = parts[3].strip() or writer
+    if suggested and suggested not in {"", writer} and suggested.isidentifier():
+        return suggested
+    if path:
+        pin = _suggested_owner_for_deny(ctx, path, stage=writer)
+        if pin and pin != writer:
+            return pin
+        if pin:
+            return pin
+    if "listen_delight" in low:
+        return "listen_delight_audit"
+    return ""
+
+
+def _suggested_owner_for_deny(
+    ctx: Any,
+    path: str,
+    *,
+    stage: str = "",
+    epoch: str = "",
+    row: ArtifactRow | None = None,
+) -> str:
+    """Prefer calling producer over junction for pre-junction selection denies.
+
+    exec_13177: layup CTA commit denied with suggested_owner=junction_snip_qa
+    because authoritative is last producer — heal then pinned the wrong stage.
+    """
+    rel = _norm_path(path)
+    art = row or row_for_path(rel)
+    stage_s = str(stage or "").strip()
+    ep = str(epoch or "").strip()
+    if not ep and ctx is not None:
+        try:
+            ep = current_epoch(ctx)
+        except Exception:
+            ep = ""
+
+    if rel == "master/selection.json":
+        if art and stage_s and stage_s in art.producers:
+            return stage_s
+        junction_done = False
+        try:
+            if ctx is not None and getattr(ctx, "is_done", None):
+                junction_done = bool(ctx.is_done("junction_snip_qa"))
+        except Exception:
+            junction_done = False
+        if ep == "junction_committed" or junction_done:
+            return (art.heal_pin or art.authoritative) if art else "junction_snip_qa"
+        if stage_s in {"full_master_ranking", "selection_order_sanitize", "selection"}:
+            return stage_s
+        if ep in {"pre_soft_freeze", "soft_freeze", ""} or not ep:
+            return "nugget_layup_compose"
+        return (art.heal_pin or art.authoritative) if art else "nugget_layup_compose"
+
+    if art and stage_s and stage_s in art.producers:
+        return stage_s
+    if art:
+        return art.heal_pin or art.authoritative or (
+            art.producers[-1] if art.producers else ""
+        )
+    return stage_s
 
 
 def assert_write(
@@ -1959,16 +2138,16 @@ def assert_write(
     if ok:
         return
     row = row_for_path(path)
-    suggested = ""
-    if row:
-        suggested = row.heal_pin or row.authoritative
-    if not suggested:
-        suggested = heal_pin_for(reason) or heal_pin_for(path)
     epoch = ""
     try:
         epoch = current_epoch(ctx) if ctx is not None else ""
     except Exception:
         pass
+    suggested = _suggested_owner_for_deny(
+        ctx, path, stage=str(stage_key or ""), epoch=epoch, row=row
+    )
+    if not suggested:
+        suggested = heal_pin_for(reason, ctx=ctx) or heal_pin_for(path, ctx=ctx)
     exc = AuthorityDenied(
         f"authority_denied:{verb}:{_norm_path(path)}:{stage_key or ''}:{epoch}:{suggested} ({reason})",
         path=_norm_path(path),
@@ -1991,7 +2170,9 @@ def refuse_and_pin(
     verb: str = "persist",
 ) -> str:
     """Log DENY and return heal pin for the owner (never bare stop)."""
-    pin = heal_pin_for(reason) or heal_pin_for(path) or owner_of(path)
+    pin = _suggested_owner_for_deny(
+        ctx, path, stage=stage_key
+    ) or heal_pin_for(reason, ctx=ctx) or heal_pin_for(path, ctx=ctx) or owner_of(path)
     exc = AuthorityDenied(
         reason or f"authority_denied:{verb}:{path}:{stage_key}",
         path=path,
@@ -2010,8 +2191,10 @@ def heal_pin_for(token_or_path: str, *, ctx: Any = None) -> str:
         return ""
     low = raw.lower()
 
-    # Path → owner
+    # Path → owner (selection: epoch-aware — not always junction)
     if "/" in raw or raw.endswith(".json") or raw.endswith(".wav"):
+        if _norm_path(raw) == "master/selection.json":
+            return _suggested_owner_for_deny(ctx, raw)
         own = owner_of(raw)
         if own:
             return own
@@ -2087,12 +2270,18 @@ def assert_may_mark_done(ctx: Any, stage: str) -> None:
     if not sid:
         return
     # Operator gate sign-offs are intentional marker-only done stamps.
-    if sid in {
-        "transcript_review",
-        "g1_vo_pickup",
-        "delivery_unlock",
-    }:
-        return
+    try:
+        from interview_mux.done_authority import GATE_MARKER_ONLY
+
+        if sid in GATE_MARKER_ONLY:
+            return
+    except Exception:
+        if sid in {
+            "transcript_review",
+            "g1_vo_pickup",
+            "delivery_unlock",
+        }:
+            return
     primary = primary_path_for_stage(sid)
     try:
         from interview_mux.homunculus.agenda import (
@@ -2235,14 +2424,40 @@ def _log_authority_denied(ctx: Any, exc: AuthorityDenied) -> None:
     except Exception:
         pass
     try:
-        from interview_mux.identical_failures import record_identical_failure
+        from interview_mux.identical_failures import record_identical_failure, _write, read_identical_failures
 
-        record_identical_failure(
+        row = record_identical_failure(
             ctx,
             failed_stage=exc.stage_key or "authority",
             producer=exc.suggested_owner,
             reason=exc.fingerprint(),
         )
+        # R5-A: second identical AuthorityDeny fingerprint → hard halt, no heal loop.
+        n = int(row.get("count") or 0) if isinstance(row, dict) else 0
+        sig = str(row.get("signature") or "") if isinstance(row, dict) else ""
+        if n >= 2 and sig:
+            try:
+                doc = read_identical_failures(ctx)
+                sigs = dict(doc.get("signatures") or {})
+                prow = dict(sigs.get(sig) or row)
+                prow["halt"] = True
+                prow["halt_after"] = 2
+                prow["authority_denied_no_heal"] = True
+                sigs[sig] = prow
+                doc["signatures"] = sigs
+                _write(ctx, doc)
+            except Exception:
+                pass
+
+            def _halt_meta(meta: dict[str, Any]) -> None:
+                meta["authority_denied_halted"] = fp
+                meta["authority_denied_no_heal"] = True
+                meta["last_suggested_pin"] = exc.suggested_owner
+
+            try:
+                ctx.mutate_run_meta(_halt_meta)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -2297,6 +2512,7 @@ def _allow_match(
     fields: tuple[str, ...],
     epoch: str,
     verb: Verb,
+    mutation: str = "",
 ) -> bool:
     for a in ALLOW:
         if a.verb != verb:
@@ -2315,6 +2531,9 @@ def _allow_match(
             _field_glob_match(f, a.fields) for f in fields
         ):
             continue
+        if a.allowed_mutations:
+            if not mutation or mutation not in a.allowed_mutations:
+                continue
         return True
     return False
 
@@ -2379,6 +2598,7 @@ __all__ = [
     "owners_of",
     "owners_of_field",
     "primary_path_for_stage",
+    "parse_authority_denied_resume",
     "refuse_and_pin",
     "render_allow_deny_markdown",
     "row_for_path",

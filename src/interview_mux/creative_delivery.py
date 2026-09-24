@@ -372,8 +372,24 @@ def _estimate_bed_coverage_ratio(ctx: RunContext, cues: list[dict[str, Any]]) ->
         return max(0.0, min(1.0, len(covered) / max(1, len(bed_cues))))
 
 
+def sdp_compose_deferred(sdp: dict[str, Any] | None) -> bool:
+    """True when delivery SDP still defers cue seating to music_palette_compose."""
+    if not isinstance(sdp, dict):
+        return False
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    for key in ("podcast", "flow1"):
+        flow = flow_plans.get(key) if isinstance(flow_plans.get(key), dict) else {}
+        if bool(flow.get("compose_deferred")):
+            return True
+    return False
+
+
 def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]:
-    """MU5: role presence + referenced bed coverage before MusicGen GPU."""
+    """MU5: role presence + referenced bed coverage before MusicGen GPU.
+
+    While ``compose_deferred`` is true, bed-coverage and min-bed cue counts are
+    owned by ``music_palette_compose`` — only asset/role invent checks apply.
+    """
     errors: list[str] = []
     if not creative_delivery_required():
         return errors
@@ -408,26 +424,48 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
     for m in miss:
         errors.append(f"creative delivery missing music role:{m}")
 
+    deferred = sdp_compose_deferred(sdp)
     flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict) and not c.get("skip")]
     beds = sum(1 for c in cues if c.get("placement") == "under_segment")
-    if beds < 1:
-        errors.append("creative delivery requires at least one under_segment bed cue")
+    # Deferred invent may keep a single placeholder bed; compose owns coverage.
+    if not deferred:
+        if beds < 1:
+            errors.append("creative delivery requires at least one under_segment bed cue")
 
-    min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.40)
-    est = _estimate_bed_coverage_ratio(ctx, cues)
-    if beds >= 1 and est + 1e-9 < min_cov:
-        errors.append(
-            f"creative density preflight: estimated bed coverage {est:.2f} "
-            f"< min_bed_coverage_ratio {min_cov:.2f} — repair compose before MusicGen"
-        )
+        min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.40)
+        est = _estimate_bed_coverage_ratio(ctx, cues)
+        if beds >= 1 and est + 1e-9 < min_cov:
+            msg = (
+                f"creative density preflight: estimated bed coverage {est:.2f} "
+                f"< min_bed_coverage_ratio {min_cov:.2f} — repair compose before MusicGen"
+            )
+            try:
+                from interview_mux.floor_progress import (
+                    record_floor_advisory,
+                    soundscape_density_aspirational,
+                )
+
+                if soundscape_density_aspirational(ctx):
+                    record_floor_advisory(
+                        ctx,
+                        "soundscape_density",
+                        {"est": est, "min_cov": min_cov, "source": "validate_creative_density"},
+                        aspirational_proceeded=True,
+                    )
+                else:
+                    errors.append(msg)
+            except Exception:
+                errors.append(msg)
 
     from interview_mux.soundscape_policy import resolve_mix_contract
 
     contract = apply_creative_mix_contract(resolve_mix_contract(ctx))
     underscore = str(contract.get("underscore_policy") or "normal")
-    if underscore in {"skip", "sparse_or_skip"}:
+    # Invent unpaid can leave underscore=skip until SDP clears invent — skip this
+    # check while compose is still deferred (policy refresh happens on invent clear).
+    if not deferred and underscore in {"skip", "sparse_or_skip"}:
         errors.append(f"creative delivery forbids underscore_policy={underscore}")
     return errors
 

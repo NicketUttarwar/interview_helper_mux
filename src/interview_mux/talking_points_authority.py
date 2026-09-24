@@ -328,6 +328,118 @@ def try_deterministic_narrative(ctx: RunContext) -> dict[str, Any] | None:
     return narrative_from_talking_points(tp, mat, mastering_plan=plan, coverage=coverage)
 
 
+def synthesize_narrative_from_coverage(ctx: RunContext) -> dict[str, Any] | None:
+    """Build a real narrative_plan from coverage / structure / manifest (R5 salvage).
+
+    Never returns empty chapters. Returns None only when no segment substrate exists.
+    """
+    seg_ids: list[str] = []
+    arc = "Coverage-derived narrative arc"
+    chapters: list[dict[str, Any]] = []
+    constraints: list[dict[str, Any]] = []
+    source = "coverage_synthesize"
+
+    coverage = None
+    if ctx.artifact_exists("master/coverage_audit.json"):
+        cov = ctx.read_json("master/coverage_audit.json")
+        coverage = cov if isinstance(cov, dict) else None
+    if ctx.artifact_exists("understanding/content_brief.json"):
+        brief = ctx.read_json("understanding/content_brief.json")
+        if isinstance(brief, dict):
+            through = str(brief.get("through_line") or brief.get("thesis") or "").strip()
+            if through:
+                arc = through[:2000]
+
+    mappings = []
+    if isinstance(coverage, dict):
+        mappings = [m for m in (coverage.get("topic_mappings") or []) if isinstance(m, dict)]
+        score = coverage.get("coverage_score")
+        if score is not None:
+            arc = f"{arc} · coverage_score={score}"[:2000]
+
+    manifest_order: list[str] = []
+    if ctx.artifact_exists("segments/manifest.json"):
+        man = ctx.read_json("segments/manifest.json")
+        if isinstance(man, dict):
+            for s in man.get("segments") or []:
+                if isinstance(s, dict) and s.get("segment_id"):
+                    manifest_order.append(str(s["segment_id"]))
+
+    if ctx.artifact_exists("understanding/episode_structure.json"):
+        es = ctx.read_json("understanding/episode_structure.json")
+        if isinstance(es, dict):
+            order = [str(x) for x in (es.get("segment_order") or []) if x]
+            if order:
+                manifest_order = order or manifest_order
+
+    if mappings and manifest_order:
+        man_set = set(manifest_order)
+        for i, m in enumerate(mappings[:12], start=1):
+            m_segs = [
+                str(s)
+                for s in (m.get("segment_ids") or m.get("segments") or [])
+                if str(s) in man_set
+            ]
+            if not m_segs:
+                continue
+            open_id = m_segs[0]
+            title = str(m.get("topic") or m.get("title") or f"Topic {i}").strip() or f"Topic {i}"
+            chapters.append(
+                {
+                    "chapter_id": f"ch_{i:02d}_cov",
+                    "title": title[:200],
+                    "topic_tags": [str(m.get("topic_id") or title)][:4],
+                    "suggested_open_segment_id": open_id,
+                    "segment_ids": m_segs,
+                }
+            )
+            if len(chapters) >= 2:
+                prev = chapters[-2]["suggested_open_segment_id"]
+                if prev != open_id:
+                    constraints.append(
+                        {
+                            "before_segment_id": prev,
+                            "after_segment_id": open_id,
+                            "reason": "coverage_topic_order",
+                        }
+                    )
+        if chapters:
+            source = "coverage_topic_mappings"
+
+    if not chapters:
+        # Prefer talking-points det when available
+        det = try_deterministic_narrative(ctx)
+        if det is not None and (det.get("chapters") or []):
+            det = dict(det)
+            meta = dict(det.get("_meta") or {})
+            meta["source"] = "talking_points_authority_salvage"
+            det["_meta"] = meta
+            return det
+
+    if not chapters and manifest_order:
+        chapters.append(
+            {
+                "chapter_id": "ch_01_body",
+                "title": "Episode body",
+                "topic_tags": [],
+                "suggested_open_segment_id": manifest_order[0],
+                "segment_ids": list(manifest_order),
+            }
+        )
+        source = "manifest_order_synthesize"
+
+    if not chapters:
+        return None
+
+    return {
+        "arc_summary": arc[:2000] or "Synthesized narrative arc",
+        "chapters": chapters[:12],
+        "ordering_constraints": constraints,
+        "pacing_notes": f"Adaptive salvage narrative ({source})",
+        "_meta": {"source": source},
+    }
+
+
 def _speaker_role_map(ctx: RunContext) -> dict[str, str]:
     out: dict[str, str] = {}
     if not ctx.artifact_exists("understanding/speakers.json"):

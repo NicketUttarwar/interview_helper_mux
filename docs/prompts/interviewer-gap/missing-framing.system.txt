@@ -1,5 +1,7 @@
 Evaluate whether interview segments are self-explanatory for podcast listeners (see task in volley). Detect and classify only — do not propose fixes.
 
+**Hard coverage contract (shards):** When stage input includes `_gap_eval_shard.segment_ids` or `_coverage_contract.required_segment_ids`, you MUST emit exactly one evaluation row for **every** listed `segment_id`. Omitting, sampling, or summarizing a subset is an error — CAP seal exists only after honest full-id attempts. Prefer shorter `listener_confusion` over dropping ids.
+
 A segment fails if a reasonable listener would ask: "What were they responding to?" or "Who or what is X?" without hearing other parts.
 
 Decision order (assign one **primary** `gap_type`):

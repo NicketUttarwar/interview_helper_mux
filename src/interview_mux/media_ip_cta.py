@@ -17,6 +17,46 @@ from typing import Any, Iterator
 
 from interview_mux.run_context import RunContext
 
+# Selection.json producers (must match artifact_ownership catalog).
+_SELECTION_COMMIT_STAGES = frozenset(
+    {
+        "full_master_ranking",
+        "selection_order_sanitize",
+        "selection",
+        "nugget_layup_compose",
+        "junction_snip_qa",
+    }
+)
+
+
+def _selection_commit_stage_key() -> str:
+    """Live stage for selection CTA commits — never spoof ranking/edl.
+
+    exec_13177: hardcoding full_master_ranking/edl hid ownership failures and
+    broke when anti-spoof / active-stage checks tightened. Prefer the active
+    producer; fall back to ranking (primary CTA host) when unknown.
+    """
+    try:
+        from interview_mux.write_staging import active_stage_id
+
+        sk = str(active_stage_id() or "").strip()
+    except Exception:
+        sk = ""
+    if sk in _SELECTION_COMMIT_STAGES:
+        return sk
+    return "full_master_ranking"
+
+
+def _skip_foreign_owner_side_writes() -> bool:
+    """Layup CTA path may only touch selection — not manifest/brief/evals."""
+    try:
+        from interview_mux.write_staging import active_stage_id
+
+        return str(active_stage_id() or "").strip() == "nugget_layup_compose"
+    except Exception:
+        return False
+
+
 _SEG_ID_RE = re.compile(r"\bseg_[a-zA-Z0-9]+\b")
 _SEG_RANGE_RE = re.compile(
     r"(seg_[a-zA-Z0-9]+)\s+through\s+(seg_[a-zA-Z0-9]+)",
@@ -497,7 +537,7 @@ def _omit_unplayable_keeps_from_selection(
         ctx,
         sel,
         producer="media_ip_cta",
-        stage_key="edl",
+        stage_key=_selection_commit_stage_key(),
         checkpoint_mode="detect",
         skip_checkpoint=True,
         write_committed=True,
@@ -1213,6 +1253,7 @@ def run_cta_prune(
 ) -> dict[str, Any]:
     """Scan 0–N seeds, prune each, rescan. Writes mastering/media_ip_cta.json."""
     out = dict(artifacts) if isinstance(artifacts, dict) else {}
+    pre_ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     cfg = _prune_cfg()
     notes = list(notes or [])
     hits = judgments if judgments is not None else extract_judgments(out)
@@ -1348,6 +1389,10 @@ def run_cta_prune(
 
     out["ordered_segment_ids"] = ordered
     out["excluded_segment_ids"] = excl
+    # CTA↔floor: do not drop the only live targets of hosted VO floor lines.
+    out = restore_floor_anchor_natives(ctx, pre_ordered, out)
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    excl = list(out.get("excluded_segment_ids") or [])
     out["media_ip_cta"] = hits
     if story_ids:
         out["admitted_story_segment_ids"] = list(story_ids)
@@ -1442,10 +1487,12 @@ def heal_on_air_cta_residue(
     never_touch = never_touch_segment_ids(ctx)
     stripped_never_touch = False
     if never_touch:
+        before_nt = list(ordered)
         kept = [sid for sid in ordered if sid not in never_touch]
         if kept != ordered:
             out["ordered_segment_ids"] = kept
-            ordered = kept
+            out = restore_floor_anchor_natives(ctx, before_nt, out)
+            ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
             stripped_never_touch = True
     excluded_ids: set[str] = set(never_touch)
     for row in out.get("excluded_segment_ids") or []:
@@ -1476,7 +1523,7 @@ def heal_on_air_cta_residue(
                 ctx,
                 out,
                 producer="media_ip_cta.heal_on_air_cta_residue",
-                stage_key="full_master_ranking",
+                stage_key=_selection_commit_stage_key(),
                 checkpoint_mode="detect",
                 skip_checkpoint=True,
                 write_committed=True,
@@ -1492,7 +1539,7 @@ def heal_on_air_cta_residue(
             ctx,
             out,
             producer="media_ip_cta.heal_on_air_cta_residue",
-            stage_key="full_master_ranking",
+            stage_key=_selection_commit_stage_key(),
             checkpoint_mode="detect",
             skip_checkpoint=True,
             write_committed=True,
@@ -1543,6 +1590,74 @@ def _reapply_locked(
     return artifacts
 
 
+def normalize_media_ip_cta_rows(selection: dict[str, Any]) -> dict[str, Any]:
+    """Coerce selection.media_ip_cta to master_selection schema before commit.
+
+    exec_13183: schema refused missing ``clearly_media_ip_pitch`` and illegal
+    extras (``action``, ``reason``, …). Normalize once so commit admits; second
+    failure still refuses via schema validate.
+    """
+    out = dict(selection or {})
+    raw = out.get("media_ip_cta")
+    if not isinstance(raw, list):
+        return out
+    allow = {
+        "segment_id",
+        "clearly_media_ip_pitch",
+        "mixed_with_story",
+        "must_keep_in_clip",
+        "cta_region",
+        "cut_ms",
+        "cta_open",
+        "open_choice",
+    }
+    cleaned: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "").strip()
+        if not sid:
+            continue
+        item: dict[str, Any] = {"segment_id": sid}
+        if "clearly_media_ip_pitch" in row:
+            item["clearly_media_ip_pitch"] = bool(_truthy(row.get("clearly_media_ip_pitch")))
+        else:
+            # Fail-closed: omit/recut intent without pitch flag → not a clear pitch.
+            action = str(row.get("action") or "").strip().lower()
+            if action in {"omit", "drop", "exclude"}:
+                item["clearly_media_ip_pitch"] = True
+            elif any(k in row for k in ("cta_region", "cut_ms", "mixed_with_story")):
+                item["clearly_media_ip_pitch"] = True
+            else:
+                item["clearly_media_ip_pitch"] = False
+        for key in allow - {"segment_id", "clearly_media_ip_pitch"}:
+            if key not in row:
+                continue
+            val = row.get(key)
+            if key == "cut_ms":
+                if isinstance(val, (int, float)):
+                    item[key] = [int(val)]
+                elif isinstance(val, list):
+                    item[key] = [int(x) for x in val if isinstance(x, (int, float))]
+            elif key == "cta_region" and str(val) not in {
+                "whole",
+                "start",
+                "end",
+                "middle",
+            }:
+                continue
+            elif key == "open_choice" and str(val) not in {
+                "story_child_first",
+                "third_person_opener",
+            }:
+                continue
+            else:
+                item[key] = val
+        cleaned.append(item)
+    out["media_ip_cta"] = cleaned
+    return out
+
+
 def extract_judgments(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Keep only clearly flagged pitches. Unsure / missing → keep native."""
     if not isinstance(payload, dict):
@@ -1552,26 +1667,19 @@ def extract_judgments(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
         raw = raw.get("hits") or raw.get("judgments") or []
     if not isinstance(raw, list):
         return []
+    # Normalize schema shape first (commit path + judgment extract).
+    norm = normalize_media_ip_cta_rows({"media_ip_cta": raw})
+    raw = list(norm.get("media_ip_cta") or [])
     out: list[dict[str, Any]] = []
     for row in raw:
         if not isinstance(row, dict):
             continue
-        sid = str(row.get("segment_id") or "").strip()
+        sid = str(row.get("segment_id") or "")
         if not sid:
             continue
         if not _truthy(row.get("clearly_media_ip_pitch")):
             continue
-        item = dict(row)
-        cuts = item.get("cut_ms")
-        if cuts is None:
-            item.pop("cut_ms", None)
-        elif isinstance(cuts, (int, float)):
-            item["cut_ms"] = [int(cuts)]
-        elif isinstance(cuts, list):
-            item["cut_ms"] = [int(x) for x in cuts if isinstance(x, (int, float))]
-        else:
-            item.pop("cut_ms", None)
-        out.append(item)
+        out.append(dict(row))
     return out
 
 
@@ -1584,6 +1692,35 @@ def apply_cta_judgments(ctx: RunContext, artifacts: dict[str, Any] | None) -> di
     if prev.get("locked") and prev.get("dropped_segment_ids"):
         return _reapply_locked(ctx, out, prev)
     judgments = extract_judgments(out)
+    # Prefer-drop-when-unsure (§7B): ambiguous/clear-pitch → omit; never hard-keeps.
+    # Do not override LLM/flagship judgments already present (esp. mixed story+CTA
+    # parents that must recut rather than wholesale-omit — story children stay on air).
+    judged_ids = {
+        str(j.get("segment_id") or "")
+        for j in judgments
+        if isinstance(j, dict) and j.get("segment_id")
+    }
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+        from interview_mux.homunculus.values import should_hard_omit_cta
+
+        keeps = hard_keep_segment_ids(ctx)
+        by_id = _segments_by_id(ctx)
+        for sid, row in by_id.items():
+            if sid in keeps or sid in judged_ids:
+                continue
+            text = str((row or {}).get("text") or "")
+            if text and should_hard_omit_cta(text):
+                judgments.append(
+                    {
+                        "segment_id": sid,
+                        "action": "omit",
+                        "reason": "deterministic_cta_prefer_drop",
+                        "confidence": "high",
+                    }
+                )
+    except Exception:
+        pass
     out = run_cta_prune(ctx, out, judgments=judgments)
     state = load_state(ctx)
     dropped = list(state.get("dropped_segment_ids") or [])
@@ -1622,6 +1759,125 @@ def _reverse_jump_keep_ids(reason: str) -> set[str]:
     dests = {m.group(1) for m in _REVERSE_JUMP_INTO_RE.finditer(text)}
     dests |= {m.group(1) for m in _REVERSE_JUMP_ARROW_RE.finditer(text)}
     return dests
+
+
+def _active_floor_target_ids(ctx: RunContext) -> list[str]:
+    """targets_segment_id for active synthesize-family gap lines (floor count)."""
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return []
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return []
+    if not isinstance(gap, dict):
+        return []
+    out: list[str] = []
+    for row in gap.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped_optional") or row.get("omit") or row.get("air_script_omit"):
+            continue
+        delivery = str(row.get("delivery") or "").strip().lower()
+        if delivery not in {"synthesize", "chatterbox", "record", "mlx_audio"}:
+            continue
+        tid = str(row.get("targets_segment_id") or "").strip()
+        if tid:
+            out.append(tid)
+    return out
+
+
+def floor_anchor_keep_ids(ctx: RunContext, proposed_ordered: list[str]) -> set[str]:
+    """Natives that must stay on air so hosted VO floor targets remain live.
+
+    exec_13177 residual: CTA prune dropped floor-line targets →
+    ``_framing_floor_topup`` skipped ``tid not in live`` → hosted_vo_floor_unmet.
+    """
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+    except Exception:
+        return set()
+    try:
+        if not hosted_framing_requires_synthetic_vo(ctx):
+            return set()
+        need = int(min_synthetic_vo_lines(ctx) or 0)
+    except Exception:
+        return set()
+    if need <= 0:
+        return set()
+    live = {str(s) for s in proposed_ordered if s}
+    targets = _active_floor_target_ids(ctx)
+    if not targets:
+        return set()
+    live_count = sum(1 for t in targets if t in live)
+    if live_count >= need:
+        return set()
+    keep: set[str] = set()
+    shortfall = need - live_count
+    # Prefer restoring unique floor targets (stable order of appearance).
+    seen: set[str] = set()
+    for tid in targets:
+        if shortfall <= 0:
+            break
+        if not tid or tid in live or tid in seen:
+            continue
+        keep.add(tid)
+        seen.add(tid)
+        shortfall -= 1
+    return keep
+
+
+def restore_floor_anchor_natives(
+    ctx: RunContext,
+    before_ordered: list[str],
+    after: dict[str, Any],
+) -> dict[str, Any]:
+    """Re-admit floor-anchor natives CTA prune removed when that would starve the floor."""
+    out = dict(after) if isinstance(after, dict) else {}
+    after_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    keep = floor_anchor_keep_ids(ctx, after_ids)
+    # Only restore ids that were on air before this prune.
+    before_set = {str(s) for s in before_ordered if s}
+    keep &= before_set
+    if not keep:
+        return out
+    # Rebuild ordered: previous relative order, then any new admissions after.
+    restored = [sid for sid in before_ordered if sid in keep or sid in set(after_ids)]
+    # Append after-only ids (story children etc.) preserving their relative order.
+    have = set(restored)
+    for sid in after_ids:
+        if sid not in have:
+            restored.append(sid)
+            have.add(sid)
+    if restored == after_ids:
+        return out
+    out["ordered_segment_ids"] = restored
+    # Pull restored anchors out of excluded so membership stays coherent.
+    keep_excl: list[Any] = []
+    for row in out.get("excluded_segment_ids") or []:
+        sid = str(row.get("segment_id") if isinstance(row, dict) else row or "").strip()
+        if sid and sid in keep:
+            continue
+        keep_excl.append(row)
+    out["excluded_segment_ids"] = keep_excl
+    rationales = out.get("exclude_rationales")
+    if isinstance(rationales, dict):
+        for sid in keep:
+            rationales.pop(sid, None)
+        out["exclude_rationales"] = rationales
+    try:
+        ctx.log(
+            "cta_omit_refused_floor_anchor: kept "
+            f"{sorted(keep)[:12]} so hosted VO floor targets stay live",
+            level="warning",
+            stage=_selection_commit_stage_key(),
+            detail={"kept": sorted(keep)[:24]},
+        )
+    except Exception:
+        pass
+    return out
 
 
 def _ids_from_cta_need_reason(reason: str, ordered: list[str]) -> list[str]:
@@ -1852,6 +2108,25 @@ def execute_cta_omit_from_needs(
                     excluded_now.add(str(row or ""))
     excluded_now |= never_touch_segment_ids(ctx)
     excluded_now -= set(released)
+    # Already-excluded media_ip CTA ids must leave ordered (exec_13183 / omit sync).
+    for sid in list(excluded_now):
+        if sid not in before:
+            continue
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        if text and should_hard_omit_cta(text):
+            extra.setdefault(sid, "media_ip_cta")
+            continue
+        # Explicit exclude_rationales / excluded reason naming media_ip_cta.
+        try:
+            loaded = ctx.read_json("master/selection.json") if ctx.artifact_exists(
+                "master/selection.json"
+            ) else {}
+            rats = (loaded or {}).get("exclude_rationales") or {}
+            rat = str(rats.get(sid) or "").lower()
+            if "media_ip" in rat or "cta" in rat:
+                extra.setdefault(sid, str(rats.get(sid) or "media_ip_cta")[:240])
+        except Exception:
+            pass
     for need in needs or []:
         if not is_selection_cta_omit_need(need):
             continue
@@ -1957,7 +2232,7 @@ def execute_cta_omit_from_needs(
             ctx,
             healed,
             producer="media_ip_cta",
-            stage_key="full_master_ranking",
+            stage_key=_selection_commit_stage_key(),
             checkpoint_mode="detect",
             skip_checkpoint=True,
             write_committed=True,
@@ -2482,6 +2757,8 @@ def _stamp_story_keep_ok_on_admitted(
     air only when ``_meta.story_keep_ok`` is True. Incomplete hangers must stay
     unstamped so blank-repair drops them.
     """
+    if _skip_foreign_owner_side_writes():
+        return
     if not story_ids or not ctx.artifact_exists("segments/manifest.json"):
         return
     keep_set = {str(s) for s in story_ids if s} & {str(c) for c in child_ids if c}
@@ -2517,11 +2794,27 @@ def _stamp_story_keep_ok_on_admitted(
         return
     man["segments"] = segs
     try:
-        ctx.write_json("segments/manifest.json", man, skip_handoff=True)
+        ctx.write_json(
+            "segments/manifest.json",
+            man,
+            skip_handoff=True,
+            stage_key="full_master_ranking",
+            mutation_class="cta_child_materialize",
+        )
     except Exception:
-        from interview_mux.write_staging import write_mirrored_json
+        try:
+            from interview_mux.write_staging import write_mirrored_json
 
-        write_mirrored_json(ctx, "segments/manifest.json", man)
+            write_mirrored_json(ctx, "segments/manifest.json", man)
+        except Exception:
+            try:
+                ctx.log(
+                    "story_keep_ok stamp skipped (manifest write denied/failed)",
+                    level="warning",
+                    stage="full_master_ranking",
+                )
+            except Exception:
+                pass
 
 
 def _persist_recut_children(
@@ -2531,10 +2824,26 @@ def _persist_recut_children(
     story_ids: list[str],
 ) -> None:
     """Write recut children into the candidate-source artifacts ranking/shape read."""
+    if _skip_foreign_owner_side_writes():
+        return
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        if hard_freeze_active(ctx):
+            # Hard freeze: no invent of new manifest children (paperwork cover only).
+            return
+    except Exception:
+        pass
     try:
         from interview_mux.nle_state import materialize_split_children_into_manifest
 
-        materialize_split_children_into_manifest(ctx, parent_id, child_ids)
+        materialize_split_children_into_manifest(
+            ctx,
+            parent_id,
+            child_ids,
+            stage_key="full_master_ranking",
+            mutation_class="cta_child_materialize",
+        )
     except Exception:
         pass
     try:
@@ -2555,6 +2864,8 @@ def _publish_story_children_sources(
     ctx: RunContext, parent_id: str, story_ids: list[str]
 ) -> None:
     """Rewrite shape/structure sources so admitted children stay in the candidate pool."""
+    if _skip_foreign_owner_side_writes():
+        return
     if not parent_id or not story_ids:
         return
     from interview_mux.artifact_repairs import _rewrite_segment_id_list
@@ -2570,11 +2881,17 @@ def _publish_story_children_sources(
             return
         if rewriter(doc):
             try:
-                ctx.write_json(rel, doc, skip_handoff=True)
+                # Ranking-era remap only — never inherit layup active stage.
+                ctx.write_json(
+                    rel, doc, skip_handoff=True, stage_key="full_master_ranking"
+                )
             except Exception:
-                from interview_mux.write_staging import write_mirrored_json
+                try:
+                    ctx.write_json(rel, doc, skip_handoff=True)
+                except Exception:
+                    from interview_mux.write_staging import write_mirrored_json
 
-                write_mirrored_json(ctx, rel, doc)
+                    write_mirrored_json(ctx, rel, doc)
 
     def _episode(doc: dict[str, Any]) -> bool:
         changed = False

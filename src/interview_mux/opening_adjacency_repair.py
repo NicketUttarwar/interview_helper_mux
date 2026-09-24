@@ -73,7 +73,7 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
 
         if not gate_seat_mutation(
             ctx,
-            reason="opening_adjacency_suppress_layup",
+            reason="opening_adjacency_suppress_duplicate",
             symptoms=["opening_adjacency"],
         ):
             return []
@@ -122,9 +122,26 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
         changed.append(line_id or _line_target(line))
     if not changed:
         return []
-    from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
+    from interview_mux.seat_authority import persist_frozen_seat_doc_verified
 
-    commit_gap_report_doc(ctx, gap, reason="opening_adjacency_suppress_duplicate")
+    result = persist_frozen_seat_doc_verified(
+        ctx,
+        "understanding/gap_report.json",
+        gap,
+        reason="opening_adjacency_suppress_duplicate",
+        touched_line_ids=list(changed),
+    )
+    if not result.get("ok"):
+        try:
+            ctx.log(
+                f"opening_adjacency: suppress persist not verified "
+                f"({result.get('error') or result.get('skipped') or 'fail'})",
+                level="warning",
+                stage="opening_adjacency_repair",
+            )
+        except Exception:
+            pass
+        return []
     if ctx.artifact_exists("understanding/nugget_layup_plan.json"):
         try:
             from interview_mux.nugget_layup import PLAN_REL, stamp_typed_skip
@@ -182,7 +199,23 @@ def drop_orphan_opening_vo_when_native_orients(ctx: RunContext) -> list[str]:
 
     Orientation omit leaves vo_preface_opening.wav on disk; EDL/G1 still see it
     as competing with the first native. Keep the omit; remove the duplicate.
+
+    Cluster C: refuse delete under HEARD_KEEP / HOLLOW_MINT (disposition SSOT).
     """
+    try:
+        from interview_mux.hosted_vo_authority import drop_orphan_orientation_allowed
+
+        gap_probe = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
+        if isinstance(gap_probe, dict) and not drop_orphan_orientation_allowed(
+            ctx, gap_probe
+        ):
+            return []
+    except Exception:
+        pass
     try:
         from interview_mux.seat_authority import gate_seat_mutation
 
@@ -228,9 +261,26 @@ def drop_orphan_opening_vo_when_native_orients(ctx: RunContext) -> list[str]:
             kept.append(line)
         if dropped:
             gap["interviewer_lines"] = kept
-            from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
+            from interview_mux.seat_authority import persist_frozen_seat_doc_verified
 
-            commit_gap_report_doc(ctx, gap, reason="opening_adjacency_drop_orphan")
+            result = persist_frozen_seat_doc_verified(
+                ctx,
+                "understanding/gap_report.json",
+                gap,
+                reason="opening_adjacency_drop_orphan",
+                touched_line_ids=list(dropped),
+            )
+            if not result.get("ok"):
+                try:
+                    ctx.log(
+                        f"opening_adjacency: drop_orphan persist not verified "
+                        f"({result.get('error') or result.get('skipped') or 'fail'})",
+                        level="warning",
+                        stage="opening_adjacency_repair",
+                    )
+                except Exception:
+                    pass
+                return []
     pickup = ctx.final_path("vo_pickup")
     for lid in _ORPHAN_OPENING_LINE_IDS:
         for folder in (pickup, pickup / "synthesized"):

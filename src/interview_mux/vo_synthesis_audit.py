@@ -1249,6 +1249,39 @@ def audible_script_hash_errors(
             lid = str(clip.get("line_id") or "")
             line = gap_lines.get(lid)
             if not line:
+                try:
+                    from interview_mux.hosted_vo_authority import (
+                        ORIENTATION_LINE_ID,
+                        decide_orientation,
+                        identify_hosted_vo_floor,
+                    )
+
+                    if lid == ORIENTATION_LINE_ID:
+                        gap_doc = (
+                            ctx.read_json("understanding/gap_report.json")
+                            if ctx.artifact_exists("understanding/gap_report.json")
+                            else {}
+                        )
+                        ordered: list[str] = []
+                        if ctx.artifact_exists("master/selection.json"):
+                            sel = ctx.read_json("master/selection.json")
+                            if isinstance(sel, dict):
+                                ordered = [
+                                    str(x)
+                                    for x in (sel.get("ordered_segment_ids") or [])
+                                    if x
+                                ]
+                        if isinstance(gap_doc, dict):
+                            decision = decide_orientation(ctx, gap_doc, ordered)
+                            if decision.disposition in {"HEARD_KEEP", "HOLLOW_MINT"}:
+                                ident = identify_hosted_vo_floor(ctx, persist=True)
+                                errors.append(
+                                    f"{lid}:missing_current_script:remint_needed:"
+                                    f"{decision.disposition}:{ident.resume_producer}"
+                                )
+                                continue
+                except Exception:
+                    pass
                 errors.append(f"{lid}:missing_current_script")
                 continue
         elif ctype == "transition":

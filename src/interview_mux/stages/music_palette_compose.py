@@ -21,6 +21,40 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
 _COMPOSE_REL = "sound_design/music_palette_compose.json"
 _BED_SLOT_ROLES = frozenset({"theme_underscore", "underscore_loop", "optional_loop", "ambient_bed"})
+_SDP_ANCHOR_KEYS = (
+    "segment_id",
+    "before_segment_id",
+    "after_segment_id",
+    "under_segment_id",
+)
+
+
+def _sdp_has_off_selection_anchors(ctx: RunContext, selection_set: set[str]) -> bool:
+    """True when on-disk SDP still has cue/palette anchors outside ranked selection."""
+    if not selection_set or not ctx.artifact_exists(_SOUND_DESIGN_PLAN_REL):
+        return False
+    try:
+        doc = ctx.read_json(_SOUND_DESIGN_PLAN_REL)
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    for pal in doc.get("palettes") or []:
+        if not isinstance(pal, dict):
+            continue
+        for sid in pal.get("segment_ids") or []:
+            if str(sid) and str(sid) not in selection_set:
+                return True
+    flow = doc.get("flow_plans") if isinstance(doc.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    for cue in podcast.get("cues") or []:
+        if not isinstance(cue, dict):
+            continue
+        for key in _SDP_ANCHOR_KEYS:
+            sid = str(cue.get(key) or "")
+            if sid and sid not in selection_set:
+                return True
+    return False
 
 
 def _optional_json(ctx: RunContext, rel_path: str) -> dict[str, Any]:
@@ -602,8 +636,89 @@ def run_music_palette_compose(ctx: RunContext) -> None:
                 sdp, fallback
             )
 
+        # R2-A: compose is the sole density/slots authority after deferred clears.
+        # One deterministic repair pass, then refuse — no heal↔validate thrash.
+        from interview_mux.artifact_repairs import repair_sound_design_plan
+        from interview_mux.sdp_cross_validate import validate_post_sound_plan
+
+        sdp, repair_notes = repair_sound_design_plan(c, sdp)
+        if repair_notes:
+            c.log(
+                f"music_palette_compose: density repair applied ({len(repair_notes)} notes)",
+                level="info",
+                stage="music_palette_compose",
+                detail={"actions": [n.get("action") for n in repair_notes[:12] if isinstance(n, dict)]},
+            )
+        # Ensure compose_deferred is cleared before post-validate (repair may not).
+        flow_chk = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+        pod_chk = flow_chk.get("podcast") if isinstance(flow_chk.get("podcast"), dict) else {}
+        if isinstance(pod_chk, dict):
+            pod_chk = dict(pod_chk)
+            pod_chk["compose_deferred"] = False
+            pod_chk["composed_by"] = "music_palette_compose"
+            flow_chk = dict(flow_chk)
+            flow_chk["podcast"] = pod_chk
+            sdp["flow_plans"] = flow_chk
+
+        # Validate in-memory before commit — never poison disk with a refused plan.
+        density_errs = validate_post_sound_plan(c, doc=sdp)
+        if density_errs:
+            aspirational = False
+            try:
+                from interview_mux.floor_progress import (
+                    record_floor_advisory,
+                    soundscape_density_aspirational,
+                )
+
+                aspirational = soundscape_density_aspirational(c)
+                if aspirational:
+                    record_floor_advisory(
+                        c,
+                        "soundscape_density",
+                        {
+                            "errors": density_errs[:8],
+                            "source": "music_palette_compose_post_repair",
+                        },
+                        aspirational_proceeded=True,
+                    )
+                    c.log(
+                        "music_palette_compose: density miss after repair — "
+                        "progress_floors advisory continue: "
+                        + "; ".join(density_errs[:4]),
+                        level="warning",
+                        stage="music_palette_compose",
+                    )
+            except Exception:
+                aspirational = False
+            if not aspirational:
+                raise RuntimeError(
+                    "music_palette_compose: post-compose density/slots refuse after one repair — "
+                    + "; ".join(density_errs[:6])
+                )
+
+        selection_set = {str(s) for s in (ordered or []) if s}
         write_validated_artifact(
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="music_palette_compose"
+        )
+        # i14b: if ownership/sanitize reintroduced off-selection anchors, force commit.
+        if selection_set and _sdp_has_off_selection_anchors(c, selection_set):
+            from interview_mux.artifact_sanitize.one_writer import commit_sound_design_plan_doc
+
+            c.log(
+                "music_palette_compose: pruned SDP reverted on write — force commit",
+                level="warning",
+                stage="music_palette_compose",
+            )
+            commit_sound_design_plan_doc(
+                c,
+                sdp,
+                stage_key="music_palette_compose",
+                reason="i14b_prune_persist",
+            )
+        from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+        restamp_committed_artifact(
+            c, _SOUND_DESIGN_PLAN_REL, producer_stage="sound_design_plan"
         )
         compose_out = {
             "version": 1,

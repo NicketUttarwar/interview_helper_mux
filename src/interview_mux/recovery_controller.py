@@ -450,20 +450,43 @@ def _parse_signature_key(signature: str) -> tuple[str, str]:
     return parts[0].strip(), parts[1].strip()
 
 
-def _recovery_log_count(ctx: RunContext, signature: str) -> int:
-    return sum(
-        1 for row in _read_actions(ctx) if str(row.get("signature") or "") == signature
-    )
+def _recovery_log_count(
+    ctx: RunContext,
+    signature: str,
+    *,
+    exclude_recovered: bool = False,
+) -> int:
+    """Count recovery-log rows for signature.
+
+    Post-Heal Accounting P2: when ``exclude_recovered`` is True, rows with
+    ``status=recovered`` do not count (success ≠ thrash fuel).
+    """
+    n = 0
+    for row in _read_actions(ctx):
+        if str(row.get("signature") or "") != signature:
+            continue
+        if exclude_recovered and str(row.get("status") or "").strip().lower() == "recovered":
+            continue
+        n += 1
+    return n
 
 
 def _identical_failure_count(ctx: RunContext, stage_id: str, error_class: str) -> int:
     if not stage_id or not error_class:
         return 0
-    from interview_mux.identical_failures import failure_signature_by_class, read_identical_failures
+    from interview_mux.identical_failures import read_identical_failures
 
-    halt_sig = failure_signature_by_class(failed_stage=stage_id, error_class=error_class)
-    row = (read_identical_failures(ctx).get("signatures") or {}).get(halt_sig) or {}
-    return int(row.get("count") or 0)
+    # Sum all class rows for stage+error_class (predicate may be in the hash key).
+    total = 0
+    for row in (read_identical_failures(ctx).get("signatures") or {}).values():
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("failed_stage") or "").strip() != stage_id:
+            continue
+        if str(row.get("error_class") or row.get("producer") or "").strip() != error_class:
+            continue
+        total = max(total, int(row.get("count") or 0))
+    return total
 
 
 def _mirror_recovery_to_identical_failures(
@@ -496,11 +519,29 @@ def _append_action(ctx: RunContext, row: dict[str, Any]) -> None:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     sig = str(row.get("signature") or "")
     if sig:
-        _mirror_recovery_to_identical_failures(
-            ctx,
-            sig,
-            resume_attempted=str(row.get("resume_stage") or row.get("playbook_id") or ""),
-        )
+        # Post-Heal Accounting P11: sole identical/accounting path for recovery rows.
+        try:
+            from interview_mux.heal_post_accounting import finalize_post_heal_accounting
+
+            finalize_post_heal_accounting(
+                ctx,
+                signature=sig,
+                status=str(row.get("status") or ""),
+                playbook_id=str(row.get("playbook_id") or ""),
+                resume_attempted=str(
+                    row.get("resume_stage") or row.get("playbook_id") or ""
+                ),
+            )
+        except Exception:
+            # Fail-closed for recovered (no mirror); escalate still try legacy mirror.
+            if str(row.get("status") or "").strip().lower() != "recovered":
+                _mirror_recovery_to_identical_failures(
+                    ctx,
+                    sig,
+                    resume_attempted=str(
+                        row.get("resume_stage") or row.get("playbook_id") or ""
+                    ),
+                )
     try:
         from interview_mux.forensics_error_ledger import record_from_recovery_action
         from interview_mux.forensics_minor_fixes import (
@@ -550,8 +591,22 @@ def recovery_attempt_budget(error_class: str | None) -> int:
 
 
 def attempt_count(ctx: RunContext, signature: str) -> int:
+    """Unified recovery attempt fuel for budget_exhausted.
+
+    Post-Heal Accounting P2: recovered log rows do not fuel by default
+    (``heal_post_accounting.recovered_rows_fuel_attempt_budget``).
+    """
     stage_id, error_class = _parse_signature_key(signature)
-    log_count = _recovery_log_count(ctx, signature)
+    exclude_recovered = True
+    try:
+        from interview_mux.heal_post_accounting import recovered_rows_fuel_attempt_budget
+
+        exclude_recovered = not recovered_rows_fuel_attempt_budget()
+    except Exception:
+        exclude_recovered = True
+    log_count = _recovery_log_count(
+        ctx, signature, exclude_recovered=exclude_recovered
+    )
     if not error_class:
         return log_count
     return max(log_count, _identical_failure_count(ctx, stage_id, error_class))
@@ -706,6 +761,28 @@ def playbook_listen_delight_remutate(ctx: RunContext) -> list[str]:
         apply_listen_delight_remutate,
         plan_listen_delight_remutate,
     )
+
+    # Locked: skip APPLY while G1 open — do not mutate seats or yank resume.
+    try:
+        from interview_mux.thrash_hardening import remutate_resume_allowed
+
+        if not remutate_resume_allowed(ctx):
+            try:
+                ctx.log(
+                    "remutate_skipped_g1_open: listen_delight remutate APPLY deferred",
+                    level="warning",
+                    stage="listen_delight_audit",
+                )
+            except Exception:
+                pass
+            try:
+                from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+                return [resolve_g1_vo_open_resume(ctx)]
+            except Exception:
+                return ["vo_synthesize"]
+    except Exception:
+        pass
 
     result = evaluate_listen_delight(ctx)
     plan = plan_listen_delight_remutate(
@@ -980,8 +1057,15 @@ def playbook_seed_order_prereq(ctx: RunContext, exc: BaseException) -> str:
                 detail={"raw": raw},
             )
             # Stay on synth when cycle involves adjudicate↔synth.
-            return "vo_synthesize"
-        return resume
+            resume = "vo_synthesize"
+        try:
+            from interview_mux.heal_pin_authority import admit_resume
+
+            return admit_resume(
+                ctx, resume, error=msg, intent="vo_g1"
+            )
+        except Exception:
+            return resume
     pin = resolve_vo_synth_seed_resume(raw, ctx) or raw
     if not pin:
         return pin
@@ -1000,7 +1084,13 @@ def playbook_seed_order_prereq(ctx: RunContext, exc: BaseException) -> str:
             ctx, kind="seed_cycle_refuse", stage=pin, detail={"raw": raw, "msg": msg[:120]}
         )
         m_consumer = re.search(r"before running\s+(\S+)", msg, flags=re.IGNORECASE)
-        return (m_consumer.group(1).strip() if m_consumer else pin)
+        pin = m_consumer.group(1).strip() if m_consumer else pin
+        try:
+            from interview_mux.heal_pin_authority import admit_resume
+
+            return admit_resume(ctx, pin, error=msg, intent="seed_order_prereq")
+        except Exception:
+            return pin
     return apply_seed_order_heal(
         ctx, pin, message=msg, unmark_fn=lambda c, s: _unmark_stages(c, s)
     )
@@ -1140,11 +1230,54 @@ def playbook_vo_audibility_drift(ctx: RunContext) -> list[str]:
 
     persist_air_script_omits_on_gap_report(ctx)
     retarget_orientation_to_open(ctx)
-    return playbook_rebuild_edl(ctx)
+    artifacts = list(playbook_rebuild_edl(ctx))
+    # i9: missing ledger must not leave heal unsanitary after EDL exists.
+    if ctx.artifact_exists("master/edl.json") and not ctx.artifact_exists(
+        "master/assembly_ledger.json"
+    ):
+        try:
+            from interview_mux.assembly_ledger import write_assembly_ledger
+
+            write_assembly_ledger(ctx)
+            if ctx.artifact_exists("master/assembly_ledger.json"):
+                artifacts.append("master/assembly_ledger.json")
+        except Exception:
+            pass
+    return artifacts
 
 
-def playbook_opening_orientation_inaudible(ctx: RunContext) -> list[str]:
-    return playbook_vo_audibility_drift(ctx)
+def playbook_opening_orientation_inaudible(
+    ctx: RunContext, *, rebuild: bool = True
+) -> list[str]:
+    """Revive required orientation (clear skip + stale waive), then optional EDL rebuild.
+
+    exec_13177: CTA scrap carried ``tier_d_logged_waive`` while meta.required —
+    ``build_vo_seats`` kept the line in omitted_line_ids and post_edl saw count=0.
+    Always revive/reseat even when resume pins upstream of edl.
+    """
+    artifacts: list[str] = []
+    try:
+        from interview_mux.omit_ledger import revive_required_opening_orientation
+
+        revive = revive_required_opening_orientation(ctx)
+        if revive.get("changed") or revive.get("notes"):
+            artifacts.append("understanding/gap_report.json")
+    except Exception:
+        pass
+    try:
+        from interview_mux.air_script import persist_air_script_omits_on_gap_report
+
+        persist_air_script_omits_on_gap_report(ctx)
+        artifacts.append("mastering/mastering_plan.json")
+    except Exception:
+        pass
+    if not rebuild:
+        return artifacts or ["understanding/gap_report.json"]
+    from interview_mux.opening_orientation import retarget_orientation_to_open
+
+    retarget_orientation_to_open(ctx)
+    artifacts.extend(playbook_rebuild_edl(ctx))
+    return artifacts
 
 
 def playbook_pending_write_barrier(ctx: RunContext) -> list[str]:
@@ -1577,7 +1710,13 @@ def handle_stage_failure(
         elif error_class == "sdp_theme_wavs_missing":
             playbook_id = "generate_sdp_theme_wavs"
             artifacts = playbook_generate_sdp_theme_wavs(ctx)
-            recovered = True
+            # Heal Success B+: never unconditional recovered — hole must be gone.
+            try:
+                from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+                recovered = not bool(missing_sdp_asset_wavs(ctx))
+            except Exception:
+                recovered = False
             from interview_mux.heal_routing import resume_stage_for_error_class
 
             resume_stage = resume_stage_for_error_class(
@@ -1611,7 +1750,22 @@ def handle_stage_failure(
             recovered = bool(artifacts)
             resume_stage = "mix"
             try:
-                if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                from interview_mux.thrash_hardening import remutate_resume_allowed
+
+                if not remutate_resume_allowed(ctx):
+                    from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+                    resume_stage = resolve_g1_vo_open_resume(ctx)
+                    recovered = True
+                    try:
+                        ctx.log(
+                            "remutate_skipped_g1_open: honor VO resume not remutate pin",
+                            level="warning",
+                            stage=stage_id,
+                        )
+                    except Exception:
+                        pass
+                elif ctx.artifact_exists("mastering/listen_delight_remutate.json"):
                     plan = ctx.read_json("mastering/listen_delight_remutate.json")
                     if isinstance(plan, dict) and plan.get("from_stage"):
                         resume_stage = str(plan.get("from_stage") or "mix")
@@ -1714,15 +1868,13 @@ def handle_stage_failure(
             from interview_mux.stage_completion import edl_heal_resume_stage
 
             resume_stage = edl_heal_resume_stage(ctx)
-            # R6: when the named producer is upstream of edl, do not run the
-            # rebuild/omit playbook — it can waive orientation and burn the
-            # single structural attempt on a consumer no-op.
-            if resume_stage != "edl":
-                artifacts = []
-                recovered = False
-            else:
-                artifacts = playbook_opening_orientation_inaudible(ctx)
-                recovered = bool(artifacts)
+            # Always revive/reseat required orientation. R6: skip EDL rebuild
+            # when resume pins upstream (vo_synthesize) so we don't burn the
+            # structural attempt on a consumer no-op.
+            artifacts = playbook_opening_orientation_inaudible(
+                ctx, rebuild=(resume_stage == "edl")
+            )
+            recovered = bool(artifacts)
         elif error_class == "vo_audibility_drift":
             playbook_id = "vo_audibility_drift"
             from interview_mux.stage_completion import edl_heal_resume_stage
@@ -1748,17 +1900,23 @@ def handle_stage_failure(
         elif error_class == "pending_write_barrier":
             playbook_id = "pending_write_barrier"
             artifacts = playbook_pending_write_barrier(ctx)
-            recovered = bool(artifacts)
+            # Heal Success: pending:* artifacts mean barrier still open — not recovered.
+            recovered = not bool(artifacts)
             resume_stage = "junction_snip_qa"
         elif error_class == "musicgen_theme_failed":
             playbook_id = "musicgen_theme_failed"
             artifacts = playbook_musicgen_theme_failed(ctx)
-            recovered = True
+            recovered = bool(artifacts) and not any(
+                str(a).startswith("missing:") for a in (artifacts or [])
+            )
             resume_stage = "music_palette_compose"
         elif error_class == "incomplete_cut_unresolved":
             playbook_id = "incomplete_cut_unresolved"
             artifacts = playbook_incomplete_cut_unresolved(ctx)
-            recovered = True
+            recovered = bool(artifacts) and not any(
+                str(a).startswith("missing:") or "unresolved" in str(a).lower()
+                for a in (artifacts or [])
+            )
             resume_stage = "junction_snip_qa"
         elif error_class == "vo_seated_coverage":
             playbook_id = "vo_seated_coverage"
@@ -1823,7 +1981,14 @@ def handle_stage_failure(
             recovered = bool(artifacts)
             resume_stage = "air_script_seams"
             try:
-                if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                from interview_mux.thrash_hardening import remutate_resume_allowed
+
+                if not remutate_resume_allowed(ctx):
+                    from interview_mux.delivery_invariants import resolve_g1_vo_open_resume
+
+                    resume_stage = resolve_g1_vo_open_resume(ctx)
+                    recovered = True
+                elif ctx.artifact_exists("mastering/listen_delight_remutate.json"):
                     plan = ctx.read_json("mastering/listen_delight_remutate.json")
                     if isinstance(plan, dict) and plan.get("from_stage"):
                         resume_stage = str(plan.get("from_stage") or "air_script_seams")
@@ -1843,6 +2008,32 @@ def handle_stage_failure(
     except Exception as play_exc:
         recovered = False
         detail = str(play_exc)[:240]
+
+    # Heal Success B+: sole recovered gate (refuse false recovered).
+    if recovered:
+        try:
+            from interview_mux.heal_success import finalize_heal_success
+
+            gated = finalize_heal_success(
+                ctx,
+                failed_stage=stage_id,
+                resume_stage=resume_stage,
+                playbook_id=playbook_id,
+                error_class=error_class or "",
+                artifacts=artifacts,
+                detail=detail,
+            )
+            if gated.ok:
+                resume_stage = gated.resume_stage or resume_stage
+                recovered = True
+            else:
+                recovered = False
+                detail = (detail + f" {gated.reason}").strip()[:240]
+        except Exception as gate_exc:
+            recovered = False
+            detail = (detail + f" heal_success_gate:{type(gate_exc).__name__}").strip()[
+                :240
+            ]
 
     result = _result(
         status="recovered" if recovered else "escalate",

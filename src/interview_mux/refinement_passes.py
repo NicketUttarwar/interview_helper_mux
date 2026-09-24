@@ -455,6 +455,12 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 level="warning",
                 stage="selection_framing_apply",
             )
+    try:
+        from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+        identify_hosted_vo_floor(ctx, persist=True)
+    except Exception:
+        pass
     ctx.write_json(
         APPLY_REL,
         {
@@ -551,6 +557,12 @@ def after_gap_recompose_or_skip(ctx: RunContext) -> None:
                     stage="gap_framing_recompose",
                     detail=actions,
                 )
+    try:
+        from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+        identify_hosted_vo_floor(ctx, persist=True)
+    except Exception:
+        pass
     from interview_mux.refinement_cold_open import build_cold_open_audition
 
     build_cold_open_audition(ctx)

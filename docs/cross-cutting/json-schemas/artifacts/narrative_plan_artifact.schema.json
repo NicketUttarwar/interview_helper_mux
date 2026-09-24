@@ -7,6 +7,7 @@
     "arc_summary": { "type": "string", "minLength": 1 },
     "chapters": {
       "type": "array",
+      "minItems": 1,
       "maxItems": 12,
       "items": {
         "type": "object",

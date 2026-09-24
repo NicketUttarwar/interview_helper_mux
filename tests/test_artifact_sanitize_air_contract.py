@@ -172,18 +172,27 @@ def test_seats_le_wavs_when_clamp_fixture_allows(monkeypatch) -> None:
     _dump_raw(ctx, "understanding/gap_report.json", gap)
     _dump_raw(ctx, "mastering/mastering_plan.json", plan)
 
-    def fake_clamp(c):
-        p = c.read_json("mastering/mastering_plan.json")
-        seats = p["air_script"]["vo_seats"]
-        seats["seated_line_ids"] = ["vo_a"]  # only wav-backed
-        seats["omitted_line_ids"] = ["vo_b"]
-        p["air_script"]["vo_seats"] = seats
-        _dump_raw(c, "mastering/mastering_plan.json", p)
-        return ["vo_b"]
+    def fake_clamp(c, g, *, apply_freeze_gate=True):
+        rows = [dict(r) for r in (g.get("interviewer_lines") or []) if isinstance(r, dict)]
+        out_rows = []
+        for row in rows:
+            if str(row.get("line_id") or "") == "vo_b":
+                row = dict(row)
+                row["skipped_optional"] = True
+                row["air_script_omit"] = True
+                row["omit"] = True
+            out_rows.append(row)
+        out = dict(g)
+        out["interviewer_lines"] = out_rows
+        return out, ["vo_b"]
 
     monkeypatch.setattr(
-        "interview_mux.vo_contract.clamp_hosted_seats_to_rendered_wavs",
+        "interview_mux.vo_contract.clamp_hosted_seats_docs",
         fake_clamp,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
     )
     result = sanitize_air_contract(ctx)
     seats = (result.doc.get("air_script") or {}).get("vo_seats") or {}
@@ -264,12 +273,13 @@ def test_run_air_contract_sanitize_commits_drop_seated_missing_from_gap(
         lambda _ctx: False,
     )
     monkeypatch.setattr(
-        "interview_mux.vo_contract.clamp_hosted_seats_to_rendered_wavs",
-        lambda _ctx: [],
+        "interview_mux.vo_contract.clamp_hosted_seats_docs",
+        lambda _ctx, gap, *, apply_freeze_gate=False: (gap, []),
     )
     ctx = RunContext(create=True)
     gap = _base_gap()
     plan = {
+        "plan_status": "complete",
         "air_script": {
             "vo_seats": {
                 "seated_line_ids": ["vo_a", "vo_orphan_bridge", "vo_orphan_context"],
@@ -338,3 +348,269 @@ def test_sanitary_errors_auto_commits_protect_orientation(monkeypatch) -> None:
         if isinstance(e, dict)
     }
     assert "vo_orient" not in subjects
+
+
+def test_commit_refuses_unreadable_plan() -> None:
+    ctx = RunContext(create=True)
+    path = ctx.path("mastering", "mastering_plan.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not-json", encoding="utf-8")
+    result = commit_air_contract(ctx, reason="test")
+    assert not result.ok
+    assert any("artifact_unreadable" in e for e in (result.errors or []))
+
+
+def test_commit_gap_write_failure_is_fail_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.clamp_hosted_seats_docs",
+        lambda _ctx, gap, *, apply_freeze_gate=False: (gap, []),
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": ["vo_b"],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    _dump_raw(
+        ctx,
+        "understanding/omit_ledger.json",
+        {"version": 1, "entries": [], "summary": {"active_count": 0}},
+    )
+
+    real_write = ctx.write_json
+
+    def boom(rel, doc, **kwargs):
+        if rel == "understanding/gap_report.json":
+            raise RuntimeError("disk full")
+        return real_write(rel, doc, **kwargs)
+
+    monkeypatch.setattr(ctx, "write_json", boom)
+    result = commit_air_contract(ctx, reason="test")
+    assert not result.ok
+    assert any("air_contract_write_failed" in e for e in (result.errors or []))
+
+
+def test_commit_cas_conflict_refuses(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.clamp_hosted_seats_docs",
+        lambda _ctx, gap, *, apply_freeze_gate=False: (gap, []),
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": [],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    _dump_raw(
+        ctx,
+        "understanding/omit_ledger.json",
+        {"version": 1, "entries": [], "summary": {"active_count": 0}},
+    )
+
+    calls = {"n": 0}
+    from interview_mux.artifact_sanitize import air_script as ac
+
+    real_sanitize = ac.sanitize_air_contract
+
+    def sanitize_then_drift(c, docs=None):
+        out = real_sanitize(c, docs)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            drifted = dict(c.read_json("mastering/mastering_plan.json"))
+            drifted["_cas_probe"] = "drift"
+            _dump_raw(c, "mastering/mastering_plan.json", drifted)
+        return out
+
+    monkeypatch.setattr(ac, "sanitize_air_contract", sanitize_then_drift)
+    result = commit_air_contract(ctx, reason="test")
+    assert not result.ok
+    assert "air_contract_cas_conflict" in (result.errors or [])
+
+
+def test_sanitize_no_mid_pass_gap_disk_write(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": ["vo_b"],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    before_mtime = ctx.path("understanding", "gap_report.json").stat().st_mtime_ns
+    sanitize_air_contract(ctx)
+    after_mtime = ctx.path("understanding", "gap_report.json").stat().st_mtime_ns
+    assert before_mtime == after_mtime
+
+
+def test_post_commit_dry_check_refuses_dirty(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.clamp_hosted_seats_docs",
+        lambda _ctx, gap, *, apply_freeze_gate=False: (gap, []),
+    )
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": ["vo_b"],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    _dump_raw(
+        ctx,
+        "understanding/omit_ledger.json",
+        {"version": 1, "entries": [], "summary": {"active_count": 0}},
+    )
+
+    calls = {"n": 0}
+    from interview_mux.artifact_sanitize import air_script as ac
+    from interview_mux.artifact_sanitize.types import SanitizeResult
+
+    real = ac.sanitize_air_contract
+
+    def flaky(c, docs=None):
+        calls["n"] += 1
+        out = real(c, docs)
+        if calls["n"] >= 2:
+            return SanitizeResult(
+                doc=out.doc,
+                actions=[{"action": "stamp_gap_omit_flags", "count": 1}],
+                ok=True,
+                errors=[],
+                artifact_rel=out.artifact_rel,
+                metrics=out.metrics,
+            )
+        return out
+
+    monkeypatch.setattr(ac, "sanitize_air_contract", flaky)
+    raised = False
+    try:
+        run_air_contract_sanitize(ctx)
+    except RuntimeError as exc:
+        raised = True
+        assert "post-commit drift" in str(exc) or "unsanitary" in str(exc)
+    assert raised
+
+
+def test_sanitary_errors_never_auto_commit_floor_reseat(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.config.block_consumers_on_unsanitary",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.reentry.stamp_matches",
+        lambda _doc: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.air_script.sanitize_air_contract",
+        lambda _ctx, docs=None: type(
+            "R",
+            (),
+            {
+                "ok": True,
+                "actions": [
+                    {"action": "protect_hosted_vo_floor_reseat", "ids": ["vo_b"]}
+                ],
+                "errors": [],
+            },
+        )(),
+    )
+    committed = {"n": 0}
+
+    def fake_commit(ctx, *, reason=""):
+        committed["n"] += 1
+        return type("C", (), {"ok": True, "errors": []})()
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.air_script.commit_air_contract",
+        fake_commit,
+    )
+    ctx = RunContext(create=True)
+    _dump_raw(ctx, "mastering/mastering_plan.json", {"air_script": {"vo_seats": {}}})
+    errs = air_contract_sanitary_errors(ctx)
+    assert committed["n"] == 0
+    assert any("protect_hosted_vo_floor_reseat" in e for e in errs)
+
+
+def test_full_auto_always_blocks_unsanitary(monkeypatch) -> None:
+    from interview_mux.artifact_sanitize.config import block_consumers_on_unsanitary
+
+    monkeypatch.setenv("MUX_FULL_AUTO", "1")
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {"artifact_sanitize": {"block_consumers": False}},
+    )
+    assert block_consumers_on_unsanitary() is True
+
+
+def test_i34_gap_framing_compose_reconcile_no_authority_denied(
+    monkeypatch,
+) -> None:
+    """Non-owner stage must not raise when reconcile skips sealed plan."""
+    from interview_mux.execution_contract import reconcile_execution_contract
+
+    ctx = RunContext(create=True)
+    gap = _base_gap()
+    plan = {
+        "plan_status": "complete",
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": [],
+            }
+        }
+    }
+    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    _dump_raw(ctx, "mastering/mastering_plan.json", plan)
+    monkeypatch.setattr(
+        "interview_mux.write_staging.active_stage_id",
+        lambda: "gap_framing_compose",
+    )
+
+    def _permitted(ctx, path, stage, **kwargs):
+        if "mastering_plan" in str(path):
+            return (False, "pre_soft_freeze:air_contract_sanitize")
+        return (True, "ok")
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_ownership.write_permitted",
+        _permitted,
+    )
+    snap = reconcile_execution_contract(ctx, reason="test_gap_framing")
+    assert isinstance(snap, dict)
+    assert "mastering/mastering_plan.json" not in (snap.get("reconcile_changed") or [])

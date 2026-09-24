@@ -37,6 +37,8 @@ END_A_CORE_ACTIONS: frozenset[str] = frozenset(
         "omit_ledger_order_lock_rebuild",
         "omit_ledger_revive_orientation",
         "protect_orientation_from_omit",
+        "hosted_vo_disposition_apply",
+        "hosted_vo_authority_apply_orientation",
         "stamp_gap_omit_flags",
         "drop_seated_missing_from_gap",
         "clamp_hosted_seats_to_rendered_wavs",
@@ -48,10 +50,26 @@ END_A_CORE_ACTIONS: frozenset[str] = frozenset(
         "junction_incomplete_cut_omit",
         "edl_overlap_repair_omit",
         "segment_id_remap_omit",
+        # Progress floors: reactivate existing soft-omitted host lines (never invent).
+        "revive_discarded_floor_candidate",
         # A′′ must-land under freeze (shrink / reattach / synth-fail unseat — never expand).
         "hitch_reattach_vo",
         "catastrophe_seated_bind_synth_failed",
         "air_script_gap_omit_sync",
+        # Duration band clamp for SFX/MusicGen craft — no seat/omit expand.
+        "sdp_duration_band_repair",
+        # Late shrink/clamp/integrity under hard freeze (exec_13170 follow-through).
+        "soundscape_bed_trim",
+        "opening_adjacency_suppress_duplicate",
+        "opening_adjacency_drop_orphan",
+        "sdp_theme_outro_rebind",
+        # Fill uncovered reorder seams after layup VO waive (no new hosted seats).
+        "bridge_completeness_mint",
+        # Republish layup→gap_report under hard freeze (narrative remutate recompose).
+        "nugget_layup_gap_publish",
+        # Reseat gap-active synth lines stripped by WAV clamp so vo_synthesize can
+        # close the hosted floor — does not invent copy (exec_13177).
+        "reseated_active_hosted_vo_for_wav",
     }
 )
 HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(
@@ -100,6 +118,13 @@ def end_a_near_miss_reason(reason: str) -> str:
 HARD_FREEZE_FORBIDDEN_ACTIONS: frozenset[str] = frozenset(
     {
         "protect_hosted_vo_floor_reseat",
+        # Expand / coverage-gaming under hard freeze (Always-HAU End-A locked NO).
+        "soundscape_bed_seed_repair",
+        "optimizer_promote_sdp",
+        "optimizer_promote_gap",
+        "optimizer_promote_transitions",
+        "theme_outro_seed",
+        "seed_theme_outro",
     }
 )
 
@@ -819,8 +844,167 @@ def persist_frozen_seat_doc(
             stage_key=write_kw.get("stage_key"),
         )
         return True
+    if rel_n == "understanding/sound_design_plan.json" and isinstance(doc, dict):
+        # Must pass End-A ``reason`` into commit — write_json admits with
+        # reason=stage_key|"write_json", which freeze-skips while returning Path
+        # (F9 silent success under hard freeze).
+        from interview_mux.artifact_sanitize.one_writer import (
+            commit_sound_design_plan_doc,
+        )
+
+        before = None
+        try:
+            before = ctx.read_json(rel_n) if ctx.artifact_exists(rel_n) else None
+        except Exception:
+            before = None
+        stage_key = write_kw.get("stage_key")
+        if not stage_key:
+            try:
+                from interview_mux.write_staging import active_stage_id
+
+                stage_key = active_stage_id()
+            except Exception:
+                stage_key = None
+        # Ownership ALLOW owners for SDP — never use End-A reason as stage_key
+        # (reason is freeze constitution; stage_key is writer identity).
+        if not stage_key:
+            stage_key = "sound_design_vo_finalize"
+        commit_sound_design_plan_doc(
+            ctx,
+            doc,
+            reason=reason,
+            skip_handoff=bool(write_kw.get("skip_handoff", True)),
+            stage_key=str(stage_key),
+        )
+        try:
+            after = ctx.read_json(rel_n) if ctx.artifact_exists(rel_n) else None
+        except Exception:
+            return False
+        import json
+
+        def _flow_fp(d: Any) -> str:
+            if not isinstance(d, dict):
+                return ""
+            try:
+                return json.dumps(d.get("flow_plans"), sort_keys=True, default=str)
+            except Exception:
+                return ""
+
+        want = _flow_fp(doc)
+        got = _flow_fp(after)
+        if want and got != want and got == _flow_fp(before):
+            return False
+        return True
+    if rel_n == "master/transitions.json" and isinstance(doc, dict):
+        from interview_mux.artifact_sanitize.one_writer import commit_transitions_doc
+
+        commit_transitions_doc(
+            ctx,
+            doc,
+            reason=reason,
+            skip_handoff=bool(write_kw.get("skip_handoff", True)),
+            stage_key=write_kw.get("stage_key"),
+        )
+        return True
     ctx.write_json(rel, doc, **write_kw)
     return True
+
+
+def persist_frozen_seat_doc_verified(
+    ctx: RunContext,
+    rel: str,
+    doc: Any,
+    *,
+    reason: str = "",
+    touched_line_ids: list[str] | None = None,
+    touched_cue_ids: list[str] | None = None,
+    **write_kw: Any,
+) -> dict[str, Any]:
+    """End-A persist with re-read verify (F9). ``ok`` only if persisted and verified.
+
+    Fingerprints:
+    - gap: each ``touched_line_ids`` must show omit/skip flags (or be absent for drop).
+    - SDP: re-read is a dict; if ``touched_cue_ids`` given, those cue_ids must exist.
+    """
+    out: dict[str, Any] = {
+        "ok": False,
+        "persisted": False,
+        "skipped": "",
+        "verified": False,
+        "error": "",
+    }
+    rel_n = str(rel or "").replace("\\", "/").lstrip("./")
+    if not frozen_seat_write_allowed(ctx, rel_n, reason=reason):
+        out["skipped"] = "seat_freeze_not_enda"
+        out["error"] = out["skipped"]
+        return out
+    try:
+        persisted = bool(
+            persist_frozen_seat_doc(ctx, rel_n, doc, reason=reason, **write_kw)
+        )
+    except Exception as exc:
+        out["error"] = f"persist_failed:{exc}"[:200]
+        return out
+    if not persisted:
+        out["skipped"] = "persist_returned_false"
+        out["error"] = out["skipped"]
+        return out
+    out["persisted"] = True
+    try:
+        live = ctx.read_json(rel_n) if ctx.artifact_exists(rel_n) else None
+    except Exception as exc:
+        out["error"] = f"reread_failed:{exc}"[:200]
+        return out
+    if not isinstance(live, dict):
+        out["error"] = "reread_not_dict"
+        return out
+    if rel_n == "understanding/gap_report.json" and touched_line_ids:
+        lines: list[Any] = []
+        if isinstance(live.get("lines"), list):
+            lines.extend(live["lines"])
+        if isinstance(live.get("interviewer_lines"), list):
+            lines.extend(live["interviewer_lines"])
+        by_id = {
+            str(ln.get("line_id") or ""): ln
+            for ln in lines
+            if isinstance(ln, dict) and ln.get("line_id")
+        }
+        for lid in touched_line_ids:
+            lid_s = str(lid or "").strip()
+            if not lid_s:
+                continue
+            # wav filenames in drop_orphan may appear as "x.wav" — strip suffix
+            key = lid_s[:-4] if lid_s.endswith(".wav") else lid_s
+            row = by_id.get(key) or by_id.get(lid_s)
+            if row is None:
+                # drop_orphan may remove the line entirely
+                continue
+            omitted = bool(
+                row.get("air_script_omit")
+                or row.get("skipped_optional")
+                or row.get("skip")
+            )
+            if not omitted:
+                out["error"] = f"gap_omit_not_landed:{lid_s}"
+                return out
+    if rel_n == "understanding/sound_design_plan.json" and touched_cue_ids:
+        cues: list[Any] = []
+        for flow in (live.get("flow_plans") or {}).values():
+            if isinstance(flow, dict):
+                cues.extend(flow.get("cues") or [])
+        have = {
+            str(c.get("cue_id") or "")
+            for c in cues
+            if isinstance(c, dict) and c.get("cue_id")
+        }
+        for cid in touched_cue_ids:
+            cid_s = str(cid or "").strip()
+            if cid_s and cid_s not in have:
+                out["error"] = f"sdp_cue_missing:{cid_s}"
+                return out
+    out["verified"] = True
+    out["ok"] = True
+    return out
 
 
 def frozen_omitted_line_ids(ctx: RunContext) -> set[str]:

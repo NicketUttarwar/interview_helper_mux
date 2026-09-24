@@ -930,7 +930,7 @@
         "max_block_chars": 48000
       }
     },
-    "_comment_connector_fuse": "Economy-LLM seam adjudication: fuse unfinished thoughts only; same-speaker complete ideas stay independent. allow_cross_speaker_fuse=false blocks editorial cross-speaker fuses; incomplete-thought / hanging-setup fuses may still cross speakers.",
+    "_comment_connector_fuse": "Seam adjudication: fuse unfinished thoughts only. Pre-ranking uses llm_tier_by_pass.standard; analysis stays economy. Full-auto forces enabled=true.",
     "connector_fuse": {
       "enabled": true,
       "max_fuses_per_pass": 0,
@@ -940,6 +940,9 @@
       "head_words": 16,
       "llm_batch_size": 16,
       "llm_tier": "economy",
+      "llm_tier_by_pass": {
+        "pre_ranking": "standard"
+      },
       "prefer_fuse_when_hint_and_uncertain": true,
       "prefer_stay_when_uncertain": true,
       "incomplete_thought_only": true,
@@ -1008,7 +1011,7 @@
       "segment_text_max_chars": 400,
       "max_segments_in_context": 200,
       "max_segments_in_gap_pass": 500,
-      "proactive_decompose_gap_segments": 40,
+      "proactive_decompose_gap_segments": 20,
       "max_gap_evaluations": 0,
       "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8,
@@ -1146,7 +1149,10 @@
       "auto_skip_when_ineligible": false,
       "frame_confidence_min": 0.65,
       "min_synthetic_vo_lines": 3,
-      "hide_gui_stages_when_skipped": false
+      "hide_gui_stages_when_skipped": false,
+      "sealed_ratio_max": 0.15,
+      "sealed_ratio_hard_max": 0.35,
+      "sealed_ratio_rescue_max_ids": 32
     },
     "refinement_passes": {
       "enabled": true,
@@ -1285,6 +1291,8 @@
       "suppress_placeholder_seams_when_layup": true,
       "demote_synthetic_framing_content": true,
       "authoritative_gap_report": true,
+      "compose_orientation_only_when_plan_ready": false,
+      "_comment_compose_orientation_only": "R2 opt-in: when true and layup plan/corpus ready, gap_framing_compose seeds orientation stub only (no full LLM body).",
       "block_on_open_must_keep": true,
       "block_on_open_high_salience": true,
       "honor_information_package_dense_budget": true,
@@ -1760,6 +1768,36 @@
         "nugget_retention": 0.15,
         "conversation_fit": 0.075,
         "story_followability": 0.075
+      }
+    },
+    "_comment_progress_floors": "Count/score floors as goals: stretch (revive discarded) then advisory-continue; playability-only hard stops. Rollback: progress_floors.enabled false",
+    "progress_floors": {
+      "enabled": true,
+      "max_attempts_per_family": 3,
+      "record_advisories": true,
+      "require_operator_publish_when_advisory": true,
+      "hosted_vo": {
+        "aspirational": true,
+        "_comment_identify_statuses": "identify_hosted_vo_floor: UNWARRANTED | WAIVED | MET | PARTIAL | HOLLOW_ZERO. aspirational never covers HOLLOW_ZERO (have==0 playability stop)."
+      },
+      "layup_coverage": {
+        "aspirational": true
+      },
+      "nugget_air": {
+        "aspirational": true
+      },
+      "listenability": {
+        "aspirational": true
+      },
+      "soundscape_density": {
+        "aspirational": true
+      },
+      "listen_delight": {
+        "aspirational": true,
+        "catastrophic_as_advisory": true
+      },
+      "boundary_coverage": {
+        "aspirational": true
       }
     },
     "listen_delight": {

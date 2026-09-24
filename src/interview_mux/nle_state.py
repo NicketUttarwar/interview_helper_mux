@@ -294,6 +294,23 @@ def apply_nle_to_selection(
         and (segments_by_id is None or s in segments_by_id or s in overrides)
     ]
 
+    # ``sequence_order`` is the operator-touched *subset* (tests use
+    # ``["seg_c", "seg_a"]``). A long auto-mirrored spine that covers every keep
+    # (often with extras) must not lock the whole ranking order
+    # (exec_13177: 018↔014 / 059↔053 → edl_narrative_qc thrash). Exclude/split
+    # overlays still apply. Short full-cover lists (operator reordered all
+    # remaining keeps) still honor sequence_order.
+    if operator_moved and base_order:
+        base_set = set(base_order)
+        moved_in_base = [s for s in operator_moved if s in base_set]
+        full_cover = (
+            len(moved_in_base) >= len(base_order)
+            and base_set.issubset(set(moved_in_base))
+        )
+        long_dump = len(order) >= max(len(base_order) + 1, int(len(base_order) * 1.25))
+        if full_cover and long_dump:
+            operator_moved = []
+
     if operator_moved:
         # Overlay: keep app relative order for untouched ids; splice operator
         # sequence as an ordered block at the first operator-touched index in base,
@@ -488,6 +505,9 @@ def materialize_split_children_into_manifest(
     ctx: RunContext,
     parent_id: str,
     child_ids: list[str],
+    *,
+    stage_key: str | None = None,
+    mutation_class: str | None = None,
 ) -> list[str]:
     """Persist NLE/CTA split children as first-class ``segments/manifest.json`` rows.
 
@@ -496,6 +516,15 @@ def materialize_split_children_into_manifest(
     """
     if not parent_id or not child_ids or not ctx.artifact_exists("segments/manifest.json"):
         return []
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        if hard_freeze_active(ctx):
+            # Under hard freeze: skip inventing new rows; existing orphans are
+            # covered into excluded by ``cover_ranking_manifest_membership``.
+            return []
+    except Exception:
+        pass
     man = ctx.read_json("segments/manifest.json")
     if not isinstance(man, dict):
         return []
@@ -569,7 +598,25 @@ def materialize_split_children_into_manifest(
             segs[i] = parent_row
             break
     man["segments"] = segs
-    ctx.write_json("segments/manifest.json", man, skip_handoff=True)
+    write_kw: dict[str, Any] = {"skip_handoff": True}
+    if stage_key:
+        write_kw["stage_key"] = stage_key
+    if mutation_class:
+        write_kw["mutation_class"] = mutation_class
+    try:
+        ctx.write_json("segments/manifest.json", man, **write_kw)
+    except Exception:
+        # Side write must never abort ranking selection commit (exec_13168/13170).
+        try:
+            ctx.log(
+                "materialize_split_children_into_manifest: manifest write failed "
+                f"(stage_key={stage_key!r}); continuing without child rows",
+                level="warning",
+                stage=stage_key or "nle_state",
+            )
+        except Exception:
+            pass
+        return []
     return inserted
 
 

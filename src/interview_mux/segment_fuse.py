@@ -125,6 +125,8 @@ _DEFAULTS: dict[str, Any] = {
     "head_words": 16,
     "llm_batch_size": 16,
     "llm_tier": "economy",
+    # Pre-ranking uses standard first (H1-B); analysis stays economy via llm_tier.
+    "llm_tier_by_pass": {"pre_ranking": "standard"},
     "prefer_fuse_when_hint_and_uncertain": True,
     "prefer_stay_when_uncertain": True,
     "incomplete_thought_only": True,
@@ -143,6 +145,11 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 
+def is_pre_ranking_pass(pass_id: str) -> bool:
+    blob = str(pass_id or "").strip()
+    return blob == "pre_ranking" or blob.startswith("pre_ranking")
+
+
 def connector_fuse_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolved ``analysis.connector_fuse`` block."""
     resolved = cfg if cfg is not None else merged_config()
@@ -151,8 +158,55 @@ def connector_fuse_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {**_DEFAULTS, **block}
 
 
+def connector_fuse_cfg_for_pass(
+    pass_id: str, cfg: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Pass-aware overrides (pre_ranking tier + prefer-fuse shrink)."""
+    conf = dict(connector_fuse_cfg(cfg))
+    if not is_pre_ranking_pass(pass_id):
+        return conf
+    by_pass = conf.get("llm_tier_by_pass") if isinstance(conf.get("llm_tier_by_pass"), dict) else {}
+    for key in ("pre_ranking", pass_id):
+        tier = str(by_pass.get(key) or "").strip()
+        if tier:
+            conf["llm_tier"] = tier
+            break
+    else:
+        conf["llm_tier"] = "standard"
+    # H2-A: never prefer-fuse on uncertain clean seams for pre_ranking.
+    conf["prefer_fuse_when_hint_and_uncertain"] = False
+    return conf
+
+
 def enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(connector_fuse_cfg(cfg).get("enabled", True))
+
+
+def ensure_connector_fuse_enabled_for_full_auto(ctx: RunContext) -> bool:
+    """H6-C: full-auto / production parity forces fuse on; return effective enabled."""
+    conf = connector_fuse_cfg()
+    if conf.get("enabled", True):
+        return True
+    try:
+        from interview_mux.automation_run import is_full_auto_run
+
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        production = bool(
+            meta.get("production") or meta.get("full_auto_production_parity")
+        )
+        if not (is_full_auto_run(meta) or production):
+            return False
+        ctx.log(
+            "full-auto forces analysis.connector_fuse.enabled=true (publishability)",
+            level="info",
+            stage="connector_fuse_pass",
+            action_id="connector_fuse.full_auto_force_enabled",
+        )
+        return True
+    except Exception:
+        return False
 
 
 def incomplete_thought_hints(hints: dict[str, Any] | None) -> bool:
@@ -1805,7 +1859,7 @@ def run_high_value_cluster_fuse_rounds(
                     ctx,
                     kind="fuse_oscillation",
                     severity="critical",
-                    stage="connector_fuse_pass",
+                    stage=fuse_writer_stage(pass_id),
                     detail={
                         "pass_id": pass_id,
                         "sig": sig[:200],
@@ -1833,6 +1887,127 @@ def already_adjudicated(audit: dict[str, Any]) -> dict[str, str]:
         if isinstance(row, dict) and row.get("pair_id"):
             out[str(row["pair_id"])] = str(row.get("seam_hash") or "")
     return out
+
+
+def _prior_stay_decision(audit: dict[str, Any], pair_id: str) -> str:
+    for row in audit.get("stay_independent") or []:
+        if isinstance(row, dict) and str(row.get("pair_id") or "") == pair_id:
+            return str(row.get("decision") or row.get("reason_code") or "stay_independent")
+    return "stay_independent"
+
+
+def _seam_chapter_membership_changed(ctx: RunContext, packet: dict[str, Any]) -> bool:
+    """True when narrative chapters place endpoints in different chapters (H3 reopen)."""
+    try:
+        from interview_mux.high_value_speech_islands import _narrative_chapter_change
+
+        return bool(
+            _narrative_chapter_change(
+                ctx,
+                left_end_ms=int(packet.get("earlier_end_ms") or 0),
+                right_start_ms=int(packet.get("later_start_ms") or 0),
+                left_segment_id=str(packet.get("earlier_segment_id") or "") or None,
+                right_segment_id=str(packet.get("later_segment_id") or "") or None,
+            )
+        )
+    except Exception:
+        return False
+
+
+def select_pending_seam_packets(
+    ctx: RunContext,
+    packets: list[dict[str, Any]],
+    *,
+    pass_id: str,
+    force_readjudicate: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    """Return (pending, reopened_seams, settled_skipped).
+
+    Pre-ranking settles prior stay_independent unless seam_hash or narrative
+    chapter membership changed (G3 / H3-A/D).
+    """
+    if force_readjudicate or not packets:
+        return list(packets), [], 0
+    audit = _read_audit(ctx)
+    settled = already_adjudicated(audit)
+    pending: list[dict[str, Any]] = []
+    reopened: list[dict[str, Any]] = []
+    skipped = 0
+    pre = is_pre_ranking_pass(pass_id)
+    for packet in packets:
+        if not isinstance(packet, dict):
+            continue
+        pid = str(packet.get("pair_id") or "")
+        seam_hash = str(packet.get("seam_hash") or "")
+        prior_hash = settled.get(pid)
+        if prior_hash is None:
+            pending.append(packet)
+            continue
+        if prior_hash != seam_hash:
+            pending.append(packet)
+            if pre:
+                reopened.append(
+                    {
+                        "pair_id": pid,
+                        "reason": "seam_hash_changed",
+                        "prior_decision": _prior_stay_decision(audit, pid),
+                    }
+                )
+            continue
+        if pre and _seam_chapter_membership_changed(ctx, packet):
+            pending.append(packet)
+            reopened.append(
+                {
+                    "pair_id": pid,
+                    "reason": "chapter_membership_changed",
+                    "prior_decision": _prior_stay_decision(audit, pid),
+                }
+            )
+            continue
+        skipped += 1
+    return pending, reopened, skipped
+
+
+def _empty_adjudication_stats() -> dict[str, Any]:
+    return {
+        "llm_ok": 0,
+        "llm_fail": 0,
+        "fallback_fuse": 0,
+        "fallback_stay": 0,
+        "fuse_applied": 0,
+        "stay": 0,
+        "mean_confidence": None,
+    }
+
+
+def _rollup_adjudication_stats(
+    verdicts: list[dict[str, Any]], *, applied: int = 0
+) -> dict[str, Any]:
+    stats = _empty_adjudication_stats()
+    confs: list[float] = []
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        fb = str(v.get("adjudication_fallback") or "")
+        decision = str(v.get("decision") or "")
+        if fb:
+            stats["llm_fail"] += 1
+            if decision == "fuse":
+                stats["fallback_fuse"] += 1
+            else:
+                stats["fallback_stay"] += 1
+        else:
+            stats["llm_ok"] += 1
+        if decision == "stay_independent":
+            stats["stay"] += 1
+        try:
+            confs.append(float(v.get("confidence")))
+        except (TypeError, ValueError):
+            pass
+    stats["fuse_applied"] = int(applied)
+    if confs:
+        stats["mean_confidence"] = round(sum(confs) / len(confs), 4)
+    return stats
 
 
 def resolve_fuse_round_caps(conf: dict[str, Any] | None = None) -> tuple[int, int]:
@@ -1870,7 +2045,8 @@ def run_connector_fuse_pass(
     force_readjudicate: bool = False,
 ) -> dict[str, Any]:
     """High-value cluster fuse, then enumerate → adjudicate → apply until fixed point."""
-    conf = connector_fuse_cfg(cfg)
+    conf = connector_fuse_cfg_for_pass(pass_id, cfg)
+    writer = fuse_writer_stage(pass_id)
     rounds_doc: dict[str, Any] = {
         "version": 1,
         "pass_id": pass_id,
@@ -1878,9 +2054,21 @@ def run_connector_fuse_pass(
         "rounds": [],
         "total_applied": 0,
         "fixed_point": False,
+        "reopened_seams": [],
+        "settled_skipped": 0,
+        "adjudication_stats": _empty_adjudication_stats(),
     }
-    if not conf.get("enabled", True):
-        return persist_fuse_skip(ctx, pass_id=pass_id, skip_reason="disabled", rounds_doc=rounds_doc)
+    effective_enabled = bool(conf.get("enabled", True))
+    if not effective_enabled:
+        if ensure_connector_fuse_enabled_for_full_auto(ctx):
+            conf = {**conf, "enabled": True}
+            effective_enabled = True
+        else:
+            skip = persist_fuse_skip(
+                ctx, pass_id=pass_id, skip_reason="disabled", rounds_doc=rounds_doc
+            )
+            skip["adjudication_stats"] = _empty_adjudication_stats()
+            return skip
     if not ctx.artifact_exists("segments/manifest.json"):
         return persist_fuse_skip(
             ctx, pass_id=pass_id, skip_reason="missing_manifest", rounds_doc=rounds_doc
@@ -1909,6 +2097,9 @@ def run_connector_fuse_pass(
     batch_size = int(conf.get("llm_batch_size") or 16)
     total_applied = hv_applied + diar_applied
     last_sig = ""
+    all_verdicts: list[dict[str, Any]] = []
+    all_reopened: list[dict[str, Any]] = []
+    settled_skipped_total = 0
 
     for round_index in range(max_rounds):
         packets_doc = enumerate_seam_packets(ctx, cfg=conf)
@@ -1917,13 +2108,15 @@ def run_connector_fuse_pass(
             rounds_doc["fixed_point"] = True
             break
 
-        settled = {} if force_readjudicate else already_adjudicated(_read_audit(ctx))
-        pending = [
-            p
-            for p in packets
-            if force_readjudicate
-            or settled.get(str(p.get("pair_id"))) != str(p.get("seam_hash") or "")
-        ]
+        pending, reopened, skipped = select_pending_seam_packets(
+            ctx,
+            packets,
+            pass_id=pass_id,
+            force_readjudicate=force_readjudicate,
+        )
+        settled_skipped_total += skipped
+        if reopened:
+            all_reopened.extend(reopened)
         if not pending:
             rounds_doc["fixed_point"] = True
             rounds_doc["rounds"].append(
@@ -1933,12 +2126,14 @@ def run_connector_fuse_pass(
                     "adjudicated": 0,
                     "applied": 0,
                     "reason": "all_pairs_settled",
+                    "settled_skipped": skipped,
                 }
             )
             break
 
         remaining = max(0, cap - total_applied)
         verdicts = adjudicate_seams(ctx, pending, batch_size=batch_size, cfg=conf)
+        all_verdicts.extend(verdicts)
         result = apply_connector_fuses(
             ctx, verdicts, max_fuses=remaining, pass_id=pass_id, cfg=conf
         )
@@ -1955,6 +2150,8 @@ def run_connector_fuse_pass(
                 "applied": applied,
                 "fuse_verdicts": len([v for v in verdicts if v.get("decision") == "fuse"]),
                 "fallback_verdicts": len([v for v in verdicts if v.get("adjudication_fallback")]),
+                "settled_skipped": skipped,
+                "reopened": len(reopened),
             }
         )
         if applied == 0:
@@ -1970,7 +2167,7 @@ def run_connector_fuse_pass(
                     ctx,
                     kind="fuse_oscillation",
                     severity="critical",
-                    stage="connector_fuse_pass",
+                    stage=writer,
                     detail={
                         "pass_id": pass_id,
                         "sig": sig[:200],
@@ -1987,6 +2184,11 @@ def run_connector_fuse_pass(
             break
 
     rounds_doc["total_applied"] = total_applied
+    rounds_doc["reopened_seams"] = all_reopened[:100]
+    rounds_doc["settled_skipped"] = settled_skipped_total
+    rounds_doc["adjudication_stats"] = _rollup_adjudication_stats(
+        all_verdicts, applied=total_applied
+    )
     if total_applied:
         air = rerun_air_bounds_on_fused(ctx, pass_id=pass_id)
         rounds_doc["air_bounds"] = air
@@ -2009,13 +2211,15 @@ def run_connector_fuse_pass(
         f"Connector fuse pass '{pass_id}': {total_applied} fuse(s) over "
         f"{len(rounds_doc['rounds'])} round(s) (fixed_point={rounds_doc['fixed_point']})",
         level="info",
-        stage="connector_fuse_pass",
+        stage=writer,
         action_id="connector_fuse.pass",
         detail={
             "pass_id": pass_id,
             "total_applied": total_applied,
             "hv_cluster_applied": hv_applied,
             "fixed_point": rounds_doc["fixed_point"],
+            "settled_skipped": settled_skipped_total,
+            "reopened": len(all_reopened),
         },
     )
     return rounds_doc
@@ -2178,12 +2382,15 @@ __all__ = [
     "apply_connector_fuses",
     "assert_no_split_suspect_islands",
     "connector_fuse_cfg",
+    "connector_fuse_cfg_for_pass",
     "deterministic_fallback_verdict",
     "enabled",
     "encompass_straddling_islands",
+    "ensure_connector_fuse_enabled_for_full_auto",
     "enumerate_seam_packets",
     "fuse_writer_stage",
     "fused_id_remap",
+    "is_pre_ranking_pass",
     "persist_fuse_skip",
     "plan_cluster_fuses",
     "plan_high_value_fuses",
@@ -2192,5 +2399,6 @@ __all__ = [
     "rerun_air_bounds_on_fused",
     "run_connector_fuse_pass",
     "run_high_value_cluster_fuse_rounds",
+    "select_pending_seam_packets",
     "words_in_span",
 ]

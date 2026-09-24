@@ -21,10 +21,15 @@ These invariants apply at every checkpoint. Violations block downstream work whe
 | T0-5 | **Producer heal only** — geometry/id/text/order problems resume at the producer stage, not mix remaster | playbook `resume_stage` |
 | T0-6 | **No staging ghosts at mix** — pending writes for edl/junction/mix/finalize must be cleared | `pending_write_barrier` |
 | T0-7 | **PMQ before ship** — `publish_allowed: false` or missing PMQ at finalize is not ship-ready | `post_master_quality_missing`, `pmq_incomplete_ship_walk` |
+| T0-8 | **Connector fuse on in full-auto** — `analysis.connector_fuse.enabled` cannot stay false under full-auto / production parity (pre-ranking mid-thought chops) | soft force via `ensure_connector_fuse_enabled_for_full_auto` |
 
 **Never-touch geometry (T0-1 detail):** When a packaging keep (e.g. `seg_003a`) sits inside a dropped CTA parent (`seg_002`), punch holes use **manifest** bounds so the keep airs at full span. CTA/sponsor/promo-tagged keeps omit with `never_touch_unplayable` instead of punching onto air.
 
 **Omit collateral (T0-2 / T0-4 detail):** `reconcile_edl_with_omit_ledger` strips omitted layup VO only. Episode orientation (`episode_orientation: true`) and `required: true` lines are **never** stripped when a layup on the same target is omitted.
+
+**Opening orientation waive (T0-4 detail):** While `opening_orientation.required` is true, the VO execution-contract ladder **must not** waive that line (`tier_d_logged_waive` refuses). Durable waive is only atomic meta `omitted=true` **and** `required=false` (native cold-open / explicit operator G1 skip). Orphan line stamps (`execution_contract_waive` / `tier_d_logged_waive`) alone are not durable — seats, policy_omit, and revive clear them.
+
+**Hosted VO floor (Cluster C):** See [hosted-vo-authority.md](hosted-vo-authority.md). `identify_hosted_vo_floor` labels `HOLLOW_ZERO` / `PARTIAL` / `MET`. Never aspirational-continue at zero seats. Keep/omit/seat disposition is single SSOT; WAV/EDL heard beats gap omit.
 
 ---
 
@@ -51,7 +56,21 @@ Wiring: `stages/assembly.py` (`post_edl`, `pre_mix`), `junction_snip_qa.py` (`po
 
 ### Aspirational rubrics (default)
 
-When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** remains blocking. **Rubric gates** (listen delight floors, PMQ scorecard, listenability contract, non-critical junction feel, LUFS band) are recommendations: up to three attempts per family, then `select_best_quality_candidate` restores the best-scored `master.wav` and writes `run_meta.quality_advisories`. Catastrophic floors (`catastrophic_floors`) and never-soft PMQ checks still hard-stop. Roll back with `aspirational_quality.enabled: false` and `listen_delight.mode: authoritative`.
+When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** remains blocking. **Rubric gates** (listen delight floors, PMQ scorecard, listenability contract, non-critical junction feel, LUFS band) are recommendations: up to three attempts per family, then `select_best_quality_candidate` restores the best-scored `master.wav` and writes `run_meta.quality_advisories`.
+
+### Progress floors (default)
+
+`mastering.progress_floors.enabled` (default **true**) extends the same idea to **count/score floors** across the walk — hosted VO line count, layup row density, nugget air, listenability bands, soundscape density, boundary coverage, and (when `listen_delight.catastrophic_as_advisory` is true) former catastrophic score floors:
+
+1. **Stretch** — revive discarded / soft-omitted / skip-materializable pools (never invent under hard freeze; End-A allowlists `revive_discarded_floor_candidate`).
+2. **Best-of-N** — up to `max_attempts_per_family` (default 3) where creative variance helps.
+3. **Advisory-continue** — stamp `run_meta.floor_advisories` (mirrored into `quality_advisories`) and keep walking toward `master/master.wav`.
+
+**Playability-only hard stops remain:** missing/empty master when claiming ship, zero-ms keeps / order drift / pending-write ghosts (repair or omit then continue), seated VO without render path after WAV clamp, unreadable PMQ / ship-reachability (`STRUCTURAL_PMQ_CHECKS`).
+
+Rollback: `progress_floors.enabled: false` restores legacy fail-closed floors (including `hosted_vo_floor_unsatisfiable`). G-Publish / S3 still requires operator consent when advisories are non-empty.
+
+When `progress_floors.listen_delight.catastrophic_as_advisory` is true (default), former catastrophic **score** floors become loud advisory + ship-best after remutate budget — they no longer mid-pipeline halt. Never-soft PMQ / playability checks (`STRUCTURAL_PMQ_CHECKS`) still hard-stop. Roll back progress floors or set `catastrophic_as_advisory: false` to restore score hard-stops; set `aspirational_quality.enabled: false` for full rubric blocking.
 
 ### Nugget air coverage goal (layup)
 

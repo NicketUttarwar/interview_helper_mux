@@ -21,6 +21,29 @@ def plan_is_authoritative(plan: dict[str, Any] | None) -> bool:
     """HM-3: consumers may bind only when ``plan_status`` is complete."""
     return isinstance(plan, dict) and str(plan.get("plan_status") or "") == "complete"
 
+
+def soft_gate_consumers_bind_enabled() -> bool:
+    """Cutover gate: Shape soft-gate may bind consumers only when explicitly enabled."""
+    try:
+        from interview_mux.config import merged_config
+
+        soft = (
+            ((merged_config().get("analysis") or {}).get("mastering") or {}).get("shape")
+            or {}
+        ).get("soft_gate") or {}
+        return bool(soft.get("consumers_bind"))
+    except Exception:
+        return False
+
+
+def compose_plan_bind_mode(plan: dict[str, Any] | None) -> str:
+    """GF-02: gap_framing_compose bind mode — authoritative only with complete + consumers_bind."""
+    if not plan_is_authoritative(plan):
+        return "advisory"
+    if not soft_gate_consumers_bind_enabled():
+        return "advisory"
+    return "authoritative"
+
 REBUILD_SCOPES: dict[str, tuple[str, ...]] = {
     "plan_only": (
         "mastering_research_rollup",

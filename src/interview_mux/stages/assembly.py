@@ -571,6 +571,8 @@ def build_flow1_edl(
                 return ctype
         return ""
 
+    from interview_mux.hosted_vo_authority import edl_before_line_survives
+
     for idx, sid in enumerate(ordered):
         seg = segments_by_id.get(sid)
         if not seg:
@@ -601,19 +603,22 @@ def build_flow1_edl(
         )
         if skip_before_vo:
             # Contiguous same-speaker source usually needs no seam hinge, but
-            # authoritative nugget layups (and episode orientation) must still air.
+            # EDL survivors (orientation / nugget_layup / required) must still air.
             before_lines = [
                 ln
                 for ln in before_lines
-                if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
+                if edl_before_line_survives(ln, after_vo_stack=False)
             ]
         # One host turn per seam: never stack a second synthetic after VO/transition.
-        # Orientation may still air on the opening native only.
+        # Survivors from hosted_vo_authority must still seat on later segments after
+        # opening VO — otherwise WAV exists without EDL vo_pickup
+        # (exec_13183: vo_audibility_drift phantom_vo for vo_layup_seg_007/037).
         if _last_non_silence_type() in {"vo_pickup", "transition"}:
-            if idx == 0:
-                before_lines = [ln for ln in before_lines if _is_orientation(ln)]
-            else:
-                before_lines = []
+            before_lines = [
+                ln
+                for ln in before_lines
+                if edl_before_line_survives(ln, after_vo_stack=True)
+            ]
 
         # Opening grammar pin: orientation must stay within the early audible window.
         # Straight: orientation first among before-VO. Cold open: defer hook before-VO
@@ -1144,6 +1149,16 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
                 discard_non_owner_pending_vo_pickup(ctx)
                 notes.append(lid)
             except Exception as exc:
+                # Chatterbox may write then false-fail JSON; accept stem if present.
+                try:
+                    promote_owner_vo_pickup(ctx)
+                except Exception:
+                    pass
+                from interview_mux.vo_contract import _gap_row_has_pickup_stem
+
+                if _gap_row_has_pickup_stem(ctx, line):
+                    notes.append(lid)
+                    continue
                 raise RuntimeError(
                     f"edl: synthesize WAV stale/missing (line_id={lid} "
                     f"reason={reason} path={path} "
@@ -1158,6 +1173,10 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
             if matches2:
                 continue
             if path2 is not None and path2.is_file():
+                continue
+            from interview_mux.vo_contract import _gap_row_has_pickup_stem
+
+            if _gap_row_has_pickup_stem(ctx, line):
                 continue
             raise RuntimeError(
                 f"edl: synthesize WAV stale/missing (line_id={lid} "
@@ -1365,6 +1384,12 @@ def run_edl(ctx: RunContext) -> None:
                     level="info",
                     stage="edl",
                 )
+            try:
+                from interview_mux.omit_ledger import revive_required_opening_orientation
+
+                revive_required_opening_orientation(ctx)
+            except Exception:
+                pass
             try:
                 from interview_mux.air_script import (
                     filter_gap_lines_for_air_script,
@@ -1933,10 +1958,21 @@ def run_mix(ctx: RunContext) -> Path:
         ctx.log(f"mix: post-mix listen delight skipped: {exc}", level="warning", stage="mix")
     try:
         from interview_mux.air_order import mix_outputs_seated
-        from interview_mux.mix_junction_seat import clear_remaster
+        from interview_mux.mix_junction_seat import (
+            clear_remaster,
+            note_speech_first_mix,
+        )
 
         if mix_outputs_seated(ctx):
             clear_remaster(ctx)
+            # Remaster stamp trigger: every successful speech-first seat path.
+            try:
+                from interview_mux.delivery_guardrails import music_epoch_complete
+
+                if not music_epoch_complete(ctx):
+                    note_speech_first_mix(ctx)
+            except Exception:
+                note_speech_first_mix(ctx)
     except Exception:
         pass
     return out
@@ -2154,7 +2190,9 @@ def run_preview(ctx: RunContext) -> Path:
         marked = bool(out.get("marked"))
         if not marked:
             try:
-                marked = bool(ctx.is_done("assembly_preview"))
+                from interview_mux.delivery_guardrails import seed_stage_complete
+
+                marked = bool(seed_stage_complete(ctx, "assembly_preview"))
             except Exception:
                 marked = False
     except RuntimeError:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from interview_mux.low_conf_islands import (
@@ -168,11 +169,72 @@ def run_connector_fuse_pass_junction_heal(ctx: RunContext) -> None:
             stage="connector_fuse_pass",
         )
         return
-    run_connector_fuse_pass(ctx, pass_id="junction_heal", force_readjudicate=True)
+    force = junction_fuse_evidence(ctx)
+    if not force:
+        ctx.log(
+            "connector fuse junction_heal: no residual/hush evidence — honor settled audit",
+            level="info",
+            stage="connector_fuse_pass",
+            action_id="connector_fuse.junction_heal.no_evidence",
+        )
+    run_connector_fuse_pass(ctx, pass_id="junction_heal", force_readjudicate=force)
+
+
+def junction_fuse_evidence(ctx: RunContext) -> bool:
+    """H4-B: True when junction/residuals justify force_readjudicate."""
+    needles = (
+        "hush",
+        "mid_thought",
+        "mid-thought",
+        "incomplete_thought",
+        "fuse_oscillation",
+        "connector_fuse",
+        "seam",
+        "straddle",
+    )
+    try:
+        from interview_mux.delivery_guardrails import DELIVERY_RESIDUALS_REL
+
+        if ctx.artifact_exists(DELIVERY_RESIDUALS_REL):
+            doc = ctx.read_json(DELIVERY_RESIDUALS_REL)
+            rows = (doc.get("residuals") if isinstance(doc, dict) else None) or (
+                doc if isinstance(doc, list) else []
+            )
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+                blob = " ".join(
+                    str(row.get(k) or "")
+                    for k in ("kind", "severity", "stage", "message", "detail")
+                ).lower()
+                if any(n in blob for n in needles):
+                    return True
+                detail = row.get("detail")
+                if isinstance(detail, dict):
+                    dblob = json.dumps(detail, default=str).lower()
+                    if any(n in dblob for n in needles):
+                        return True
+    except Exception:
+        pass
+    for rel in (
+        "master/junction_snip_qa.json",
+        "master/seam_autopsy.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        blob = json.dumps(doc, default=str).lower() if isinstance(doc, (dict, list)) else ""
+        if any(n in blob for n in ("fuse", "mid_thought", "hush", "straddle", "incomplete")):
+            return True
+    return False
 
 
 __all__ = [
     "DEFAULT_FUSE_PASS_ID",
+    "junction_fuse_evidence",
     "run_connector_fuse_pass",
     "run_connector_fuse_pass_junction_heal",
     "run_connector_fuse_pass_pre_ranking",

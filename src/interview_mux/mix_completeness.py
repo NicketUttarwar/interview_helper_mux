@@ -88,6 +88,34 @@ def enforce_mix_completeness(
     message = f"{stage}: mix completeness — {'; '.join(parts)}"
     mode = completeness_gate_mode()
 
+    # HAU speech-first: beds/SFX deferred until MusicGen admit + remaster —
+    # never block seating assembly on missing theme/SFX (exec_13170).
+    beds_deferred = False
+    try:
+        from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+        beds_deferred = bool(beds_deferred_for_mix(ctx))
+        if beds_deferred:
+            soft_sfx = True
+    except Exception:
+        pass
+
+    # R3-A: full-auto / production refuse placeholder music once beds are owed
+    # (speech-first deferred seating stays soft).
+    if not beds_deferred:
+        try:
+            from interview_mux.automation_run import is_full_auto_run
+
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            if isinstance(meta, dict) and (
+                is_full_auto_run(meta)
+                or meta.get("production")
+                or meta.get("full_auto_production_parity")
+            ):
+                soft_sfx = False
+        except Exception:
+            pass
+
     # Last-chance mix retry already ran (or is the policy): warn, do not hard-block ship.
     block_for_vo = (
         bool(vo)

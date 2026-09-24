@@ -2318,6 +2318,12 @@ def create_app() -> FastAPI:
 
                 ctx.mutate_run_meta(_mark_g1_skipped)
                 try:
+                    from interview_mux.gates import operator_reconcile_hosted_vo_floor
+
+                    operator_reconcile_hosted_vo_floor(ctx, stage_id="g1_vo_pickup")
+                except Exception:
+                    pass
+                try:
                     from interview_mux.homunculus.gates import try_set_gate_decision
 
                     try_set_gate_decision(ctx, "vo_pickup", "skip")
@@ -2340,12 +2346,27 @@ def create_app() -> FastAPI:
                 action_id="gui.g1.skip_optional",
                 detail={"event": "g1_skip_optional", "line_ids": skipped, "waived_nugget_ids": waived_nuggets},
             )
-            return {
+            hosted_vo_floor: dict[str, Any] | None = None
+            try:
+                from interview_mux.hosted_vo_authority import (
+                    floor_identity_to_dict,
+                    identify_hosted_vo_floor,
+                )
+
+                hosted_vo_floor = floor_identity_to_dict(
+                    identify_hosted_vo_floor(ctx, persist=False)
+                )
+            except Exception:
+                pass
+            out = {
                 "ok": True,
                 "skipped": skipped,
                 "g1_missing": check_g1_vo(ctx),
                 "waived_nugget_ids": waived_nuggets,
             }
+            if hosted_vo_floor:
+                out["hosted_vo_floor"] = hosted_vo_floor
+            return out
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -3810,6 +3831,12 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             enabled = bool(body.get("enabled"))
             set_gap_framing_enabled(ctx, enabled)
+            try:
+                from interview_mux.gates import operator_reconcile_hosted_vo_floor
+
+                operator_reconcile_hosted_vo_floor(ctx)
+            except Exception:
+                pass
             try:
                 from interview_mux.homunculus.gates import try_set_gate_decision
 

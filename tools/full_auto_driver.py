@@ -31,7 +31,10 @@ def _homunculus_version() -> str:
 
 
 def _heal_mark_or_resume(ctx: Any, stage: str, *, force: bool = True) -> bool:
-    """Wave 3: True only if heal marked complete (not refused / still incomplete)."""
+    """Wave 3: True only if heal marked complete (not refused / still incomplete).
+
+    Heal Success V10: seed-complete required (not bare is_done).
+    """
     sid = str(stage or "").strip()
     if not sid:
         return False
@@ -46,9 +49,14 @@ def _heal_mark_or_resume(ctx: Any, stage: str, *, force: bool = True) -> bool:
     except Exception:
         return False
     try:
-        return bool(ctx.is_done(sid))
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        return bool(seed_stage_complete(ctx, sid))
     except Exception:
-        return False
+        try:
+            return bool(ctx.is_done(sid))
+        except Exception:
+            return False
 
 
 def _heal_mark(ctx: Any, stage: str, *, force: bool = True) -> None:
@@ -847,6 +855,9 @@ def try_product_recovery(stage_id: str, err: str) -> str | None:
         log(f"recovery_controller halted identical failure {halt_sig}")
         return None
     result = handle_stage_failure(ctx, stage_id, exc)
+    # Post-Heal Accounting P11: identical/budget accounting is inside
+    # handle_stage_failure → _append_action → finalize_post_heal_accounting.
+    # Do not invent a driver-only reclaim/identical path here.
     log(
         f"recovery_controller {result.status} {result.signature} "
         f"playbook={result.playbook_id} detail={result.detail}"
@@ -968,7 +979,10 @@ def bind_run(run_id: str) -> None:
         claim = claim_driver_run(ctx_claim, force=False)
         log(f"driver claim pid={claim.get('pid')} run={run_id}")
         if _forensics_mode() and not FRESH:
-            from interview_mux.dispatch_delta import resume_after_intervene
+            from interview_mux.dispatch_delta import (
+                clear_nap_continue_hygiene,
+                resume_after_intervene,
+            )
 
             raw_stages = str(os.environ.get("MUX_INTERVENE_STAGES") or "")
             patched_stages = tuple(
@@ -982,6 +996,17 @@ def bind_run(run_id: str) -> None:
                 f"memo={cleared.get('memo_cleared')} "
                 f"sticky={cleared.get('sticky_cleared')}"
             )
+            # NAP never-again: always clear NAP/fuse/layup memo nest on continue
+            # (exec_13174 attempt_memo leapfrog while primary missing).
+            try:
+                nap_hygiene = clear_nap_continue_hygiene(ctx_claim)
+                log(
+                    "forensics NAP continue hygiene: "
+                    f"memo={nap_hygiene.get('memo_cleared')} "
+                    f"halts={nap_hygiene.get('halts_cleared')}"
+                )
+            except Exception as nap_exc:
+                log(f"forensics NAP continue hygiene: {nap_exc}")
         global _CLAIM_ATEXIT_REGISTERED
         if not _CLAIM_ATEXIT_REGISTERED:
             atexit.register(_release_driver_claim_safe)
@@ -1066,6 +1091,45 @@ def _forensics_mode() -> bool:
     from interview_mux.identical_failures import forensics_mode
 
     return forensics_mode()
+
+
+def _forensics_layup_resume_or_wait(
+    *,
+    live_status: str = "",
+    live_stage: str = "",
+) -> str:
+    """Pin hosted-floor / layup heals to seed-front — never leapfrog past narrative.
+
+    Returns ``wait`` | ``executed``. When premature_cap rewrites layup onto an
+    earlier incomplete producer (e.g. narrative_arc_plan), wait if that producer
+    is already live; otherwise execute from the seed-front. Fixes exec_13174
+    heal-spin: clear needs_operator → re_execute nugget_layup_compose every ~3s
+    while narrative_arc_plan was still incomplete.
+    """
+    from interview_mux.delivery_guardrails import apply_premature_cap_for_execute
+    from interview_mux.run_context import RunContext
+
+    ctx = RunContext(RUN_ID, create=False)
+    cap = apply_premature_cap_for_execute(
+        ctx, "nugget_layup_compose", automation=True, message="hosted_vo_floor_unmet"
+    )
+    pin = str(cap.get("from_stage") or "nugget_layup_compose").strip() or "nugget_layup_compose"
+    if pin != "nugget_layup_compose":
+        live = str(live_stage or "").strip()
+        if str(live_status or "") == "running" and live and (
+            live == pin or live.startswith(pin)
+        ):
+            log(
+                f"forensics: defer layup heal — wait for seed-front {pin} "
+                f"(live={live})"
+            )
+            time.sleep(8)
+            return "wait"
+        log(f"forensics: defer layup → seed-front {pin} (not leapfrog)")
+        execute({"mode": "delivery", "from_stage": pin})
+        return "executed"
+    execute({"mode": "delivery", "from_stage": "nugget_layup_compose"})
+    return "executed"
 
 
 def _forensics_clear_heal_cap(stage: str = "") -> None:
@@ -1833,7 +1897,23 @@ def execute(body: dict[str, Any]) -> None:
     _reset_identical_counters_on_reexecute(from_stage)
     for attempt in range(24):
         try:
-            api("POST", f"/api/runs/{RUN_ID}/execute", body)
+            result = api("POST", f"/api/runs/{RUN_ID}/execute", body)
+            # Runner hard-pins consumers to producers with HTTP 200 + ok:False
+            # (GUI). Follow pinned_to so automation does not idle-spin.
+            if (
+                isinstance(result, dict)
+                and result.get("ok") is False
+                and result.get("pinned_to")
+            ):
+                pin = str(result.get("pinned_to") or "").strip()
+                if pin and pin != from_stage:
+                    log(
+                        f"execute pinned_to {pin!r} "
+                        f"(requested {from_stage!r}) — retry"
+                    )
+                    body = {**body, "from_stage": pin, "mode": body.get("mode") or "delivery"}
+                    from_stage = pin
+                    continue
             return
         except RuntimeError as exc:
             text = str(exc).lower()
@@ -7711,6 +7791,22 @@ def delivery_resume_stage() -> str | None:
                         if s and s not in remutate_consumers and not ctx.is_done(s)
                     ]
                     if pin and producer_incomplete:
+                        # Never honor remutate rewind while G1 VO is open — that
+                        # yanks to transitions/edl/mix and blocks adjudicate/synth
+                        # (exec_13170: listen_delight_remutate → transitions).
+                        try:
+                            from interview_mux.thrash_hardening import (
+                                remutate_resume_allowed,
+                            )
+
+                            if not remutate_resume_allowed(ctx) or _g1_vo_missing(ctx):
+                                log(
+                                    f"delivery_resume_stage: skip remutate {rem_rel} "
+                                    f"(G1 open; not {pin})"
+                                )
+                                break
+                        except Exception:
+                            pass
                         log(f"delivery_resume_stage: honor remutate {rem_rel} → {pin}")
                         return pin
                     if pin and stages and not producer_incomplete:
@@ -7745,9 +7841,16 @@ def delivery_resume_stage() -> str | None:
         # Selection + SDP + layup already present: never rewind to nugget_corpus_mine.
         if _edl_ready_artifacts(ctx) and not edl:
             # Homunculus can skip topology; EDL then loops on G1 missing.
-            # Resume vo_synthesize (gap+transition Chatterbox) instead of edl.
+            # Resume VO chain (adjudicate if pending) instead of edl.
             if _g1_vo_missing(ctx):
-                return "vo_synthesize"
+                try:
+                    from interview_mux.delivery_guardrails import (
+                        clamp_resume_through_order,
+                    )
+
+                    return clamp_resume_through_order(ctx, "vo_synthesize")
+                except Exception:
+                    return "vo_synthesize"
             return "edl"
         if asm and edl:
             try:
@@ -7823,11 +7926,25 @@ def delivery_resume_stage() -> str | None:
                 pass
             return _resolve_mix_from_stage("mix")
         if edl:
+            # Phase-A hearing first; then HAU speech-first mix before MusicGen.
+            pre_music = first_pending(
+                ["edl", "assembly_preview", "listen_delight_audit"]
+            )
+            if pre_music:
+                return pre_music
+            try:
+                from interview_mux.mix_junction_seat import next_delivery_seat
+
+                pin = next_delivery_seat(ctx)
+                log(f"delivery_resume_stage: next_delivery_seat → {pin}")
+                if pin == "mix":
+                    return _resolve_mix_from_stage("mix")
+                if pin:
+                    return pin
+            except Exception:
+                pass
             return first_pending(
                 [
-                    "edl",
-                    "assembly_preview",
-                    "listen_delight_audit",
                     "music_palette_compose",
                     "sfx_prompt_craft",
                     "mmaudio_sfx",
@@ -8147,19 +8264,48 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             # a stale ranking body (exec_13167 heal-spin).
                             if "hosted_vo_floor" in pause_reason:
                                 try:
-                                    def _clr_floor(meta: dict) -> None:
-                                        meta.pop("hosted_vo_floor_unmet", None)
-                                        meta.pop("hosted_vo_floor_unmet_prose", None)
+                                    from interview_mux.hosted_vo_authority import (
+                                        identify_hosted_vo_floor,
+                                        may_aspirational_proceed,
+                                        resume_producer,
+                                    )
 
-                                    _ctx_l.mutate_run_meta(_clr_floor)
+                                    ident = identify_hosted_vo_floor(
+                                        _ctx_l, persist=True
+                                    )
+                                    pin = (
+                                        ident.resume_producer
+                                        or resume_producer(_ctx_l)
+                                        or "nugget_layup_compose"
+                                    )
+                                    if (
+                                        ident.status != "HOLLOW_ZERO"
+                                        and may_aspirational_proceed(_ctx_l)
+                                    ):
+                                        def _clr_floor(meta: dict) -> None:
+                                            meta.pop("hosted_vo_floor_unmet", None)
+                                            meta.pop(
+                                                "hosted_vo_floor_unmet_prose", None
+                                            )
+
+                                        _ctx_l.mutate_run_meta(_clr_floor)
+                                    if pin == "nugget_layup_compose":
+                                        _forensics_layup_resume_or_wait(
+                                            live_status=live_status,
+                                            live_stage=live_stage,
+                                        )
+                                    else:
+                                        execute(
+                                            {
+                                                "mode": "delivery",
+                                                "from_stage": pin,
+                                            }
+                                        )
                                 except Exception:
-                                    pass
-                                execute(
-                                    {
-                                        "mode": "delivery",
-                                        "from_stage": "nugget_layup_compose",
-                                    }
-                                )
+                                    _forensics_layup_resume_or_wait(
+                                        live_status=live_status,
+                                        live_stage=live_stage,
+                                    )
                                 continue
                             if _ctx_l.artifact_exists(PLAN_REL) and _ctx_l.artifact_exists(
                                 "master/selection.json"
@@ -8201,11 +8347,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                         {"mode": "delivery", "from_stage": "edl"}
                                     )
                                     continue
-                            execute(
-                                {
-                                    "mode": "delivery",
-                                    "from_stage": "nugget_layup_compose",
-                                }
+                            _forensics_layup_resume_or_wait(
+                                live_status=live_status, live_stage=live_stage
                             )
                             continue
                         except Exception as layup_exc:
@@ -8264,31 +8407,93 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 ) and skip_ineligible_gap_fill(reason=str(_meta_p.get("needs_operator_reason") or "")):
                     log("needs_operator missing_framing ineligible — skipped VO, continuing")
                     continue
-                elif _forensics_mode() and (
-                    "hosted_vo_floor" in pause_reason
-                    or pause_stage == "nugget_layup_compose"
+                elif "hosted_vo_floor" in pause_reason or (
+                    pause_stage == "nugget_layup_compose"
+                    and "hosted_vo_floor" in pause_reason
                 ):
-                    # Interrupted/idle job + hosted floor: clear stamp and pin
-                    # producer (exec_13167 heal-spin on full_master_ranking body).
-                    _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
                     try:
+                        from interview_mux.hosted_vo_authority import (
+                            identify_hosted_vo_floor,
+                            may_aspirational_proceed,
+                            resume_producer,
+                        )
                         from interview_mux.run_context import RunContext as _RCfloor
 
                         _ctx_f = _RCfloor(RUN_ID, create=False)
+                        ident = identify_hosted_vo_floor(_ctx_f, persist=True)
+                        pin = (
+                            ident.resume_producer
+                            or resume_producer(_ctx_f)
+                            or "gap_framing_compose"
+                        )
+                        if ident.status == "HOLLOW_ZERO":
+                            if _forensics_mode():
+                                _clear_needs_operator_meta(_ctx_f)
+                                log(
+                                    "forensics: HOLLOW_ZERO hosted_vo_floor — "
+                                    f"pin resume_producer={pin} (no aspirational bypass)"
+                                )
+                                if pin == "nugget_layup_compose":
+                                    _forensics_layup_resume_or_wait(
+                                        live_status=live_status,
+                                        live_stage=live_stage,
+                                    )
+                                else:
+                                    execute(
+                                        {"mode": "delivery", "from_stage": pin}
+                                    )
+                                continue
+                            log(
+                                f"{label}: needs_operator hosted_vo_floor HOLLOW_ZERO "
+                                f"resume={pin} "
+                                f"reason={str(_meta_p.get('needs_operator_reason') or '')[:160]}"
+                            )
+                            return
+                        if may_aspirational_proceed(_ctx_f):
+                            _clear_needs_operator_meta(_ctx_f)
 
-                        def _clr_floor(meta: dict) -> None:
-                            meta.pop("hosted_vo_floor_unmet", None)
-                            meta.pop("hosted_vo_floor_unmet_prose", None)
+                            def _clr_floor(meta: dict) -> None:
+                                meta.pop("hosted_vo_floor_unmet", None)
+                                meta.pop("hosted_vo_floor_unmet_prose", None)
+                                meta.pop("hosted_vo_floor_unsatisfiable", None)
+                                meta.pop(
+                                    "hosted_vo_floor_unsatisfiable_prose", None
+                                )
 
-                        _ctx_f.mutate_run_meta(_clr_floor)
+                            _ctx_f.mutate_run_meta(_clr_floor)
+                            log(
+                                "cleared needs_operator hosted_vo_floor — "
+                                "PARTIAL progress_floors advisory continue"
+                            )
+                            continue
                     except Exception:
-                        pass
+                        if _forensics_mode():
+                            _clear_needs_operator_meta(
+                                _RCpause(RUN_ID, create=False)
+                            )
+                            log(
+                                "forensics: cleared needs_operator hosted_vo_floor — "
+                                "resume via seed-front defer"
+                            )
+                            _forensics_layup_resume_or_wait(
+                                live_status=live_status, live_stage=live_stage
+                            )
+                            continue
                     log(
-                        "forensics: cleared needs_operator hosted_vo_floor — "
-                        "resume nugget_layup_compose"
+                        f"{label}: needs_operator "
+                        f"stage={_meta_p.get('needs_operator_stage')} "
+                        f"reason={str(_meta_p.get('needs_operator_reason') or '')[:160]}"
                     )
-                    execute(
-                        {"mode": "delivery", "from_stage": "nugget_layup_compose"}
+                    return
+                elif _forensics_mode() and pause_stage == "nugget_layup_compose":
+                    # Layup thrash (non-floor): clear and resume via seed-front.
+                    _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
+                    log(
+                        "forensics: cleared needs_operator nugget_layup_compose — "
+                        "resume via seed-front defer"
+                    )
+                    _forensics_layup_resume_or_wait(
+                        live_status=live_status, live_stage=live_stage
                     )
                     continue
                 else:
@@ -8411,10 +8616,29 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 live_edl if isinstance(live_edl, dict) else None,
                             )
                             if not has_selection:
-                                log(
-                                    "premature complete without selection.json — "
-                                    f"keep resume {resume} (not edl/mix)"
-                                )
+                                # Prefer open analysis producers over hitch/fuse pin —
+                                # missing selection is normal pre-FMR; sticky hitch thrash
+                                # while gap_framing_compose hosted floor is open is wrong
+                                # (exec_13181 premature_complete ×8 pin=chapter_close_hitch).
+                                try:
+                                    from interview_mux.homunculus.agenda import (
+                                        pending_analysis_for_delivery,
+                                    )
+
+                                    pending_a = pending_analysis_for_delivery(ctx_p) or []
+                                except Exception:
+                                    pending_a = []
+                                if pending_a:
+                                    resume = str(pending_a[0])
+                                    log(
+                                        "premature complete without selection.json — "
+                                        f"pin pending analysis {resume} (not hitch/edl/mix)"
+                                    )
+                                else:
+                                    log(
+                                        "premature complete without selection.json — "
+                                        f"keep resume {resume} (not edl/mix)"
+                                    )
                             elif missing_g1:
                                 # Missing seated VO WAVs → VO producer (adjudicate when
                                 # hollow; synthesize when seeded). Never transitions/EDL.
@@ -8677,11 +8901,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         except Exception:
                             try:
                                 from interview_mux.delivery_guardrails import (
-                                    premature_cap_hard_pin,
+                                    resolve_premature_cap_pin,
                                 )
 
                                 if ctx_p is not None:
-                                    pin_stage = premature_cap_hard_pin(
+                                    pin_stage = resolve_premature_cap_pin(
                                         ctx_p, resume, message=fail_key
                                     )
                             except Exception:
@@ -8866,9 +9090,25 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     "(G1 green but selection/ranking still open)"
                                 )
                             else:
-                                resume_body = {"mode": "delivery", "from_stage": "edl"}
+                                # Prefer premature_cap producer (often
+                                # sound_design_vo_finalize) over raw edl —
+                                # jumping to edl while SDP VO is open used to
+                                # return ok:False/pinned_to and idle-spin.
+                                pin = "edl"
+                                try:
+                                    from interview_mux.delivery_guardrails import (
+                                        resolve_premature_cap_pin,
+                                    )
+
+                                    pin = resolve_premature_cap_pin(ctx, "edl") or "edl"
+                                except Exception:
+                                    pin = "edl"
+                                resume_body = {
+                                    "mode": "delivery",
+                                    "from_stage": pin,
+                                }
                                 log(
-                                    "interrupted smart-resume → edl "
+                                    f"interrupted smart-resume → {pin} "
                                     "(G1 green; edl.json not yet committed)"
                                 )
                 except Exception as exc:
@@ -8986,7 +9226,30 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 )
                 pin = ""
                 low_gate = gate_detail.lower()
-                if "seed order:" in low_gate and "complete " in low_gate:
+                # Hollow Gap VO: never pin edl_narrative_audit — remint layup seats.
+                if "no synthesize lines" in low_gate:
+                    pin = "nugget_layup_compose"
+                    try:
+                        from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+                        hg = high_gap_heal_resume_stage(ctx_gate)
+                        if hg:
+                            pin = hg
+                    except Exception:
+                        pass
+                # EDL narrative QC → stay on edl (never leapfrog to layup compose).
+                elif "edl_narrative_qc" in low_gate:
+                    pin = "edl"
+                # edl refuse mark_done: <producer> incomplete → that producer.
+                elif "refuse mark_done" in low_gate and "incomplete" in low_gate:
+                    import re as _re_refuse
+
+                    sm = _re_refuse.search(
+                        r"refuse mark_done:\s*([a-z0-9_]+)\s+incomplete", low_gate
+                    )
+                    if sm:
+                        pin = sm.group(1)
+                if not pin and "seed order:" in low_gate and "complete " in low_gate:
                     import re as _re_gate_seed
 
                     sm = _re_gate_seed.search(
@@ -9037,13 +9300,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 try:
                     from interview_mux.run_context import RunContext
                     from interview_mux.stages.selection import (
-                        commit_persistable_ranking_from_last_envelope,
+                        commit_ranking_with_deterministic_fallback,
                     )
 
                     ctx_rank = RunContext(RUN_ID, create=False)
-                    if commit_persistable_ranking_from_last_envelope(ctx_rank):
+                    if commit_ranking_with_deterministic_fallback(ctx_rank):
                         log(
-                            "ranking persist-from-last-envelope heal — "
+                            "ranking persist-from-envelope-or-fallback heal — "
                             "resume air_script_compose"
                         )
                         execute({"mode": "delivery", "from_stage": "air_script_compose"})
@@ -12606,10 +12869,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             still_missing = list(check_g1_vo(_ctx_pin) or [])
                             if still_missing:
                                 from interview_mux.delivery_guardrails import (
-                                    premature_cap_hard_pin,
+                                    resolve_premature_cap_pin,
                                 )
 
-                                pin = premature_cap_hard_pin(
+                                pin = resolve_premature_cap_pin(
                                     _ctx_pin, "vo_synthesize", message=err
                                 )
                         except Exception:

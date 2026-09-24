@@ -2035,7 +2035,11 @@ def write_gap_vo_context_audit(ctx: RunContext, lines: list[dict[str, Any]]) -> 
         "policy": (prior_context_cfg()),
     }
     try:
-        ctx.write_json(GAP_VO_CONTEXT_AUDIT_REL, doc)
+        ctx.write_json(
+            GAP_VO_CONTEXT_AUDIT_REL,
+            doc,
+            stage_key="gap_framing_compose",
+        )
     except Exception:
         pass
 

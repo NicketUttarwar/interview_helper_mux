@@ -135,6 +135,24 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                     return None
             except Exception:
                 pass
+        # HAU speech-first: beds optional until remaster — do not pin mix
+        # behind MusicGen/MMAudio (exec_13170: seed_block → music_palette).
+        if stage == "mix":
+            try:
+                from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
+                from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+                if beds_deferred_for_mix(ctx) and earliest in MUSIC_BEFORE_MIX:
+                    return None
+            except Exception:
+                pass
+        if earliest:
+            try:
+                from interview_mux.hosted_vo_authority import seed_walk_pin_for_hollow_hosted_vo
+
+                return seed_walk_pin_for_hollow_hosted_vo(ctx, earliest)
+            except Exception:
+                return earliest
         return earliest
     return None
 
@@ -196,53 +214,78 @@ def dispatch_stage(
         blocked_prep = prepare_fingerprint_blocks_rerun(ctx, stage)
         if blocked_prep == "g0_locked":
             pass
-        elif blocked_prep and ctx.is_done(stage):
-            ctx.log(
-                f"homunculus skip-run {stage} — {blocked_prep}",
-                level="info",
-                stage=stage,
-            )
-            admit(
-                ctx,
-                identity=stage,
-                action="keep",
-                payload={"stage": stage, "source": source, "prepare_fingerprint": blocked_prep},
-            )
-            append_ledger(
-                ctx,
-                {
-                    "kind": "stage",
-                    "identity": stage,
-                    "status": "done",
-                    "source": source,
-                    "prepare_fingerprint": blocked_prep,
-                },
-            )
-            return
+        else:
+            from interview_mux.done_authority import may_skip_as_complete
 
-        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
-            from interview_mux.delivery_guardrails import music_epoch_complete
-            from interview_mux.stage_completion import heal_or_refuse_mark
-
-            if music_epoch_complete(ctx):
-                if not ctx.is_done(stage):
-                    heal_or_refuse_mark(ctx, stage, force=True)
-                if stage == "mmaudio_sfx":
-                    from datetime import datetime, timezone
-
-                    from interview_mux.delivery_guardrails import stamp_delivery_epoch
-
-                    stamp_delivery_epoch(
-                        ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
-                    )
+            if blocked_prep and may_skip_as_complete(ctx, stage):
                 ctx.log(
-                    f"homunculus skip-run {stage} — music epoch complete",
+                    f"homunculus skip-run {stage} — {blocked_prep}",
                     level="info",
                     stage=stage,
                 )
-                admit(ctx, identity=stage, action="keep", payload={"stage": stage, "source": source, "skipped_existing_wavs": True})
-                append_ledger(ctx, {"kind": "stage", "identity": stage, "status": "done", "source": source, "skipped_existing_wavs": True})
+                admit(
+                    ctx,
+                    identity=stage,
+                    action="keep",
+                    payload={"stage": stage, "source": source, "prepare_fingerprint": blocked_prep},
+                )
+                append_ledger(
+                    ctx,
+                    {
+                        "kind": "stage",
+                        "identity": stage,
+                        "status": "done",
+                        "source": source,
+                        "prepare_fingerprint": blocked_prep,
+                    },
+                )
                 return
+
+        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
+            from interview_mux.delivery_guardrails import music_epoch_complete
+            from interview_mux.done_authority import land_honest
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            if music_epoch_complete(ctx):
+                # Land Honesty: hollow .stage_done must not skip regenerate.
+                if not land_honest(ctx, stage):
+                    heal_or_refuse_mark(ctx, stage, force=True)
+                if land_honest(ctx, stage):
+                    if stage == "mmaudio_sfx":
+                        from datetime import datetime, timezone
+
+                        from interview_mux.delivery_guardrails import stamp_delivery_epoch
+
+                        stamp_delivery_epoch(
+                            ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
+                        )
+                    ctx.log(
+                        f"homunculus skip-run {stage} — music epoch complete",
+                        level="info",
+                        stage=stage,
+                    )
+                    admit(
+                        ctx,
+                        identity=stage,
+                        action="keep",
+                        payload={
+                            "stage": stage,
+                            "source": source,
+                            "skipped_existing_wavs": True,
+                        },
+                    )
+                    append_ledger(
+                        ctx,
+                        {
+                            "kind": "stage",
+                            "identity": stage,
+                            "status": "done",
+                            "source": source,
+                            "skipped_existing_wavs": True,
+                        },
+                    )
+                    return
+                # Not land-honest after heal → fall through and re-run.
     except Exception:
         pass
     try:
@@ -250,10 +293,12 @@ def dispatch_stage(
         _refuse_delivery_timeline_rewind(ctx, stage, action="run")
     except RuntimeError:
         if prepare_outputs_present(ctx, stage):
-            if not ctx.is_done(stage):
-                from interview_mux.stage_completion import heal_or_refuse_mark
+            from interview_mux.delivery_guardrails import seed_stage_complete
+            from interview_mux.stage_completion import heal_or_refuse_mark
 
+            if not seed_stage_complete(ctx, stage):
                 heal_or_refuse_mark(ctx, stage, force=True)
+        # DETECTION_ONLY_IS_DONE: hollow stamp without prepare outputs → unmark.
         elif ctx.is_done(stage):
             unmark_stage_only(ctx, stage)
         raise
@@ -308,12 +353,26 @@ def dispatch_stage(
                         RuntimeError(issues[0].message),
                     )
                     if result.status == "recovered" and result.resume_stage:
+                        # Post-Heal Accounting P11: accounting already via
+                        # handle_stage_failure → finalize_post_heal_accounting.
                         # RC10: recursive recovery depth ≤2.
                         if int(_recovery_depth or 0) >= 2:
                             raise StageInputError(stage, issues)
                         resume = str(result.resume_stage).strip()
                         if not resume:
                             raise StageInputError(stage, issues)
+                        try:
+                            from interview_mux.heal_pin_authority import admit_resume
+
+                            resume = admit_resume(
+                                ctx,
+                                resume,
+                                current=stage,
+                                intent="heal_success",
+                                error=issues[0].message,
+                            )
+                        except Exception:
+                            pass
                         try:
                             return dispatch_stage(
                                 ctx,
@@ -443,7 +502,9 @@ def dispatch_stage(
                     f"{stage} finished without required artifact ({', '.join(needed)})"
                 )
         protected = stage in PROTECTED_CORE_STAGES or stage in PROTECTED_DELIVERY_OUTPUTS
-        if protected and needed and not ctx.is_done(stage):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if protected and needed and not seed_stage_complete(ctx, stage):
             defer_done = False
             if stage == "vo_synthesize":
                 from interview_mux.stage_completion import vo_synthesize_should_defer_done
@@ -453,6 +514,8 @@ def dispatch_stage(
                 from interview_mux.stage_completion import heal_or_refuse_mark
 
                 out = heal_or_refuse_mark(ctx, stage, force=True)
+                # DETECTION_ONLY_IS_DONE: confirm WRITE stuck after heal (seed may
+                # still be unpaid/incomplete — that is incompleteness, not missing mark).
                 if out.get("refused") or not ctx.is_done(stage):
                     raise RuntimeError(
                         f"{stage} finished without a done marker"

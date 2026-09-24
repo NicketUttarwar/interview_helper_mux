@@ -473,7 +473,9 @@ class JobRunner:
                         order = order[order.index(start) :]
                 elif "transcript_review_build" in order:
                     order = order[: order.index("transcript_review_build") + 1]
-            pending = [s for s in order if not ctx.is_done(s)]
+            from interview_mux.done_authority import may_skip_as_complete
+
+            pending = [s for s in order if not may_skip_as_complete(ctx, s)]
             from interview_mux.gap_fill_eligibility import filter_visible_job_stages
 
             return filter_visible_job_stages(ctx, pending)
@@ -502,7 +504,9 @@ class JobRunner:
                 order = order[: order.index("assembly_preview") + 1]
             elif mode == "delivery_polish" and "sfx_prompt_craft" in order:
                 order = order[order.index("sfx_prompt_craft") :]
-            pending = [s for s in order if not ctx.is_done(s)]
+            from interview_mux.done_authority import may_skip_as_complete
+
+            pending = [s for s in order if not may_skip_as_complete(ctx, s)]
             from interview_mux.gap_fill_eligibility import filter_visible_job_stages
 
             return filter_visible_job_stages(ctx, pending)
@@ -810,27 +814,72 @@ class JobRunner:
                             "error": done_msg,
                         },
                     )
-                elif vo_incomplete:
-                    ctx.log(done_msg, level="warning", stage="vo_synthesize")
-                    refresh_journey_meta(ctx)
-                    self._write_job(
-                        ctx,
-                        {
-                            "status": "needs_operator",
-                            "mode": mode,
-                            "stage": "vo_synthesize",
-                            "flow": flow,
-                            "message": done_msg,
-                            "needs_operator": True,
-                        },
-                    )
                 else:
-                    ctx.log(done_msg, level="success", stage=label)
-                    refresh_journey_meta(ctx)
-                    self._write_job(
-                        ctx,
-                        {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
-                    )
+                    # R7: never emit stage-success Finished when the just-run stage
+                    # is still artifact-incomplete (compose / critical analysis).
+                    try:
+                        from interview_mux.stage_completion import (
+                            stage_artifact_incompleteness,
+                        )
+
+                        check_sid = str(stage or "").strip()
+                        if check_sid in {
+                            "gap_framing_compose",
+                            "optimal_questions",
+                            "missing_framing",
+                        }:
+                            inc = stage_artifact_incompleteness(ctx, check_sid)
+                            if inc:
+                                refuse_incomplete = True
+                                refuse_stage = check_sid
+                                done_msg = f"Incomplete: {check_sid} — {inc}"
+                    except Exception:
+                        pass
+                    if refuse_incomplete:
+                        ctx.log(
+                            done_msg,
+                            level="warning",
+                            stage=refuse_stage or label,
+                        )
+                        refresh_journey_meta(ctx)
+                        self._write_job(
+                            ctx,
+                            {
+                                "status": "incomplete",
+                                "mode": mode,
+                                "stage": refuse_stage or stage,
+                                "flow": flow,
+                                "message": done_msg,
+                                "error": done_msg,
+                            },
+                        )
+                    elif vo_incomplete:
+                        ctx.log(done_msg, level="warning", stage="vo_synthesize")
+                        refresh_journey_meta(ctx)
+                        self._write_job(
+                            ctx,
+                            {
+                                "status": "needs_operator",
+                                "mode": mode,
+                                "stage": "vo_synthesize",
+                                "flow": flow,
+                                "message": done_msg,
+                                "needs_operator": True,
+                            },
+                        )
+                    else:
+                        ctx.log(done_msg, level="success", stage=label)
+                        refresh_journey_meta(ctx)
+                        self._write_job(
+                            ctx,
+                            {
+                                "status": "complete",
+                                "mode": mode,
+                                "stage": stage,
+                                "flow": flow,
+                                "message": done_msg,
+                            },
+                        )
             except StageInputError as exc:
                 # Soft operator/gate pause — warning note only, never ERROR+traceback.
                 gate_msg = str(exc)
@@ -1130,9 +1179,11 @@ class JobRunner:
     def _next_analysis_stage(self, ctx: RunContext, after_stage_id: str) -> str | None:
         if after_stage_id not in ANALYSIS_ORDER:
             return None
+        from interview_mux.done_authority import may_skip_as_complete
+
         idx = ANALYSIS_ORDER.index(after_stage_id)
         for sid in ANALYSIS_ORDER[idx + 1 :]:
-            if not ctx.is_done(sid):
+            if not may_skip_as_complete(ctx, sid):
                 return sid
         return None
 
@@ -1203,7 +1254,7 @@ class JobRunner:
         if mode in pin_modes and resume_target:
             try:
                 from interview_mux.automation_run import automation_driver_run
-                from interview_mux.delivery_guardrails import premature_cap_hard_pin
+                from interview_mux.delivery_guardrails import apply_premature_cap_for_execute
                 from interview_mux.homunculus.runtime import _seed_prereq_block
                 from interview_mux.v2.config import DELIVERY_ORDER
 
@@ -1216,21 +1267,30 @@ class JobRunner:
                 # driver walk still uses filter_delivery_candidates; this pins
                 # explicit from_stage/stage asks that would skip producers.
                 if resume_target in DELIVERY_ORDER:
-                    pinned = premature_cap_hard_pin(ctx_pre, resume_target)
+                    auto = automation_driver_run(
+                        meta_doc if isinstance(meta_doc, dict) else {}
+                    )
+                    cap = apply_premature_cap_for_execute(
+                        ctx_pre, resume_target, automation=bool(auto)
+                    )
+                    pinned = str(cap.get("pinned_to") or "").strip()
                     if pinned and pinned != resume_target:
-                        reason = (
-                            f"Producer incomplete — pinned to {pinned} "
-                            f"(requested {resume_target})."
-                        )
+                        reason = str(cap.get("reason") or "")
                         ctx_pre.log(reason, level="action", stage=pinned)
-                        self._clear_pipeline_start_reservation(run_id)
-                        return {
-                            "ok": False,
-                            "pinned_to": pinned,
-                            "reason": reason,
-                            "requested_stage": resume_target,
-                            "error": reason,
-                        }
+                        if cap.get("ok") and cap.get("rewritten"):
+                            from_stage = pinned
+                            resume_target = pinned
+                            if stage:
+                                stage = pinned
+                        else:
+                            self._clear_pipeline_start_reservation(run_id)
+                            return {
+                                "ok": False,
+                                "pinned_to": pinned,
+                                "reason": reason,
+                                "requested_stage": resume_target,
+                                "error": reason,
+                            }
                 seed_block = _seed_prereq_block(ctx_pre, resume_target)
                 if seed_block and seed_block != resume_target:
                     if automation_driver_run(
@@ -1270,6 +1330,17 @@ class JobRunner:
                     )
                 except Exception:
                     pass
+
+        # Pin rewrite may change from_stage/stage — rebuild the walk list.
+        stage_ids = self._stages_for_execute(
+            ctx_pre,
+            mode=mode,
+            stage=stage,
+            from_stage=from_stage,
+            until_stage=until_stage,
+            nle_full_refresh=nle_full_refresh,
+            nle_apply_mode=nle_apply_mode,
+        )
 
         if consent_err:
             ctx_pre.log(consent_err, level="action", stage=stage or mode)
@@ -1555,7 +1626,12 @@ class JobRunner:
         """
         if ctx.artifact_exists("master/master.wav"):
             return True
-        return bool(ctx.is_done("master_finalize") or ctx.is_done("podcast_publish"))
+        from interview_mux.done_authority import may_clear_wait
+
+        return bool(
+            may_clear_wait(ctx, "master_finalize")
+            or may_clear_wait(ctx, "podcast_publish")
+        )
 
     def _run_master_qa(self, ctx: RunContext, *, flow: FlowName, rel_path: str) -> None:
         master = ctx.path(rel_path)

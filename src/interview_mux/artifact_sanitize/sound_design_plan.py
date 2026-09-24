@@ -79,7 +79,8 @@ def sanitize_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                 if not isinstance(row, dict):
                     continue
                 anchors = _cue_anchors(row)
-                if anchors and all(a not in order for a in anchors):
+                # Any off-air anchor drops the cue (parity with repair any-anchor rule).
+                if anchors and any(a not in order for a in anchors):
                     dropped += 1
                     continue
                 # drop blank prompts

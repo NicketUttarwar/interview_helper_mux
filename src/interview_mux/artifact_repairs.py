@@ -1122,12 +1122,19 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
             if seal_fabricate:
                 kept.append(
                     {
-                        "segment_id": sid,
-                        "self_explanatory": True,
-                        "gap_type": "ok_with_light_bridge",
-                        "severity": "low",
-                        "listener_confusion": "",
-                        "ready": True,
+                        **{
+                            "segment_id": sid,
+                            "self_explanatory": True,
+                            "gap_type": "ok_with_light_bridge",
+                            "secondary_gap_type": None,
+                            "severity": "low",
+                            "listener_confusion": "",
+                            "recommended_framing": "none",
+                            "candidate_for_summary": False,
+                            "supports_ranking_exclude": False,
+                            "duplicate_claim_cluster": "",
+                            "ready": True,
+                        },
                         "_meta": {
                             "filled_by": "coverage_exhausted_accept",
                             "producer": "coverage_exhausted_accept",
@@ -1144,8 +1151,13 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
                         "segment_id": sid,
                         "self_explanatory": True,
                         "gap_type": "ok_with_light_bridge",
+                        "secondary_gap_type": None,
                         "severity": "low",
                         "listener_confusion": "",
+                        "recommended_framing": "none",
+                        "candidate_for_summary": False,
+                        "supports_ranking_exclude": False,
+                        "duplicate_claim_cluster": "",
                         "ready": True,
                         "_meta": {
                             "filled_by": "repair_gap_evaluations",
@@ -2016,6 +2028,32 @@ def align_narrative_plan_to_selection(
                 }
             )
     if applied:
+        # Mix/junction freeze correctly denies edl_narrative_audit:narrative_metadata_align.
+        # Do not attempt persist — soft-skip so order_reconcile / SDP invent do not
+        # raise authority_denied and rewind (exec_13177 i15).
+        mix_locked = False
+        try:
+            from interview_mux.artifact_ownership import current_epoch
+
+            mix_locked = str(current_epoch(ctx) or "") in {
+                "mix_seated",
+                "junction_committed",
+            }
+        except Exception:
+            mix_locked = False
+        if not mix_locked:
+            try:
+                mix_locked = bool(ctx.artifact_exists("master/assembly.wav"))
+            except Exception:
+                mix_locked = False
+        if mix_locked:
+            applied.append(
+                {
+                    "action": "narrative_align_skipped_mix_seated",
+                    "reason": "narrative_metadata_align forbidden under mix/junction seat",
+                }
+            )
+            return applied
         try:
             from interview_mux.write_staging import write_committed_json
 
@@ -2142,14 +2180,33 @@ def _seed_missing_high_gap_interviewer_lines(
     """
     # Under Nugget Layup authority the publish path owns body lines — seeded
     # hinges are canned air and fail EDL authority lint.
+    # Land Honesty: authority without plan is an orphan stamp — clear it and
+    # fall through to seed (compose-only clear left repair paths greenwashing).
     if bool(out.get("nugget_layup_authority")):
-        applied.append(
-            {
-                "action": "skip_high_gap_seed_under_layup_authority",
-                "reason": "nugget_layup_authority",
-            }
-        )
-        return
+        plan_on_disk = False
+        try:
+            from interview_mux.nugget_layup import PLAN_REL
+
+            plan_on_disk = bool(ctx.artifact_exists(PLAN_REL))
+        except Exception:
+            plan_on_disk = False
+        if not plan_on_disk:
+            out["nugget_layup_authority"] = False
+            applied.append(
+                {
+                    "action": "clear_orphan_nugget_layup_authority",
+                    "reason": "stamp_without_plan",
+                }
+            )
+            # Continue into seed path — do not skip.
+        else:
+            applied.append(
+                {
+                    "action": "skip_high_gap_seed_under_layup_authority",
+                    "reason": "nugget_layup_authority",
+                }
+            )
+            return
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return
     try:
@@ -2785,6 +2842,31 @@ def repair_gap_report(
                 applied.append({"action": "null_to_empty_string", "path": "origin"})
             elif "origin" in fixed and not isinstance(fixed.get("origin"), str):
                 fixed["origin"] = str(fixed.get("origin") or "")
+            # Pre-flush courtesy lint requires conversation-partner rationale when
+            # text is present (exec_13177: high_gap_vo seeds omitted rationale →
+            # commit_barrier_halt masked as pending_only).
+            text_s = str(fixed.get("text") or "").strip()
+            if text_s and not str(fixed.get("rationale") or "").strip():
+                confusion = ""
+                extracted = fixed.get("extracted_from")
+                if isinstance(extracted, dict):
+                    confusion = str(
+                        extracted.get("listener_confusion") or ""
+                    ).strip()
+                rationale = "Auto-repaired interviewer line — conversation-partner value."
+                if confusion:
+                    rationale = f"{rationale} Mission: {confusion[:160]}"
+                elif str(fixed.get("line_id") or "").startswith("vo_seed_"):
+                    rationale = (
+                        "Auto-seeded for high-severity gap missing an interviewer line."
+                    )
+                fixed["rationale"] = rationale
+                applied.append(
+                    {
+                        "action": "default_rationale",
+                        "line_id": fixed.get("line_id"),
+                    }
+                )
             if not str(fixed.get("gap_type") or "").strip():
                 origin = str(fixed.get("origin") or "")
                 fixed["gap_type"] = "nugget_layup" if origin == "nugget_layup" else "missing_setup"
@@ -2815,6 +2897,17 @@ def repair_gap_report(
                 oo_changed = True
         if oo_changed:
             out["opening_orientation"] = oo_fixed
+    # exec_13181: non-orientation tier-D waive must not leave orientation omitted.
+    try:
+        from interview_mux.opening_orientation import (
+            repair_false_orientation_omit_from_non_orient_waive,
+        )
+
+        out, false_omit_notes = repair_false_orientation_omit_from_non_orient_waive(out)
+        applied.extend(false_omit_notes)
+        lines = out.get("interviewer_lines") or lines
+    except Exception:
+        pass
     if isinstance(lines, list) and manifest_ids:
         kept = []
         for row in lines:
@@ -2940,13 +3033,24 @@ def repair_gap_report(
                             )
                 except Exception:
                     pass
-                if text_now and not has_forward_cue(text_now):
-                    tid_now = str(line.get("targets_segment_id") or "").strip()
-                    cat = str(line.get("line_category") or "episode_preface")
-                    target_row = by_id.get(tid_now) or {}
-                    target_text = str(
-                        target_row.get("text") or target_row.get("text_excerpt") or ""
+                text_now = str(line.get("text") or "").strip()
+                tid_now = str(line.get("targets_segment_id") or "").strip()
+                cat = str(line.get("line_category") or "episode_preface")
+                target_row = by_id.get(tid_now) or {}
+                target_text = str(
+                    target_row.get("text") or target_row.get("text_excerpt") or ""
+                )
+                # F3: missing forward cue OR cued-but-restating first native
+                # (cold_open_layup_ok overlap) — both need repair_last_sentence_layup.
+                # Prior path only healed missing cues then continue'd, so restatement
+                # blocked pre-flush (exec_13181 vo_preface_seg_004).
+                needs_preface_layup = bool(text_now) and (
+                    not has_forward_cue(text_now)
+                    or not cold_open_layup_ok(
+                        line, target_text=target_text, ordered_ids=ordered
                     )
+                )
+                if needs_preface_layup:
                     prior = build_prior_native_context(
                         target_segment_id=tid_now,
                         ordered_ids=ordered,
@@ -2956,6 +3060,7 @@ def repair_gap_report(
                     )
                     from interview_mux.gap_framing import word_limit_for_category as _wlim
 
+                    missing_cue = not has_forward_cue(text_now)
                     line["text"] = repair_last_sentence_layup(
                         text_now,
                         prior=prior,
@@ -2966,8 +3071,13 @@ def repair_gap_report(
                     )
                     applied.append(
                         {
-                            "action": "preface_forward_cue_heal",
+                            "action": (
+                                "preface_forward_cue_heal"
+                                if missing_cue
+                                else "preface_cold_open_layup_heal"
+                            ),
                             "line_id": line.get("line_id"),
+                            "targets_segment_id": tid_now,
                         }
                     )
                 fixed_lines.append(line)
@@ -3376,6 +3486,19 @@ def repair_gap_report(
             # Empty / unspeakable deterministic seeds: omit + demote at repair end
             # instead of loud-fail thrash (exec_13157).
             if lid_block.startswith("vo_seed_") or not str(row.get("text") or "").strip():
+                text_block = str(row.get("text") or "").strip()
+                if lid_block.startswith(("vo_seed_", "vo_fill_")) and text_block:
+                    fixed = dict(row)
+                    guarded_lines.append(fixed)
+                    seen_texts.append(text_block)
+                    applied.append(
+                        {
+                            "action": "keep_high_gap_seed_despite_spoken_block",
+                            "line_id": lid_block,
+                            "violations": decision.get("violations"),
+                        }
+                    )
+                    continue
                 applied.append(
                     {
                         "action": "omit_unsafe_optional_vo",
@@ -3409,12 +3532,33 @@ def repair_gap_report(
         if decision["action"] == "omit":
             if required:
                 lid_omit = str(row.get("line_id") or "")
-                # Deterministic high-gap seeds: omit + end-of-repair demote clears
-                # lint; loud-fail thrash-locks compose when courtesy was empty
-                # (exec_13157). Real LLM fills still loud-fail.
-                if lid_omit.startswith("vo_seed_") or not str(
-                    row.get("text") or ""
-                ).strip():
+                text_omit = str(row.get("text") or "").strip()
+                # Empty deterministic seeds may omit; non-empty seeds/fills must keep
+                # (R1 cover-all-highs) — never drop a seeded high-gap line.
+                if not text_omit and (
+                    lid_omit.startswith("vo_seed_") or lid_omit.startswith("vo_fill_")
+                ):
+                    applied.append(
+                        {
+                            "action": "omit_unsafe_optional_vo",
+                            "line_id": row.get("line_id"),
+                            "violations": decision["violations"],
+                        }
+                    )
+                    continue
+                if lid_omit.startswith(("vo_seed_", "vo_fill_")) and text_omit:
+                    fixed = dict(row)
+                    guarded_lines.append(fixed)
+                    seen_texts.append(text_omit)
+                    applied.append(
+                        {
+                            "action": "keep_high_gap_seed_despite_spoken_omit",
+                            "line_id": lid_omit,
+                            "violations": decision.get("violations"),
+                        }
+                    )
+                    continue
+                if not text_omit:
                     applied.append(
                         {
                             "action": "omit_unsafe_optional_vo",
@@ -3432,6 +3576,45 @@ def repair_gap_report(
                     reason="high_gap_uncovered",
                     detail={"violations": decision.get("violations")},
                 )
+            # R8: heal forward cue / keep framing setup lines instead of silent omit.
+            cat = str(row.get("line_category") or "").lower()
+            keep_framing = (
+                "preface" in cat
+                or "cold_open" in cat
+                or "context_setup" in cat
+                or "story_bridge" in cat
+                or is_episode_orientation(row)
+                or str(row.get("line_id") or "").startswith(("vo_seed_", "vo_fill_"))
+            )
+            if keep_framing and str(row.get("text") or "").strip():
+                try:
+                    from interview_mux.gap_vo_prior_context import (
+                        has_forward_cue,
+                        repair_last_sentence_layup,
+                    )
+                    from interview_mux.gap_framing import word_limit_for_category
+
+                    text_now = str(row.get("text") or "").strip()
+                    if not has_forward_cue(text_now):
+                        text_now = repair_last_sentence_layup(
+                            text_now,
+                            category=cat or "story_bridge",
+                            max_words=max(1, int(word_limit_for_category(cat or "story_bridge"))),
+                        )
+                    fixed = dict(row)
+                    fixed["text"] = text_now
+                    guarded_lines.append(fixed)
+                    seen_texts.append(text_now)
+                    applied.append(
+                        {
+                            "action": "keep_framing_despite_spoken_omit",
+                            "line_id": row.get("line_id"),
+                            "violations": decision.get("violations"),
+                        }
+                    )
+                    continue
+                except Exception:
+                    pass
             applied.append(
                 {
                     "action": "omit_unsafe_optional_vo",
@@ -3490,6 +3673,61 @@ def repair_gap_report(
                         row.get("skipped_optional") and row.get("air_script_omit")
                     )
                 ):
+                    # Never restamp omit onto required / episode orientation —
+                    # stale seats after false tier-D meta flip (exec_13181).
+                    try:
+                        from interview_mux.opening_orientation import (
+                            is_episode_orientation,
+                            orientation_omitted,
+                        )
+
+                        if is_episode_orientation(row) and not orientation_omitted(out):
+                            restamped.append(row)
+                            applied.append(
+                                {
+                                    "action": "skip_restamp_required_orientation",
+                                    "line_id": lid,
+                                }
+                            )
+                            continue
+                    except Exception:
+                        pass
+                    # Don't restamp soft omit when it would drop hosted floor
+                    # below need (exec_13181 context_seg_004 oscillation).
+                    try:
+                        from interview_mux.gap_fill_eligibility import (
+                            hosted_framing_requires_synthetic_vo,
+                            min_synthetic_vo_lines,
+                        )
+                        from interview_mux.vo_contract import omit_wins_skip_reason
+
+                        if (
+                            ctx is not None
+                            and hosted_framing_requires_synthetic_vo(ctx)
+                            and not omit_wins_skip_reason(row, gap_report=out)
+                        ):
+                            need = min_synthetic_vo_lines(ctx)
+                            active_now = sum(
+                                1
+                                for ln in (out.get("interviewer_lines") or [])
+                                if isinstance(ln, dict)
+                                and str(ln.get("delivery") or "").lower()
+                                == "synthesize"
+                                and str(ln.get("text") or "").strip()
+                                and not ln.get("skipped_optional")
+                                and not ln.get("air_script_omit")
+                            )
+                            if active_now < need:
+                                restamped.append(row)
+                                applied.append(
+                                    {
+                                        "action": "skip_restamp_hosted_floor",
+                                        "line_id": lid,
+                                    }
+                                )
+                                continue
+                    except Exception:
+                        pass
                     row = mark_gap_line_not_on_air(
                         row, reason_code="air_script_omit_sync"
                     )
@@ -4135,6 +4373,95 @@ def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
                 applied.append({"action": "drop_orphan_ref", "chapter_id": ch.get("chapter_id")})
             applied.append({"action": "drop_row", "chapter_id": ch.get("chapter_id")})
         out["chapters"] = kept
+        if not kept and manifest_ids:
+            # Never land empty chapters — rebuild single body chapter from manifest.
+            order = sorted(manifest_ids)
+            try:
+                from interview_mux.talking_points_authority import synthesize_narrative_from_coverage
+
+                salvaged = synthesize_narrative_from_coverage(ctx)
+                if isinstance(salvaged, dict) and (salvaged.get("chapters") or []):
+                    out["chapters"] = salvaged["chapters"]
+                    if salvaged.get("arc_summary") and not out.get("arc_summary"):
+                        out["arc_summary"] = salvaged["arc_summary"]
+                    applied.append({"action": "rebuild_from_coverage_synthesize"})
+                else:
+                    out["chapters"] = [
+                        {
+                            "chapter_id": "ch_01_body",
+                            "title": "Episode body",
+                            "suggested_open_segment_id": order[0],
+                            "segment_ids": order,
+                        }
+                    ]
+                    applied.append({"action": "rebuild_single_chapter_from_manifest"})
+            except Exception:
+                out["chapters"] = [
+                    {
+                        "chapter_id": "ch_01_body",
+                        "title": "Episode body",
+                        "suggested_open_segment_id": order[0],
+                        "segment_ids": order,
+                    }
+                ]
+                applied.append({"action": "rebuild_single_chapter_from_manifest"})
+    # Clamp chapter count to delivery_brief budget max (pre-flush XV / lint).
+    chapters_now = out.get("chapters")
+    if isinstance(chapters_now, list) and chapters_now:
+        max_chapters = 8
+        try:
+            if ctx.artifact_exists("understanding/delivery_brief.json"):
+                brief = ctx.read_json("understanding/delivery_brief.json")
+                budget = (brief or {}).get("chapter_budget") if isinstance(brief, dict) else {}
+                if isinstance(budget, dict) and budget.get("max") is not None:
+                    max_chapters = max(1, int(budget["max"]))
+        except Exception:
+            pass
+        if len(chapters_now) > max_chapters:
+            pos: dict[str, int] = {}
+            try:
+                if ctx.artifact_exists("segments/manifest.json"):
+                    man = ctx.read_json("segments/manifest.json")
+                    for i, s in enumerate((man or {}).get("segments") or []):
+                        if isinstance(s, dict) and s.get("segment_id"):
+                            pos[str(s["segment_id"])] = i
+            except Exception:
+                pass
+            new_chapters = [dict(ch) for ch in chapters_now if isinstance(ch, dict)]
+            while len(new_chapters) > max_chapters:
+                best_i = 0
+                best_cost = 10**9
+                for i in range(len(new_chapters) - 1):
+                    a = new_chapters[i].get("segment_ids") or []
+                    b = new_chapters[i + 1].get("segment_ids") or []
+                    cost = len(a) + len(b)
+                    if i == 0 or i + 1 == len(new_chapters) - 1:
+                        cost += 3
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_i = i
+                left = dict(new_chapters[best_i])
+                right = new_chapters[best_i + 1]
+                left_ids = [str(s) for s in (left.get("segment_ids") or []) if s]
+                right_ids = [str(s) for s in (right.get("segment_ids") or []) if s]
+                combined = list(dict.fromkeys([*left_ids, *right_ids]))
+                combined.sort(key=lambda sid: pos.get(sid, 10**9))
+                left["segment_ids"] = combined
+                if not str(left.get("title") or "").strip():
+                    left["title"] = str(right.get("title") or "")
+                new_chapters = [
+                    *new_chapters[:best_i],
+                    left,
+                    *new_chapters[best_i + 2 :],
+                ]
+                applied.append(
+                    {
+                        "action": "merge_chapters_to_budget",
+                        "max": max_chapters,
+                        "merged_at": best_i,
+                    }
+                )
+            out["chapters"] = new_chapters
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -5104,6 +5431,54 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         if isinstance(sel, dict):
             selection_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
     selection_set = set(selection_ids)
+    # Drop cues anchored off the ranked selection before any bed seeding
+    # (exec_13177: stale bed_coverage_seed_11 on seg_028 thrash after order shrink).
+    if selection_set:
+        kept_early: list[dict[str, Any]] = []
+        dropped_early = 0
+        for cue in cues:
+            if not isinstance(cue, dict):
+                continue
+            anchors = [
+                str(cue.get(k) or "")
+                for k in (
+                    "segment_id",
+                    "before_segment_id",
+                    "after_segment_id",
+                    "under_segment_id",
+                )
+                if cue.get(k)
+            ]
+            if anchors and any(a and a not in selection_set for a in anchors):
+                dropped_early += 1
+                applied.append(
+                    {
+                        "action": "drop_cue_outside_selection",
+                        "cue_id": cue.get("cue_id"),
+                        "anchors": anchors,
+                        "phase": "pre_seed",
+                    }
+                )
+                continue
+            kept_early.append(cue)
+        if dropped_early:
+            podcast["cues"] = kept_early
+            cues = kept_early
+    # Palette segment_ids must stay inside ranked selection (sanitize gate).
+    if selection_set:
+        for pal in out.get("palettes") or []:
+            if not isinstance(pal, dict):
+                continue
+            before = [str(x) for x in (pal.get("segment_ids") or []) if x]
+            after = [s for s in before if s in selection_set]
+            if after != before:
+                pal["segment_ids"] = after
+                applied.append(
+                    {
+                        "action": "prune_palette_segment_ids",
+                        "removed": [s for s in before if s not in selection_set][:12],
+                    }
+                )
     banned_bed_segs: set[str] = set()
     try:
         from interview_mux.sonic_context import load_sonic_context
@@ -5142,7 +5517,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         bed_anchor_pool = [
             s
             for s in (list(palette_seg_ids) or list(selection_ids))
-            if s not in banned_bed_segs
+            if s not in banned_bed_segs and (not selection_set or s in selection_set)
         ]
     # Contiguous music continuity: when coverage floors require more bed time than
     # the thin palette allows, extend anchors across selection quartiles.
@@ -5442,13 +5817,30 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     except Exception:
         pass
     if require_outro and outro_asset and last_native:
+        hard_frozen = False
+        try:
+            from interview_mux.seat_authority import hard_freeze_active
+
+            hard_frozen = bool(hard_freeze_active(ctx))
+        except Exception:
+            hard_frozen = False
         if not has_outro:
-            _add_cue(
-                cue_id="theme_outro_seed",
-                placement="after_segment",
-                segment_id=last_native,
-                asset_id=outro_asset,
-            )
+            if hard_frozen:
+                # Locked NO: inventing outro cue under hard freeze.
+                applied.append(
+                    {
+                        "action": "theme_outro_seed_skipped_hard_freeze",
+                        "segment_id": last_native,
+                        "asset_id": outro_asset,
+                    }
+                )
+            else:
+                _add_cue(
+                    cue_id="theme_outro_seed",
+                    placement="after_segment",
+                    segment_id=last_native,
+                    asset_id=outro_asset,
+                )
         rebound_outro = False
         for c in cues:
             if not isinstance(c, dict):
@@ -5472,7 +5864,11 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         if rebound_outro:
             applied.append(
                 {
-                    "action": "seed_theme_outro",
+                    "action": (
+                        "sdp_theme_outro_rebind"
+                        if has_outro or hard_frozen
+                        else "seed_theme_outro"
+                    ),
                     "segment_id": last_native,
                     "asset_id": outro_asset,
                     "fade_out_ms": fade_out_ms,
@@ -5754,6 +6150,9 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     seg = str(cue.get("segment_id") or "")
                     if not seg:
                         continue
+                    # Never re-inflate palette with off-selection bed anchors (i14 cousin).
+                    if selection_set and seg not in selection_set:
+                        continue
                     # Prefer keeping the planned segment: extend palette + inject theme_underscore slot.
                     if palette_set and seg not in palette_set and pals and isinstance(pals[0], dict):
                         ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
@@ -5800,7 +6199,12 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         continue
                     anchors = [
                         str(cue.get(k) or "")
-                        for k in ("segment_id", "before_segment_id", "after_segment_id")
+                        for k in (
+                            "segment_id",
+                            "before_segment_id",
+                            "after_segment_id",
+                            "under_segment_id",
+                        )
                         if cue.get(k)
                     ]
                     if anchors and any(a and a not in selection_set for a in anchors):
@@ -6201,6 +6605,10 @@ def apply_repairs_for_stage(
         return repair_narrative_plan(ctx, artifacts)
     if rel.endswith("edl_narrative_audit.json") or stage_key == "edl_narrative_audit":
         return repair_edl_audit(ctx, artifacts)
+    if stage_key == "music_palette_compose":
+        # Compose already ran repair_sound_design_plan once; a second full
+        # reseed here re-inflates dropped off-selection beds (exec_13177 i14).
+        return artifacts, [{"action": "skip_repair_already_composed"}]
     if rel.endswith("sound_design_plan.json") or stage_key in ("sound_design_plan", "sound_design_palettes"):
         return repair_sound_design_plan(ctx, artifacts)
     if rel.endswith("sfx_prompts.json") or stage_key in ("sfx_prompt_craft", "sfx_prompt_refine"):
@@ -6625,39 +7033,48 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
     except Exception:
         pass
     order_set = set(order)
-    if ctx.artifact_exists("master/coverage_audit.json"):
-        cov = ctx.read_json("master/coverage_audit.json")
-        if isinstance(cov, dict):
-            for key in ("claim_mappings", "topic_mappings"):
-                for m in cov.get(key) or []:
-                    if not isinstance(m, dict) or not m.get("covered"):
-                        continue
-                    mapped = {str(s) for s in (m.get("segment_ids") or []) if s}
-                    if mapped and not (mapped & order_set):
-                        m["covered"] = False
-                        m["coverage_note"] = "mapped segments absent from final selection"
-                        notes.append({"action": "uncover_orphan_mapping", "key": key})
-            ctx.write_json("master/coverage_audit.json", cov, stage_key="topic_coverage_audit")
-    if ctx.artifact_exists("understanding/episode_structure.json"):
-        es = ctx.read_json("understanding/episode_structure.json")
-        if isinstance(es, dict):
-            changed = False
-            for v in es.get("speaker_volleys") or []:
-                if isinstance(v, dict) and v.get("locked"):
-                    v["locked"] = False
-                    changed = True
-            if list(es.get("segment_order") or []) != order:
-                es["segment_order"] = list(order)
-                changed = True
-            if changed:
-                ctx.write_json("understanding/episode_structure.json", es)
-                notes.append({"action": "unlock_speaker_volleys_for_reorder"})
     fp = fingerprint_artifact(sel, "full_master_ranking")
+    # Persist selection exclude/order repair BEFORE optional coverage mutations so a
+    # coverage schema/write failure cannot roll back blank drops (exec_13183
+    # seg_025: EDL omitted blank, QC parity failed, repair notes never landed).
     ctx.write_json("master/selection.json", fp, stage_key="full_master_ranking", skip_handoff=True)
     h = str((fp.get("_meta") or {}).get("content_hash") or "")
     if h:
         _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
     notes.append({"action": "re_fingerprint_selection"})
+    if ctx.artifact_exists("master/coverage_audit.json"):
+        try:
+            cov = ctx.read_json("master/coverage_audit.json")
+            if isinstance(cov, dict):
+                for key in ("claim_mappings", "topic_mappings"):
+                    for m in cov.get(key) or []:
+                        if not isinstance(m, dict) or not m.get("covered"):
+                            continue
+                        mapped = {str(s) for s in (m.get("segment_ids") or []) if s}
+                        if mapped and not (mapped & order_set):
+                            m["covered"] = False
+                            m["coverage_note"] = "mapped segments absent from final selection"
+                            notes.append({"action": "uncover_orphan_mapping", "key": key})
+                ctx.write_json("master/coverage_audit.json", cov, stage_key="topic_coverage_audit")
+        except Exception:
+            notes.append({"action": "coverage_audit_repair_skipped"})
+    if ctx.artifact_exists("understanding/episode_structure.json"):
+        try:
+            es = ctx.read_json("understanding/episode_structure.json")
+            if isinstance(es, dict):
+                changed = False
+                for v in es.get("speaker_volleys") or []:
+                    if isinstance(v, dict) and v.get("locked"):
+                        v["locked"] = False
+                        changed = True
+                if list(es.get("segment_order") or []) != order:
+                    es["segment_order"] = list(order)
+                    changed = True
+                if changed:
+                    ctx.write_json("understanding/episode_structure.json", es)
+                    notes.append({"action": "unlock_speaker_volleys_for_reorder"})
+        except Exception:
+            notes.append({"action": "episode_structure_repair_skipped"})
     return notes
 
 

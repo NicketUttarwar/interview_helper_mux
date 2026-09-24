@@ -19,9 +19,9 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Case | Outcome | Tag | Code pointer |
 |------|---------|-----|--------------|
-| soft-empty corpus | runs then QC may hard-fail | IN_CODE | `assert_layup_qc_or_raise` |
+| soft-empty corpus | deterministic typed skips + QC ok | IN_CODE | `stamp_sparse_or_empty_corpus_exits` |
 | unsanitary selection | incompleteness → sanitize | IN_CODE | stage_completion |
-| contract hard triad | Soft admit / hard QC exit | CODE_DOC_CONFLICT | |
+| contract hard=selection+corpus; audit soft | Soft admit / hard QC exit | IN_CODE | NLC-B3 + P4 empty/sparse deterministic exits |
 | disabled | stub plan + force heal | IN_CODE | |
 
 ## 2. Upstream freshness
@@ -63,8 +63,8 @@ code_is_king: true | prior_exec: ignored_by_default
 
 | Declared | Actual | Tag |
 |----------|--------|-----|
-| hard audit+selection+corpus | Soft admit / QC exit | CODE_DOC_CONFLICT |
-| primary layup_plan | Matches; gap_report also authoritative | IN_CODE |
+| hard selection+corpus; audit soft | Soft admit / QC exit; empty→typed skips | IN_CODE |
+| primary layup_plan | Matches; gap_report also authoritative (H3 dual SSOT) | IN_CODE |
 
 ## 8. External service variance
 

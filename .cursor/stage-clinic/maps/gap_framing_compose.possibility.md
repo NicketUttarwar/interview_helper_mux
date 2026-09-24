@@ -99,17 +99,22 @@ code_is_king: true | prior_exec: ignored_by_default
 
 ## TEST_GAP
 
-- Soft-success empty lines after all shards fail
-- sufficiency min_rows vs skip stub
+- Soft-success empty lines after all shards fail — **pinned** `tests/test_gap_framing_compose_harden.py` (heal_or_raise / no premature success log)
+- sufficiency min_rows vs skip stub — closed (min_count 0)
+- StageInfo companions — **pinned** declare gap_framing_plan + vo_context_audit
+- Analysis-era VO ladder plan-mutate — **pinned** skip tier_c/d
+- VO budget warrant scale — **pinned**
+- missing_framing high_without_mission admit — **pinned**
+- Layup authority no LLM — **pinned**
 
 ## DoD threats
 
-- [x] 1 Progression  [x] 2 Honesty  [ ] 3 Stalls  [x] 4 OpenAI  [x] 5 Defaults  [x] 6 Ship bar  [x] 7 Cross-stage
+- [x] 1 Progression  [x] 2 Honesty  [x] 3 Stalls  [x] 4 OpenAI  [x] 5 Defaults  [x] 6 Ship bar  [x] 7 Cross-stage
 
 ## Open questions
 
-1. Empty legit gap_report after Yes — refuse incomplete or allow zero-line ship?
+1. Empty legit gap_report after Yes — refuse incomplete or allow zero-line ship? → **Q6B allow when evals do not warrant; hosted floor + high_gap when warranted** (2026-09-22 harden)
 
 ## discovery_status
 
-`complete`
+`complete` — 2026-09-22 compose harden landed (E1–E13 / R1–R8 guardrails)

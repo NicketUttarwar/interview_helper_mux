@@ -229,6 +229,61 @@ def classify_heal_error(
     low = str(err or "").lower()
     stage_l = str(stage or "").lower()
 
+    if ctx is not None and (
+        "hosted_vo_floor" in low
+        or "hollow_zero" in low
+        or "no synthesize lines" in low
+        or "hosted_vo_floor_unmet" in low
+        or "hosted_vo_floor_unsatisfiable" in low
+    ):
+        from interview_mux.hosted_vo_authority import resume_producer
+
+        pin = (
+            resume_producer(ctx, stage_id=stage or None)
+            or "gap_framing_compose"
+        )
+        return HealRoute(
+            family="hosted_vo_floor",
+            from_stage=pin,
+            action="remint_producer",
+            detail=(
+                "hosted_vo_floor / hollow mint / no synthesize lines — "
+                f"pin {pin}, never edl_narrative_audit"
+            ),
+        )
+
+    if "authority_denied" in low:
+        from interview_mux.artifact_ownership import (
+            _suggested_owner_for_deny,
+            parse_authority_denied_resume,
+        )
+
+        pin = parse_authority_denied_resume(err, ctx=ctx, denied_stage=stage)
+        if not pin:
+            pin = _suggested_owner_for_deny(ctx, "", stage=stage) if ctx else ""
+        if not pin:
+            pin = "listen_delight_audit" if "listen_delight" in low else (stage or "edl")
+        # Never re-pin the denied writer when an ALLOW owner is known.
+        denied_writer = ""
+        try:
+            parts = str(err or "").split(":")
+            # authority_denied:verb:path:writer:epoch:suggested
+            if len(parts) >= 4:
+                denied_writer = parts[3].strip()
+        except Exception:
+            denied_writer = ""
+        if pin and denied_writer and pin == denied_writer and "listen_delight" in low:
+            pin = "listen_delight_audit"
+        return HealRoute(
+            family="authority_denied",
+            from_stage=pin,
+            action="resume_allow_owner",
+            detail=(
+                f"authority_denied — pin ALLOW owner {pin}, "
+                f"never denied writer {denied_writer or stage_l or '?'}"
+            ),
+        )
+
     seated = bool(ctx is not None and mix_assembly_seated(ctx))
 
     if (
@@ -286,17 +341,32 @@ def classify_heal_error(
         "vo_audibility_drift" in low
         or "opening_orientation_inaudible" in low
         or "never_touch_zeroed_keep" in low
+        or "phantom_vo" in low
+        or "edl_survivor_wipe" in low
     ):
         from interview_mux.stage_completion import edl_heal_resume_stage
 
         pin = edl_heal_resume_stage(ctx)
+        if "edl_survivor_wipe" in low:
+            family = "vo_audibility_drift"
+            detail = (
+                "edl_survivor_wipe — layup/required WAV without EDL seat; "
+                "rebuild edl (do not remint / do not pin narrative audit)"
+            )
+        elif "audibility" in low or "phantom_vo" in low:
+            family = "vo_audibility_drift"
+            detail = "HE-2: unsanitary VO/bind pins vo_synthesize; sanitary may resume edl"
+        elif "orientation" in low:
+            family = "opening_orientation_inaudible"
+            detail = "HE-2: unsanitary VO/bind pins vo_synthesize; sanitary may resume edl"
+        else:
+            family = "never_touch_zeroed_keep"
+            detail = "HE-2: unsanitary VO/bind pins vo_synthesize; sanitary may resume edl"
         return HealRoute(
-            family="vo_audibility_drift" if "audibility" in low else (
-                "opening_orientation_inaudible" if "orientation" in low else "never_touch_zeroed_keep"
-            ),
+            family=family,
             from_stage=pin,
             action="rebuild_edl" if pin == "edl" else "repair_and_resynth",
-            detail="HE-2: unsanitary VO/bind pins vo_synthesize; sanitary may resume edl",
+            detail=detail,
         )
 
     if "gap_unsanitary" in low or (

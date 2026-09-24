@@ -15,7 +15,13 @@ outputs:
 - path: understanding/interviewer_script.txt
   staging: true
 - path: understanding/gap_framing_plan.json
+  staging: true
 - path: understanding/gap_vo_context_audit.json
+  staging: true
+- path: glob:understanding/llm_calls/gap_framing_compose/**
+  staging: true
+- path: glob:understanding/stage_runs/gap_framing_compose/**
+  staging: true
 - path: understanding/speaker_delivery_plan.json
 inputs:
   hard:

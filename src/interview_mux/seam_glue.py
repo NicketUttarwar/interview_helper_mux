@@ -755,13 +755,20 @@ def mint_missing_transitions(
     if minted:
         from interview_mux.transition_vo import persist_transitions_doc
 
-        ctx_doc = persist_transitions_doc(ctx, doc, stage_key="edl")
+        # End-A: fill uncovered reorder seams under hard VO freeze (layup waive
+        # leaves pair-specific hinge text; never invent hosted seats).
+        ctx_doc = persist_transitions_doc(
+            ctx,
+            doc,
+            stage_key="transitions",
+            reason="bridge_completeness_mint",
+        )
         doc = ctx_doc if isinstance(ctx_doc, dict) else doc
         ctx.log(
             f"seam_glue: materialized {minted} planned spoken transition(s) for reorder joins",
             level="info",
-            stage="edl",
-            detail={"minted": minted},
+            stage="transitions",
+            detail={"minted": minted, "reason": "bridge_completeness_mint"},
         )
     return doc
 

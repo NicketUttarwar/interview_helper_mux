@@ -153,8 +153,37 @@ def seed_stage_complete(ctx: RunContext, stage: str) -> bool:
 
 
 def producer_ready(ctx: RunContext, stage: str) -> bool:
-    """Ask/enqueue/seal readiness — seed_stage_complete only (no artifact_exists escape)."""
-    return seed_stage_complete(ctx, stage)
+    """Ask/enqueue/seal readiness — seed_stage_complete only (no artifact_exists escape).
+
+    Hollow-pass B+ R4: when a done marker exists, disk-mapped primaries must be
+    present (all MUST_PRECEDE / schedule producers — not only VO five).
+    Gate marker-only stages are exempt via Done Authority GATE_MARKER_ONLY.
+    """
+    sid = str(stage or "").strip()
+    if not seed_stage_complete(ctx, sid):
+        return False
+    try:
+        if not ctx.is_done(sid):
+            return True
+    except Exception:
+        return True
+    try:
+        from interview_mux.done_authority import GATE_MARKER_ONLY, primary_disk_present
+
+        if sid in GATE_MARKER_ONLY:
+            return True
+        if not primary_disk_present(ctx, sid):
+            return False
+    except Exception:
+        return False
+    try:
+        from interview_mux.stage_completion import stage_artifact_incompleteness
+
+        if stage_artifact_incompleteness(ctx, sid) is not None:
+            return False
+    except Exception:
+        return False
+    return True
 
 
 def edl_ready(ctx: RunContext) -> bool:
@@ -166,6 +195,14 @@ def edl_ready(ctx: RunContext) -> bool:
 # Sole order exception: junction_recut_precedes_mix (not encoded as mix→junction here).
 # EDL consumer gate is separate (EDL_CONSUMERS) — attached-plan WS2.
 MUST_PRECEDE: dict[str, tuple[str, ...]] = {
+    # Pre-ranking fuse chain (G6 / exec_13174): never resume past unfinished arc/hitch/fuse.
+    "chapter_close_hitch": ("narrative_arc_plan",),
+    "connector_fuse_pass_pre_ranking": ("narrative_arc_plan", "chapter_close_hitch"),
+    "full_master_ranking": ("connector_fuse_pass_pre_ranking",),
+    "selection_order_sanitize": (
+        "full_master_ranking",
+        "connector_fuse_pass_pre_ranking",
+    ),
     # Sanitize / seat chain (expanded WS2 — not attached-plan EDL list).
     "air_script_compose": ("selection_order_sanitize", "full_master_ranking"),
     "nugget_layup_compose": ("information_package_plan", "nugget_corpus_mine"),
@@ -203,10 +240,16 @@ MUST_PRECEDE: dict[str, tuple[str, ...]] = {
     ),
     "sfx_prompt_craft": ("music_palette_compose", "sound_design_plan"),
     "mmaudio_sfx": ("sfx_prompt_craft",),
-    "mix": ("mmaudio_sfx", "edl"),
+    # Always-HAU: beds are not producers of mix — music admit is seated-only
+    # via next_delivery_seat / may_admit_music (exec_13170 follow-through).
+    "mix": ("edl",),
     "junction_snip_qa": ("edl",),  # mix optional when junction_recut_precedes_mix
     "master_finalize": ("edl",),
 }
+
+# Heal Clinic leapfrog B+: single HAU exception table (speech-first mix beds).
+# Consumers listed here may skip MUSIC_BEFORE_MIX producers under hold_speech_first_mix.
+HAU_SPEECH_FIRST_EXCEPTIONS: frozenset[str] = frozenset({"mix"})
 
 # Stages that must not enqueue while edl is not seed-complete.
 EDL_CONSUMERS: frozenset[str] = frozenset(
@@ -224,7 +267,20 @@ EDL_CONSUMERS: frozenset[str] = frozenset(
 
 def earliest_incomplete_must_precede(ctx: RunContext, consumer: str) -> str:
     """Earliest incomplete producer for a consumer (empty if all ready)."""
-    for prod in MUST_PRECEDE.get(str(consumer or "").strip(), ()):
+    sid = str(consumer or "").strip()
+    producers = MUST_PRECEDE.get(sid, ())
+    # HAU optional_beds: speech-first mix seats assembly before MusicGen/MMAudio.
+    # Skip beds producers so filter([mix]) does not reinject mmaudio thrash.
+    if sid in HAU_SPEECH_FIRST_EXCEPTIONS:
+        try:
+            from interview_mux.mix_junction_seat import hold_speech_first_mix
+
+            if hold_speech_first_mix(ctx, sid):
+                bed = set(MUSIC_BEFORE_MIX)
+                producers = tuple(p for p in producers if p not in bed)
+        except Exception:
+            pass
+    for prod in producers:
         if not producer_ready(ctx, prod):
             return prod
     return ""
@@ -270,6 +326,33 @@ def clamp_resume_through_order(ctx: RunContext, stage: str) -> str:
     if not sid:
         return sid
 
+    # G6: ranking/sanitize must not leapfrog unfinished arc → hitch → pre_ranking.
+    # Do not clamp when the pin *is* hitch/pre_ranking (HS-4 oscillation specialty).
+    if sid in {"full_master_ranking", "selection_order_sanitize"}:
+        hole = earliest_incomplete_must_precede(ctx, sid)
+        if hole:
+            return hole
+        if sid == "selection_order_sanitize":
+            hole = earliest_incomplete_must_precede(ctx, "full_master_ranking")
+            if hole:
+                return hole
+            hole = earliest_incomplete_must_precede(ctx, "connector_fuse_pass_pre_ranking")
+            if hole:
+                return hole
+
+    # High-gap unframed wins over layup→IPP walk for VO pins (exec_13170).
+    if sid in VO_ORDER_CLAMP_STAGES:
+        try:
+            from interview_mux.stage_completion import (
+                _high_gap_unframed_incompleteness,
+                high_gap_heal_resume_stage,
+            )
+
+            if _high_gap_unframed_incompleteness(ctx, "gap_framing_compose"):
+                return high_gap_heal_resume_stage(ctx)
+        except Exception:
+            pass
+
     def _walk_vo_consumer(start: str) -> str:
         seen: set[str] = set()
         cur = start
@@ -311,6 +394,23 @@ def clamp_resume_through_order(ctx: RunContext, stage: str) -> str:
 
     if sid in VO_ORDER_CLAMP_STAGES:
         return _walk_vo_consumer(sid)
+
+    # P3: layup resume must not leapfrog incomplete seed-front (NAP / corpus / IPP).
+    if sid == "nugget_layup_compose":
+        hole = earliest_incomplete_must_precede(ctx, sid)
+        if hole:
+            return hole
+        # Also refuse when narrative_arc_plan (seed-front) is incomplete even if
+        # not listed as a direct MUST_PRECEDE producer of layup.
+        try:
+            from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+
+            earliest = _earliest_incomplete_seed_stage(ctx, sid)
+            if earliest and earliest != sid:
+                return earliest
+        except Exception:
+            pass
+        return sid
 
     if sid in VO_CHAIN_DOWNSTREAM_PINS:
         # Footgun #1: only MUST_PRECEDE VO-chain holes — not G8 file/stale probes
@@ -365,6 +465,25 @@ def defer_until_producers_ready(
             out.append(hole)
         deferred.append(sid)
         return True
+    # Leapfrog B+: Admit Constitution schedule gate (clamp + checklist).
+    try:
+        from interview_mux.heal_pin_authority import admit_schedule
+
+        ok, alt, _reason = admit_schedule(ctx, sid)
+        if not ok:
+            prefer = str(alt or "").strip()
+            # Never reinject the deferred consumer as its own "hole".
+            if (
+                prefer
+                and prefer != sid
+                and prefer not in out
+                and prefer not in deferred
+            ):
+                out.append(prefer)
+            deferred.append(sid)
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -520,6 +639,21 @@ def _g1_record_open(ctx: RunContext) -> list[str]:
 
 
 def _layup_escalation_blocking(ctx: RunContext) -> bool:
+    # Cluster C: reconcile derived escalations from FloorIdentity first.
+    try:
+        from interview_mux.hosted_vo_authority import (
+            floor_snapshot,
+            reconcile_escalations,
+        )
+
+        snap = floor_snapshot(ctx, persist=True)
+        reconcile_escalations(ctx, snap)
+        if snap.identity.status in {"MET", "PARTIAL", "WAIVED", "UNWARRANTED"}:
+            return False
+        if snap.have >= 1:
+            return False
+    except Exception:
+        pass
     rel = "operator/escalations/nugget_layup_compose.json"
     if not ctx.artifact_exists(rel):
         return False
@@ -530,7 +664,31 @@ def _layup_escalation_blocking(ctx: RunContext) -> bool:
     if not isinstance(doc, dict):
         return False
     status = str(doc.get("status") or "").lower()
-    return status in {"open", "blocking", "needs_operator"}
+    if status not in {"open", "blocking", "needs_operator"}:
+        return False
+    # Stale hosted_vo_floor_unsatisfiable must not block Chatterbox after seats
+    # were reminted (exec_13183: escalation active=0 while gap has synthesize
+    # orientation — vo_synthesize_stability_block → layup thrash forever).
+    reason = str(doc.get("reason") or "").lower()
+    if "hosted_vo_floor" in reason or "unsatisfiable" in reason:
+        try:
+            from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+
+            if count_active_gap_vo_lines(ctx) >= 1:
+                try:
+                    doc = dict(doc)
+                    doc["status"] = "cleared"
+                    doc["cleared_reason"] = "active_synth_seats_present"
+                    from datetime import datetime, timezone
+
+                    doc["cleared_at"] = datetime.now(timezone.utc).isoformat()
+                    ctx.write_json(rel, doc, skip_handoff=True)
+                except Exception:
+                    pass
+                return False
+        except Exception:
+            pass
+    return True
 
 
 def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
@@ -606,7 +764,7 @@ def music_epoch_complete(ctx: RunContext) -> bool:
                 # Stamp + audible SDP still completes the epoch so mix does not
                 # re-burn MusicGen (anti-thrash); incomplete markers stay unmarked.
                 for sid in MUSIC_BEFORE_MIX:
-                    if seed_stage_complete(ctx, sid) or ctx.is_done(sid):
+                    if seed_stage_complete(ctx, sid):
                         continue
                     try:
                         from interview_mux.homunculus.agenda import (
@@ -658,25 +816,36 @@ def mix_epoch_block(ctx: RunContext, stage: str | None = None) -> str | None:
     HAU ``optional_beds_until_remaster``: allow a speech-first **mix** when
     music cannot yet admit (preview/unseated present, no preview_music) so
     federal seated-only music admit does not deadlock. Junction/finalize still
-    wait. FG2: speech-first only when ``stage=="mix"`` explicitly — bare
-    ``mix_epoch_block(ctx)`` must not false-clear music for resume routers.
+    wait. FG2: speech-first only when ``stage=="mix"`` via
+    ``clear_mix_epoch_for_speech_first`` — bare ``mix_epoch_block(ctx)`` must
+    not false-clear music for resume routers.
+
+    After music completes, speech-first seats still block junction/finalize until
+    ``ensure_speech_first_remaster`` clears (beds remaster land) — token
+    ``speech_first_remaster_pending``.
     """
     epoch = read_delivery_epoch(ctx)
-    if epoch.get("music_complete_at") and music_epoch_complete(ctx):
-        return None
-    if music_epoch_complete(ctx):
+    music_done = bool(epoch.get("music_complete_at") and music_epoch_complete(ctx))
+    if not music_done and music_epoch_complete(ctx):
         stamp_delivery_epoch(ctx, music_complete_at=_utc_now())
-        return None
+        music_done = True
     sid = str(stage or "").strip()
+    if music_done:
+        try:
+            from interview_mux.mix_junction_seat import ensure_speech_first_remaster
+
+            if ensure_speech_first_remaster(ctx):
+                if sid == "mix":
+                    return None
+                return "speech_first_remaster_pending"
+        except Exception:
+            pass
+        return None
     if sid == "mix":
         try:
-            from interview_mux.mix_junction_seat import (
-                allow_speech_first_mix,
-                note_speech_first_mix,
-            )
+            from interview_mux.mix_junction_seat import clear_mix_epoch_for_speech_first
 
-            if allow_speech_first_mix(ctx):
-                note_speech_first_mix(ctx)
+            if clear_mix_epoch_for_speech_first(ctx):
                 return None
         except Exception:
             pass
@@ -809,6 +978,18 @@ def vo_synthesize_stability_block(
             rewrite_full_auto_record_lines_to_synth(ctx)
         except Exception:
             pass
+    # High-gap unframed must heal at compose before layup/IPP clamp thrash
+    # (exec_13170: vo_synthesize → information_package_plan while seg_007 dirty).
+    try:
+        from interview_mux.stage_completion import (
+            _high_gap_unframed_incompleteness,
+            high_gap_heal_resume_stage,
+        )
+
+        if _high_gap_unframed_incompleteness(ctx, "gap_framing_compose"):
+            return high_gap_heal_resume_stage(ctx)
+    except Exception:
+        pass
     if _g1_record_open(ctx):
         return "g1_vo_open"
     if _layup_escalation_blocking(ctx):
@@ -915,7 +1096,9 @@ def current_delivery_phase(ctx: RunContext) -> str:
             ctx.artifact_exists("sound_design/mmaudio_qa.json")
             and assembly_wav_present(ctx)
         ):
-            if ctx.is_done("mix") or ctx.artifact_exists("master/assembly.wav"):
+            if seed_stage_complete(ctx, "mix") or ctx.artifact_exists(
+                "master/assembly.wav"
+            ):
                 return "D"
             return "C"
         if seed_stage_complete(ctx, "sfx_prompt_craft") or seed_stage_complete(
@@ -1050,9 +1233,16 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             continue
         if sid in MUSIC_REQUIRES_ASSEMBLY and not music_assembly_ready(ctx):
             try:
-                from interview_mux.mix_junction_seat import music_admit_block_reason
+                from interview_mux.mix_junction_seat import (
+                    music_admit_block_reason,
+                    next_delivery_seat,
+                )
 
                 reason = music_admit_block_reason(ctx) or "assembly_missing"
+                # Always-HAU: keep SSOT pin eligible (F10 — not forever-mix).
+                pin = next_delivery_seat(ctx)
+                if pin and pin in remaining and pin not in out:
+                    out.append(pin)
             except Exception:
                 reason = (
                     "assembly_not_seated_for_music"
@@ -1075,17 +1265,36 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             continue
         if sid in (*PHASE_B_STAGES, *PHASE_C_STAGES, "mix", "junction_snip_qa", "master_finalize") or sid in SHIP_AFTER_MASTER:
             if not sealed:
-                if sid in MUSIC_REQUIRES_ASSEMBLY:
-                    reason = stable_reason or "phase_a_unsealed"
-                    if _music_defer_log_allowed(ctx, sid, reason):
-                        record_wasted_work(
-                            ctx,
-                            event="music_deferred",
-                            stage=sid,
-                            detail={"reason": reason},
+                # HAU speech-first mix may seat assembly before Phase A stamp
+                # lands (exec_13170: filter([mix]) emptied → mmaudio reinject).
+                allow_mix = False
+                if sid == "mix":
+                    try:
+                        from interview_mux.mix_junction_seat import (
+                            beds_deferred_for_mix,
+                            hold_speech_first_mix,
+                            next_delivery_seat,
                         )
-                deferred.append(sid)
-                continue
+
+                        allow_mix = bool(
+                            hold_speech_first_mix(ctx, "mix")
+                            or beds_deferred_for_mix(ctx)
+                            or next_delivery_seat(ctx) == "mix"
+                        )
+                    except Exception:
+                        allow_mix = False
+                if not allow_mix:
+                    if sid in MUSIC_REQUIRES_ASSEMBLY:
+                        reason = stable_reason or "phase_a_unsealed"
+                        if _music_defer_log_allowed(ctx, sid, reason):
+                            record_wasted_work(
+                                ctx,
+                                event="music_deferred",
+                                stage=sid,
+                                detail={"reason": reason},
+                            )
+                    deferred.append(sid)
+                    continue
             # C-05 belt: sealed stamp alone is not enough if layup later went hollow.
             if sid in MUSIC_REQUIRES_ASSEMBLY and not seed_stage_complete(
                 ctx, "nugget_layup_compose"
@@ -1116,7 +1325,8 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             if stale:
                 deferred.append(sid)
                 continue
-        out.append(sid)
+        if sid not in out:
+            out.append(sid)
     if deferred and not out:
         # T2: try orphan promote + Phase A seal once before empty fallback.
         try:
@@ -1160,6 +1370,21 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                     _inject_edl_producer(ctx, out2)
                     if out2:
                         return out2
+            # F10: empty re-scan → Always-HAU seating SSOT (not forever Phase-A).
+            if not out2:
+                if not edl_ready(ctx):
+                    _inject_edl_producer(ctx, out2)
+                    if out2:
+                        return out2
+                try:
+                    from interview_mux.mix_junction_seat import next_delivery_seat
+
+                    pin = next_delivery_seat(ctx)
+                    if pin and pin in remaining and pin not in out2:
+                        out2.append(pin)
+                        return out2
+                except Exception:
+                    pass
         # Keep Phase A producers so the walk has somewhere to pin.
         for sid in remaining:
             if sid in PHASE_A_STAGES and sid not in G1_CONSUMERS:
@@ -1220,8 +1445,18 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
     hollow_snapshot: set[str] = set()
     try:
         for sid in G3_RECONCILE_CHAIN:
+            # DETECTION_ONLY_IS_DONE: hollow stamp census before promote/unmark XOR.
             if ctx.is_done(sid) and not seed_stage_complete(ctx, sid):
                 hollow_snapshot.add(sid)
+    except Exception:
+        pass
+    # Runtime hollow escalate: done ∧ ¬land_honest (forensics writes operator artifact).
+    try:
+        from interview_mux.hollow_done_guard import escalate_hollow_done
+
+        escalate_hollow_done(
+            ctx, stages=tuple(G3_RECONCILE_CHAIN), raise_on_find=False
+        )
     except Exception:
         pass
     cleared: list[str] = []
@@ -1283,7 +1518,33 @@ def promote_complete_orphan_stage_done(
     for sid in scope:
         if sid in skip_set:
             continue
+        # DETECTION_ONLY_IS_DONE: already stamped (hollow or honest) — do not re-promote.
         if ctx.is_done(sid):
+            continue
+        # Land Honesty: refuse promote while unpaid remaster / stamp-alone / etc.
+        try:
+            from interview_mux.done_authority import (
+                unpaid_land_blocks_promote,
+                unpaid_land_reason,
+            )
+
+            if unpaid_land_blocks_promote(ctx, sid):
+                try:
+                    why = unpaid_land_reason(ctx, sid) or "unpaid_land"
+                    ctx.log(
+                        f"orphan promote refused unpaid land: {sid} — {why}",
+                        level="warning",
+                        stage="delivery",
+                        detail={
+                            "event": "unpaid_land_refuse_promote",
+                            "stage": sid,
+                            "unpaid_land_reason": why,
+                        },
+                    )
+                except Exception:
+                    pass
+                continue
+        except Exception:
             continue
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
         if not rel:
@@ -1323,6 +1584,7 @@ def promote_complete_orphan_stage_done(
                 continue
         except Exception:
             continue
+        # DETECTION_ONLY_IS_DONE: confirm promote write stuck (not advance/skip).
         if ctx.is_done(sid):
             promoted.append(sid)
     if promoted:
@@ -1363,6 +1625,7 @@ def reconcile_orphan_artifacts(
             continue
         if sid in (skip_promote or frozenset()):
             continue
+        # DETECTION_ONLY_IS_DONE: artifact without stamp = orphan candidate.
         if not (ctx.artifact_exists(rel) and not ctx.is_done(sid)):
             continue
         # Shared-path early writers (e.g. sound_design_palettes → plan.json) are
@@ -1374,6 +1637,7 @@ def reconcile_orphan_artifacts(
                 producer = ""
                 if isinstance(doc, dict):
                     producer = str((doc.get("_meta") or {}).get("producer_stage") or "")
+                # DETECTION_ONLY_IS_DONE: producer stamp presence (orphan filter).
                 if producer and producer != sid and ctx.is_done(producer):
                     continue
         except Exception:
@@ -1653,11 +1917,46 @@ def premature_cap_hard_pin(
         leased, lease_stage = expensive_stage_lease_active(ctx)
         if leased and lease_stage:
             held = str(lease_stage).strip()
-            if held in MIX_EPOCH_RUN_BLOCK and not music_epoch_complete(ctx):
-                return _music_epoch_producer_pin(ctx)
+            # Always-HAU: requesting mix / mix lease while music incomplete.
+            if not music_epoch_complete(ctx):
+                try:
+                    from interview_mux.mix_junction_seat import (
+                        hold_speech_first_mix,
+                        next_delivery_seat,
+                    )
+
+                    # F7: never hold a sealed lease pin.
+                    if seed_stage_complete(ctx, held):
+                        return next_delivery_seat(ctx)
+                    # Speech-first mix request beats MusicGen lease (i7e).
+                    if hold_speech_first_mix(ctx, resume):
+                        return "mix"
+                    # HX-4: mix-family lease while music incomplete → music
+                    # producer pin (not Phase-A next_delivery_seat).
+                    if held in MIX_EPOCH_RUN_BLOCK:
+                        if hold_speech_first_mix(ctx, held):
+                            return "mix"
+                        return _music_epoch_producer_pin(ctx)
+                except Exception:
+                    pass
+                if held in MIX_EPOCH_RUN_BLOCK:
+                    return _music_epoch_producer_pin(ctx)
             return held
     except Exception:
         pass
+    # Always-HAU: speech-first mix holds; else seating SSOT.
+    if resume == "mix" and not music_epoch_complete(ctx):
+        try:
+            from interview_mux.mix_junction_seat import (
+                hold_speech_first_mix,
+                next_delivery_seat,
+            )
+
+            if hold_speech_first_mix(ctx, resume):
+                return "mix"
+            return next_delivery_seat(ctx)
+        except Exception:
+            pass
     # Prefer stable fail-class pins (T4) for known epochs before earliest walk.
     # D-08 / XC-PREMATURE: on heal_navigate exception, return last safe pin for
     # the class — never fall through to the original consumer resume.
@@ -1828,6 +2127,21 @@ def premature_cap_hard_pin(
             seal_phase_a_if_stable(ctx)
         except Exception:
             pass
+        # Always-HAU: speech-first mix seats assembly before MusicGen.
+        if resume == "mix":
+            try:
+                from interview_mux.mix_junction_seat import hold_speech_first_mix
+
+                if hold_speech_first_mix(ctx, resume):
+                    return "mix"
+            except Exception:
+                pass
+        try:
+            from interview_mux.mix_junction_seat import next_delivery_seat
+
+            return next_delivery_seat(ctx)
+        except Exception:
+            pass
         return _music_epoch_producer_pin(ctx)
     # Post-music mix/junction/finalize: single ladder — never narrative audit.
     if resume in {"mix", "junction_snip_qa", "master_finalize"} or (
@@ -1886,6 +2200,97 @@ def premature_cap_hard_pin(
     return resume
 
 
+
+def resolve_premature_cap_pin(
+    ctx: RunContext | None, resume: str, *, message: str = ""
+) -> str:
+    """Sole string pin for heal/driver/execute — hard_pin + F7 sealed fallthrough.
+
+    Prefer this over bare ``premature_cap_hard_pin`` at driver heal/smart-resume
+    sites. JobRunner execute rewrite goes through ``apply_premature_cap_for_execute``.
+
+    Heal Clinic Option E: sideways rewrite only when allowlisted + checklist green.
+    """
+    target = str(resume or "").strip()
+    if ctx is None:
+        return target
+    pinned = str(premature_cap_hard_pin(ctx, target, message=message) or "").strip() or target
+    try:
+        if pinned and seed_stage_complete(ctx, pinned):
+            from interview_mux.mix_junction_seat import next_delivery_seat
+
+            pinned = str(next_delivery_seat(ctx) or pinned).strip() or pinned
+    except Exception:
+        pass
+    if pinned and pinned != target:
+        try:
+            from interview_mux.heal_pin_authority import admit_resume, may_rewrite_heal_pin
+
+            ok, _allow_id, _refused = may_rewrite_heal_pin(
+                ctx,
+                from_stage=target,
+                to_stage=pinned,
+                error=message or target,
+                intent="premature_cap",
+            )
+            if not ok:
+                return target
+            # B+: clamp + admit even after allowlist pass
+            pinned = admit_resume(
+                ctx,
+                pinned,
+                current=target,
+                error=message or target,
+                intent="premature_cap",
+            )
+        except Exception:
+            # Fail closed on authority errors: do not sideways-pin.
+            return target
+    try:
+        pinned = clamp_resume_through_order(ctx, pinned)
+    except Exception:
+        pass
+    return pinned
+
+
+def apply_premature_cap_for_execute(
+    ctx: RunContext,
+    resume: str,
+    *,
+    automation: bool,
+    message: str = "",
+) -> dict[str, Any]:
+    """Shared premature_cap contract for JobRunner + full_auto_driver (i6 / F7).
+
+    automation=True → rewrite from_stage onto producer and continue.
+    automation=False → ok:False + pinned_to (GUI hard-fail).
+    Never lands on a seed-complete pin (falls through to next_delivery_seat).
+    """
+    target = str(resume or "").strip()
+    pinned = resolve_premature_cap_pin(ctx, target, message=message)
+    if not pinned or pinned == target:
+        return {"ok": True, "from_stage": target, "rewritten": False, "pinned_to": ""}
+    reason = (
+        f"Producer incomplete — pinned to {pinned} (requested {target})."
+    )
+    if automation:
+        return {
+            "ok": True,
+            "from_stage": pinned,
+            "rewritten": True,
+            "pinned_to": pinned,
+            "reason": reason,
+        }
+    return {
+        "ok": False,
+        "from_stage": target,
+        "rewritten": False,
+        "pinned_to": pinned,
+        "reason": reason,
+        "error": reason,
+    }
+
+
 def safe_mix_resume_stage(ctx: RunContext) -> str:
     """Return mix only when music epoch complete and junction residuals clear."""
     try:
@@ -1912,23 +2317,18 @@ def safe_mix_resume_stage(ctx: RunContext) -> str:
             return mix_seat_resume_stage(ctx)
         except Exception:
             return "mix"
-    block = mix_epoch_block(ctx)
-    if block:
-        for sid in MUSIC_BEFORE_MIX:
-            if not seed_stage_complete(ctx, sid):
-                return sid
-        # Seed markers present but SDP still lacks WAVs — regenerate assets,
-        # do not bounce mix ↔ music_palette_compose forever.
-        try:
-            from interview_mux.heal_routing import resume_stage_for_error_class
-            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+    # Always-HAU: speech-first mix seats before MusicGen; else seating SSOT.
+    try:
+        from interview_mux.mix_junction_seat import (
+            hold_speech_first_mix,
+            next_delivery_seat,
+        )
 
-            if missing_sdp_asset_wavs(ctx):
-                return resume_stage_for_error_class(
-                    "mmaudio_incomplete", default="mmaudio_sfx"
-                )
-        except Exception:
-            pass
+        if hold_speech_first_mix(ctx, "mix"):
+            return "mix"
+        return next_delivery_seat(ctx)
+    except Exception:
+        pass
     try:
         from interview_mux.delivery_recovery import resume_theme_generation
 
@@ -3230,6 +3630,8 @@ def prepare_fingerprint_blocks_rerun(ctx: RunContext, stage: str) -> str | None:
         try:
             from interview_mux.homunculus.agenda import prepare_outputs_present
 
+            # DETECTION_ONLY_IS_DONE: fingerprint emission — actual skip is gated
+            # by may_skip_as_complete in homunculus/runtime dispatch.
             if ctx.is_done("audio_preclean") and prepare_outputs_present(ctx, "audio_preclean"):
                 return "ingest_unchanged"
         except Exception:

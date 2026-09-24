@@ -332,6 +332,89 @@ def demote_uncovered_high_gaps(
     ).demoted
 
 
+def _deterministic_high_gap_line(ctx: RunContext, row: dict[str, Any]) -> str:
+    """Structural seed when LLM fill is unavailable or empty (R1).
+
+    Speakable courtesy copy only — never paste listener_confusion / mission
+    into on-air text (those are QC prose and trip spoken_edit_structure_ref,
+    e.g. "the clip cuts off…"). Mission stays in rationale at the call site.
+    """
+    from interview_mux.gap_framing import GAP_TYPE_TO_CATEGORY
+    from interview_mux.gap_vo_prior_context import courtesy_seed_text
+    from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
+
+    sid = str(row.get("segment_id") or "").strip()
+    gap_type = str(row.get("gap_type") or "missing_setup").strip() or "missing_setup"
+    category = GAP_TYPE_TO_CATEGORY.get(gap_type, "story_bridge")
+    text = courtesy_seed_text(None, category=category, target_segment_id=sid or None)
+    text = scrub_spoken_edit_structure(text)
+    words = text.split()
+    if len(words) > 28:
+        text = " ".join(words[:28]).rstrip(",;") + "?"
+    return text
+
+
+def seed_uncovered_high_gaps_deterministic(
+    ctx: RunContext,
+    out: dict[str, Any],
+    *,
+    applied: list[dict[str, Any]],
+    origin: str = "high_gap_vo_seed",
+    limit: int = 24,
+) -> int:
+    """Append required synthesize lines for every still-uncovered high gap."""
+    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
+        return 0
+    try:
+        evals = ctx.read_json("understanding/gap_evaluations.json")
+    except Exception:
+        return 0
+    lines = out.setdefault("interviewer_lines", [])
+    if not isinstance(lines, list):
+        lines = []
+        out["interviewer_lines"] = lines
+    targeted = targeted_segment_ids(lines, ctx)
+    high = [
+        r
+        for r in (evals.get("evaluations") or [])
+        if isinstance(r, dict)
+        and str(r.get("severity") or "").lower() in {"high", "critical"}
+        and str(r.get("segment_id") or "")
+        and str(r.get("segment_id")) not in targeted
+    ]
+    added = 0
+    for row in high[: max(1, int(limit))]:
+        sid = str(row.get("segment_id") or "")
+        if not sid or sid in targeted:
+            continue
+        text = _deterministic_high_gap_line(ctx, row)
+        confusion = str(row.get("listener_confusion") or row.get("why") or "").strip()
+        rationale = "Auto-seeded for high-severity gap missing an interviewer line."
+        if confusion:
+            rationale = f"{rationale} Mission: {confusion[:160]}"
+        lines.append(
+            {
+                "line_id": f"vo_seed_{sid}",
+                "text": text,
+                "delivery": "synthesize",
+                "placement": "before",
+                "targets_segment_id": sid,
+                "gap_type": row.get("gap_type") or "missing_setup",
+                "origin": origin,
+                "required": True,
+                "category": "story_bridge",
+                "line_category": "story_bridge",
+                "rationale": rationale,
+            }
+        )
+        targeted.add(sid)
+        added += 1
+        applied.append(
+            {"action": "high_gap_vo_seed", "segment_id": sid, "origin": origin}
+        )
+    return added
+
+
 def fill_uncovered_high_gaps(
     ctx: RunContext,
     out: dict[str, Any],
@@ -339,7 +422,11 @@ def fill_uncovered_high_gaps(
     applied: list[dict[str, Any]],
     origin: str = "high_gap_vo_fill",
 ) -> int:
-    """Append interviewer lines for high-severity evals with no targeting line."""
+    """Append interviewer lines for high-severity evals with no targeting line.
+
+    R1: LLM fill when possible; always fall back to deterministic seeds so
+    framing Yes + uncovered highs never soft-green into pre-flush block.
+    """
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return 0
     try:
@@ -369,21 +456,28 @@ def fill_uncovered_high_gaps(
         )
         from interview_mux.stages.llm_runner import run_prompt_envelope
     except Exception:
-        return 0
-    import os
+        return seed_uncovered_high_gaps_deterministic(
+            ctx, out, applied=applied, origin=f"{origin}_no_llm"
+        )
 
     fill_identity = "high_gap_vo_fill"
     if identity_exhausted(ctx, fill_identity):
         applied.append({"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"})
-        resolve_seats(ctx, intent="compose_persist", gap_report=out)
-        return 0
+        # Do not demote — seed instead so high_gap_unframed cannot greenwash.
+        return seed_uncovered_high_gaps_deterministic(
+            ctx, out, applied=applied, origin=f"{origin}_budget_seed"
+        )
 
     if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
-        return 0
+        return seed_uncovered_high_gaps_deterministic(
+            ctx, out, applied=applied, origin=f"{origin}_no_key"
+        )
     added = 0
-    consecutive_empty = 0
+    llm_empties = 0
     for row in high[:12]:
         sid = str(row.get("segment_id") or "")
+        if not sid or sid in targeted:
+            continue
         payload = {
             "task": "Write one succinct interviewer line covering this high-severity gap.",
             "segment_id": sid,
@@ -394,6 +488,7 @@ def fill_uncovered_high_gaps(
             "word_caps": {"question": 60, "setup": 20, "bridge": 50},
         }
         text = ""
+        from_llm = False
         for tier in ("standard", "economy"):
             try:
                 env = run_prompt_envelope(
@@ -411,7 +506,9 @@ def fill_uncovered_high_gaps(
                 applied.append(
                     {"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"}
                 )
-                resolve_seats(ctx, intent="compose_persist", gap_report=out)
+                added += seed_uncovered_high_gaps_deterministic(
+                    ctx, out, applied=applied, origin=f"{origin}_budget_seed"
+                )
                 return added
             except Exception:
                 continue
@@ -421,29 +518,55 @@ def fill_uncovered_high_gaps(
             if not text and isinstance(env, dict):
                 text = str(env.get("text") or "").strip()
             if text:
+                from_llm = True
                 break
         if not text:
-            consecutive_empty += 1
+            llm_empties += 1
             applied.append({"action": "high_gap_vo_fill_empty", "segment_id": sid})
-            if consecutive_empty >= 2:
-                applied.append({"action": "high_gap_vo_fill_abort", "reason": "consecutive_empty"})
-                break
-            continue
-        consecutive_empty = 0
+            text = _deterministic_high_gap_line(ctx, row)
+            applied.append({"action": "high_gap_vo_seed_fallback", "segment_id": sid})
+        lid = f"vo_fill_{sid}" if from_llm else f"vo_seed_{sid}"
+        confusion = str(row.get("listener_confusion") or row.get("why") or "").strip()
+        rationale = (
+            "LLM fill for high-severity gap missing an interviewer line."
+            if from_llm
+            else "Auto-seeded for high-severity gap missing an interviewer line."
+        )
+        if confusion:
+            rationale = f"{rationale} Mission: {confusion[:160]}"
         lines.append(
             {
-                "line_id": f"vo_fill_{sid}",
+                "line_id": lid,
                 "text": text,
                 "delivery": "synthesize",
                 "placement": "before",
                 "targets_segment_id": sid,
                 "gap_type": row.get("gap_type") or "missing_setup",
-                "origin": origin,
+                "origin": origin if from_llm else f"{origin}_seed",
                 "required": True,
                 "category": "story_bridge",
+                "line_category": "story_bridge",
+                "rationale": rationale,
             }
         )
         targeted.add(sid)
         added += 1
-        applied.append({"action": "high_gap_vo_fill", "segment_id": sid, "tier_origin": origin})
+        applied.append(
+            {
+                "action": "high_gap_vo_fill" if from_llm else "high_gap_vo_seed",
+                "segment_id": sid,
+                "tier_origin": origin,
+            }
+        )
+        # After two consecutive empty LLM answers, stop calling the model and seed rest.
+        if llm_empties >= 2 and not from_llm:
+            added += seed_uncovered_high_gaps_deterministic(
+                ctx, out, applied=applied, origin=f"{origin}_abort_seed"
+            )
+            return added
+        if from_llm:
+            llm_empties = 0
+    added += seed_uncovered_high_gaps_deterministic(
+        ctx, out, applied=applied, origin=f"{origin}_remainder_seed"
+    )
     return added

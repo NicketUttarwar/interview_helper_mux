@@ -172,8 +172,15 @@ def is_rubric_pmq_check(check_id: str) -> bool:
     if cid == "no_critical_junction_residuals":
         return True
     # Delight mode flip: when listen_delight.mode is authoritative, floors are structural
-    # (not soft-shipped via aspirational advisory status).
+    # unless progress_floors treats delight (incl. catastrophic) as aspirational.
     if cid == "listen_delight_floors":
+        try:
+            from interview_mux.floor_progress import listen_delight_aspirational
+
+            if listen_delight_aspirational(None):
+                return True
+        except Exception:
+            pass
         try:
             from interview_mux.listen_delight import listen_delight_cfg
 
@@ -481,7 +488,17 @@ def has_quality_advisories(ctx: RunContext) -> bool:
     try:
         meta = ctx.read_json("run_meta.json")
         adv = meta.get(ADVISORIES_META_KEY) if isinstance(meta, dict) else None
-        return bool(adv) if isinstance(adv, list) else bool(meta.get("aspirational_proceeded"))
+        if bool(adv) if isinstance(adv, list) else bool(meta.get("aspirational_proceeded")):
+            return True
+        # Progress floors mirror into quality_advisories; also honor floor_advisories.
+        try:
+            from interview_mux.floor_progress import has_floor_advisories
+
+            if has_floor_advisories(ctx):
+                return True
+        except Exception:
+            pass
+        return False
     except Exception:
         return False
 

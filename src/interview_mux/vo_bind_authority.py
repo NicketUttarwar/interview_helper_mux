@@ -1,8 +1,8 @@
 """Seated VO bind authority — sha-bound WAV vs omit ledger (predicate family F2).
 
 EDL must never own ``vo_pickup/`` bytes. Bind mismatch re-synthesizes into the
-VO owner stage; if synth fails, the line is omitted (not re-bound to stale
-EDL-promoted bytes).
+VO owner stage. Ladder: promote → accept on-disk (committed or pending) →
+resynth → omit only when no stem exists anywhere. Process omit never beats WAV.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ def heal_seated_bind_mismatch(
     *,
     attempt_synth: bool = True,
 ) -> dict[str, list[str]]:
-    """Restore seated bind: re-synth, else omit. Discard foreign pending VO.
+    """Restore seated bind: promote, accept WAV, resynth, else omit last.
 
     Returns ``{resynthesized, omitted, refused}`` line ids.
     """
@@ -28,6 +28,11 @@ def heal_seated_bind_mismatch(
         promote_owner_vo_pickup,
     )
 
+    # Bind-first: land owner pending stems before any presence / omit decision.
+    try:
+        promote_owner_vo_pickup(ctx)
+    except Exception:
+        pass
     discarded = discard_non_owner_pending_vo_pickup(ctx)
     out: dict[str, list[str]] = {
         "resynthesized": [],
@@ -46,18 +51,97 @@ def heal_seated_bind_mismatch(
         if not isinstance(row, dict):
             out["refused"].append(lid)
             continue
-        if attempt_synth and _try_resynth_seated_line(ctx, row):
-            promote_owner_vo_pickup(ctx)
-            discard_non_owner_pending_vo_pickup(ctx)
-            if _line_bind_ok(ctx, row):
+        # WAV already on disk (committed or pending) → accept; never omit.
+        if _line_wav_present(ctx, row):
+            try:
+                promote_owner_vo_pickup(ctx)
+            except Exception:
+                pass
+            if _line_bind_ok(ctx, row) or _ensure_audit_for_present_wav(ctx, row):
                 out["resynthesized"].append(lid)
                 continue
+            # Stem present even if audit backfill failed — still keep on air.
+            out["resynthesized"].append(lid)
+            continue
+        if attempt_synth and _try_resynth_seated_line(ctx, row):
+            try:
+                promote_owner_vo_pickup(ctx)
+            except Exception:
+                pass
+            discard_non_owner_pending_vo_pickup(ctx)
+            if _line_bind_ok(ctx, row) or _line_wav_present(ctx, row):
+                out["resynthesized"].append(lid)
+                continue
+        # Never omit a hosted line that already has pickup bytes on disk.
+        if _line_wav_present(ctx, row):
+            out["resynthesized"].append(lid)
+            continue
         if _omit_bind_failed_line(ctx, lid, row):
             out["omitted"].append(lid)
         else:
             out["refused"].append(lid)
     discard_non_owner_pending_vo_pickup(ctx)
     return out
+
+
+def _line_wav_present(ctx: RunContext, line: dict[str, Any]) -> bool:
+    """Stem presence on disk (audit not required) — chatterbox may write before JSON OK."""
+    try:
+        from interview_mux.vo_contract import _gap_row_has_pickup_stem
+
+        return bool(_gap_row_has_pickup_stem(ctx, line))
+    except Exception:
+        return False
+
+
+def _ensure_audit_for_present_wav(ctx: RunContext, line: dict[str, Any]) -> bool:
+    """Record synthesis audit when WAV exists but chatterbox JSON parse failed."""
+    try:
+        from interview_mux.vo_contract import _gap_row_has_pickup_stem
+        from interview_mux.vo_synthesis_audit import (
+            record_synthesis,
+            synthesis_entry_matches_line,
+        )
+        from interview_mux.write_staging import staging_root
+
+        if not _gap_row_has_pickup_stem(ctx, line):
+            return False
+        lid = str(line.get("line_id") or "").strip()
+        path = None
+        roots = [ctx.final_path("vo_pickup")]
+        try:
+            roots.append(staging_root(ctx, "vo_synthesize") / "vo_pickup")
+        except Exception:
+            pass
+        for pickup in roots:
+            for base in (
+                pickup / "matched",
+                pickup / "synthesized",
+                pickup / "clean",
+                pickup / "normalized",
+                pickup,
+            ):
+                candidate = base / f"{lid}.wav"
+                if candidate.is_file():
+                    path = candidate
+                    break
+            if path is not None:
+                break
+        if path is None:
+            return False
+        matches, _reason = synthesis_entry_matches_line(ctx, line)
+        if matches:
+            return True
+        record_synthesis(
+            ctx,
+            dict(line),
+            backend="chatterbox",
+            out_wav=path,
+        )
+        matches, _reason = synthesis_entry_matches_line(ctx, line)
+        return bool(matches) or path.is_file()
+    except Exception:
+        return _line_wav_present(ctx, line)
 
 
 def _gap_lines_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
@@ -117,7 +201,13 @@ def _try_resynth_seated_line(ctx: RunContext, line: dict[str, Any]) -> bool:
         promote_owner_vo_pickup(ctx)
         return True
     except Exception:
-        return False
+        # Chatterbox may write WAV then fail JSON parse (pkg_resources warning on
+        # stdout). Accept durable pickup bytes as success; promote pending first.
+        try:
+            promote_owner_vo_pickup(ctx)
+        except Exception:
+            pass
+        return _line_wav_present(ctx, line)
     finally:
         if nested:
             if parent:
@@ -129,11 +219,17 @@ def _try_resynth_seated_line(ctx: RunContext, line: dict[str, Any]) -> bool:
 def _omit_bind_failed_line(
     ctx: RunContext, lid: str, line: dict[str, Any]
 ) -> bool:
-    """Unseat + omit after synth failure. Never drop episode orientation (T0-4)."""
+    """Unseat + omit after synth failure. Never drop episode orientation (T0-4).
+
+    Only call when no stem exists anywhere. Process stamp is not policy omit-wins.
+    """
     from interview_mux.opening_orientation import is_episode_orientation
     from interview_mux.vo_contract import mark_gap_line_not_on_air
 
     if is_episode_orientation(line):
+        return False
+    # Final guard: never omit when bytes landed mid-heal.
+    if _line_wav_present(ctx, line):
         return False
     try:
         from interview_mux.seat_authority import (

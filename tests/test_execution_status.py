@@ -471,3 +471,24 @@ def test_gui_heartbeat_does_not_block_hard_halt(run_ctx, monkeypatch):
     assert stale is True
     assert "fresh:" not in why
     assert may_hard_halt(run_ctx, pin="edl_narrative_audit") is True
+
+
+def test_i6_esr_wait_skips_when_pin_not_remaining_head(
+    run_ctx, monkeypatch
+) -> None:
+    """exec_13181: do not ESR-stall mix while listen_delight_audit is rem[0]."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.execution_status import should_wait_incomplete_after_conductor
+
+    monkeypatch.setattr(
+        "interview_mux.thrash_hardening.expensive_stage_lease_active",
+        lambda ctx: (True, "mix"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.remaining_stages",
+        lambda ctx, phase="delivery": ["listen_delight_audit", "music_palette_compose", "mix"],
+    )
+    wait = should_wait_incomplete_after_conductor(run_ctx, pin="mix")
+    assert wait is None

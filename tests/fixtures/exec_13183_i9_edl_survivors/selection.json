@@ -1,0 +1,201 @@
+{
+  "ordered_segment_ids": [
+    "seg_002",
+    "seg_007",
+    "seg_011",
+    "seg_012",
+    "seg_014",
+    "seg_016",
+    "seg_017",
+    "seg_018",
+    "seg_020",
+    "seg_021",
+    "seg_023",
+    "seg_026",
+    "seg_027",
+    "seg_028",
+    "seg_029",
+    "seg_030",
+    "seg_031",
+    "seg_034",
+    "seg_035",
+    "seg_036",
+    "seg_037",
+    "seg_039",
+    "seg_040",
+    "seg_041",
+    "seg_042",
+    "seg_043",
+    "seg_045",
+    "seg_046",
+    "seg_047",
+    "seg_053",
+    "seg_054",
+    "seg_056",
+    "seg_057",
+    "seg_058",
+    "seg_059"
+  ],
+  "excluded_segment_ids": [
+    {
+      "segment_id": "seg_001",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_061",
+      "reason": "trim_for_pacing: an unanswered stakeholder question once seg_062 is removed as a media-IP CTA."
+    },
+    {
+      "segment_id": "seg_003",
+      "reason": "excluded"
+    },
+    {
+      "segment_id": "seg_006",
+      "reason": "excluded"
+    },
+    {
+      "segment_id": "seg_004a",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_004b",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_004c",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004d",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004e",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004f",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_004g",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062a",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062b",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062c",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062d",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062e",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062f",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062g",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062h",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062i",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062j",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062k",
+      "reason": "ranking_membership_cover"
+    },
+    {
+      "segment_id": "seg_062l",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004cb",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062li",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062lj",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062lk",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062ll",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_062la",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062lc",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062ld",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062le",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062lf",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062lg",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062lh",
+      "reason": "sanitize_duplicate_source_span"
+    },
+    {
+      "segment_id": "seg_062lb",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_004ca",
+      "reason": "media_ip_cta"
+    },
+    {
+      "segment_id": "seg_025",
+      "reason": "blank_or_unusable_answer_audio"
+    }
+  ]
+}

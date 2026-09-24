@@ -247,12 +247,10 @@ def test_assert_stage_artifacts_complete_requires_interviewer_script(
 ):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext(create=True)
-    write_validated_artifact(
-        ctx,
+    ctx.write_json(
         "understanding/gap_report.json",
         {"interviewer_lines": []},
-        merge_from_disk=False,
-        stage_key="optimal_questions",
+        skip_handoff=True,
     )
     reason = stage_artifact_incompleteness(ctx, "optimal_questions")
     assert reason == "understanding/interviewer_script.txt is pending"
@@ -281,8 +279,8 @@ def test_gap_fill_skip_stub_incomplete_when_framing_enabled(tmp_path, monkeypatc
     assert reason and "skip stub" in reason
 
 
-def test_gfc_b2_zero_line_compose_allowed_when_framing_yes(tmp_path, monkeypatch):
-    """Q6B: framing Yes + zero compose lines may complete (not incompleteness)."""
+def test_gfc_b2_zero_line_compose_ok_when_evals_do_not_warrant_vo(tmp_path, monkeypatch):
+    """Honest zero-line compose under all-low / no-warrant evals must not identical-halt."""
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr(
         "interview_mux.gap_vo_gates.gap_framing_enabled",
@@ -293,6 +291,23 @@ def test_gfc_b2_zero_line_compose_allowed_when_framing_yes(tmp_path, monkeypatch
         lambda _ctx: False,
     )
     ctx = RunContext(create=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_001",
+                    "self_explanatory": True,
+                    "gap_type": "ok_with_light_bridge",
+                    "severity": "low",
+                    "listener_confusion": "",
+                    "recommended_framing": "none",
+                }
+            ],
+            "_meta": {"producer": "missing_framing", "producer_stage": "missing_framing"},
+        },
+        skip_handoff=True,
+    )
     ctx.write_json(
         "understanding/gap_report.json",
         {
@@ -306,8 +321,90 @@ def test_gfc_b2_zero_line_compose_allowed_when_framing_yes(tmp_path, monkeypatch
         skip_handoff=True,
     )
     reason = stage_artifact_incompleteness(ctx, "gap_framing_compose")
-    assert reason is None
+    assert reason is None or "hosted_vo_floor" not in reason
 
+
+def test_gfc_b2_zero_line_compose_refuses_when_evals_warrant_vo(tmp_path, monkeypatch):
+    """Hosted VO floor: framing Yes + warranting evals + zero compose lines → incomplete."""
+    from interview_mux.stage_completion import (
+        _gap_framing_compose_hosted_floor_incompleteness,
+    )
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mastering_research.research_shape_core_thin",
+        lambda _ctx: False,
+    )
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_001",
+                    "self_explanatory": False,
+                    "gap_type": "missing_question",
+                    "severity": "high",
+                    "listener_confusion": "what were they asked?",
+                    "recommended_framing": "question",
+                }
+            ],
+            "_meta": {"producer": "missing_framing", "producer_stage": "missing_framing"},
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [],
+            "gaps": [],
+            "_meta": {
+                "producer": "gap_framing_compose",
+                "producer_stage": "gap_framing_compose",
+            },
+        },
+        skip_handoff=True,
+    )
+    reason = _gap_framing_compose_hosted_floor_incompleteness(ctx)
+    assert reason is not None
+    assert "hosted_vo_floor" in reason
+
+
+def test_missing_framing_vo_ladder_message_distinct(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.check_voice_reference_pending",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.check_gap_framing_decision_pending",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.source_topology.check_pickup_speaker_pending",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.check_clone_consent_pending",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.check_gap_delivery_pending",
+        lambda _ctx: False,
+    )
+    ctx = RunContext(create=True)
+    reason = stage_artifact_incompleteness(ctx, "missing_framing")
+    assert reason is not None
+    assert "voice-ref ladder" in reason
+    assert "gap_evaluations" in reason
 
 def test_stale_required_artifact_is_incomplete(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))

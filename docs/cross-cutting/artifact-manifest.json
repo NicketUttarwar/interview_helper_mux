@@ -176,6 +176,7 @@
         "boundary_detection": "boundaries_artifact.schema.json",
         "boundary_topic_resplit": "boundaries_artifact.schema.json",
         "chapter_close_hitch": null,
+        "connector_fuse_pass_pre_ranking": null,
         "ideal_cuts_materialize": null
       },
       "producers": [
@@ -184,6 +185,9 @@
       ],
       "consumers": [
         "audio_probe_build",
+        "chapter_close_hitch",
+        "connector_fuse_pass",
+        "connector_seam_adjudicate",
         "content_brief_reanchor",
         "content_context",
         "episode_structure_compose",
@@ -192,6 +196,7 @@
         "ideal_cuts_materialize",
         "ideal_cuts_propose",
         "interview_spine_build",
+        "island_cluster_structure_adjudicate",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
         "narrative_arc_plan",
@@ -273,13 +278,16 @@
     },
     "analysis/connector_fuse_audit.json": {
       "schemas_by_producer": {
-        "connector_fuse_pass": null
+        "connector_fuse_pass": null,
+        "connector_fuse_pass_pre_ranking": null
       },
       "producers": [
         "connector_fuse_pass"
       ],
       "consumers": [
         "boundary_topic_resplit",
+        "chapter_close_hitch",
+        "connector_fuse_pass",
         "connector_seam_adjudicate",
         "island_cluster_structure_adjudicate",
         "low_conf_island_scan",
@@ -619,7 +627,6 @@
     "master/selection.json": {
       "schemas_by_producer": {
         "full_master_ranking": "master_selection_artifact.schema.json",
-        "edl_narrative_audit": null,
         "selection_order_sanitize": "master_selection_artifact.schema.json"
       },
       "producers": [
@@ -640,14 +647,10 @@
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
         "narrative_arc_plan",
-        "selection_order_sanitize",
-        "sonic_context_build",
-        "sound_design_palettes",
         "source_topology_build",
         "topic_coverage_audit",
         "transitions",
-        "vernacular_segment_sanitize",
-        "vo_synthesize"
+        "vernacular_segment_sanitize"
       ],
       "has_write_validator": true
     },

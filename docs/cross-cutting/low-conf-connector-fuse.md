@@ -68,6 +68,15 @@ Config: `analysis.high_value_speech_islands.*` — see [config-keys.md](./config
 
 On **`connector_fuse_pass_pre_ranking`**, cluster separation also consults narrative arc / plan chapters when present (`narrative_chapter_change`).
 
+**Pre-ranking harden (G3 / H1–H3):**
+
+- Settles prior `stay_independent` audit rows unless `seam_hash` changed **or** narrative chapter membership changed; writes `reopened_seams` + `settled_skipped` on rounds.
+- Seam LLM first tier is **standard** (`llm_tier_by_pass.pre_ranking`); analysis stays economy.
+- `prefer_fuse_when_hint_and_uncertain` is forced **false** on pre_ranking (deterministic fallback still fuses incomplete-thought hints only).
+- Dualism: fuse owns thought-completeness; ranking owns order — ranking payload gets `connector_fuse_pre_ranking` summary.
+- `junction_heal` force-readjudicates only with residual/hush/seam evidence (H4-B).
+- Full-auto forces `enabled=true`; `skip_reason=missing_manifest` is incompleteness (not done).
+
 ## Seam LLM loop
 
 Deterministic code enumerates **every** chronological adjacent pair (`tail_words` + `head_words` + earlier close → packet). The economy stage `connector_seam_adjudicate` decides `fuse` vs `stay_independent`. Fuse is **incomplete-thought only**: hanging setup, later clause-continuer open, or island-straddle. Same-speaker complete ideas stay independent even on the same topic. Locked seams from HV cluster cuts stay independent. Code applies fuses by rewriting `segments/manifest.json` + `segments/boundaries.json` into **one** complete-thought segment (`fused_from`). Non-incomplete editorial fuses are also capped (`max_fused_duration_ms` / `max_fused_members`).

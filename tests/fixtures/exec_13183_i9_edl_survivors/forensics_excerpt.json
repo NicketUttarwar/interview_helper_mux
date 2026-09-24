@@ -1,0 +1,25 @@
+{
+  "source_run": "exec_13183_d19c15b58ab4_20260924T001619Z",
+  "cluster": "D",
+  "intervene": "i9",
+  "fingerprints": [
+    {
+      "detail": "publishability blocked at pre_mix: vo_audibility_drift \u2014 WAV exists without EDL vo_pickup for vo_layup_seg_007",
+      "source": "operator/forensics_errors.json"
+    },
+    {
+      "detail": "edl_unsanitary: master/assembly_ledger.json missing",
+      "source": "operator/forensics_errors.json"
+    }
+  ],
+  "expected_line_ids": [
+    "vo_preface_episode_orientation",
+    "vo_layup_seg_007",
+    "vo_layup_seg_037"
+  ],
+  "wav_rels": [
+    "vo_pickup/synthesized/vo_preface_episode_orientation.wav",
+    "vo_pickup/synthesized/vo_layup_seg_007.wav",
+    "vo_pickup/synthesized/vo_layup_seg_037.wav"
+  ]
+}

@@ -334,9 +334,15 @@ def reconcile_selection_and_narrative(
             try:
                 from interview_mux.write_staging import write_committed_json
 
-                write_committed_json(ctx, "master/narrative_plan.json", rewritten)
+                write_committed_json(
+                    ctx,
+                    "master/narrative_plan.json",
+                    rewritten,
+                    stage_key="full_master_ranking",
+                    mutation_class="narrative_metadata_align",
+                )
             except Exception:
-                ctx.write_json("master/narrative_plan.json", rewritten)
+                ctx.write_json("master/narrative_plan.json", rewritten, stage_key="full_master_ranking", mutation_class="narrative_metadata_align")
             plan = rewritten
             report["actions"].extend(rewrite_notes)
 
@@ -379,9 +385,15 @@ def reconcile_selection_and_narrative(
                 try:
                     from interview_mux.write_staging import write_committed_json
 
-                    write_committed_json(ctx, "master/narrative_plan.json", plan)
+                    write_committed_json(
+                    ctx,
+                    "master/narrative_plan.json",
+                    plan,
+                    stage_key="full_master_ranking",
+                    mutation_class="narrative_metadata_align",
+                )
                 except Exception:
-                    ctx.write_json("master/narrative_plan.json", plan)
+                    ctx.write_json("master/narrative_plan.json", plan, stage_key="full_master_ranking", mutation_class="narrative_metadata_align")
             align_narrative_plan_to_selection(ctx, ordered_ids=ordered)
             if ctx.artifact_exists("master/narrative_plan.json"):
                 raw = ctx.read_json("master/narrative_plan.json")
@@ -392,9 +404,15 @@ def reconcile_selection_and_narrative(
                         try:
                             from interview_mux.write_staging import write_committed_json
 
-                            write_committed_json(ctx, "master/narrative_plan.json", rewritten)
+                            write_committed_json(
+                    ctx,
+                    "master/narrative_plan.json",
+                    rewritten,
+                    stage_key="full_master_ranking",
+                    mutation_class="narrative_metadata_align",
+                )
                         except Exception:
-                            ctx.write_json("master/narrative_plan.json", rewritten)
+                            ctx.write_json("master/narrative_plan.json", rewritten, stage_key="full_master_ranking", mutation_class="narrative_metadata_align")
                         plan = rewritten
                         report["actions"].extend(rewrite_notes)
 

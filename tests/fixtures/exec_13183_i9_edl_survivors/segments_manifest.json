@@ -1,0 +1,624 @@
+{
+  "segments": [
+    {
+      "segment_id": "seg_002",
+      "start_ms": 26119,
+      "end_ms": 48810,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Amr, we've got Mohan Utawar on the show today. Who is Mohan? Mohan is a biotech entrepreneur who is the co -founder and CEO of OneCell .ai. He's a repeat founder with deep experience in both diagnostics and therapeutics. And as an innovator and investor, he's got more than 30 years of experience in life sciences, precision diagnostics, and healthcare technology.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_007",
+      "start_ms": 151660,
+      "end_ms": 264260,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Thank you, Amur. Thank you for inviting me here. It's a pleasure and appreciate an opportunity to talk a little bit about the field as well as what we do, why we are excited about what we do at OneCell. Cancer is a deadly disease, we all know. One shoe doesn't fit all. So personalization of therapy is the only way cancer can be managed. This whole field has evolved into what they call precision oncology, which refers to personalization. Historically, what happens is somehow you find something, then the doctor tells you go into imaging, right, you do the radiologic scan, and then radiology finds something, but then the pathology is called for, which is the process of taking a biopsy. Biopsy is the process of taking a small tissue sample from the area where you suspect that there is cancer, and further analyzing it. It's sent to the lab, that tissue sample. It's called tissue biopsy. Tissue sample is sent to the lab. The lab does the processing of the sample. A glass slide is created, okay, and the pathologist puts it under the microscope, does the reading, and based on the pattern he or she sees, they write a report. And based on that report, a treatment is given, okay. This process is called tissue biopsy, okay. Now, tissue is an issue because it's a surgical procedure. It's expensive, and it's not an easy thing to do. Yeah, and it's invasive, right? Invasive, right? It's invasive. It's invasive.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 112600,
+      "fused_from": [
+        "seg_007",
+        "seg_008",
+        "seg_009",
+        "seg_010"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking",
+      "air_bound_meta": {
+        "air_bound_reason": "ideal_window_clamp+edge_refine",
+        "before_start_ms": 151660,
+        "before_end_ms": 363550,
+        "ideal_window_id": "cut_001",
+        "edge_refine": {
+          "steps": [
+            "exact_word_edges",
+            "pause_midpoint_end"
+          ],
+          "pause_midpoint_before_ms": 263860,
+          "pause_midpoint_after_ms": 264260,
+          "acoustic": {
+            "acoustic_applied": false,
+            "before_start_ms": 151660,
+            "before_end_ms": 264260,
+            "after_start_ms": 151660,
+            "after_end_ms": 264260
+          },
+          "start_ms": 151660,
+          "end_ms": 264260
+        },
+        "after_start_ms": 151660,
+        "after_end_ms": 264260
+      }
+    },
+    {
+      "segment_id": "seg_011",
+      "start_ms": 364080,
+      "end_ms": 416610,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Information that you generate from the CT DNA, circulating tumor DNA, is most relevant, okay? But the problem with the liquid biopsy from the blood -based stuff is, it's very difficult to figure out whether it was a cell -free DNA from a normal cell or versus the dead tumor cells, right? But now, with the advent of AI and analysis, right, you know, people have been able to figure out the difference, okay? And it's a good biomarker. It tells you that more the CT DNA, the more the prevalence of cancer. So, you map it, right, and you have the hypothesis, okay? Okay, so it's like the higher stage, greater stage you are, it's likely to have more CT DNA.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_012",
+      "start_ms": 469580,
+      "end_ms": 504870,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "okay? We call cell biopsy, okay, which is basically a next generation of liquid biopsy, but coming out of the circulating tumor cells. Now, let me explain the CTC, or circulating tumor cells. A gram of tumor, okay, sheds about a million cancer cells in the body, in the bloodstreams. So, that may seem a lot, but we have trillions of cells in our body. So, that means it's one in a billion circulating tumor cells.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": [],
+      "duration_ms": 35290,
+      "fused_from": [
+        "seg_012",
+        "seg_013"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking",
+      "air_bound_meta": {
+        "air_bound_reason": "ideal_window_clamp+edge_refine",
+        "before_start_ms": 416800,
+        "before_end_ms": 640280,
+        "ideal_window_id": "cut_003",
+        "edge_refine": {
+          "steps": [
+            "exact_word_edges",
+            "pause_midpoint_end"
+          ],
+          "pause_midpoint_before_ms": 504440,
+          "pause_midpoint_after_ms": 504870,
+          "acoustic": {
+            "acoustic_applied": false,
+            "before_start_ms": 469580,
+            "before_end_ms": 504870,
+            "after_start_ms": 469580,
+            "after_end_ms": 504870
+          },
+          "start_ms": 469580,
+          "end_ms": 504870
+        },
+        "after_start_ms": 469580,
+        "after_end_ms": 504870
+      }
+    },
+    {
+      "segment_id": "seg_014",
+      "start_ms": 640500,
+      "end_ms": 699770,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "It's a thousand times better price performance than anything that existed before. Okay. Okay. And it seems like, so then that's going to be both from like the technical aspect as well as like the algorithmic or AIS. Right. Right. Like, are these like the both aspects going here? Like, make this better? Sure. Second generation of precision oncology also was, you know, about multidimensional data, multimodal data, multiomics data. Cancer is like an elephant and a six blind man touching it and describing what it is. A genomics is a science of genetics. Right. It tells you something very important, but it doesn't give you a full picture. Just like a blind person touching, you know, the leg of an elephant. If you ask him to describe, you'll say, oh, elephant is like a leg.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 59270,
+      "fused_from": [
+        "seg_014",
+        "seg_015"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_016",
+      "start_ms": 700320,
+      "end_ms": 723080,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Another blind person touches, you know, let's say the tail and it says, oh, it's like a snake. You know, so unfortunately the genomics, the transcriptomics, the proteomics, the methylomics, the metabolomics, these are all fields of science, but they are looking at cancer into the silos with their own lenses.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_017",
+      "start_ms": 723540,
+      "end_ms": 777990,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Unfortunately, cancer, everything, this has to be all integrated. So the first generation of precision oncology was driven by tissue biopsy and genomics data. Companies like Foundation, they did very, very well. They established as the leader. But tissue is an issue. So second generation, the liquid biopsy, right, which is the blood -based stuff, right, you know, that came about. But what has been not fully equipped is, you know, again, you know, that was really focusing again, you know, on the genomics and, you know, the transcriptomics. But DNA is, they don't, you know, cannot get you the transcriptomics or a little bit, but definitely not proteomics.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_018",
+      "start_ms": 778540,
+      "end_ms": 938860,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "You know, so the third generation, which we call the cell biopsy, you know, has the ability to do all three pieces together. The genomics, the transcriptomics and the proteomics. Now, what happens is multiomics, you know, it's a big data problem. Cancer, as much as it's a disease, it's also a data problem. And the data is overwhelming. So this is where AI comes in handy. Even analyzing this multidimensional, multimodal, multiomics data, making sense out of it. Okay. Correlating the data and predicting the outcome is the key challenge. So the challenge here I see is that, like, usually, like, when you do, like, genomics, proteomics experiments, right, you have, like, a normal tissue, you have a disease, tumor tissue, right, and you're looking at, like, differences here. But then what you're collecting, that has, like, majority of that is already normal anyway. So how do you then detect the specific cancer DNA or the cancer proteins from that? Because that's a much higher level challenge than what people usually do, right? Absolutely. So how do you do that with AI? Yeah. Very, very good point. Excellent point. In liquid biopsy, I told you it's all about DNA. And you have a challenge because you start with a noisy data. You don't know whether that DNA came from a normal cell, dead cells. Or a circulating tumor. I mean, the CT DNA, right? Yeah. And so when you start with the noisy data, again, you have to apply AI and deep analytics, more resources to basically, you know, denoise that data. Okay. The next generation technologies, particularly the one that we have invented, you are already clean. You're starting with a cleaner data because you have figured out, we have figured out, capturing that one in a billion circulating tumor cells. Okay. We already know that our starting point is a tumor cell. Oh, okay. Okay. So you have the technology to then detect the tumor cell specifically. Correct. Okay. Okay. Now, does that like, does that depend on like the kind of like surface markers there are on like the tumor cell or? Very good point. So CTC is not new. It's been there 10 years ago. Okay. Unfortunately, what happened was the sensitivity wasn't there.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 160320,
+      "fused_from": [
+        "seg_018",
+        "seg_019"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_020",
+      "start_ms": 939280,
+      "end_ms": 1049470,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "And the endpoint was you capture the circulating tumor cells. You count and report them. Okay. Okay. So the clinical utility was limited. You know, it told us that there is a problem. Okay. Your pet or CT scan or MRI might be clean. But if you find CTCs, that means, you know, there are some problems somewhere. Okay. So the scientists would say, oh, we found the problem. Okay. But the doctors would say, so what? My patient is happy because the pet is clean. And now you're telling me you found a CTC and you can't tell me what to do about it. Okay. So it's a very classic dilemma. Scientists get excited with what if. Okay. But the doctors are saying, so what? What if I found a CTC and the doctor is saying, so what? Unless you tell me what is the actionability. And the science stopped there in the past. But today with the advent of next generation sequencing and with AI. Okay. We are able to analyze the information in that single cell. Okay. The genomic data, the transcriptomic data, the proteomic data, and tell you and tell the doctor, hey, you know, it may be the cell coming from lung. You need a pet on basic breast, which was the original stuff. Right. So without AI analyzing the cell information that is hidden in that circulating tumor cell, we would not enable the doctor to take those critical clinical decisions.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 110190,
+      "air_bound_meta": {
+        "air_bound_reason": "conceptual_hinge_trim+edge_refine",
+        "before_start_ms": 938860,
+        "before_end_ms": 1049470,
+        "ideal_window_id": null,
+        "edge_refine": {
+          "steps": [
+            "exact_word_edges",
+            "pause_midpoint_end"
+          ],
+          "pause_midpoint_before_ms": 1048740,
+          "pause_midpoint_after_ms": 1049470,
+          "acoustic": {
+            "acoustic_applied": false,
+            "before_start_ms": 939280,
+            "before_end_ms": 1049470,
+            "after_start_ms": 939280,
+            "after_end_ms": 1049470
+          },
+          "start_ms": 939280,
+          "end_ms": 1049470
+        },
+        "after_start_ms": 939280,
+        "after_end_ms": 1049470
+      }
+    },
+    {
+      "segment_id": "seg_021",
+      "start_ms": 1050200,
+      "end_ms": 1211330,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Okay. So it's really the integration of information from the biology of the cell, the science part, and the AI working on analyzing the genomic data, the transcriptomic data, the proteomic data. Right. So like you said, cell surface marker. You know, we know historically that if it's, let's say, HER2 marker on the surface of the cell, very likely that cell must be coming from breast cancer site. If it's an EGFR, very likely, again, no guarantees, but very likely it's coming from a lung cancer. Right. Also, the way morphology of those cells look is very unique. So we use AI to analyze, you know, how the cell looks, the morphology, you know, the size, the shape, the density, the contrast. Right. So there's imaging as well then. Image analysis of the cell that we capture. Right. Okay. So in addition to the multiomics, you're also doing the image analytics. Absolutely. Absolutely. Gotcha. Okay. Even before we do multiomics, we do the analysis of these cells. Okay. We do the characterization using our AI algorithms and we give enough information. Now, one other, you know, fact that is actually very revealing is that many times the CTCs are individual CTCs, but many times you have this, you know, what we call the combinations, right? You know, you have the, you know, group of cells hanging together. Okay. Now, the risk profile of those patients, prognostic is much, much different. It's much higher risk. Okay. Okay. Again, imaging reveals those kinds of things. Okay. You know, so, so there's interesting stuff, right? Now, how do we capture these circulating tumor cells? Right. The CTCs, there are two methods for capturing. One is size -based. Right. So, tumor cells are usually larger in size. So, tumor cells are usually larger in size. And there are techniques, you know, microfiltration. There are techniques to really do the nanofluidics to capture those cells. That's one method. The other method is called affinity -based. So, tumor cells have certain types of proteins on the surface of the cells. EpiM being one very popular protein that is on all solid tumors that are epithelial in nature.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": [],
+      "duration_ms": 161130,
+      "fused_from": [
+        "seg_021",
+        "seg_022"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_023",
+      "type": "interviewer_question",
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "topic_tags": [
+        "chapter_close_hitch"
+      ],
+      "flags": [],
+      "start_ms": 1211740,
+      "end_ms": 1283150,
+      "notes": "chapter_close_hitch",
+      "_meta": {
+        "source": "talking_points_authority"
+      },
+      "text": "Okay. You know, a transparin in another protein that is expressed. Okay. So, what happens in the size -based capture? The cells go through a lot of, you know, pushing and pulling. Nanofluidics, you know, you're forcing this. You know, nanofiltration. You're pushing it. As is, when cell leaves the tumor, okay, you know, it's in a, it was in a very comfortable position sitting in the home. And now it has to fight the whole battle, right? Immune system really is, you know, the aggressor which is trying to kill it. So, only a few remain. They, you know, avoid all the forces against them, you know, and so they are, right? But they go through a lot of, you know, fights. They go through a lot of transitions, transformation, right? Pressure, right? So, as a result, size -based capture has not yielded great results. Okay. Affinity capture, relatively, is less stressful on the cells.",
+      "audio_tags": {
+        "near_vernacular_zone": true,
+        "passion_level": "mid",
+        "speech_act": "aside",
+        "keywords": [],
+        "near_special_flow": true
+      },
+      "duration_ms": 71410,
+      "fused_from": [
+        "seg_023",
+        "seg_024"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_026",
+      "start_ms": 1284470,
+      "end_ms": 1306940,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "You know, so that's been historic perspective. The groundbreaking science that we have, but again, capture and count doesn't tell you the whole story. Okay. So, where one cell comes in is a groundbreaking science to isolate the captured cell into a live single cell.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_027",
+      "start_ms": 1307560,
+      "end_ms": 1416610,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Okay. So, traditional circulating tumor cell CTC, the end point was capture and count and give the report. For us, this is not an end point. This is the starting point. Okay. We begin with this captured and isolated live single cell. And we do the imaging modality on it. We do the NGS on it. We do the multi -omics analysis on it. Right? And so, we have a much deeper insights that enable the doctors to say what's really going on. Is the therapy working? If it is working, why it's working? If it is not working, why it is not working? And what could you do potentially to change the course of the therapy? Can we add, you know, can we increase the dose? Can we add the combination therapy? Can we change something? Or if nothing, if it is working, can I reduce the dose level? Can I give those chemo holidays? Can I, you know, do the de -escalation? Right? So, all these questions are unanswered in the minds of the oncologist. Okay. We provide AI assistant to the oncologist. Okay. Based on this scientific data that is presented, multi -omics, you know, data that is presented for a given patient at a given time point, to be able to provide them meaningful, actionable information so that they change the course of the treatment. Personalize the treatment for a given patient, which will improve the outcome.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_028",
+      "start_ms": 1416820,
+      "end_ms": 1457480,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Yes. And cancer sometimes changes as well, right? So, you have the mutations, some mutations take over versus the other, right? So, in that sense, like if it is growing, like, you know, you can detect, like, okay, what is the new mutation that's coming up, right? And then the oncologist can then change the treatment accordingly as well. It evolves, okay? Yes. You know, and so many successful companies, you know, and I'll give you one example, Natera. It does the tissue at the baseline, at the starting point. It hones in on an information about 16 -GenePal, and it only monitors those 16 genes longitudinally.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_029",
+      "start_ms": 1458240,
+      "end_ms": 1500640,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "It's one of the most successful companies, one of the most successful tests. But it does not address the evolution of cancer, okay? You cannot take a snapshot. You know, it's like, you know, I've taken, you know, before leaving my home, going to the office, if I take, let's say, you know, Google Maps, right? And I take a snapshot, and I start driving, and if there is an accident, and, you know, I have to do the stuff. I can't just, you know, it cannot be a static thing. Cancer evolves. So, you have to, the testing has to kind of adapt to the evolution of the cancer, you know?",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_030",
+      "start_ms": 1500700,
+      "end_ms": 1591900,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "And I think the newer sciences, newer tests, newer diagnostics is really more reflective of the evolution of cancer, more adaptive to the evolution of cancer, and provide the tools to the oncologist, you know, that reflects the changes that happen. That's how the outcomes are better. Yeah. So, this uncoincides, right, what you described as the clinical diagnostics. So, it's a clear lab model. Can you talk a bit about that? How did you get, like, certified, and what does that entail? Yeah. Good question. There are two ways a diagnostic company can offer, you know, the new innovation, okay? More traditional way is basically, you know, your invention, you know, you go through the IP protection, and you go through a regulatory pathways, which is the 510K for an FDA clearance, right? So, you find a predicate device, some similar test that has already been approved by FDA, and you establish that your test is as good, if not better, right? You know, and you do that. Now, that takes a long time, you know, two, four years, and many tens of millions of dollars before you see your first, you know, revenues, etc. The other way is a provision called LDT, lab developed test.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 91200,
+      "air_bound_meta": {
+        "air_bound_reason": "conceptual_hinge_trim+edge_refine",
+        "before_start_ms": 1503180,
+        "before_end_ms": 1591900,
+        "ideal_window_id": null,
+        "edge_refine": {
+          "steps": [
+            "exact_word_edges",
+            "pause_midpoint_end"
+          ],
+          "pause_midpoint_before_ms": 1591680,
+          "pause_midpoint_after_ms": 1591900,
+          "acoustic": {
+            "acoustic_applied": false,
+            "before_start_ms": 1500700,
+            "before_end_ms": 1591900,
+            "after_start_ms": 1500700,
+            "after_end_ms": 1591900
+          },
+          "start_ms": 1500700,
+          "end_ms": 1591900
+        },
+        "after_start_ms": 1500700,
+        "after_end_ms": 1591900
+      }
+    },
+    {
+      "segment_id": "seg_031",
+      "start_ms": 1599800,
+      "end_ms": 1616420,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "you know, CLIA is a regulatory body, you know, that does the inspection of the labs, ensuring that they follow proper protocols. It is run by a very qualified, board -certified pathologist, okay?",
+      "topic_tags": [
+        "chapter_close_hitch"
+      ],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 16620,
+      "fused_from": [
+        "seg_031",
+        "seg_032",
+        "seg_033"
+      ],
+      "fuse_reason": "mid_sentence_continue",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_034",
+      "start_ms": 1617200,
+      "end_ms": 1716110,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "if you establish and prove that you have developed a test that has a good science backing it up, good publication, you have done a good, you know, scientific experiments, quality control, and all of that stuff, then, you know, on a limited basis for a limited target, you could offer this, you know, lab, okay? So, we have adopted a two -prong approach, a two -phase strategy. We have a CLIA CAP certified lab in Foster City here in Bay Area, okay? Where we could take the samples from the patients, we process the sample and produce the results and the reports and give it back to the oncologist, based on which they can basically, you know, take the actions. Our initial focus is not commercial diagnostics. Our initial focus is to provide these services to pharma and biotech companies that are doing clinical studies, clinical trials, okay? So, you know, pharma companies are always pushing the envelope. They want newer technology. They want new science to work, right? And so, it's a shorter path, helping them accelerate their translation research, their clinical trials, gives us a shorter path to revenue, and gives us an add -on confidence that our test now then can become a companion diagnostic test and eventually a commercial diagnostic test.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_035",
+      "start_ms": 1716460,
+      "end_ms": 2052369,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Okay. Okay. And so, tell us about, like, the information that you provide to the clinicians or to the clinical trial coordinators, right? Is that about, okay, well, there's these mutations, or, like, what kind of information are you providing to them? Our OncoInsight, which is the name of our assay, is an LDT, right? So, we get two tubes of 10 ml blood each. We provide the collection kits. They are available at the doctor's office. Okay. A flobotomist goes, you know, with the patient. We draw the sample, and those samples come to us. Okay. It's a one -day turnaround time. It might take two days, depending on the location, etc. And then we do the processing of these samples, right? You know. So, what do we do? It's a two -track. You know, the first track is we extract the DNA, you know, from the blood sample. And we have developed part of OncoInsights, is a CT -DNA section of the test, where we have developed a very novel 1080 gene panel that works on the liquid biopsy, and it produces the results. It tells, okay, what are the, you know, what are the genes, what are the mutations, you know, indels, fusions, very comprehensive stuff that we provide. It also provides the meaningful interpretation, not just the analysis of what genes and mutations are present, but we have created a back -end informatics comprehensive knowledge base, okay, which allows us to provide actionable reporting. Okay. And so, we characterize based on NCCN guidelines, okay, that what is the level one evidence, level two evidence, level three evidence, right? So, very comprehensive stuff that has actionability because of the presence of these genes, of these mutations, or these translocations, or these things, we are able to say that most likely, this is the recommendation of these drugs will work, these drugs won't work, etc. It's a very actionable report that oncologists can use it as a reference. Ultimate call is made by the oncologist. We only analyze and interpret and present the data. Based on that data, oncologists will make a call and do the stuff, right? So, the onus, that responsibility is with the oncologist. We are merely the tools to provide the information to the oncologist. The second tube, sorry, please go ahead. So, this is the DNA side of the story. The second tube then, we extract, we capture the circulating tumor cells. Okay. And then, we extract the DNA, and the RNA, okay, and the proteins. And then, we run our single cell assay, and get the full analysis of what are the DNAs on the each single cell. And usually, a 10 ml blood will give us somewhere between 5 to 15 circulating tumor cells. That's one in a billion, right? And so, we are now honing around somewhere 10 cells, right? So, if we get 10 cells, each single cell, okay, we do the whole genome, the whole transcriptome, and a targeted proteome. So, about 20 proteins, right? And, we provide a very comprehensive report of what genes, what mutations, what translocations, what fusions, what proteins, right? You know, all of that stuff. Now, this in conjunction with the ctDNA, right? So, our Onco insights, we are not saying ctc is better than ctDNA, or ctDNA is better than ctc's. What we are saying is that when you combine the two, and give an integrated report, that is much better than any individual, you know, technology. Historically, ctDNA, or selfie DNA -based tests have shown that 18 to 19 % of the time, you have NMDs, no mutations detected. Okay? So, even if the best companies, the Garden, the Natera, the Foundation, the Tempest's of the world, this is an industry average. Okay? So, when you combine that with the ctc together, that thing, you know, the sensitivity goes from, you know, 70 -80 % to high 90 -90s. Oh, wow. Okay? Because what is found in ctDNA, or what is missed in ctDNA, ctc's capture it. Yes. And this is like, more like, usually, we try and do like, you know, this multi -omics, right? Because you have different, different parts of the overall cell you're capturing, but now, you're adding another very new angle on top of the multi -omics. You're adding the ctc angle as well. So, okay.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_036",
+      "start_ms": 2052369,
+      "end_ms": 2119530,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Yeah, that's great. And so, this rich information that you're providing. So, let's talk about like, both the settings, right? Like, the one is in more like, the commercial setting, and then the other one is in the clinical trial setting. I said, clinical trial setting, there's a lot going on right now. So, how like, so based on this, what kind of decisions can be made about the clinical trial, right? Because this patient is there to get a specific therapy. So, now you come up with this. now, what changes? Because either the patient is taking that therapy or they're not, right? So, how does this change? Very good point. There are two separate tracks here, right? One is the clinical diagnostics, which we are doing it in India. Okay? Where the doctor wants to know what is the right therapy for a right patient at the right time point and the right dose, right? So, we provide them a full comprehensive report to help her make those decisions. Okay? That's one. The second part of that workflow, the clinical workflow, is okay, you have given the drug. Okay?",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_037",
+      "start_ms": 2120080,
+      "end_ms": 2174210,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Now, is the drug working? So, therapy response monitoring is another aspect of it, right? And there are two pieces to it. One is the MRD, the minimum residual disease, right? 95 % of the time you have taken care of. But that little 5%, right? That becomes a problem down the road, right? And so, how to handle that, right? So, MRD therapy response monitoring, that's the clinical side. Now, you ask me the second question, how is this OncoInsight assay helpful in the clinical trial setting for the pharma? Okay? So, I would say three or four key points that we address. First and foremost, when you are doing the screening for patient recruitment, is this the right patient?",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 54130,
+      "fused_from": [
+        "seg_037",
+        "seg_038"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_039",
+      "start_ms": 2174880,
+      "end_ms": 2219200,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Usually, you have inclusion criterias, but most of the inclusion criterias are very high level. Yeah. Breast cancer patient, women, between the age of this and this, you know. Yeah. It's not going at the molecular level at all, right? Or the cellular level. Yeah. Right? Yeah. So, that's why, even when you recruit patients, you know, they don't perform very well, right? So, by leveraging assays, tests, like OncoInsights, a molecular level, you have a much better fit. So, patient selection is a very interesting area where we can help the clinical trials be successful, by recruiting the right patients.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_040",
+      "start_ms": 2219620,
+      "end_ms": 2306790,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Equally important, patient deselection. Okay? How not to recruit the wrong patients? Because one bad apple messes up the whole fruit basket. Okay? Right? And so, again, when you integrate the CT DNA and CTCs, you have a much richer set. So, we could basically find better patients, you know, recruit the right patient, okay? And deselect the wrong patient. So, that's one, you know, clear value proposition to the pharma companies that are doing biomarker -based chemical trials. Okay? And we know biomarker -based trials have at least two times higher probability of success from the FDA clearance. Okay? But typical biomarkers that were based on tissue was very hard, right? Because then you have to have tissue biopsy. You know, so, cell biopsy or a liquid biopsy is relatively easy because you just take the blood sample. So, it costs less and it's much easier to monitor and manage, right? So, that's one. Yeah. And it's also faster most probably, right? It's much faster, right? Much, much faster, right? That's one. The second thing is, okay, you have now recruited the patient, you started, you have dosed the patient, right?",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_041",
+      "start_ms": 2307740,
+      "end_ms": 2361730,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Is it working or not working? In the today's point, right, let's say if you're doing immunocancer therapy, whether my therapy is working or not working, I have to wait for three to four months and I have to go expose the patient to either a CT scan or an MRI or a PET and then I would know using what they call it as a resist criteria, okay, whether the tumor is shrinking, whether it is not shrinking or whether it is growing. But, look at the time frame now for every patient under study. I have to wait for three, four months before I know whether my therapy is working or not working. Okay, let's say you're targeting the drug with Herceptin, HER2, okay, and, you know, you've given the drug and now you have to wait.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_042",
+      "start_ms": 2366500,
+      "end_ms": 2376720,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "within a matter of couple of weeks, okay, if I could tell you whether the drug is working or not working, wouldn't that be a great value?",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_043",
+      "start_ms": 2376720,
+      "end_ms": 2428700,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Yeah, right? How do we do that today? Okay, by capturing circulating tumor cells, right? First of all, if the drug is really working, the tumor cells should really go down. Yes. The CT DNA should really go down. Yes. Okay, but you have an 18 -19 % of NMDs in CT DNA, right? So, you miss out those 20%, right? But if I can capture CTCs, right? And if I say, oh, I have CTCs where HER2 is still expressed on the surface of the CTCs, that means my therapy is not quite working. Okay? And then, by doing this multiomics analytics, if I could say, what is the reason why it is not working?",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 51980,
+      "fused_from": [
+        "seg_043",
+        "seg_044"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_045",
+      "start_ms": 2429240,
+      "end_ms": 2442830,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "Okay? And again, I am making it up, but if there was a marker, let's say EGFR, so if there is an EGFR positive marker, then we know historically that HER2 will not work.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_046",
+      "start_ms": 2443540,
+      "end_ms": 2483460,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Okay? You know, so, you don't have to wait for 3 -4 months. You can make those critical decisions now, and you say, based on multiomics profile, okay, what ails combination therapy? Or can we switch over? Can we change something? Right? Or can we add something to it? Right? You know, a combination therapy to have a resistance prediction. Right? If you can predict the resistance, then actionable information will help you add some combo therapy, okay, anticipating the resistance so that the outcomes would be better.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_047",
+      "start_ms": 2483940,
+      "end_ms": 2633590,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "So, you see, the combination of information, multiomics data from a CTCs or a single cell, coupled with AI to do the prediction, is going to transform this field and make the clinical trials much more successful. okay, because you're taking actions proactively. You're not waiting for three months then realizing that, oh, my drug didn't work. That's a lot of time and loss of money. Yeah, and it's also the tumor has progressed by that time, right? By that time, tumor has progressed. Right. Yeah, and so, this is early detection of the tumor increasing or tumor changing, right? So, this is, yeah, this will be adding a lot of value. So, how are you thinking about how can this be commercialized? We talked about the clinical trial study, but in terms of the clinicians using that in the U .S. and in terms of how you are thinking about commercializing, would there be any pair barriers or so? So, what is your plan around that? Currently, the way we are taking is help the biopharma companies and if they use our assay to accelerate their translation research, then one path would be this assay becomes a companion diagnostics. So, that's one path we are pursuing. Parallelly, we have initiated a number of clinical studies for specific utilities, okay? Okay. And once we get the 510ks, for instance, right? Then we'll do the MALDX route, okay, to get the reimbursement, right? Once we get the reimbursement, then we'll make this commercially available, okay? And we will, we have two choices, either we build our own, you know, Salesforce and the whole operation, or we partner with larger established labs who already have the partnerships in place. okay? And currently, what our interest is, our focus is going to be, we are the R &D, we can come up with the new assets. And we, our intent is to leverage strategic partnerships for commercialization of our assets. You know, in the commercial setting, we will probably strategically partner with other larger lab setters.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": [],
+      "duration_ms": 149650,
+      "fused_from": [
+        "seg_047",
+        "seg_048",
+        "seg_049",
+        "seg_050",
+        "seg_051",
+        "seg_052"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    },
+    {
+      "segment_id": "seg_053",
+      "start_ms": 2633940,
+      "end_ms": 2724590,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Yes, that makes total sense. And now, in terms of like, we talked about the fantastic science and technology around it, so how do you measure the sensitivity? And is there like a lot of variation? How have you, can you talk a bit about that? we go through what we call the analytical validation study, okay, where the sensitivity, the specificity, the repeatability, all those factors are well covered, okay? We have on our team member, our VP of, you know, clinical development, comes with years of experience doing it with the drug companies, so very, very regimented, very strict, very stringent, you know, criterias that we have brought into our practice, so we do the analytical validation, then we do the clinical validation, before the assay is ready for putting it into the portion stuff, right? Where we do that. We also do it independently with third party, independent labs, so we were very fortunate to have a collaborator like the University of Augusta, Dr. Kole, who has been doing this kind of stuff for companies such as Agilent, Illumina, and many other well established companies have, you know, taken their help to do the analytical validation.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_054",
+      "start_ms": 2908200,
+      "end_ms": 2923620,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "for survivors, cancer survivors, the people in the remission, where they have to go through once a year, twice a year, once a quarter, and go through the agonies and the pains, spend a lot of money, don't have the sensitivity.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": [],
+      "duration_ms": 15420,
+      "fused_from": [
+        "seg_054",
+        "seg_055"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking",
+      "air_bound_meta": {
+        "air_bound_reason": "ideal_hinge_snap+edge_refine",
+        "before_start_ms": 2725100,
+        "before_end_ms": 2987490,
+        "ideal_window_id": "cut_span_2",
+        "edge_refine": {
+          "steps": [
+            "exact_word_edges",
+            "pause_midpoint_end"
+          ],
+          "pause_midpoint_before_ms": 2923420,
+          "pause_midpoint_after_ms": 2923620,
+          "acoustic": {
+            "acoustic_applied": false,
+            "before_start_ms": 2908200,
+            "before_end_ms": 2923620,
+            "after_start_ms": 2908200,
+            "after_end_ms": 2923620
+          },
+          "start_ms": 2908200,
+          "end_ms": 2923620
+        },
+        "after_start_ms": 2908200,
+        "after_end_ms": 2923620
+      }
+    },
+    {
+      "segment_id": "seg_056",
+      "start_ms": 2987960,
+      "end_ms": 3003960,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "That is fantastic. And all our best wishes to you about those. Thanks. Mohanad Terwar, co -founder and CEO of OneCell .ai. Mohan, thank you very much for your time today. Thank you very much, Amar, and the team.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_057",
+      "start_ms": 3005860,
+      "end_ms": 3052070,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "Well, that was a great conversation. What did you think? It was fascinating to learn about the progress being done in this area of diagnostics, liquid biopsies, right? So we've been living through this when it was tissue biopsies and then liquid biopsies came in, and now it's liquid biopsies but only single cell. And the precision that we can have now from scientific and technology point of view is really, focusing on one cell and then really figuring out from there what could be the, what's happening with the tumor of the head. It's just fascinating how we're rapidly advancing the science and technology and bring, you know, which is really at the forefront of healthcare at this point.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_058",
+      "start_ms": 3052680,
+      "end_ms": 3184730,
+      "speaker_id": "spk_1",
+      "speaker_role": "interviewer",
+      "text": "You know, it must be 20 years now that liquid biopsies kind of first emerged on the scene and there was a lot of excitement early on about their potential but the impact has been limited so far. To what extent do you think what one cell is doing addresses the existing limitations of liquid biopsies? so they are not only using just the liquid biopsy and then doing some regular experiments. I mean, they are doing a lot of the multiomics on this. So you talked about genomics, transcriptomics, proteomics, as well as a lot of stuff about understanding the morphology of the cell. So they're bringing in a lot of different types of analytics together using AI, using analytics. And there also he talked about gene assay, right, about over a thousand genes in that. So it's really going deep into quite a bit of understanding much more about the cell, much more about the DNA, but also about the protein. So it provides a lot more information. It's also we have to think about, what he talked about was the report that they generate, which is not just about, okay, well, this gene here, but then they are using NCCN guidelines to then connect this to the drug therapies. And then really talking about, okay, well, what are really the actionable mutations that we can see? Because that's the biggest problem, right? Okay, there are some mutations that you can detect in any DNA, but so what? What do you do with that? There is no drug for that, right? So now detecting these actionable mutations, but also tying them to the therapy options, I think that's going to be great. And then it's also as we get more and more therapies, this is going to be more, right? Because they're going to be able to say, okay, well, these were mutations that were not necessarily actionable before, but they will be now, right? So I think that's definitely very good. And also, I mean, to me, the big thing is to be able to detect early, right? I mean, like three, he talked about three to four months. that's a huge amount of time in the cancer patient's life after diagnosis.",
+      "topic_tags": [],
+      "type": "interviewer_question",
+      "flags": []
+    },
+    {
+      "segment_id": "seg_059",
+      "start_ms": 3193240,
+      "end_ms": 3345740,
+      "speaker_id": "spk_0",
+      "speaker_role": "interviewee",
+      "text": "definitely a big step forward in terms of changing the therapies for the patients, and it should result in a better lifespan, higher quality of life in the long run for the patients. Mohan said this combination of applying a multi -omics approach and cell analysis to circulating tumor cells wouldn't be possible without AI. Is this a good example for the potential of AI to change clinical practice and allow us to finally realize a long -held vision of personalized and precision care? I mean, anytime you're using omics, you have to use AI, because the omics data is huge. You talk about a single genome, that's huge. You're talking about proteomics, you're looking at all the proteins in the cell, right? So you definitely need AI and advanced analytics to process any omics data, and then as you're looking at combining those data, combining different types of omics, but also combining a lot of this cell data, you need the AI to glue all of that together. So yeah, you have to have it, and of course in diagnostics, I definitely think that AI has a big usage in diagnostics, because you're trying to figure out what's happening in this cell, and the cell has way too many components that you do need AI to do the analysis for that. The initial focus of one cell is on helping biopharmic companies use the technology to improve their drug development efforts and help build the case for its test as a companion diagnostic. What do you think of that strategy? It's a good strategy. I think they are following both strategies, right? Like going with the 510k route as well as this. Over here, I would say definitely this gives them a lot of experience about how it works in the clinical trial setting, how the clinicians will use this information, but also the big, I would say the big advantage there is to be able to have it as companion diagnostic. So if they can get approved as companion diagnostic for any drug, then the test needs to be used, has to be used, whenever that drug is to be prescribed, right? So that I think will be fantastic for them commercially, and that also is just going to help in getting the general usage application. I mean, they will be generating a lot of data that will be helping with those applications as well.",
+      "topic_tags": [],
+      "type": "interviewee_answer",
+      "flags": [],
+      "duration_ms": 152500,
+      "fused_from": [
+        "seg_059",
+        "seg_060"
+      ],
+      "fuse_reason": "island_straddle",
+      "fuse_pass_id": "pre_ranking"
+    }
+  ],
+  "_fixture_note": "slimmed to selection.ordered_segment_ids from exec_13183",
+  "_source_run": "exec_13183_d19c15b58ab4_20260924T001619Z"
+}

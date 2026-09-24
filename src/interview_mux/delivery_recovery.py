@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import DELIVERY_ORDER, effective_delivery_order
 
@@ -25,13 +26,6 @@ MASTER_RESTORE_NAMES = (
 )
 
 SOUND_DESIGN_RESTORE_NAMES = ("sfx_prompts.json", "mmaudio_qa.json")
-
-# Mix cannot run until MusicGen/MMAudio has written SDP asset WAVs.
-MUSIC_BEFORE_MIX: tuple[str, ...] = (
-    "music_palette_compose",
-    "sfx_prompt_craft",
-    "mmaudio_sfx",
-)
 
 
 def newest_archived(ctx: RunContext, rel: str) -> Path | None:
@@ -441,41 +435,31 @@ def first_pending_delivery(
 
 
 def resume_theme_generation(ctx: RunContext) -> str:
-    """Resume palette/prompt/MusicGen when epoch incomplete; mix only when music_epoch_complete."""
-    from interview_mux.delivery_guardrails import music_epoch_complete
+    """Resume seating via Always-HAU SSOT (speech-first mix or music producers)."""
+    from interview_mux.mix_junction_seat import next_delivery_seat
 
-    if music_epoch_complete(ctx):
-        for sid in MUSIC_BEFORE_MIX:
-            marker = Path(ctx.run_dir) / ".stage_done" / sid
-            if not marker.is_file():
-                marker.parent.mkdir(parents=True, exist_ok=True)
-                marker.write_text("", encoding="utf-8")
-        return "mix"
-    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+    pin = next_delivery_seat(ctx)
+    # Preserve legacy unmarked-hollow behavior when SSOT says music producer.
+    if pin in MUSIC_BEFORE_MIX:
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
-    missing = missing_sdp_asset_wavs(ctx)
-    if missing:
-        for sid in MUSIC_BEFORE_MIX:
-            if not _seed_stage_complete(ctx, sid):
-                marker = Path(ctx.run_dir) / ".stage_done" / sid
-                if marker.is_file():
-                    marker.unlink()
-                    try:
-                        ctx.log(
-                            f"unmarked {sid} — SDP theme WAVs missing; generate before mix",
-                            level="warning",
-                            stage=sid,
-                        )
-                    except Exception:
-                        pass
-        return "music_palette_compose"
-    for sid in MUSIC_BEFORE_MIX:
-        if not _seed_stage_complete(ctx, sid):
-            marker = Path(ctx.run_dir) / ".stage_done" / sid
-            if marker.is_file():
-                marker.unlink()
-            return sid
-    return "music_palette_compose"
+        missing = missing_sdp_asset_wavs(ctx)
+        if missing:
+            for sid in MUSIC_BEFORE_MIX:
+                if not _seed_stage_complete(ctx, sid):
+                    marker = Path(ctx.run_dir) / ".stage_done" / sid
+                    if marker.is_file():
+                        marker.unlink()
+                        try:
+                            ctx.log(
+                                f"unmarked {sid} — SDP theme WAVs missing; generate before mix",
+                                level="warning",
+                                stage=sid,
+                            )
+                        except Exception:
+                            pass
+            return pin if pin in MUSIC_BEFORE_MIX else "music_palette_compose"
+    return pin
 
 
 def _seed_stage_complete(ctx: RunContext, stage: str) -> bool:
@@ -488,6 +472,7 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
     """Furthest sensible delivery from_stage from on-disk artifacts.
 
     Does not soft-force junction pass or mass mark_done (quality-first).
+    Always-HAU: mid-delivery seating uses ``next_delivery_seat``.
     """
     root = Path(ctx.run_dir)
     asm = (root / "master" / "assembly.wav").is_file()
@@ -516,48 +501,42 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
         return "edl"
 
     if asm and edl:
+        try:
+            from interview_mux.delivery_guardrails import music_epoch_complete
+            from interview_mux.mix_junction_seat import next_delivery_seat
+
+            # Seated assembly mid-path: SSOT chooses remaster / music / junction.
+            if not music_epoch_complete(ctx) or not ctx.is_done("junction_snip_qa"):
+                return next_delivery_seat(ctx)
+        except Exception:
+            pass
         if not ctx.is_done("junction_snip_qa"):
             return "junction_snip_qa"
         return first_pending_delivery(ctx, ("junction_snip_qa",) + post_finalize)
 
-    theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
-    qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
-    from interview_mux.delivery_guardrails import music_epoch_complete, safe_mix_resume_stage
-
-    if edl:
+    preview = (root / "master" / "assembly_preview.wav").is_file()
+    if edl or preview or asm:
         try:
-            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+            from interview_mux.mix_junction_seat import next_delivery_seat
 
-            missing_theme = missing_sdp_asset_wavs(ctx)
+            return next_delivery_seat(ctx)
         except Exception:
-            missing_theme = []
-        if missing_theme or not music_epoch_complete(ctx):
             return resume_theme_generation(ctx)
-    if edl and music_epoch_complete(ctx):
-        return safe_mix_resume_stage(ctx)
-    if edl and ctx.is_done("mmaudio_sfx") and theme_wavs and music_epoch_complete(ctx):
-        return "mix"
-    if edl:
-        return first_pending_delivery(
-            ctx,
-            (
-                "edl",
-                "assembly_preview",
-                "listen_delight_audit",
-                "music_palette_compose",
-                "sfx_prompt_craft",
-                "mmaudio_sfx",
-                "mix",
-                "junction_snip_qa",
-            ),
-        )
-    return first_pending_delivery(ctx, DELIVERY_ORDER)
+    return first_pending_delivery(ctx)
 
 
 def ensure_mmaudio_qa_before_mix(
     ctx: RunContext, *, run_if_missing: bool = False
 ) -> dict[str, Any]:
     """Restore, optionally generate, or note missing MMAudio QA before mix."""
+    # HAU speech-first: beds optional until remaster — do not block mix on QA.
+    try:
+        from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+        if beds_deferred_for_mix(ctx):
+            return {"ok": True, "speech_first": True, "path": "sound_design/mmaudio_qa.json"}
+    except Exception:
+        pass
     rel = "sound_design/mmaudio_qa.json"
     if ctx.artifact_exists(rel):
         try:

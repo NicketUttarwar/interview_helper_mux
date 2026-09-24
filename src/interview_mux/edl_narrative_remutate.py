@@ -523,6 +523,15 @@ def apply_edl_narrative_metadata_align(ctx: RunContext) -> dict[str, Any]:
                     for ch in (sel_c.get("chapters") or [])
                 ]
                 repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
+                from interview_mux.open_shape_repair import apply_open_window_and_repair
+
+                repaired_sel = apply_open_window_and_repair(
+                    ctx,
+                    sel_c,
+                    repaired_sel,
+                    mutation_class=None,
+                    stage="edl_narrative_metadata_align",
+                )
                 repaired_sel = commit_selection_mutation(
                     ctx,
                     repaired_sel,
@@ -994,8 +1003,15 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     for ch in (sel_c.get("chapters") or [])
                 ]
                 repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
-                from interview_mux.air_order_boundary import commit_selection_mutation
+                from interview_mux.open_shape_repair import apply_open_window_and_repair
 
+                repaired_sel = apply_open_window_and_repair(
+                    ctx,
+                    sel_c,
+                    repaired_sel,
+                    mutation_class=None,
+                    stage="edl_narrative_remutate",
+                )
                 # write_committed: chapter merge/clamp must land on disk even when
                 # another stage (e.g. edl) holds pending staging that still has the
                 # overflow chapter list.
@@ -1209,6 +1225,14 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         from_stage = "sound_design_vo_finalize"
     elif "ensure_adjacency_transition" in notes:
         from_stage = "transitions"
+    try:
+        from interview_mux.heal_pin_authority import admit_resume
+
+        from_stage = admit_resume(
+            ctx, from_stage, intent="edl_narrative_remutate"
+        )
+    except Exception:
+        pass
     return {
         "ok": True,
         "from_stage": from_stage,
@@ -1237,10 +1261,11 @@ def _remutate_from_host_progress(host: dict[str, Any], *, extra_notes: list[str]
         from_stage = "nugget_layup_compose"
     elif CHAPTER_FIX_PROGRESS_NOTES.intersection(notes):
         from_stage = "edl_narrative_audit"
+    pin = resume_after_narrative_audit_fail(from_stage)
     return {
         "ok": True,
         "cleared": list(host.get("cleared") or []),
-        "from_stage": resume_after_narrative_audit_fail(from_stage),
+        "from_stage": pin,
         "host_fixed": True,
         "notes": notes,
         "reason": "host_metadata_or_vo_progress",
@@ -1249,6 +1274,22 @@ def _remutate_from_host_progress(host: dict[str, Any], *, extra_notes: list[str]
 
 def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Clear mapped stage markers so delivery can re-enter. Does not soft-pass audit."""
+
+    def _admit_out(result: dict[str, Any]) -> dict[str, Any]:
+        pin = str((result or {}).get("from_stage") or "").strip()
+        if not pin:
+            return result
+        try:
+            from interview_mux.heal_pin_authority import admit_resume
+
+            out = dict(result)
+            out["from_stage"] = admit_resume(
+                ctx, pin, intent="edl_narrative_remutate"
+            )
+            return out
+        except Exception:
+            return result
+
     doc = plan or (
         ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else None
     )
@@ -1257,15 +1298,17 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
     if actions and actions.issubset(_METADATA_ALIGN_ACTIONS):
         host = apply_edl_narrative_host_repair(ctx)
         if _host_progress_notes(host) or _metadata_progress_notes(host):
-            return _remutate_from_host_progress(host, extra_notes=["align_plan_metadata_only"])
-        return {
+            return _admit_out(
+                _remutate_from_host_progress(host, extra_notes=["align_plan_metadata_only"])
+            )
+        return _admit_out({
             "ok": False,
             "reason": "align_plan_noop",
             "host_fixed": False,
             "notes": list(host.get("notes") or []) + ["align_plan_noop"],
             "cleared": list(host.get("cleared") or []),
             "from_stage": "edl_narrative_audit",
-        }
+        })
     try:
         from interview_mux.timeline_reopen_meta_gate import (
             INTENT_NARRATIVE,
@@ -1281,10 +1324,12 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
             # Host-repair-only path still attempted; stage clears refused
             host = apply_edl_narrative_host_repair(ctx)
             if _host_progress_notes(host):
-                return _remutate_from_host_progress(
-                    host, extra_notes=["timeline_reopen_refused"]
+                return _admit_out(
+                    _remutate_from_host_progress(
+                        host, extra_notes=["timeline_reopen_refused"]
+                    )
                 )
-            return {
+            return _admit_out({
                 "ok": False,
                 "reason": "refused_low_gain",
                 "gate": gate,
@@ -1292,15 +1337,17 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
                 "notes": list(host.get("notes") or []) + ["timeline_reopen_refused"],
                 "cleared": list(host.get("cleared") or []),
                 "from_stage": "edl_narrative_audit",
-            }
+            })
     except Exception:
         # c8 fail-closed: host-repair only, no stage clears
         host = apply_edl_narrative_host_repair(ctx)
         if _host_progress_notes(host):
-            return _remutate_from_host_progress(
-                host, extra_notes=["timeline_reopen_fail_closed"]
+            return _admit_out(
+                _remutate_from_host_progress(
+                    host, extra_notes=["timeline_reopen_fail_closed"]
+                )
             )
-        return {
+        return _admit_out({
             "ok": False,
             "reason": "refused_low_gain",
             "gate": {"allow": False, "refuse_reason": "decide_error_fail_closed"},
@@ -1308,21 +1355,21 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
             "notes": list(host.get("notes") or []) + ["timeline_reopen_fail_closed"],
             "cleared": list(host.get("cleared") or []),
             "from_stage": "edl_narrative_audit",
-        }
+        })
     host = apply_edl_narrative_host_repair(ctx)
     # Orientation / late-intro-reset / duplicate-adjacency / plan align are host-fixed.
     # Rewinding ranking recreates the same late welcome-back cluster.
     if _host_progress_notes(host):
-        return _remutate_from_host_progress(host)
+        return _admit_out(_remutate_from_host_progress(host))
     if not isinstance(doc, dict) or doc.get("exhausted"):
-        return {
+        return _admit_out({
             "ok": False,
             "reason": "exhausted_or_missing",
             "host_fixed": False,
             "notes": list(host.get("notes") or []),
             "cleared": list(host.get("cleared") or []),
             "from_stage": "edl_narrative_audit",
-        }
+        })
     cleared: list[str] = list(host.get("cleared") or [])
     for sid in doc.get("from_stages") or []:
         marker = ctx.run_dir / ".stage_done" / str(sid)
@@ -1341,10 +1388,10 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
         level="warning",
         stage="edl_narrative_audit",
     )
-    return {
+    return _admit_out({
         "ok": True,
         "cleared": cleared,
         "from_stage": resume_after_narrative_audit_fail(doc.get("from_stage")),
         "host_fixed": False,
         "notes": list(host.get("notes") or []),
-    }
+    })

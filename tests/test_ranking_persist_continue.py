@@ -94,7 +94,7 @@ def test_llm_simple_persists_ranking_partial_with_ordered_ids() -> None:
             )
 
     assert persisted == [{"ordered_segment_ids": ["seg_001", "seg_002"]}]
-    ctx.mark_done.assert_called_once_with("full_master_ranking")
+    ctx.mark_done.assert_called_once_with("full_master_ranking", force=False)
     assert out["status"] == "partial"
 
 
@@ -195,7 +195,7 @@ def test_llm_simple_persists_transitions_partial_instead_of_ranking_rerun() -> N
             )
 
     assert persisted and persisted[0]["transitions"]
-    ctx.mark_done.assert_called_once_with("transitions")
+    ctx.mark_done.assert_called_once_with("transitions", force=False)
     assert out["status"] == "partial"
 
 

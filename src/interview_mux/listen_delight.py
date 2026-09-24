@@ -677,8 +677,27 @@ def _handle_listen_delight_failure(
         return False
     authoritative = str(listen_delight_cfg().get("mode") or "").strip() == "authoritative"
     cata_ok, cata_reasons = passes_catastrophic_floors(ctx)
-    if not cata_ok:
+    cata_as_adv = False
+    try:
+        from interview_mux.floor_progress import catastrophic_as_advisory
+
+        cata_as_adv = catastrophic_as_advisory(ctx)
+    except Exception:
+        cata_as_adv = False
+    if not cata_ok and not cata_as_adv:
         return False
+    if not cata_ok and cata_as_adv:
+        try:
+            from interview_mux.floor_progress import record_floor_advisory
+
+            record_floor_advisory(
+                ctx,
+                "catastrophic_floors",
+                {"reasons": list(cata_reasons or [])[:8], "pass": pass_phase},
+                aspirational_proceeded=True,
+            )
+        except Exception:
+            pass
     register_quality_candidate(ctx, family="listen_delight")
     increment_family_attempt(ctx, "listen_delight")
     remutate = plan_listen_delight_remutate(
@@ -686,9 +705,11 @@ def _handle_listen_delight_failure(
     )
     audit_patch: dict[str, Any] = {
         "aspirational_fail": True,
-        "blocking": bool(authoritative and remutate.get("exhausted")),
-        "advisory": not (authoritative and remutate.get("exhausted")),
+        "blocking": bool(authoritative and remutate.get("exhausted") and not cata_as_adv),
+        "advisory": not (authoritative and remutate.get("exhausted") and not cata_as_adv),
         "remutate": remutate,
+        "catastrophic_as_advisory": bool(cata_as_adv and not cata_ok),
+        "catastrophic_reasons": list(cata_reasons or []) if not cata_ok else [],
     }
     # Post-master ship gate: never rewind to mix/seams — that thrashes finalize
     # after loudnorm (exec_5404). Record advisory / pick-best only.
@@ -705,35 +726,38 @@ def _handle_listen_delight_failure(
             ctx, family="listen_delight"
         )
         # F7 1C: do not loud-fail ship on aspiration misses; catastrophic
-        # already returned False above.
+        # becomes advisory under progress_floors.catastrophic_as_advisory.
         audit_patch["blocking"] = False
         audit_patch["advisory"] = True
     elif not remutate.get("exhausted"):
         applied = apply_listen_delight_remutate(ctx, remutate)
         audit_patch["remutate_applied"] = applied
     else:
-        # Cap reached: ship best candidate, then refuse under authoritative.
+        # Cap reached: ship best candidate; under catastrophic_as_advisory always soft-proceed.
         audit_patch["pick_best"] = apply_best_quality_candidate(
             ctx, family="listen_delight"
         )
         audit_patch["remutate_terminate"] = remutate.get("terminate") or (
             "remutate_budget_exhausted"
         )
-        if authoritative:
+        if authoritative and not cata_as_adv:
             soft_proceed = False
             audit_patch["blocking"] = True
             audit_patch["advisory"] = False
             audit_patch["needs_operator_reason"] = "listen_delight_floors_exhausted"
-        elif family_attempts_exhausted(ctx, "listen_delight"):
+        else:
             soft_proceed = True
             audit_patch["blocking"] = False
             audit_patch["advisory"] = True
+            if cata_as_adv and authoritative:
+                audit_patch["needs_operator_reason"] = None
+                audit_patch["progress_floors_ship_best"] = True
     if ctx.artifact_exists(AUDIT_REL):
         try:
             loaded = ctx.read_json(AUDIT_REL)
             if isinstance(loaded, dict):
                 loaded.update(audit_patch)
-                ctx.write_json(AUDIT_REL, loaded)
+                ctx.write_json(AUDIT_REL, loaded, stage_key="listen_delight_audit")
         except Exception:
             pass
     record_quality_advisories(
@@ -745,6 +769,8 @@ def _handle_listen_delight_failure(
             "pass": pass_phase,
             "remutate": remutate,
             "authoritative_hard_block": not soft_proceed,
+            "catastrophic_as_advisory": bool(cata_as_adv and not cata_ok),
+            "catastrophic_reasons": list(cata_reasons or []) if not cata_ok else [],
         },
         aspirational_proceeded=soft_proceed
         and bool(audit_patch.get("pick_best", {}).get("ok")),
@@ -795,7 +821,7 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
         blocking=blocking,
         advisory=advisory,
     )
-    ctx.write_json(AUDIT_REL, audit)
+    ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
     _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=advisory)
 
     if blocking and not result["passed"]:
@@ -829,11 +855,11 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
             ctx, failed_dimensions=list(result["failed_dimensions"] or [])
         )
         audit["remutate"] = remutate
-        ctx.write_json(AUDIT_REL, audit)
+        ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
         if not remutate.get("exhausted"):
             applied = apply_listen_delight_remutate(ctx, remutate)
             audit["remutate_applied"] = applied
-            ctx.write_json(AUDIT_REL, audit)
+            ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
         else:
             # Cap reached: ship-best then refuse (loud_fail below).
             try:
@@ -845,7 +871,7 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
                 audit["remutate_terminate"] = remutate.get("terminate") or (
                     "remutate_budget_exhausted"
                 )
-                ctx.write_json(AUDIT_REL, audit)
+                ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
             except Exception:
                 pass
         raise_loud_failure(
@@ -926,7 +952,7 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
         blocking=blocking and not result["passed"],
         advisory=not (blocking and not result["passed"]),
     )
-    ctx.write_json(AUDIT_REL, audit)
+    ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
     _write_listen_delight_qc_meta(
         ctx,
         result,
@@ -1004,7 +1030,7 @@ def rerun_listen_delight_after_mix(ctx: RunContext) -> dict[str, Any]:
             advisory=True,
         )
     )
-    ctx.write_json(AUDIT_REL, audit)
+    ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
     return audit
 
 

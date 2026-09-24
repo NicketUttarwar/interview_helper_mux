@@ -14,6 +14,14 @@ outputs:
   staging: true
 - path: segments/manifest.json
   staging: true
+- path: segments/boundaries.json
+  staging: true
+- path: analysis/connector_fuse_audit.json
+  staging: true
+- path: analysis/connector_seam_packets.json
+  staging: true
+- path: analysis/connector_seam_verdicts.json
+  staging: true
 inputs:
   hard: []
   soft:

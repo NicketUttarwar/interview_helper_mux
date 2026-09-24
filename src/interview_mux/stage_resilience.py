@@ -207,11 +207,19 @@ def validate_staged_before_flush(ctx: RunContext, stage_id: str) -> StageResilie
                 "not found",
             )
         )
+        # Heal Success V4: soft pre-flush must not unlock done (halt unless allowlisted).
+        try:
+            from interview_mux.heal_success import may_soft_pre_flush_pass
+
+            soft_ok = soft and may_soft_pre_flush_pass(stage_id, soft_reason=reason_s)
+        except Exception:
+            soft_ok = False
         decision = StageResilienceDecision(
-            action="pass" if soft else "halt",
-            reasons=[reason_s],
+            action="pass" if soft_ok else "halt",
+            reasons=[reason_s]
+            + ([] if soft_ok else ["heal_success:soft_pre_flush_refused"]),
             remediation=["repair_outputs", "discard_staged", "operator_escalate"],
-            acceptance_ok=soft,
+            acceptance_ok=soft_ok,
         )
         record_resilience_event(
             ctx,
@@ -225,14 +233,37 @@ def validate_staged_before_flush(ctx: RunContext, stage_id: str) -> StageResilie
 
     decision = evaluate_stage_resilience(ctx, stage_id, staged=True, phase="pre_flush")
     if decision.action in ("retry", "escalate") and decision.acceptance_ok is False:
-        # Soft: do not hard-halt pre-flush solely on registry acceptance soft-fails.
-        decision = StageResilienceDecision(
-            action="pass",
-            reasons=decision.reasons or ["pre_flush_soft_pass"],
-            remediation=decision.remediation,
-            acceptance_ok=True,
-            family=decision.family,
-        )
+        # Heal Success V4: do not coerce acceptance fail to soft pass.
+        try:
+            from interview_mux.heal_success import may_soft_pre_flush_pass
+
+            if may_soft_pre_flush_pass(
+                stage_id, soft_reason="pre_flush_soft_pass"
+            ):
+                decision = StageResilienceDecision(
+                    action="pass",
+                    reasons=decision.reasons or ["pre_flush_soft_pass"],
+                    remediation=decision.remediation,
+                    acceptance_ok=True,
+                    family=decision.family,
+                )
+            else:
+                decision = StageResilienceDecision(
+                    action="halt",
+                    reasons=(decision.reasons or [])
+                    + ["heal_success:pre_flush_soft_refused"],
+                    remediation=decision.remediation,
+                    acceptance_ok=False,
+                    family=decision.family,
+                )
+        except Exception:
+            decision = StageResilienceDecision(
+                action="halt",
+                reasons=(decision.reasons or []) + ["heal_success:pre_flush_gate_error"],
+                remediation=decision.remediation,
+                acceptance_ok=False,
+                family=decision.family,
+            )
     record_resilience_event(
         ctx,
         stage_id,

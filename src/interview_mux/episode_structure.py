@@ -444,13 +444,25 @@ def build_compact_digest(doc: dict[str, Any]) -> str:
         and str(o.get("component_id") or "").startswith("STD_")
         and str(o.get("component_id")) in ("STD_payoff_close", "STD_outro_button", "STD_cold_open_slot", "STD_orientation")
     ]
+    order = [str(x) for x in (doc.get("segment_order") or []) if x]
+    # Full order for short/medium tapes; head+tail when huge so LLM never thinks
+    # the arc "stops" at an early truncate (exec_13174 narrative partial on [:40]).
+    if len(order) <= 120:
+        order_txt = ",".join(order)
+    else:
+        order_txt = (
+            ",".join(order[:40])
+            + f",…(+{len(order) - 80} more)…,"
+            + ",".join(order[-40:])
+        )
     lines = [
         f"axes: format={axes.get('format_class')} tone={axes.get('tone_class')} atlas={axes.get('atlas_bucket')}",
         "slots: "
         + ", ".join(
             f"{s.get('component_id')}({s.get('gate')})" for s in slots if isinstance(s, dict)
         )[:500],
-        "segment_order: " + ",".join(str(x) for x in (doc.get("segment_order") or [])[:40]),
+        f"segment_order_count: {len(order)}",
+        "segment_order: " + order_txt,
         "omit_high_profile: " + ",".join(str(x) for x in high_omit),
         f"hook_reel: {json.dumps(doc.get('hook_reel') or {}, ensure_ascii=False)}",
     ]
@@ -603,9 +615,20 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
         ok2, flags2 = check_integrity(segs, segment_order)
         vok2, vflags2 = check_speaker_volley_integrity(segment_order, speaker_volleys)
         merged = flags2 + vflags2
-        ok, flags = (ok2 and vok2), (
-            flags + [f"repaired:{f}" for f in merged] if not (ok2 and vok2) else flags + ["repaired_to_manifest_order"]
-        )
+        if ok2 and vok2:
+            ok, flags = True, flags + ["repaired_to_manifest_order"]
+        else:
+            # Tape may begin mid-answer (orphan_answer) with no reorder that clears it.
+            # Treat orphan-only residuals as advisory so narrative/LLM volleys are not
+            # blocked on integrity_ok=false while the full segment_order is honest.
+            advisory = [f for f in merged if str(f).startswith("orphan_answer:")]
+            hard = [f for f in merged if not str(f).startswith("orphan_answer:")]
+            if advisory and not hard:
+                ok, flags = True, flags + [
+                    f"advisory:{f}" for f in advisory
+                ] + ["repaired_to_manifest_order"]
+            else:
+                ok, flags = False, flags + [f"repaired:{f}" for f in merged]
         rationale.append("integrity_repair:manifest_order")
     if speaker_volleys:
         rationale.append(f"speaker_volleys:{len(speaker_volleys)}")
@@ -706,6 +729,13 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     from interview_mux.speaker_volley import compact_speaker_volleys_for_llm_volley
 
+    order = [str(x) for x in (doc.get("segment_order") or []) if x]
+    # Never silently truncate mid-arc: narrative_arc_plan refused when [:60] hid
+    # must-keep host-reflection segs (exec_13174: order claimed to stop at seg_060).
+    if len(order) <= 160:
+        order_out = order
+    else:
+        order_out = order[:50] + [f"…(+{len(order) - 100} more)…"] + order[-50:]
     return {
         "axes": doc.get("axes") or {},
         "slot_plan": [
@@ -720,7 +750,8 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
             for s in (doc.get("slot_plan") or [])
             if isinstance(s, dict)
         ][:24],
-        "segment_order": list(doc.get("segment_order") or [])[:60],
+        "segment_order": order_out,
+        "segment_order_count": len(order),
         "hook_reel": doc.get("hook_reel") or {},
         "speaker_volleys": compact_speaker_volleys_for_llm_volley(
             list(doc.get("speaker_volleys") or []) if isinstance(doc.get("speaker_volleys"), list) else []
@@ -786,7 +817,26 @@ def refresh_episode_structure(ctx: RunContext) -> dict[str, Any]:
     if not structure_enabled():
         return {}
     doc = build_episode_structure(ctx, refresh=True)
-    persist_structure(ctx, doc, stage="sound_design_plan")
+    persist_structure(ctx, doc, stage="episode_structure_compose")
+    return doc
+
+
+def refresh_episode_structure_compact_only(ctx: RunContext) -> dict[str, Any]:
+    """SDP-safe refresh: rebuild digest/compact without rewriting episode_structure.json.
+
+    ``sound_design_plan`` is ALLOW'd for ``episode_structure_compact.txt`` only.
+    Writing the full JSON under the SDP stage key AuthorityDeny's every run.
+    """
+    if not structure_enabled():
+        return {}
+    doc = build_episode_structure(ctx, refresh=True)
+    digest = str(doc.get("compact_digest") or build_compact_digest(doc))
+    commit_episode_structure_compact(ctx, digest, stage_key="sound_design_plan")
+    ctx.log(
+        "episode_structure compact refreshed for sound_design_plan (json untouched)",
+        level="info",
+        stage="sound_design_plan",
+    )
     return doc
 
 

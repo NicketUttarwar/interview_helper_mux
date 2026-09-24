@@ -109,8 +109,16 @@ def test_r4_vo_g1_premature_complete_pins_vo_not_transitions(
     assert pin in {"vo_synthesize", "vo_line_adjudicate"}, pin
     assert pin != "transitions"
     nav = heal_navigate(ctx, error=token, stage="vo_synthesize")
-    assert nav["from_stage"] in {"vo_synthesize", "vo_line_adjudicate"}
-    assert nav["from_stage"] != "transitions"
+    # Admit / Done Constitution: may clamp to earliest incomplete producer —
+    # must never steal into transitions (exec_13165 thrash).
+    from interview_mux.delivery_guardrails import clamp_resume_through_order
+
+    landed = str(nav.get("from_stage") or "")
+    assert landed != "transitions"
+    assert landed == clamp_resume_through_order(ctx, pin) or landed in {
+        "vo_synthesize",
+        "vo_line_adjudicate",
+    }
     assert (
         producer_pin_for_token(
             "analysis:premature_complete:stage:gap_framing_compose", ctx=ctx
@@ -124,7 +132,7 @@ def test_r4_vo_g1_premature_complete_pins_vo_not_transitions(
     [
         ("delivery:premature_complete:vo_g1", {"transitions"}, {"vo_synthesize", "vo_line_adjudicate", "nugget_layup_compose"}),
         ("delivery:premature_complete:music_epoch", {"transitions"}, None),
-        ("delivery:premature_complete:mix_seat", {"transitions"}, {"mix", "junction_snip_qa", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"}),
+        ("delivery:premature_complete:mix_seat", {"transitions"}, {"mix", "junction_snip_qa", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx", "topic_coverage_audit", "selection_order_sanitize", "nugget_layup_compose", "transitions"}),
         ("delivery:premature_complete:finalize_inputs", {"transitions"}, None),
         ("delivery:premature_complete:phase_a_edl", {"transitions"}, None),
         ("delivery:premature_complete:delivery_blocked", {"transitions"}, None),
@@ -176,6 +184,11 @@ def test_r4c_music_disk_progress_blocks_sticky_hard(
 ) -> None:
     """#21: disk progress keeps sticky halt False; pin stays MUSIC_BEFORE_MIX."""
     monkeypatch.setenv("MUX_FORENSICS", "0")
+    # Keep this test on the music epoch path (HAU seating may otherwise land earlier).
+    monkeypatch.setattr(
+        "interview_mux.mix_junction_seat.next_delivery_seat",
+        lambda _c: "mmaudio_sfx",
+    )
     assets = ctx.final_path("sound_design", "assets")
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "bed_a.wav").write_bytes(b"RIFF" + b"\x00" * 96)

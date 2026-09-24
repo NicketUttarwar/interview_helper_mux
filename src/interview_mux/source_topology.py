@@ -945,7 +945,26 @@ def apply_flow_adaptation_patch(ctx: RunContext, patch: dict[str, Any]) -> dict[
     return adapt
 
 
-def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) -> dict[str, Any]:
+def confirm_pickup_speaker(
+    ctx: RunContext,
+    *,
+    speaker_id: str | None = None,
+    writer_stage: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Confirm gap pickup speaker.
+
+    ``writer_stage`` is the ownership/forensics writer. Default remains
+    ``missing_framing`` (G-Framing / GUI). Hitch inner-walk passes
+    ``chapter_close_hitch`` so attribution is honest end-to-end.
+    """
+    ownership_stage = str(writer_stage or "missing_framing").strip() or "missing_framing"
+    if ownership_stage not in {
+        "missing_framing",
+        "chapter_close_hitch",
+        "source_topology_build",
+    }:
+        raise ValueError(f"unsupported confirm_pickup writer_stage={ownership_stage}")
     adapt = load_flow_adaptation(ctx) or {}
     topo = load_topology(ctx) or {}
     stats = topo.get("speaker_stats") or []
@@ -963,11 +982,18 @@ def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) ->
     overrides = dict(adapt.get("operator_overrides") or {})
     overrides["pickup_speaker_confirmed"] = True
     adapt["operator_overrides"] = overrides
-    # DP-GAP-PICKUP-CONFIRM A: ALLOW owner is missing_framing (not active stage).
+    meta = dict(adapt.get("_meta") or {})
+    meta["writer"] = ownership_stage
+    meta["confirm_reason"] = str(reason or "pickup_speaker_confirm")
+    if ownership_stage == "chapter_close_hitch":
+        meta["hitch_auto_confirm"] = True
+    else:
+        meta.pop("hitch_auto_confirm", None)
+    adapt["_meta"] = meta
     ctx.write_json(
         "understanding/flow_adaptation.json",
         adapt,
-        stage_key="missing_framing",
+        stage_key=ownership_stage,
     )
     if topo:
         ctx.write_json(
@@ -978,12 +1004,18 @@ def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) ->
     ctx.log(
         f"Gap pickup speaker confirmed: {selected}",
         level="action",
-        stage="missing_framing",
+        stage=ownership_stage,
         detail={
             "kind": "adaptation",
             "journey_kind": "adaptation",
-            "action_id": "gui.adaptation.pickup_speaker",
+            "action_id": (
+                "hitch.pickup_auto_confirm"
+                if ownership_stage == "chapter_close_hitch"
+                else "gui.adaptation.pickup_speaker"
+            ),
             "pickup_eligible_speaker_id": selected,
+            "writer": ownership_stage,
+            "confirm_reason": meta.get("confirm_reason"),
         },
     )
     return adapt

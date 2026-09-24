@@ -38,4 +38,16 @@ def run_vo_line_adjudicate(ctx: RunContext) -> None:
         return
 
     with logged_step("vo_line_adjudicate/run", ctx=ctx, stage=STAGE_ID):
+        try:
+            from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+            identify_hosted_vo_floor(ctx, stage_id=STAGE_ID, persist=True)
+        except Exception:
+            pass
         run_vo_line_adjudicate_stage(ctx)
+        try:
+            from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+            identify_hosted_vo_floor(ctx, stage_id=STAGE_ID, persist=True)
+        except Exception:
+            pass

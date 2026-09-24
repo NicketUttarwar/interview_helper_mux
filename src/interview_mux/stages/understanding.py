@@ -234,7 +234,9 @@ def run_content_context(ctx: RunContext) -> None:
                 action_id="content_context.proactive_batch_complete",
             )
 
-    if ctx.is_done("content_context"):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if seed_stage_complete(ctx, "content_context"):
         with logged_step("content_context/post_hooks", ctx=ctx, stage="content_context"):
             maybe_auto_extract_value_features(ctx)
             maybe_enqueue_orchestration_investigations(ctx)
@@ -570,7 +572,9 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
             persist,
             sync_fn=lambda c, a: sync_content_brief_reanchor_to_state(c, a),
         )
-    if ctx.is_done("content_brief_reanchor"):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if seed_stage_complete(ctx, "content_brief_reanchor"):
         with logged_step("content_brief_reanchor/post_hooks", ctx=ctx, stage="content_brief_reanchor"):
             from interview_mux.coherence import maybe_run_coherence_analysis
 

@@ -58,13 +58,13 @@ code_is_king: true | prior_exec: ignored_by_default
 - Dual SSOT with sanitize co-writer — `IN_CODE`
 - Local heavy ML: N/A
 
-## 7. Contract honesty
+## Contract honesty
 
 | Declared | Actual | Tag |
 |----------|--------|-----|
-| hard fuse+narrative+coverage | narrative+manifest+gap | CODE_DOC_CONFLICT |
+| hard narrative+manifest+gap | Matches `_check_full_master_ranking` (FMR-B1) | IN_CODE |
 | primary selection | Matches | IN_CODE |
-| consumers include upstream Shape | Stale claims | DOC_ONLY_UNVERIFIED |
+| CTA may write manifest children | `full_master_ranking` co-producer + `cta_child_materialize` | IN_CODE |
 
 ## 8. External service variance
 

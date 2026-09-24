@@ -44,7 +44,8 @@ def run_topic_coverage(ctx: RunContext) -> None:
             level="info",
             stage="topic_coverage_audit",
         )
-        if not ctx.is_done("topic_coverage_audit"):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+        if not seed_stage_complete(ctx, "topic_coverage_audit"):
             heal_or_refuse_mark(ctx, "topic_coverage_audit", force=True)
     else:
 
@@ -110,7 +111,8 @@ def run_topic_coverage(ctx: RunContext) -> None:
                         level="warning",
                         stage="topic_coverage_audit",
                     )
-                    if not ctx.is_done("topic_coverage_audit"):
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+                    if not seed_stage_complete(ctx, "topic_coverage_audit"):
                         heal_or_refuse_mark(ctx, "topic_coverage_audit", force=True)
                 else:
                     from interview_mux.openai_primary_honesty import hollow_openai_reason
@@ -122,7 +124,9 @@ def run_topic_coverage(ctx: RunContext) -> None:
                             str(exc)[:200] or "llm_soft_fail_hollow",
                         ),
                     ) from exc
-    if ctx.is_done("topic_coverage_audit"):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if seed_stage_complete(ctx, "topic_coverage_audit"):
         regions = emphasis_regions_for_segments(ctx)
         ctx.log(
             f"topic_coverage_audit: emphasis_regions count={len(regions)}",
@@ -143,7 +147,7 @@ def run_topic_coverage(ctx: RunContext) -> None:
 
     with logged_step("topic_coverage_audit/post_specialists", ctx=ctx, stage="topic_coverage_audit"):
         maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", _coverage_payload(ctx))
-    if ctx.is_done("topic_coverage_audit"):
+    if seed_stage_complete(ctx, "topic_coverage_audit"):
         with logged_step("topic_coverage_audit/coherence", ctx=ctx, stage="topic_coverage_audit"):
             from interview_mux.coherence import maybe_run_coherence_analysis
 
@@ -151,35 +155,171 @@ def run_topic_coverage(ctx: RunContext) -> None:
 
 
 def run_narrative_arc(ctx: RunContext) -> None:
-    from interview_mux.talking_points_authority import try_deterministic_narrative
+    """Adaptive ladder R0–R7: never hollow-stamp; synthesize on honest LLM failure."""
+    from interview_mux.talking_points_authority import (
+        synthesize_narrative_from_coverage,
+        try_deterministic_narrative,
+    )
     from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.llm_simple import StageError
 
-    det = try_deterministic_narrative(ctx)
-    if det is not None:
-        enriched = enrich_narrative_plan_for_persist(ctx, det)
+    stage = "narrative_arc_plan"
+
+    def _has_substrate() -> bool:
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            if isinstance(man, dict) and any(
+                isinstance(s, dict) and s.get("segment_id")
+                for s in (man.get("segments") or [])
+            ):
+                return True
+        if ctx.artifact_exists("master/coverage_audit.json"):
+            cov = ctx.read_json("master/coverage_audit.json")
+            if isinstance(cov, dict) and (cov.get("topic_mappings") or []):
+                return True
+        try:
+            from interview_mux.talking_points_authority import MATERIALIZED_REL, TALKING_POINTS_REL
+
+            if ctx.artifact_exists(TALKING_POINTS_REL) and ctx.artifact_exists(MATERIALIZED_REL):
+                mat = ctx.read_json(MATERIALIZED_REL)
+                if isinstance(mat, dict) and (mat.get("cuts") or []):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _structure_hard_integrity_bad() -> bool:
+        if not ctx.artifact_exists("understanding/episode_structure.json"):
+            return False
+        es = ctx.read_json("understanding/episode_structure.json")
+        if not isinstance(es, dict):
+            return True
+        integ = es.get("integrity") if isinstance(es.get("integrity"), dict) else {}
+        if integ.get("ok") is False:
+            flags = [str(f) for f in (integ.get("flags") or [])]
+            hard = [
+                f
+                for f in flags
+                if not f.startswith("orphan_answer:")
+                and not f.startswith("advisory:")
+            ]
+            return bool(hard)
+        order = es.get("segment_order") or []
+        return not bool(order)
+
+    def _maybe_repair_structure() -> None:
+        if not _structure_hard_integrity_bad():
+            return
+        try:
+            from interview_mux.episode_structure import build_episode_structure, persist_structure
+
+            doc = build_episode_structure(ctx, refresh=True)
+            persist_structure(ctx, doc, stage=stage)
+            ctx.log(
+                "narrative_arc_plan: rebuilt episode_structure (hard integrity)",
+                level="info",
+                stage=stage,
+            )
+        except Exception as exc:
+            ctx.log(
+                f"narrative_arc_plan: structure rebuild failed ({exc})",
+                level="warning",
+                stage=stage,
+            )
+
+    def _persist_plan(plan: dict, *, source: str) -> bool:
+        enriched = enrich_narrative_plan_for_persist(ctx, plan)
+        from interview_mux.artifact_repairs import repair_narrative_plan
+
+        repaired, _notes = repair_narrative_plan(ctx, enriched)
+        chapters = repaired.get("chapters") if isinstance(repaired, dict) else None
+        if not isinstance(chapters, list) or not chapters:
+            return False
+        usable = False
+        for ch in chapters:
+            if isinstance(ch, dict) and (
+                (ch.get("segment_ids") or [])
+                or ch.get("suggested_open_segment_id")
+            ):
+                usable = True
+                break
+        if not usable:
+            return False
+        meta = dict(repaired.get("_meta") or {})
+        meta["source"] = source
+        repaired["_meta"] = meta
         write_validated_artifact(
             ctx,
             "master/narrative_plan.json",
-            enriched,
+            repaired,
             merge_from_disk=False,
-            stage_key="narrative_arc_plan",
+            stage_key=stage,
         )
         ctx.log(
-            f"narrative_arc_plan: deterministic from talking points "
-            f"({len(enriched.get('chapters') or [])} chapters)",
+            f"narrative_arc_plan: persisted ({source}, "
+            f"{len(repaired.get('chapters') or [])} chapters)",
             level="info",
-            stage="narrative_arc_plan",
+            stage=stage,
         )
-        if not ctx.is_done("narrative_arc_plan"):
-            heal_or_refuse_mark(ctx, "narrative_arc_plan", force=True)
+        return True
+
+    def _salvage_or_halt(*, why: str) -> None:
+        salvaged = synthesize_narrative_from_coverage(ctx)
+        if salvaged is not None and _persist_plan(
+            salvaged, source=str((salvaged.get("_meta") or {}).get("source") or "synthesize")
+        ):
+            return
+        if not _has_substrate():
+            raise StageError(
+                stage,
+                "narrative_arc_exhausted:missing_synthesize_substrate "
+                f"({why})",
+            )
+        raise StageError(
+            stage,
+            f"narrative_arc_exhausted:could_not_synthesize ({why})",
+        )
+
+    # R0 — substrate
+    if not _has_substrate():
+        raise StageError(
+            stage,
+            "narrative_arc_exhausted:missing_synthesize_substrate",
+        )
+
+    # R1 — structure repair
+    _maybe_repair_structure()
+    structure_bad = _structure_hard_integrity_bad()
+
+    # R2 — prefer / force deterministic
+    det = try_deterministic_narrative(ctx)
+    if det is not None and _persist_plan(det, source="talking_points_authority"):
+        return
+    if structure_bad and det is None:
+        ctx.log(
+            "narrative_arc_plan: hard integrity still bad — skip LLM, salvage",
+            level="warning",
+            stage=stage,
+        )
+        _salvage_or_halt(why="structure_integrity")
         return
 
+    # R3 — LLM attempt 1 full packet. R4 — attempt 2 with changed/degraded
+    # packet (drop structure; manifest order + coverage scaffold). R5 salvage.
+    degraded: dict[str, bool] = {"use": bool(structure_bad)}
+
     def build_input(c: RunContext) -> dict:
-        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
-        payload = {
+        manifest = (
+            c.read_json("segments/manifest.json")
+            if c.artifact_exists("segments/manifest.json")
+            else {}
+        )
+        payload: dict = {
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("master/coverage_audit.json"),
-            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
+            "segments": compact_manifest_for_volley(
+                manifest if isinstance(manifest, dict) else {}, text_max=100
+            ),
             "emphasis_regions": emphasis_regions_for_segments(c),
         }
         vf = compact_value_features_summary(c)
@@ -188,33 +328,103 @@ def run_narrative_arc(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "narrative_arc_plan")
+        from interview_mux.delivery_brief import attach_delivery_brief_to_payload
         from interview_mux.episode_structure import attach_episode_structure_to_payload
 
-        return attach_disfluency_context(
-            attach_episode_structure_to_payload(
-                c,
-                __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
-                    c, attach_adaptation_to_payload(c, payload)
-                ),
+        payload = attach_disfluency_context(
+            attach_delivery_brief_to_payload(
+                c, attach_adaptation_to_payload(c, payload)
             ),
             c,
         )
+        if degraded["use"]:
+            payload.pop("episode_structure", None)
+            order: list[str] = []
+            if isinstance(manifest, dict):
+                order = [
+                    str(s.get("segment_id"))
+                    for s in (manifest.get("segments") or [])
+                    if isinstance(s, dict) and s.get("segment_id")
+                ]
+            payload["segment_order"] = order
+            payload["segment_order_count"] = len(order)
+            payload["narrative_packet_mode"] = "degraded_no_structure"
+            # Full must-keep ids when available (R4 scaffold).
+            try:
+                for rel, key in (
+                    ("understanding/ideal_cuts_selection_seed.json", "must_keep_segment_ids"),
+                    ("analysis/low_conf_must_keep.json", "must_keep_segment_ids"),
+                ):
+                    if not c.artifact_exists(rel):
+                        continue
+                    doc = c.read_json(rel)
+                    if isinstance(doc, dict) and doc.get(key):
+                        payload["must_keep_segment_ids"] = [
+                            str(x) for x in (doc.get(key) or []) if x
+                        ]
+                        break
+            except Exception:
+                pass
+            return payload
+        return attach_episode_structure_to_payload(c, payload)
 
     def _persist_narrative(c: RunContext, artifacts: dict) -> None:
         enriched = enrich_narrative_plan_for_persist(c, artifacts)
+        from interview_mux.artifact_repairs import repair_narrative_plan
+
+        repaired, _ = repair_narrative_plan(c, enriched)
+        if not (repaired.get("chapters") or []):
+            raise RuntimeError("narrative_arc_plan: empty chapters after repair")
         write = make_stage_persist("master/narrative_plan.json", "narrative_arc_plan")
-        write(c, enriched)
+        write(c, repaired)
 
-    persist = _persist_narrative
-
-    with logged_step("narrative_arc_plan/llm_stage", ctx=ctx, stage="narrative_arc_plan"):
+    def _llm_once() -> None:
         run_flow_llm_stage(
             ctx,
-            "narrative_arc_plan",
+            stage,
             prompt_variant("selection/narrative-arc-plan.system.txt", ctx),
             build_input,
-            persist,
+            _persist_narrative,
+            auto_complete=False,
         )
+        if not ctx.artifact_exists("master/narrative_plan.json"):
+            raise StageError(stage, "LLM completed without narrative_plan")
+        raw = ctx.read_json("master/narrative_plan.json")
+        if not isinstance(raw, dict) or not (raw.get("chapters") or []):
+            raise StageError(stage, "LLM narrative_plan empty chapters")
+
+    with logged_step("narrative_arc_plan/llm_stage", ctx=ctx, stage=stage):
+        try:
+            # R3
+            _llm_once()
+            return
+        except Exception as first_exc:
+            # R4 — changed packet (force degraded even if structure looked ok)
+            if not degraded["use"]:
+                degraded["use"] = True
+                ctx.log(
+                    f"narrative_arc_plan: R3 failed ({first_exc}); "
+                    "R4 degraded packet retry",
+                    level="warning",
+                    stage=stage,
+                )
+                try:
+                    _llm_once()
+                    return
+                except Exception as second_exc:
+                    ctx.log(
+                        f"narrative_arc_plan: R4 failed ({second_exc}); synthesizing",
+                        level="warning",
+                        stage=stage,
+                    )
+                    _salvage_or_halt(why=str(second_exc)[:160])
+                    return
+            ctx.log(
+                f"narrative_arc_plan: LLM path failed ({first_exc}); synthesizing",
+                level="warning",
+                stage=stage,
+            )
+            _salvage_or_halt(why=str(first_exc)[:160])
 
 
 def run_nugget_corpus_mine(ctx: RunContext) -> None:
@@ -227,7 +437,8 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
 
     if not nugget_layup_enabled():
         ctx.write_json(CORPUS_REL, {"nuggets": [], "warnings": ["nugget_layup_disabled"]})
-        if not ctx.is_done("nugget_corpus_mine"):
+        from interview_mux.delivery_guardrails import seed_stage_complete
+        if not seed_stage_complete(ctx, "nugget_corpus_mine"):
             heal_or_refuse_mark(ctx, "nugget_corpus_mine", force=True)
         return
 
@@ -259,7 +470,11 @@ def commit_layup_cta_selection(
     previous: dict[str, Any] | None,
     pruned: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """HR-2: persist CTA prune on the selection bus. None if order is unchanged."""
+    """HR-2: persist CTA prune on the selection bus. None if order is unchanged.
+
+    Soft freeze: land editorial CTA omit via End-A packaging (media_ip_cta).
+    Hard freeze: skip — no silent CTA order rewrite after VO seat freeze.
+    """
     if not isinstance(previous, dict) or not isinstance(pruned, dict):
         return None
     if pruned.get("ordered_segment_ids") is None:
@@ -268,6 +483,29 @@ def commit_layup_cta_selection(
     new_ids = [str(s) for s in (pruned.get("ordered_segment_ids") or []) if s]
     if new_ids == prev_ids:
         return None
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        if hard_freeze_active(ctx):
+            ctx.log(
+                "nugget_layup_compose: CTA selection commit skipped — hard freeze "
+                "(no silent CTA order rewrite after VO freeze)",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+            return None
+    except Exception:
+        pass
+    # Belt: restore floor-anchor natives if prune starved hosted VO targets.
+    try:
+        from interview_mux.media_ip_cta import restore_floor_anchor_natives
+
+        pruned = restore_floor_anchor_natives(ctx, prev_ids, pruned)
+        new_ids = [str(s) for s in (pruned.get("ordered_segment_ids") or []) if s]
+        if new_ids == prev_ids:
+            return None
+    except Exception:
+        pass
     from interview_mux.air_order_boundary import commit_selection_or_refuse
 
     return commit_selection_or_refuse(
@@ -279,10 +517,55 @@ def commit_layup_cta_selection(
     )
 
 
+def _clear_layup_compose_qc_pending(plan: dict[str, Any]) -> dict[str, Any]:
+    from interview_mux.nugget_layup import clear_compose_qc_pending
+
+    return clear_compose_qc_pending(plan)
+
+
+def _stamp_layup_compose_qc_pending(
+    plan: dict[str, Any], *, errors: list[str] | None = None
+) -> dict[str, Any]:
+    from interview_mux.nugget_layup import stamp_compose_qc_pending
+
+    return stamp_compose_qc_pending(plan, errors=errors)
+
+
 def _heal_nugget_layup_compose_if_complete(ctx: RunContext) -> None:
-    """Mark done only when artifacts are complete; else leave incomplete (NLC-B1)."""
-    if ctx.is_done("nugget_layup_compose"):
-        return
+    """Mark done only when artifacts are complete; else leave incomplete (NLC-B1).
+
+    Land Honesty: never early-return on bare is_done — heal may unmark hollow.
+    """
+    # Seat already-active hosted framing lines before the floor incompleteness
+    # check (pre/soft only — hard freeze uses i10 WAV paperwork elsewhere).
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        if not hard_freeze_active(ctx):
+            from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+            ensure_hosted_framing_vo_seats(ctx)
+    except Exception as exc:
+        try:
+            ctx.log(
+                f"nugget_layup_compose: hosted floor reseat skipped: {exc}",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+        except Exception:
+            pass
+    try:
+        from interview_mux.hosted_vo_authority import (
+            floor_snapshot,
+            identify_hosted_vo_floor,
+            reconcile_escalations,
+        )
+
+        identify_hosted_vo_floor(ctx, stage_id="nugget_layup_compose", persist=True)
+        snap = floor_snapshot(ctx, stage_id="nugget_layup_compose", persist=True)
+        reconcile_escalations(ctx, snap)
+    except Exception:
+        pass
     try:
         from interview_mux.stage_completion import (
             StageArtifactsIncompleteError,
@@ -401,15 +684,32 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
     batch_size = max(4, int(cfg.get("compose_batch_max_natives") or 32))
 
     def persist(c: RunContext, artifacts: dict) -> None:
-        doc = dict(artifacts) if isinstance(artifacts, dict) else {}
-        if "ordered_segment_ids" not in doc:
-            sel = c.read_json("master/selection.json") if c.artifact_exists("master/selection.json") else {}
-            doc["ordered_segment_ids"] = list((sel or {}).get("ordered_segment_ids") or [])
+        """P1: heal/QC in memory first; publish gap only after QC would pass."""
         from interview_mux.nugget_layup import (
+            apply_craft_spine_or_skip,
+            ensure_deterministic_floor_before_refuse,
+            gap_report_write_lock,
+            invalidate_vo_after_layup_rewrite,
+            materialize_over_skipped_layups,
             normalize_layup_talking_point_ledger,
+            park_open_high_salience_on_orientation,
             prepare_layup_plan_for_persist,
+            prior_gap_line_fingerprints,
+            recover_open_high_salience_nuggets,
+            recover_open_must_keep_talking_points,
+            stamp_sparse_or_empty_corpus_exits,
+            stamp_valueless_skips,
             strip_model_order_lock,
         )
+
+        doc = dict(artifacts) if isinstance(artifacts, dict) else {}
+        if "ordered_segment_ids" not in doc:
+            sel = (
+                c.read_json("master/selection.json")
+                if c.artifact_exists("master/selection.json")
+                else {}
+            )
+            doc["ordered_segment_ids"] = list((sel or {}).get("ordered_segment_ids") or [])
 
         doc = strip_model_order_lock(doc)
         doc = normalize_layup_talking_point_ledger(c, doc)
@@ -434,17 +734,30 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         # Selection is the only order_lock authority — stamp before freshness.
         doc = prepare_layup_plan_for_persist(c, doc)
         doc = _clear_layup_compose_shards_pending(doc)
+        doc = _clear_layup_compose_qc_pending(doc)
         assert_layup_fresh_vs_selection(c, doc)
-        persist_plan(c, doc)
-        report = publish_layup_plan_to_gap_report(c, doc)
+
+        # P4: empty/sparse corpus deterministic exits before QC loops.
+        doc, sparse_exit_notes = stamp_sparse_or_empty_corpus_exits(c, doc)
+        if sparse_exit_notes:
+            c.log(
+                "nugget_layup_compose: sparse/empty corpus exits "
+                f"({len(sparse_exit_notes)} row(s))",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+
         qc = evaluate_layup_qc(c, doc)
-        # Layer-4: one dedicated degraded regenerate with stronger no-invent addendum.
+        # Layer-4: one dedicated degraded regenerate (before any gap publish).
         if (
             not qc.get("ok")
             and deg.get("enabled", True)
             and deg.get("extra_degraded_regenerate", True)
             and degraded_retry_used["n"] < 1
-            and any("invented_island" in e or "canned_air" in e or "thin_layup" in e for e in (qc.get("errors") or []))
+            and any(
+                "invented_island" in e or "canned_air" in e or "thin_layup" in e
+                for e in (qc.get("errors") or [])
+            )
         ):
             degraded_retry_used["n"] += 1
             from interview_mux.llm_simple import StageError
@@ -455,8 +768,8 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 "(no invent / no canned / spine-first unlock). Errors: "
                 + "; ".join((qc.get("errors") or [])[:4]),
             )
-        # LLM over-skip: under sparse_omit stamp remaining holes; never force-air.
-        # Framing-needed may materialize skip rows from unlock/beat/nuggets.
+
+        # In-memory recover / materialize / park / spine — no gap publish yet (P1).
         if not qc.get("ok") and any(
             "layup_coverage" in str(e)
             or "min_layup_coverage" in str(e)
@@ -471,15 +784,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             except Exception:
                 sparse_omit = False
             if sparse_omit:
-                from interview_mux.nugget_layup import stamp_valueless_skips
-
                 doc, skip_notes = stamp_valueless_skips(c, doc)
                 if skip_notes:
-                    from interview_mux.nugget_layup import prepare_layup_plan_for_persist
-
                     doc = prepare_layup_plan_for_persist(c, doc)
-                    persist_plan(c, doc)
-                    report = publish_layup_plan_to_gap_report(c, doc)
                     qc = evaluate_layup_qc(c, doc)
                     c.log(
                         "stamped valueless layup skips: "
@@ -490,15 +797,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                         stage="nugget_layup_compose",
                     )
             else:
-                from interview_mux.nugget_layup import materialize_over_skipped_layups
-
                 doc, mat_notes = materialize_over_skipped_layups(c, doc)
                 if any(str(n).startswith("materialized:") for n in mat_notes):
-                    from interview_mux.nugget_layup import prepare_layup_plan_for_persist
-
                     doc = prepare_layup_plan_for_persist(c, doc)
-                    persist_plan(c, doc)
-                    report = publish_layup_plan_to_gap_report(c, doc)
                     qc = evaluate_layup_qc(c, doc)
                     c.log(
                         "materialized over-skipped layups: "
@@ -507,15 +808,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                         stage="nugget_layup_compose",
                     )
         if not qc.get("ok") and qc.get("open_must_keep_talking_point_ids"):
-            from interview_mux.nugget_layup import recover_open_must_keep_talking_points
-
             doc, rec_notes = recover_open_must_keep_talking_points(c, doc)
             if rec_notes:
-                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
-
                 doc = prepare_layup_plan_for_persist(c, doc)
-                persist_plan(c, doc)
-                report = publish_layup_plan_to_gap_report(c, doc)
                 qc = evaluate_layup_qc(c, doc)
                 c.log(
                     "recovered open must_keep talking points: "
@@ -524,12 +819,8 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     stage="nugget_layup_compose",
                 )
         if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
-            from interview_mux.nugget_layup import recover_open_high_salience_nuggets
-
             doc, rec_notes = recover_open_high_salience_nuggets(c, doc)
             if rec_notes:
-                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
-
                 doc, copy_repairs = repair_or_skip_spoken_copy_layups(c, doc)
                 if copy_repairs:
                     c.log(
@@ -539,8 +830,6 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                         stage="nugget_layup_compose",
                     )
                 doc = prepare_layup_plan_for_persist(c, doc)
-                persist_plan(c, doc)
-                report = publish_layup_plan_to_gap_report(c, doc)
                 qc = evaluate_layup_qc(c, doc)
                 c.log(
                     "recovered open high-salience nuggets: "
@@ -549,15 +838,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     stage="nugget_layup_compose",
                 )
         if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
-            from interview_mux.nugget_layup import park_open_high_salience_on_orientation
-
             doc, park_notes = park_open_high_salience_on_orientation(c, doc)
             if park_notes:
-                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
-
                 doc = prepare_layup_plan_for_persist(c, doc)
-                persist_plan(c, doc)
-                report = publish_layup_plan_to_gap_report(c, doc)
                 qc = evaluate_layup_qc(c, doc)
                 c.log(
                     "parked unhealable high-salience on orientation: "
@@ -565,15 +848,103 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     level="warning",
                     stage="nugget_layup_compose",
                 )
-        # After exhaustion: thinner grounded unlock may still pass grace floors;
-        # fail-closed only when analysis minimum / canned / invent remain.
-        assert_layup_qc_or_raise(c, qc)
-        assert_gap_report_layup_authority(c, report)
-        from interview_mux.vo_contract import sync_vo_contract_after_layup
 
-        remaining = sync_vo_contract_after_layup(c)
-        if remaining:
-            raise RuntimeError(f"VO contract drift after layup: {remaining[0]}")
+        # P7/H1: craft fail → corpus spine or typed skip (no third LLM call).
+        if not qc.get("ok") and degraded_retry_used["n"] >= 1:
+            doc, spine_notes = apply_craft_spine_or_skip(c, doc, qc=qc)
+            if spine_notes:
+                doc = prepare_layup_plan_for_persist(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "nugget_layup_compose: craft spine/skip "
+                    + "; ".join(spine_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
+        elif not qc.get("ok"):
+            # Even without degraded retry, spine craft holes when only craft remains.
+            craft_only = all(
+                any(
+                    m in str(e)
+                    for m in (
+                        "invented_island",
+                        "canned_air",
+                        "thin_layup",
+                        "restates_target",
+                        "spoken_copy",
+                        "insufficient_analysis",
+                    )
+                )
+                for e in (qc.get("errors") or [])
+            ) and bool(qc.get("errors"))
+            if craft_only and degraded_retry_used["n"] >= 1:
+                pass  # handled above
+            elif craft_only and degraded_retry_used["n"] < 1:
+                # Prefer one degraded LLM regen first (raised above when markers match).
+                # If markers did not trigger StageError, spine now.
+                doc, spine_notes = apply_craft_spine_or_skip(c, doc, qc=qc)
+                if spine_notes:
+                    doc = prepare_layup_plan_for_persist(c, doc)
+                    qc = evaluate_layup_qc(c, doc)
+                    c.log(
+                        "nugget_layup_compose: craft spine/skip (no LLM budget) "
+                        + "; ".join(spine_notes[-10:]),
+                        level="warning",
+                        stage="nugget_layup_compose",
+                    )
+
+        # P2: last deterministic floor materialize before publish.
+        if not qc.get("ok"):
+            doc, floor_notes = ensure_deterministic_floor_before_refuse(c, doc)
+            if floor_notes:
+                doc = prepare_layup_plan_for_persist(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "nugget_layup_compose: deterministic floor prep "
+                    + "; ".join(str(n) for n in floor_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
+
+        if not qc.get("ok"):
+            # P1: do not publish dirty authority — stamp qc_pending on plan only.
+            pending = _stamp_layup_compose_qc_pending(
+                doc, errors=[str(e) for e in (qc.get("errors") or [])]
+            )
+            persist_plan(c, pending)
+            assert_layup_qc_or_raise(c, qc)
+            return
+
+        prior_fps = prior_gap_line_fingerprints(c)
+        doc = _clear_layup_compose_qc_pending(doc)
+        doc = _clear_layup_compose_shards_pending(doc)
+        with gap_report_write_lock(c):
+            persist_plan(c, doc)
+            # Commit plan immediately so NLC-B1 shard stamps cannot survive a
+            # pending-only write + flush race (exec_13177 layup ×3 thrash).
+            try:
+                from interview_mux.write_staging import write_committed_json
+
+                write_committed_json(
+                    c, PLAN_REL, doc, stage_key="nugget_layup_compose"
+                )
+            except Exception as commit_exc:
+                c.log(
+                    f"nugget_layup_compose: committed plan mirror failed: {commit_exc}",
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
+            report = publish_layup_plan_to_gap_report(c, doc)
+            assert_layup_qc_or_raise(c, qc)
+            assert_gap_report_layup_authority(c, report)
+            invalidate_vo_after_layup_rewrite(
+                c, prior_fps=prior_fps, new_report=report
+            )
+            from interview_mux.vo_contract import sync_vo_contract_after_layup
+
+            remaining = sync_vo_contract_after_layup(c)
+            if remaining:
+                raise RuntimeError(f"VO contract drift after layup: {remaining[0]}")
 
     def build_input(c: RunContext, *, target_ids: list[str] | None = None) -> dict:
         packet = build_layup_compose_input(c, target_segment_ids=target_ids)

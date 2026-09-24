@@ -521,6 +521,15 @@ def ensure_theme_bookend_cues(ctx: Any) -> list[str]:
 
 def assert_theme_bookends_ready_for_mix(ctx: Any) -> None:
     """Fail closed when mix would invent or pad speech-free theme air."""
+    # HAU optional_beds_until_remaster: speech-first mix seats assembly before
+    # MusicGen/MMAudio admit — theme bookends remaster later (exec_13170).
+    try:
+        from interview_mux.mix_junction_seat import beds_deferred_for_mix
+
+        if beds_deferred_for_mix(ctx):
+            return
+    except Exception:
+        pass
     omitted = music_omitted_asset_ids(ctx)
     required = reserved_theme_asset_ids(ctx)
     # MSFX-B2: omit-all under creative_delivery is not ship-legal.

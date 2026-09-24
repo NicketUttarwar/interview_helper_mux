@@ -343,16 +343,131 @@ def native_open_already_orients(
 def orientation_omitted(gap_report: dict[str, Any] | None) -> bool:
     """True when opening orientation is durably waived via ``opening_orientation`` meta.
 
+    Durable waive requires **both** ``omitted is True`` and ``required is False``
+    (atomic writers: native-open / G1 ``_omit_orientation_payload``, tier-D on
+    non-required paths). Half-states (``required=False`` alone or ``omitted`` alone)
+    must not count — consumers revive / seat instead.
+
     Stale line-level ``skipped_optional`` / ``air_script_omit`` alone must not count —
-    ``ORIENTATION_ALWAYS`` / ``filter_gap_lines_for_air_script`` revive those. Durable
-    line waives are handled by ``air_script._orientation_line_waived`` (reason codes).
+    ``ORIENTATION_ALWAYS`` / ``filter_gap_lines_for_air_script`` revive those.
     """
     if not isinstance(gap_report, dict):
         return False
     meta = gap_report.get("opening_orientation")
     if not isinstance(meta, dict):
         return False
-    return bool(meta.get("omitted")) or meta.get("required") is False
+    return bool(meta.get("omitted")) and meta.get("required") is False
+
+
+def clear_stale_orientation_waive_stamps(
+    line: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    """Clear skip/omit/tier-D waive stamps on an orientation line.
+
+    Used by remint, revive, and air-script filter so ``required=True`` never keeps
+    orphan ``execution_contract_waive`` / ``tier_d_logged_waive`` paperwork.
+    """
+    if not isinstance(line, dict):
+        return line, False
+    updated = dict(line)
+    cleared = False
+    if updated.get("skipped_optional") or updated.get("air_script_omit"):
+        updated["skipped_optional"] = False
+        updated.pop("air_script_omit", None)
+        cleared = True
+    if str(updated.get("skip_reason_code") or "").strip().lower() in {
+        "execution_contract_waive",
+        "air_script_omit_sync",
+    }:
+        updated.pop("skip_reason_code", None)
+        cleared = True
+    if str(updated.get("compensating_path") or "").strip().lower() in {
+        "tier_d_logged_waive",
+    }:
+        updated.pop("compensating_path", None)
+        cleared = True
+    notes_list = updated.get("omit_notes")
+    if isinstance(notes_list, list):
+        pruned = [
+            n
+            for n in notes_list
+            if "execution_contract_waive" not in str(n)
+            and "tier_d" not in str(n).lower()
+        ]
+        if pruned != notes_list:
+            updated["omit_notes"] = pruned
+            cleared = True
+    return updated, cleared
+
+
+def repair_false_orientation_omit_from_non_orient_waive(
+    gap_report: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Clear orientation meta omit when waived_line_id is not orientation.
+
+    exec_13181: tier-D waive of ``vo_question_seg_009`` stamped
+    ``opening_orientation.required=false`` / ``omitted=true``, then preface
+    lines omit-synced → hosted_vo_floor 2<3.
+    """
+    notes: list[dict[str, Any]] = []
+    if not isinstance(gap_report, dict):
+        return gap_report, notes
+    meta = gap_report.get("opening_orientation")
+    if not isinstance(meta, dict):
+        return gap_report, notes
+    if not (bool(meta.get("omitted")) and meta.get("required") is False):
+        return gap_report, notes
+    waived = str(meta.get("waived_line_id") or "").strip()
+    if not waived:
+        return gap_report, notes
+    if waived == ORIENTATION_LINE_ID:
+        return gap_report, notes
+    lines = list(gap_report.get("interviewer_lines") or [])
+    waived_row = next(
+        (
+            r
+            for r in lines
+            if isinstance(r, dict) and str(r.get("line_id") or "").strip() == waived
+        ),
+        None,
+    )
+    if isinstance(waived_row, dict) and is_episode_orientation(waived_row):
+        return gap_report, notes
+    # Non-orientation waive incorrectly flipped orientation meta — clear it and
+    # revive episode_preface lines that only carry matching waive/omit-sync stamps.
+    out = dict(gap_report)
+    new_meta = dict(meta)
+    new_meta["omitted"] = False
+    new_meta["required"] = True
+    new_meta.pop("omit_reason", None)
+    new_meta.pop("waived_line_id", None)
+    new_meta.pop("compensating_path", None)
+    out["opening_orientation"] = new_meta
+    notes.append(
+        {
+            "action": "clear_false_orientation_omit_meta",
+            "waived_line_id": waived,
+        }
+    )
+    new_lines: list[Any] = []
+    for row in lines:
+        if not isinstance(row, dict):
+            new_lines.append(row)
+            continue
+        if not is_episode_orientation(row):
+            new_lines.append(row)
+            continue
+        updated, cleared = clear_stale_orientation_waive_stamps(row)
+        if cleared:
+            notes.append(
+                {
+                    "action": "revive_orientation_after_false_meta_omit",
+                    "line_id": updated.get("line_id"),
+                }
+            )
+        new_lines.append(updated)
+    out["interviewer_lines"] = new_lines
+    return out, notes
 
 
 def _omit_orientation_payload(
@@ -379,7 +494,26 @@ def ensure_episode_orientation(
     *,
     orientation_nugget_ids: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Ensure orientation when needed; omit when native hosts already intro."""
+    """Ensure orientation when needed — delegates to hosted_vo_authority SSOT."""
+    from interview_mux.hosted_vo_authority import apply_orientation
+
+    return apply_orientation(
+        ctx,
+        gap_report,
+        ordered_segment_ids,
+        orientation_nugget_ids=orientation_nugget_ids,
+    )
+
+
+def ensure_episode_orientation_body(
+    ctx: RunContext,
+    gap_report: dict[str, Any],
+    ordered_segment_ids: list[str],
+    *,
+    orientation_nugget_ids: list[str] | None = None,
+    decision: Any = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Mint/omit implementation driven by OrientationDecision (Cluster C SSOT)."""
     if not ordered_segment_ids or not isinstance(gap_report, dict):
         return gap_report, []
     try:
@@ -397,10 +531,49 @@ def ensure_episode_orientation(
             for x in (gap_report["orientation_nugget_recovery"].get("nugget_ids") or [])
             if x
         ]
+    # Disposition from hosted_vo_authority (HEARD_KEEP / HOLLOW_MINT / …).
     force_synthetic_for_nuggets = bool(nugget_recovery_ids)
+    if decision is not None:
+        disp = str(getattr(decision, "disposition", "") or "")
+        # Honor force_remint: HEARD_KEEP with force_remint=False must not remint
+        # when orientation is already live (Cluster C residual thrash).
+        if getattr(decision, "force_remint", False) or disp in {
+            "HOLLOW_MINT",
+            "KEEP_REQUIRED",
+        }:
+            force_synthetic_for_nuggets = True
+        elif disp == "OPERATOR_OMIT" and orientation_omitted(gap_report):
+            return gap_report, []
+        elif disp == "NATIVE_OMIT":
+            force_synthetic_for_nuggets = False
+    else:
+        # Fallback when called without decision (tests / legacy).
+        try:
+            from interview_mux.hosted_vo_authority import (
+                decide_orientation as _decide,
+            )
 
-    # Honor durable G1 / operator omit — never remint required=True and revive a
-    # preface without WAV (exec_11130 pending_writes/edl gap_report thrash).
+            decision = _decide(
+                ctx,
+                gap_report,
+                ordered_segment_ids,
+                orientation_nugget_ids=orientation_nugget_ids,
+            )
+            if decision.force_remint or decision.disposition in {
+                "HOLLOW_MINT",
+                "KEEP_REQUIRED",
+            }:
+                force_synthetic_for_nuggets = True
+            elif decision.disposition == "OPERATOR_OMIT" and orientation_omitted(
+                gap_report
+            ):
+                return gap_report, []
+            elif decision.disposition == "NATIVE_OMIT":
+                force_synthetic_for_nuggets = False
+        except Exception:
+            pass
+
+    # Honor durable G1 / operator omit unless disposition forces remint.
     if orientation_omitted(gap_report) and not force_synthetic_for_nuggets:
         return gap_report, []
 
@@ -487,6 +660,15 @@ def ensure_episode_orientation(
         actions.append({"action": "mint_episode_orientation", "line_id": preferred["line_id"]})
 
     chosen = dict(preferred)
+    # Remint to required must scrub orphan waive stamps (exec_13177 half-state).
+    chosen, _stamp_cleared = clear_stale_orientation_waive_stamps(chosen)
+    if _stamp_cleared:
+        actions.append(
+            {
+                "action": "clear_stale_orientation_waive_stamps",
+                "line_id": chosen.get("line_id"),
+            }
+        )
     prior_contract = {
         key: chosen.get(key)
         for key in (

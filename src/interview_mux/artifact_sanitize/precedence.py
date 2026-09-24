@@ -1,7 +1,8 @@
 """Constitutional precedence for seat / omit / bind decisions (cross-wave).
 
 Order (highest first):
-1. Required orientation — never strip
+1. Required orientation — never strip (keep/omit disposition is
+   ``hosted_vo_authority.decide_orientation``, not gap_report sanitize)
 2. Explicit operator_override skips
 3. Sanitary seats <= rendered WAVs when floor met (clamp wins)
 4. Pass B published seats after clamp

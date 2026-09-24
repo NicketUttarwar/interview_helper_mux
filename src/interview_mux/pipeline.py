@@ -273,6 +273,22 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
     require_gap_path_clear(ctx)
     if _gap_path_skipped(ctx):
         return
+    # Hard contract input — do not burn LLM shards without a mastering plan (exec_13159).
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "missing_framing hard input mastering/mastering_plan.json is absent — "
+            "resume mastering_plan_synthesize before gap evaluation",
+            stage="missing_framing",
+            reason="missing_hard_input_mastering_plan",
+            detail={
+                "hint": "Run mastering_plan_synthesize (or --from-stage mastering_plan_synthesize).",
+                "resume_stage": "mastering_plan_synthesize",
+            },
+            action_id="pipeline.missing_framing.missing_hard_plan",
+        )
     decision = assess_gap_fill_eligibility(ctx)
     if not decision.eligible:
         if gap_fill_auto_skip_enabled() or _skip_ineligible_gap_fill_unattended(ctx):
@@ -306,10 +322,60 @@ def _run_gap_framing_compose_stage(ctx: RunContext) -> None:
         decision = assess_gap_fill_eligibility(ctx)
         gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
         return
+    # Compose-safe admit: refuse hollow/sealed/incomplete missing_framing evals
+    # before LLM compose (Phase 4A — pin upstream, not hollow compose).
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+        from interview_mux.stage_completion import stage_artifact_incompleteness
+
+        if gap_framing_enabled(ctx):
+            mf_reason = stage_artifact_incompleteness(ctx, "missing_framing")
+            if mf_reason:
+                raise RuntimeError(
+                    f"gap_framing_compose blocked — missing_framing incomplete: {mf_reason}"
+                )
+            # R5: hollow / absent mastering plan — refuse inventing narrative priors.
+            shape_reason = _compose_shape_plan_admit_reason(ctx)
+            if shape_reason:
+                raise RuntimeError(
+                    f"gap_framing_compose blocked — {shape_reason}"
+                )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        ctx.log(
+            f"gap_framing_compose: missing_framing preflight skipped: {exc}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
     gaps.run_gap_framing_compose(ctx)
     # Refinement Pass: seed the gap_vo champion/draft snapshot so
     # gap_framing_recompose (Pass 2) has a baseline to compare against.
     after_gap_compose_hook(ctx)
+
+
+def _compose_shape_plan_admit_reason(ctx: RunContext) -> str | None:
+    """R5: framing Yes requires a non-absent mastering plan artifact (advisory OK)."""
+    rel = "mastering/mastering_plan.json"
+    if not ctx.artifact_exists(rel):
+        return (
+            "mastering_plan missing — resume mastering_plan_confirm: "
+            "gap_framing_compose needs a plan summary (soft-gate advisory allowed)"
+        )
+    try:
+        plan = ctx.read_json(rel)
+    except Exception:
+        return "mastering_plan unreadable — resume mastering_plan_confirm"
+    if not isinstance(plan, dict) or not plan:
+        return "mastering_plan hollow — resume mastering_plan_synthesize"
+    status = str(plan.get("plan_status") or "").strip().lower()
+    if status in {"", "absent_legacy"} and not (
+        plan.get("narrative_mode") or plan.get("montage_grammar") or plan.get("pov")
+    ):
+        return (
+            "mastering_plan empty of narrative priors — resume mastering_plan_confirm"
+        )
+    return None
 
 
 def _run_optimal_questions_stage(ctx: RunContext) -> None:
@@ -317,8 +383,10 @@ def _run_optimal_questions_stage(ctx: RunContext) -> None:
 
 
 def shared_analysis_chain_complete(ctx: RunContext) -> bool:
-    """True when the last shared analysis stage (episode structure) finished."""
-    return ctx.is_done("episode_structure_compose")
+    """True when the last shared analysis stage is land-honest complete."""
+    from interview_mux.done_authority import may_skip_as_complete
+
+    return may_skip_as_complete(ctx, "episode_structure_compose")
 
 
 def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> bool:
@@ -521,16 +589,21 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         from interview_mux.delivery_guardrails import music_epoch_complete, music_skip_allowed
 
         if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage) and music_epoch_complete(ctx):
-            if not ctx.is_done(stage):
+            from interview_mux.done_authority import land_honest
+
+            # Land Honesty: hollow .stage_done must not skip regenerate.
+            if not land_honest(ctx, stage):
                 # TH1b music-epoch skip: heal only marks when incompleteness empty
                 # (epoch seal / WAVs present). Hollow force stamp is refused.
                 heal_or_refuse_mark(ctx, stage, force=True)
-            ctx.log(
-                f"{stage}: music epoch complete — skip regenerate",
-                level="info",
-                stage=stage,
-            )
-            return
+            if land_honest(ctx, stage):
+                ctx.log(
+                    f"{stage}: music epoch complete — skip regenerate",
+                    level="info",
+                    stage=stage,
+                )
+                return
+            # Not land-honest after heal → fall through and re-run.
     except Exception:
         pass
     try:
@@ -653,26 +726,54 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
                 except Exception:
                     result = None
             if result is not None and result.status == "recovered":
+                # Post-Heal Accounting P11: identical/budget accounting already ran
+                # inside handle_stage_failure → _append_action →
+                # finalize_post_heal_accounting. Do not bump identical or stamp
+                # budget_epoch here (anti-C / no silent second path).
                 if (
                     result.playbook_id == "speaker_roles_dominant_fallback"
-                    and ctx.is_done(stage)
                     and ctx.artifact_exists("understanding/speakers.json")
                 ):
-                    ctx.log(
-                        f"recovery_controller recovered {result.signature} "
-                        f"via {result.playbook_id} — skip LLM re-run",
-                        level="warning",
-                        stage=stage,
+                    from interview_mux.done_authority import land_honest
+
+                    # Land Honesty: hollow stamp must not skip LLM re-run.
+                    if land_honest(ctx, stage):
+                        ctx.log(
+                            f"recovery_controller recovered {result.signature} "
+                            f"via {result.playbook_id} — skip LLM re-run",
+                            level="warning",
+                            stage=stage,
+                        )
+                        return
+                resume = str(result.resume_stage or "").strip() or stage
+                # Heal Success V5: prefer admit-clamped resume; do not blindly
+                # re-run a failed consumer when recovery pinned a producer.
+                try:
+                    from interview_mux.heal_pin_authority import admit_resume
+
+                    resume = admit_resume(
+                        ctx,
+                        resume,
+                        current=stage,
+                        error=str(exc)[:160],
+                        intent="heal_success",
                     )
-                    return
+                except Exception:
+                    pass
                 setattr(ctx, "_recovery_retrying", True)
                 try:
                     ctx.log(
                         f"recovery_controller recovered {result.signature} "
-                        f"via {result.playbook_id}",
+                        f"via {result.playbook_id} resume={resume}",
                         level="warning",
                         stage=stage,
                     )
+                    if resume != stage:
+                        # Propagate producer pin — do not fake-success the consumer.
+                        raise RuntimeError(
+                            f"Complete {resume} before running {stage} "
+                            f"(recovery:{result.playbook_id})"
+                        )
                     run_wrapped_stage(ctx, stage, _impl)
                     return
                 except Exception as retry_exc:
@@ -728,23 +829,47 @@ def run_analysis(
         pass
 
     analysis_order = effective_analysis_order()
+    gap_compose_honest = False
+    try:
+        from interview_mux.done_authority import may_skip_as_complete
+
+        gap_compose_honest = may_skip_as_complete(ctx, "gap_framing_compose")
+    except Exception:
+        gap_compose_honest = False
     if (
         not invalidate
         and from_stage
         and (
             ctx.artifact_exists("understanding/gap_report.json")
-            or ctx.is_done("gap_framing_compose")
+            or gap_compose_honest
         )
         and from_stage in analysis_order
         and "gap_framing_compose" in analysis_order
         and analysis_order.index(from_stage) < analysis_order.index("gap_framing_compose")
     ):
-        ctx.log(
-            f"spine freeze: refusing rewind from {from_stage} past existing gap artifacts",
-            level="warning",
-            stage=from_stage,
-        )
-        from_stage = "gap_framing_compose"
+        # Do not spine-freeze bump past an open missing_framing incompleteness —
+        # that hollow-finishes "Gap evaluation" and thrash-pins (exec_13181).
+        keep_from = False
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            if stage_artifact_incompleteness(ctx, "missing_framing"):
+                keep_from = True
+        except Exception:
+            keep_from = False
+        if keep_from:
+            ctx.log(
+                f"spine freeze: keeping {from_stage} (missing_framing incompleteness open)",
+                level="info",
+                stage=from_stage,
+            )
+        else:
+            ctx.log(
+                f"spine freeze: refusing rewind from {from_stage} past existing gap artifacts",
+                level="warning",
+                stage=from_stage,
+            )
+            from_stage = "gap_framing_compose"
     if from_stage and invalidate:
         ctx.clear_from(from_stage, analysis_order)
 
@@ -759,7 +884,9 @@ def run_analysis(
     stage_items = [(k, stages[k]) for k in order_keys[start_idx:]]
     planned: list[str] = []
     for name, _fn in stage_items:
-        if ctx.is_done(name) and from_stage != name:
+        from interview_mux.done_authority import may_skip_as_complete
+
+        if may_skip_as_complete(ctx, name) and from_stage != name:
             if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
                 planned.append(name)
             else:
@@ -812,7 +939,9 @@ def run_analysis(
         )
         return
     for idx, (name, fn) in enumerate(stage_items, start=1):
-        if ctx.is_done(name) and from_stage != name:
+        from interview_mux.done_authority import may_skip_as_complete
+
+        if may_skip_as_complete(ctx, name) and from_stage != name:
             if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
                 ctx.log(
                     f"Re-running {name}: artifact incomplete or invalid",
@@ -942,7 +1071,9 @@ def _run_steps(
         pass
     planned: list[str] = []
     for name, _fn in slice_steps:
-        if ctx.is_done(name) and from_stage != name:
+        from interview_mux.done_authority import may_skip_as_complete
+
+        if may_skip_as_complete(ctx, name) and from_stage != name:
             if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
                 planned.append(name)
             else:
@@ -988,6 +1119,30 @@ def _run_steps(
                     level="warning",
                     stage=lease,
                 )
+                # Refuse hollow success: agenda already walked the lease; if the
+                # producer still has no outputs, raise so the driver resumes
+                # (exec_13170: music ESR walk skipped → Finished without sound_design/).
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+                    from interview_mux.mix_junction_seat import next_delivery_seat
+
+                    landed = seed_stage_complete(ctx, lease)
+                    if not landed:
+                        resume = lease
+                        if lease in {
+                            "music_palette_compose",
+                            "sfx_prompt_craft",
+                            "mmaudio_sfx",
+                        }:
+                            resume = next_delivery_seat(ctx) or "mix"
+                        raise RuntimeError(
+                            "Delivery incomplete after conductor — ESR wait walk "
+                            f"did not land {lease}; resume={resume}"
+                        )
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
                 return
             try:
                 from interview_mux.thrash_hardening import (
@@ -1012,12 +1167,54 @@ def _run_steps(
                     lease = str(
                         wait_row.get("lease_stage") or pin or remaining_after[0]
                     )
+                    # HAU speech-first: never hollow-return while MusicGen is the
+                    # lease but only preview assembly exists (exec_13170).
+                    try:
+                        from interview_mux.mix_junction_seat import (
+                            music_admit_block_reason,
+                            next_delivery_seat,
+                        )
+
+                        if (
+                            lease
+                            in {
+                                "music_palette_compose",
+                                "sfx_prompt_craft",
+                                "mmaudio_sfx",
+                            }
+                            and music_admit_block_reason(ctx)
+                        ):
+                            lease = next_delivery_seat(ctx) or "mix"
+                    except Exception:
+                        pass
                     ctx.log(
                         "Delivery incomplete after conductor — ESR wait "
                         f"({wait_row.get('why')}); resume={lease}",
                         level="warning",
                         stage=lease,
                     )
+                    try:
+                        from interview_mux.homunculus.agenda import walk_seed_agenda
+                        from interview_mux.delivery_guardrails import seed_stage_complete
+
+                        if not seed_stage_complete(ctx, lease):
+                            walk_seed_agenda(
+                                ctx,
+                                [lease],
+                                reason="esr_wait_incomplete_after_conductor",
+                            )
+                            if not seed_stage_complete(ctx, lease):
+                                raise RuntimeError(
+                                    "Delivery incomplete after conductor — ESR wait "
+                                    f"did not land {lease}; resume={lease}"
+                                )
+                    except RuntimeError:
+                        raise
+                    except Exception:
+                        raise RuntimeError(
+                            "Delivery incomplete after conductor — ESR wait "
+                            f"({wait_row.get('why')}); resume={lease}"
+                        )
                     return
             except Exception:
                 pass
@@ -1070,7 +1267,9 @@ def _run_steps(
         return
     plan_idx = 0
     for name, fn in slice_steps:
-        if ctx.is_done(name) and from_stage != name:
+        from interview_mux.done_authority import may_skip_as_complete
+
+        if may_skip_as_complete(ctx, name) and from_stage != name:
             if name in STAGE_ARTIFACT_SCHEMAS and should_run_stage_for_artifact(ctx, name):
                 ctx.log(
                     f"Re-running {name}: artifact incomplete or invalid",

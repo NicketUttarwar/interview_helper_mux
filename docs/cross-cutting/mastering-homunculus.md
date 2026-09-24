@@ -30,6 +30,20 @@ The operator picks a **brain** on the Start tab. The choice is stored on `run_me
 - Halt writes `mastering/homunculus/limit_exhausted.json`. Ship stays blocked.
 - Seed-order law (`_seed_prereq_block`) and hard contract honesty remain: hollow/incomplete predecessors block later stages until healed.
 
+## Always-HAU seating (mix ↔ music)
+
+Federal for Partial + Full-auto (**no** live music≺mix seating path):
+
+1. Phase A / EDL holes first (skipped once Phase A is sealed).
+2. If music epoch complete + speech-first stamp → remaster mix / junction (never speech-first again).
+3. Else if `allow_speech_first_mix` → `mix` seats assembly.
+4. Else earliest incomplete music producer (`music_palette_compose` → `sfx_prompt_craft` → `mmaudio_sfx`).
+5. Else junction / finalize.
+
+SSOT: `mix_junction_seat.next_delivery_seat`. Soft gates: `beds_deferred_for_mix`. Resume/heal/filter/driver must not choose mix vs MusicGen via raw `allow_speech_first_mix` outside the SSOT module. `mix_epoch_block` clears speech-first only via `clear_mix_epoch_for_speech_first` (FG2: bare call stays blocked). After music completes, `speech_first_remaster_owed` / `ensure_speech_first_remaster` keep junction/finalize on `speech_first_remaster_pending` until the bed remaster lands.
+
+**Hard VO freeze (End-A late repairs):** named shrink/clamp/integrity only (`soundscape_bed_trim`, `opening_adjacency_*`, `sdp_theme_outro_rebind`, `sdp_duration_band_repair`) with verify-persist (SDP End-A must commit with the named reason — never bare `write_json`). Expand (`soundscape_bed_seed_repair`, outro create, `optimizer_promote_*`) → honest skip / refuse.
+
 ## Unattended recovery (partial-auto + full-auto)
 
 Homunculus **0.2.0** owns delivery failure recovery for unattended runs. `needs_operator` is stamped only for operator journey gates (G0 transcript, voice reference, **G-DeliveryUnlock**, G-Publish) — not for VO coverage, stale upstream, or seed-order blocks. Classified playbooks in `recovery_controller.py` (`vo_seated_coverage`, `vo_contract_repair`, `upstream_stale_rerun`, …) run via `handle_stage_failure` with a tiered retry budget (3× transient, 1× structural). Forensics campaigns use `MUX_FORENSICS=1` with heal-and-continue on the same `run_id`.

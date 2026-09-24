@@ -548,3 +548,44 @@ def resume_after_intervene(
         "sticky_cleared": sticky_cleared,
         "stages": sorted(wanted),
     }
+
+
+# Stages whose attempt_memo / identical halt must clear before resuming NAP
+# after a never-again patch (exec_13174 leapfrog nest).
+_NAP_CONTINUE_HYGIENE_STAGES: frozenset[str] = frozenset(
+    {
+        "narrative_arc_plan",
+        "connector_fuse_pass_pre_ranking",
+        "chapter_close_hitch",
+        "nugget_layup_compose",
+    }
+)
+
+
+def clear_nap_continue_hygiene(ctx: RunContext) -> dict[str, Any]:
+    """Clear identical + attempt_memo for NAP seed-front before continue.
+
+    Prevents ``attempt_memo — advancing`` while primary is still missing after a
+    code patch. Safe under forensics ``MUX_FRESH=0`` resume.
+    """
+    stages = set(_NAP_CONTINUE_HYGIENE_STAGES)
+    out = resume_after_intervene(ctx, stages=stages)
+    try:
+        from interview_mux.identical_failures import clear_halts_for_stages
+
+        out["halts_cleared"] = clear_halts_for_stages(ctx, stages, force=True)
+    except Exception as exc:
+        out["halts_cleared"] = 0
+        out["halts_error"] = str(exc)[:160]
+    try:
+
+        def _mut(meta: dict[str, Any]) -> None:
+            if str(meta.get("needs_operator_stage") or "") in stages:
+                meta.pop("needs_operator", None)
+                meta.pop("needs_operator_stage", None)
+                meta.pop("needs_operator_reason", None)
+
+        ctx.mutate_run_meta(_mut)
+    except Exception:
+        pass
+    return out

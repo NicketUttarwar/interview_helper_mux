@@ -1,0 +1,19 @@
+{
+  "ordered_segment_ids": [
+    "seg_002",
+    "seg_007"
+  ],
+  "media_ip_cta": [
+    {
+      "segment_id": "seg_cta",
+      "action": "omit",
+      "reason": "pitch",
+      "confidence": "high"
+    },
+    {
+      "segment_id": "seg_ok",
+      "clearly_media_ip_pitch": true,
+      "cta_region": "whole"
+    }
+  ]
+}

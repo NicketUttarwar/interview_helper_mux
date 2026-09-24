@@ -124,6 +124,67 @@ def test_integrity_detects_orphan_answer():
     assert flags
 
 
+def test_orphan_answer_only_after_repair_is_advisory_ok(tmp_path):
+    """Tape starting mid-answer must not hard-fail integrity_ok for narrative volleys."""
+    # First segment is answer; questions exist later — classic cold-open orphan.
+    arts = {
+        "segments/manifest.json": {
+            "segments": [
+                {"segment_id": "seg_001", "type": "answer", "text": "a"},
+                {"segment_id": "seg_002", "type": "question", "text": "q"},
+                {"segment_id": "seg_003", "type": "answer", "text": "a2"},
+            ]
+        },
+        "understanding/analysis_state.json": {"style": {}},
+        "understanding/sonic_context.json": {"scenario": {"atlas_bucket": "default"}},
+    }
+    ctx = _FakeCtx(tmp_path, arts)
+    doc = build_episode_structure(ctx)
+    assert doc["integrity"]["ok"] is True
+    assert any(str(f).startswith("advisory:orphan_answer:") for f in (doc["integrity"]["flags"] or []))
+    compact = __import__(
+        "interview_mux.episode_structure", fromlist=["compact_for_volley"]
+    ).compact_for_volley(doc)
+    assert compact is not None
+    assert compact["integrity_ok"] is True
+    assert compact["segment_order_count"] == 3
+    assert compact["segment_order"][-1] == "seg_003"
+
+
+def test_compact_for_volley_keeps_full_order_past_former_60_cap(tmp_path):
+    """exec_13174: [:60] truncation made narrative LLM think order stopped at seg_060."""
+    from interview_mux.episode_structure import compact_for_volley
+
+    order = [f"seg_{i:03d}" for i in range(1, 70)]
+    compact = compact_for_volley(
+        {
+            "axes": {},
+            "slot_plan": [],
+            "segment_order": order,
+            "hook_reel": {},
+            "speaker_volleys": [],
+            "omit_reasons": [],
+            "integrity": {"ok": True, "flags": []},
+        }
+    )
+    assert compact is not None
+    assert compact["segment_order_count"] == 69
+    assert compact["segment_order"][0] == "seg_001"
+    assert compact["segment_order"][-1] == "seg_069"
+    assert "seg_061" in compact["segment_order"]
+    digest = build_compact_digest(
+        {
+            "axes": {"format_class": "x", "tone_class": "y", "atlas_bucket": "z"},
+            "slot_plan": [],
+            "segment_order": order,
+            "omit_reasons": [],
+            "hook_reel": {},
+        }
+    )
+    assert "seg_069" in digest
+    assert "segment_order_count: 69" in digest
+
+
 def test_compact_digest_bounded(tmp_path):
     arts = {
         "segments/manifest.json": {"segments": _segs(3)},

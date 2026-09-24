@@ -827,10 +827,8 @@ def stalled_expensive_can_advance(ctx: RunContext, stage: str) -> bool:
 
         done = bool(may_clear_wait(ctx, stage_s)) if stage_s else False
     except Exception:
-        try:
-            done = bool(ctx.is_done(stage_s))
-        except Exception:
-            done = False
+        # Bare is_done never clears wait / advances (Done Authority).
+        done = False
     if done and not master_ok:
         return False
     return done or bool(master_ok and (stage_s in SHIP_AFTER_MASTER or bool(left)))
@@ -886,6 +884,29 @@ def should_wait_incomplete_after_conductor(
     pin_s = str(pin or "").strip()
     if not pin_s and remaining:
         pin_s = str(remaining[0] or "").strip()
+    # Self-lease: incomplete-after-conductor raised while gui_job still says
+    # ``running`` for this same pin (homunculus seed-front pin → immediate
+    # incomplete). ESR-wait then freezes forever with no chatterbox work
+    # (exec_13183 vo_synthesize stall loop).
+    try:
+        from interview_mux.thrash_hardening import expensive_stage_lease_active
+
+        lease_on, lease_stage = expensive_stage_lease_active(ctx)
+        if lease_on and pin_s and lease_stage == pin_s:
+            return None
+    except Exception:
+        pass
+    # Don't ESR-wait on sealed consumers that seed-order cannot run yet —
+    # mix stalled ≥10m while listen_delight_audit was rem[0] (exec_13181).
+    if pin_s in {"mix", "edl", "vo_synthesize", "assembly_preview", "junction_snip_qa"}:
+        try:
+            from interview_mux.homunculus.agenda import remaining_stages
+
+            rem = [str(s) for s in (remaining_stages(ctx, "delivery") or []) if s]
+            if rem and pin_s in rem and rem[0] != pin_s:
+                return None
+        except Exception:
+            pass
     # Done Authority (B5): only honest seed-complete clears wait — never bare is_done.
     if pin_s:
         try:

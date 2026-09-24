@@ -46,12 +46,16 @@ def test_critical_repair_remaster_path_bypasses_low_gain(monkeypatch: pytest.Mon
     assert ok2 is True and used2 == 1
 
 
-def test_junction_precedes_when_assembly_missing(tmp_path, monkeypatch):
-    """Cascade: missing assembly.wav must not gate junction when EDL exists.
+def test_junction_does_not_precede_when_assembly_missing(tmp_path, monkeypatch):
+    """Always-HAU: missing assembly.wav alone must not put junction ahead of mix.
 
-    exec_13159: mix⇄junction deadlock on assembly_not_rendered / Missing assembly.wav.
+    exec_13159 originally asserted the opposite to break mix⇄junction deadlock.
+    Seat constitution flipped: mix mints the first heard assembly; junction
+    precedes only for live incomplete cuts, remaster-in-flight, or existing
+    stale assembly (see ``mix_junction_seat.junction_precedes_mix``).
     """
     import os
+
     os.environ["MUX_FORENSICS"] = "0"
     from interview_mux.junction_snip_qa import junction_recut_precedes_mix
     from run_fixtures import isolated_run_ctx
@@ -64,11 +68,43 @@ def test_junction_precedes_when_assembly_missing(tmp_path, monkeypatch):
     preview = ctx.path("master", "assembly_preview.wav")
     preview.write_bytes(b"RIFF....WAVEfmt ")
     monkeypatch.setattr(
-        "interview_mux.junction_snip_qa.live_incomplete_cut_critical_findings",
-        lambda _ctx: [],
+        "interview_mux.mix_junction_seat.live_incomplete_cuts",
+        lambda _ctx: False,
     )
     monkeypatch.setattr(
-        "interview_mux.air_order.mix_stale_versus_live",
+        "interview_mux.mix_junction_seat.assembly_stale",
+        lambda _ctx: True,
+    )
+    # Preview only — no master/assembly.wav. Stale probe must not invent precede.
+    assert not ctx.artifact_exists("master/assembly.wav")
+    assert junction_recut_precedes_mix(ctx) is False
+
+
+def test_junction_precedes_when_existing_assembly_is_stale(tmp_path, monkeypatch):
+    """Stale seated assembly still requires junction ahead of mix (13159 deadlock class)."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "jsq_assembly_stale")
+    edl = ctx.path("master", "edl.json")
+    edl.parent.mkdir(parents=True, exist_ok=True)
+    edl.write_text('{"version":1,"timeline_duration_ms":1,"clips":[]}\n')
+    assembly = ctx.path("master", "assembly.wav")
+    assembly.write_bytes(b"RIFF....WAVEfmt ")
+    monkeypatch.setattr(
+        "interview_mux.mix_junction_seat.live_incomplete_cuts",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mix_junction_seat.remaster_in_flight",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.mix_junction_seat.assembly_stale",
         lambda _ctx: True,
     )
     assert junction_recut_precedes_mix(ctx) is True

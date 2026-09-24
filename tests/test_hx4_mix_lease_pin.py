@@ -70,9 +70,18 @@ def test_hx4_mix_family_running_leases_pin_music(
     assert pin not in _MIX_LEASE
 
 
+def _open_preview_music(ctx: RunContext) -> None:
+    """Admit music so speech-first is off — HX-4 music yank still applies."""
+    from interview_mux.mix_junction_seat import open_preview_music_gate
+
+    assert open_preview_music_gate(ctx, source="gui") is True
+
+
 def test_hx4_error_mix_growth_lease_pins_music(ctx: RunContext) -> None:
+    """With music admit open, mix lease yanks to MUSIC_BEFORE_MIX (HX-4)."""
     _job(ctx, status="error", stage="mix")
     _assembly_wav(ctx)
+    _open_preview_music(ctx)
     leased, stage = expensive_stage_lease_active(ctx)
     assert leased and stage == "mix"
     pin = premature_cap_hard_pin(ctx, "mix")
@@ -81,15 +90,26 @@ def test_hx4_error_mix_growth_lease_pins_music(ctx: RunContext) -> None:
 
 
 def test_hx4_pending_writes_mix_lease_pins_music(ctx: RunContext) -> None:
+    """Pending mix writes + music admit → MUSIC_BEFORE_MIX pin."""
     pending = ctx.run_dir / ".pending_writes" / "mix"
     pending.mkdir(parents=True)
     (pending / "stub.txt").write_text("x", encoding="utf-8")
     _assembly_wav(ctx)
+    _open_preview_music(ctx)
     leased, stage = expensive_stage_lease_active(ctx)
     assert leased and stage == "mix"
     pin = premature_cap_hard_pin(ctx, "junction_snip_qa")
     assert pin in MUSIC_BEFORE_MIX
     assert pin != "mix"
+
+
+def test_hx4_unseated_assembly_mix_lease_holds_speech_first(ctx: RunContext) -> None:
+    """HAU: unseated assembly (no preview_music) → speech-first mix lease holds."""
+    _job(ctx, status="error", stage="mix")
+    _assembly_wav(ctx)
+    leased, stage = expensive_stage_lease_active(ctx)
+    assert leased and stage == "mix"
+    assert premature_cap_hard_pin(ctx, "mix") == "mix"
 
 
 def test_hx4_mmaudio_lease_still_holds_while_music_incomplete(ctx: RunContext) -> None:

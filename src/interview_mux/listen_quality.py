@@ -520,11 +520,35 @@ def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]
             sdp["flow_plans"] = flow
             if top_cues:
                 sdp["cues"] = top_cues
-            ctx.write_json(sdp_rel, sdp)
+            touched = [
+                str(c.get("cue_id") or "")
+                for c in (flow_cues + top_cues)
+                if isinstance(c, dict) and _is_outro_cue(c) and c.get("cue_id")
+            ]
+            if not _persist_episode_close_sdp(
+                ctx,
+                sdp_rel,
+                sdp,
+                reason="sdp_theme_outro_rebind",
+                touched_cue_ids=touched,
+                inventing=False,
+            ):
+                return written
             written.append(sdp_rel)
         return written or [sdp_rel]
 
     if not allow_create:
+        return written
+
+    hard_frozen = False
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        hard_frozen = bool(hard_freeze_active(ctx))
+    except Exception:
+        hard_frozen = False
+    if hard_frozen:
+        # Locked NO: inventing outro cue under hard freeze (End-A expand refuse).
         return written
 
     cue = {
@@ -544,9 +568,62 @@ def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]
     flow = dict(flow)
     flow["podcast"] = podcast
     sdp["flow_plans"] = flow
-    ctx.write_json(sdp_rel, sdp)
+    if not _persist_episode_close_sdp(
+        ctx,
+        sdp_rel,
+        sdp,
+        reason="sdp_theme_outro_rebind",
+        touched_cue_ids=["theme_outro_seed"],
+        inventing=True,
+    ):
+        return written
     written.append(sdp_rel)
     return written
+
+
+def _persist_episode_close_sdp(
+    ctx: Any,
+    sdp_rel: str,
+    sdp: dict[str, Any],
+    *,
+    reason: str,
+    touched_cue_ids: list[str] | None,
+    inventing: bool,
+) -> bool:
+    """Persist outro SDP via End-A verify under freeze; raw write when unfrozen."""
+    hard_frozen = False
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        hard_frozen = bool(hard_freeze_active(ctx))
+    except Exception:
+        hard_frozen = False
+    if inventing and hard_frozen:
+        return False
+    if hard_frozen:
+        from interview_mux.seat_authority import persist_frozen_seat_doc_verified
+
+        result = persist_frozen_seat_doc_verified(
+            ctx,
+            sdp_rel,
+            sdp,
+            reason=reason,
+            touched_cue_ids=touched_cue_ids or None,
+        )
+        if not result.get("ok"):
+            try:
+                ctx.log(
+                    "place_episode_close_cue: End-A verify failed — "
+                    f"{result.get('error') or result.get('skipped') or 'unknown'}",
+                    level="warning",
+                    stage="listen_quality",
+                )
+            except Exception:
+                pass
+            return False
+        return True
+    ctx.write_json(sdp_rel, sdp)
+    return True
 
 
 def evaluate_listen_critic(

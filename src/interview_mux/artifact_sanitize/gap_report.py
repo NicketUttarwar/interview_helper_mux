@@ -62,6 +62,35 @@ def _is_orientation(row: dict[str, Any]) -> bool:
     return "orientation" in lid or lid.startswith("vo_orient")
 
 
+def _sanitize_may_drop_orientation(
+    ctx: Any,
+    gap_report: dict[str, Any],
+    row: dict[str, Any],
+) -> bool:
+    """False when hosted_vo_authority refuses gap sanitize drop/omit."""
+    if not _is_orientation(row):
+        return True
+    try:
+        from interview_mux.hosted_vo_authority import decide_orientation
+
+        ordered = _selection_order(ctx)
+        decision = decide_orientation(ctx, gap_report, ordered)
+        if decision.disposition in {"HEARD_KEEP", "HOLLOW_MINT"}:
+            try:
+                ctx.log(
+                    "gap_sanitize: skip orientation drop/omit "
+                    f"({decision.disposition})",
+                    level="info",
+                    stage="artifact_sanitize.gap_report",
+                )
+            except Exception:
+                pass
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def _is_required_line(row: dict[str, Any]) -> bool:
     if row.get("required") is True:
         return True
@@ -177,6 +206,9 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                 if k not in missing and not str(row.get(k) or "").strip():
                     missing.append(k)
         if omitted and missing:
+            if not _sanitize_may_drop_orientation(ctx, out, row):
+                healed.append(row)
+                continue
             actions.append(
                 {
                     "action": "drop_incomplete_omit_stub",
@@ -284,6 +316,9 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         fixed, changed = _strip_scaffolding(row)
         if changed:
             if fixed.get("omit") or fixed.get("skipped_optional"):
+                if not _sanitize_may_drop_orientation(ctx, out, row):
+                    scrubbed.append(row)
+                    continue
                 actions.append(
                     {
                         "action": "omit_scaffolding",

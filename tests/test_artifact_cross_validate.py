@@ -7,6 +7,7 @@ import pytest
 from interview_mux.artifact_cross_validate import (
     cross_validate_pending_overlay,
     validate_cross_artifacts,
+    validate_cross_artifacts_for_stage,
 )
 from interview_mux.write_staging import write_pending_content
 from run_fixtures import (
@@ -337,3 +338,35 @@ def test_cross_validate_overlay_sees_pending_boundaries(tmp_path, monkeypatch):
     assert validate_cross_artifacts(ctx, "post_boundary_detection")
     with cross_validate_pending_overlay(ctx, "boundary_detection"):
         assert validate_cross_artifacts(ctx, "post_boundary_detection") == []
+
+
+def test_staged_post_narrative_sees_pending_plan(tmp_path, monkeypatch):
+    """exec_13174: staged=True must not report plan missing when pending exists."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "nap_overlay")
+    plan = {
+        "arc_summary": "Host and guest explore the arc.",
+        "chapters": [
+            {
+                "chapter_id": "ch_01",
+                "title": "Open",
+                "suggested_open_segment_id": "seg_001",
+                "segment_ids": ["seg_001"],
+            }
+        ],
+        "ordering_constraints": [],
+    }
+    write_pending_content(
+        ctx,
+        "narrative_arc_plan",
+        "master/narrative_plan.json",
+        data=plan,
+    )
+    # Committed tree empty → without overlay this is "missing"
+    assert "master/narrative_plan.json missing" in validate_cross_artifacts(
+        ctx, "post_narrative"
+    )
+    # staged=True arms overlay for _committed_json checkpoints
+    assert validate_cross_artifacts_for_stage(
+        ctx, "narrative_arc_plan", staged=True
+    ) == []

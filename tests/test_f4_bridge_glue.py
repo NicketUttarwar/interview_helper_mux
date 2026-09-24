@@ -113,3 +113,154 @@ def test_missing_bridge_wav_heals_to_vo_synthesize_not_edl(tmp_path: Path) -> No
         )
         == "vo_seated_coverage"
     )
+
+
+def test_bridge_mint_persists_under_hard_freeze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MUX_FORENSICS=0: waived layup VO must not leave reorder seams unmintable.
+
+    Hard freeze after vo_synthesize blocked mint persist (reason=edl). End-A
+    bridge_completeness_mint lands pair-specific hinge text (often deferred
+    beyond pair freeze) so bridge_completeness can clear.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setattr("interview_mux.nugget_layup.nugget_layup_enabled", lambda: True)
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_cfg",
+        lambda: {
+            "suppress_placeholder_seams_when_layup": True,
+            "ban_canned_air": True,
+            "authoritative_gap_report": True,
+        },
+    )
+
+    from interview_mux.bridge_completeness import (
+        assert_bridges_complete,
+        missing_reorder_bridges,
+    )
+    from interview_mux.seat_authority import (
+        hard_freeze_action_permitted,
+        stamp_hard_seat_freeze,
+        stamp_soft_seat_freeze,
+    )
+
+    assert hard_freeze_action_permitted("bridge_completeness_mint")
+
+    ctx = isolated_run_ctx(tmp_path, "f4_bridge_freeze_mint")
+    after, before = "seg_003k", "seg_005"
+    segs = json.loads((_FIX / "segments.json").read_text(encoding="utf-8"))
+    # Reuse fixture segment bodies under the campaign pair ids.
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {**segs[AFTER], "segment_id": after, "text": "to the show"},
+                {
+                    **segs[BEFORE],
+                    "segment_id": before,
+                    "text": "Historically, what happens is somehow you find something, then the",
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": [after, before]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        {
+            "version": 1,
+            "pairs": [
+                {
+                    "after_id": after,
+                    "before_id": before,
+                    "after_segment_id": after,
+                    "before_segment_id": before,
+                    "kind": "reorder",
+                    "source_gap_ms": 63900,
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {"transitions": []},
+        skip_handoff=True,
+    )
+    # Pair freeze locked without this seam — mint lands as deferred durable text.
+    ctx.write_json(
+        "master/transitions_pair_freeze.json",
+        {"version": 1, "pairs": [], "count": 0},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": [after, before],
+            "layups": [
+                {
+                    "target_segment_id": before,
+                    "text": "Hosted layup copy waived before synth.",
+                    "word_count": 6,
+                    "skip": False,
+                    "line_id": "vo_layup_seg_005",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    gap = {
+        "nugget_layup_authority": True,
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_005",
+                "targets_segment_id": before,
+                "prior_segment_id": after,
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "Hosted layup copy waived before synth.",
+                "skipped_optional": True,
+                "air_script_omit": True,
+                "skip_reason_code": "execution_contract_waive",
+            }
+        ],
+    }
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+
+    stamp_soft_seat_freeze(ctx, reason="air_contract_sanitize")
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+
+    bridges = ctx.read_json("understanding/reorder_bridges.json")
+    miss = missing_reorder_bridges(
+        bridges,
+        gap_report=gap,
+        transitions={"transitions": []},
+    )
+    assert miss and miss[0]["after_segment_id"] == after
+
+    doc = mint_missing_transitions(
+        ctx,
+        miss,
+        transitions={"transitions": []},
+        gap_report=gap,
+    )
+    # Persist must land under freeze (active or deferred durable).
+    disk = ctx.read_json("master/transitions.json")
+    assert isinstance(disk, dict)
+    assert_bridges_complete(
+        bridges,
+        gap_report=gap,
+        transitions=disk,
+    )
+    assert not missing_reorder_bridges(
+        bridges, gap_report=gap, transitions=disk
+    )
+    # In-memory return also complete.
+    assert_bridges_complete(bridges, gap_report=gap, transitions=doc)

@@ -66,9 +66,24 @@ def test_enda_allowlist_membership() -> None:
         "junction_incomplete_cut_omit",
         "edl_overlap_repair_omit",
         "segment_id_remap_omit",
+        "sdp_duration_band_repair",
+        "soundscape_bed_trim",
+        "opening_adjacency_suppress_duplicate",
+        "opening_adjacency_drop_orphan",
+        "sdp_theme_outro_rebind",
+        "bridge_completeness_mint",
+        "nugget_layup_gap_publish",
     ):
         assert action in HARD_FREEZE_ALLOWLIST_ACTIONS
         assert hard_freeze_action_permitted(action)
+    for action in (
+        "soundscape_bed_seed_repair",
+        "optimizer_promote_sdp",
+        "theme_outro_seed",
+        "seed_theme_outro",
+    ):
+        assert action in HARD_FREEZE_FORBIDDEN_ACTIONS
+        assert not hard_freeze_action_permitted(action)
     for action in (
         "media_ip_cta",
         "media_ip_cta_editorial_omits",
@@ -192,6 +207,7 @@ def test_enda_seat_mutation_allowlist_bypasses_meta_gate(ctx: RunContext) -> Non
 def test_enda_refuse_floor_reseat_under_hard_freeze(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """When gap copy is below floor, hard freeze still refuses invent-reseat."""
     monkeypatch.setattr(
         "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
         lambda _ctx: True,
@@ -203,23 +219,17 @@ def test_enda_refuse_floor_reseat_under_hard_freeze(
     _stamp_hard(ctx)
     assert hard_freeze_blocks_action(ctx, "protect_hosted_vo_floor_reseat")
 
+    # Only two active synth lines (< need=3) — must refuse, not invent.
     gap = minimal_gap_report(
         minimal_gap_line(
-            line_id="vo_orient",
-            text="Welcome.",
-            episode_orientation=True,
-            targets_segment_id="seg_001",
-            delivery="synthesize",
-        ),
-        minimal_gap_line(
             line_id="vo_a",
-            text="A",
+            text="A short hosted line for the guest intro beat.",
             targets_segment_id="seg_001",
             delivery="synthesize",
         ),
         minimal_gap_line(
             line_id="vo_b",
-            text="B",
+            text="B short hosted line for the stakes beat.",
             targets_segment_id="seg_002",
             delivery="synthesize",
         ),
@@ -229,7 +239,7 @@ def test_enda_refuse_floor_reseat_under_hard_freeze(
             "vo_seats": {
                 "seated_line_ids": ["vo_a"],
                 "omitted_line_ids": ["vo_b"],
-                "orientation_id": "vo_orient",
+                "orientation_id": None,
             }
         }
     }
@@ -243,8 +253,84 @@ def test_enda_refuse_floor_reseat_under_hard_freeze(
     assert not any(
         a.get("action") == "protect_hosted_vo_floor_reseat" for a in result.actions
     )
+    assert not any(
+        a.get("action") == "reseated_active_hosted_vo_for_wav" for a in result.actions
+    )
+    # Progress floors: count shortage under hard freeze → advisory-continue
+    # (never invent seats). Legacy unsatisfiable hard-stop only when aspirational off.
+    assert any(
+        a.get("action") == "hosted_vo_floor_aspirational_continue"
+        for a in result.actions
+    )
+    assert result.ok
+    assert not any("hosted_vo_floor_unsatisfiable" in e for e in (result.errors or []))
     seats = (result.doc.get("air_script") or {}).get("vo_seats") or {}
     assert list(seats.get("seated_line_ids") or []) == before_seated
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    assert isinstance(meta, dict)
+    assert meta.get("floor_aspirational_proceeded") is True
+    assert not meta.get("hosted_vo_floor_unsatisfiable")
+
+
+def test_enda_reseats_active_copy_for_wav_under_hard_freeze(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """active≥need but wav_backed short → End-A reseat + vo_synthesize pin."""
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract._gap_row_has_pickup_stem",
+        lambda _ctx, row: str(row.get("line_id") or "") == "vo_a",
+    )
+    _stamp_hard(ctx)
+    gap = minimal_gap_report(
+        minimal_gap_line(
+            line_id="vo_a",
+            text="Hosted line A about the guest and topic for listeners.",
+            targets_segment_id="seg_001",
+            delivery="synthesize",
+        ),
+        minimal_gap_line(
+            line_id="vo_b",
+            text="Hosted line B about stakes and why this conversation matters.",
+            targets_segment_id="seg_002",
+            delivery="synthesize",
+        ),
+        minimal_gap_line(
+            line_id="vo_c",
+            text="Hosted line C connects the opening to the clinical arc ahead.",
+            targets_segment_id="seg_003",
+            delivery="synthesize",
+        ),
+    )
+    plan = {
+        "air_script": {
+            "vo_seats": {
+                "seated_line_ids": ["vo_a"],
+                "omitted_line_ids": ["vo_b", "vo_c"],
+                "orientation_id": None,
+            }
+        }
+    }
+    result = sanitize_air_contract(ctx, {"plan": plan, "gap": gap, "omit": {"entries": []}})
+    assert any(
+        a.get("action") == "reseated_active_hosted_vo_for_wav" for a in result.actions
+    )
+    seats = (result.doc.get("air_script") or {}).get("vo_seats") or {}
+    seated = set(seats.get("seated_line_ids") or [])
+    assert seated >= {"vo_a", "vo_b", "vo_c"}
+    assert result.ok
+    from interview_mux.artifact_sanitize.air_script import _floor_unmet_pin
+
+    pin = _floor_unmet_pin([], list(result.actions or []))
+    assert pin is not None and "hosted_vo_wav_coverage" in pin
+    assert "vo_synthesize" in pin
 
 
 def test_enda_auto_commit_skips_refuse_notes(
@@ -278,7 +364,9 @@ def test_enda_auto_commit_skips_refuse_notes(
     )
     ctx.write_json("mastering/mastering_plan.json", {"air_script": {"vo_seats": {}}})
     _stamp_hard(ctx)
-    assert air_contract_sanitary_errors(ctx) == []
+    errs = air_contract_sanitary_errors(ctx)
+    # Progress floors: hard-freeze refuse of invent is advisory — no count-floor pin.
+    assert errs == [] or not any("hosted_vo_floor_unsatisfiable" in e for e in errs)
 
 
 def test_enda_protect_orientation_and_revive_under_hard_freeze(
@@ -354,6 +442,69 @@ def test_enda_protect_orientation_and_revive_under_hard_freeze(
     )
     assert not orient.get("skipped_optional")
     assert not orient.get("air_script_omit")
+
+
+def test_enda_revive_clears_tier_d_under_hard_freeze(ctx: RunContext) -> None:
+    """End-A Q2: hard freeze allowlisted revive clears tier-D stamps + reseats."""
+    lid = "vo_orient_tier_d"
+    gap = minimal_gap_report(
+        minimal_gap_line(
+            line_id=lid,
+            text=(
+                "Welcome to the show — meet the guest and hear why this "
+                "conversation matters for listeners."
+            ),
+            episode_orientation=True,
+            targets_segment_id="seg_001",
+            delivery="synthesize",
+            skipped_optional=True,
+            air_script_omit=True,
+            skip_reason_code="execution_contract_waive",
+            compensating_path="tier_d_logged_waive",
+            omit_notes=["vo_contract:execution_contract_waive"],
+        ),
+    )
+    gap["opening_orientation"] = {
+        "required": True,
+        "line_id": lid,
+        "target_segment_id": "seg_001",
+    }
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "beats": [
+                    {"beat_id": "b1", "segment_id": "seg_001", "montage_move": "vo"}
+                ],
+                "vo_seats": {
+                    "seated_line_ids": [],
+                    "omitted_line_ids": [lid],
+                    "orientation_id": None,
+                },
+            }
+        },
+        skip_handoff=True,
+    )
+    _stamp_hard(ctx)
+
+    out = revive_required_opening_orientation(ctx)
+    assert out.get("changed") is True
+    assert not any("seat_freeze_blocked" in str(n) for n in (out.get("notes") or []))
+    gap2 = ctx.read_json("understanding/gap_report.json")
+    orient = next(
+        r
+        for r in (gap2.get("interviewer_lines") or [])
+        if isinstance(r, dict) and r.get("line_id") == lid
+    )
+    assert not orient.get("skipped_optional")
+    assert not orient.get("air_script_omit")
+    assert str(orient.get("compensating_path") or "") != "tier_d_logged_waive"
+    assert str(orient.get("skip_reason_code") or "") != "execution_contract_waive"
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    seats = (plan.get("air_script") or {}).get("vo_seats") or {}
+    assert lid in (seats.get("seated_line_ids") or [])
+    assert seats.get("orientation_id") == lid
 
 
 def test_enda_omit_order_lock_rebuild_under_hard_freeze(
@@ -471,6 +622,7 @@ def test_enda_optimizer_reasons_are_not_allowlisted() -> None:
     assert hard_freeze_action_permitted("catastrophe_seated_bind_synth_failed")
     assert hard_freeze_action_permitted("hitch_reattach_vo")
     assert hard_freeze_action_permitted("air_script_gap_omit_sync")
+    assert hard_freeze_action_permitted("revive_discarded_floor_candidate")
 
 
 def test_a3_global_freeze_sdp_and_transitions_skip_unknown(
@@ -516,7 +668,7 @@ def test_a3_global_freeze_sdp_and_transitions_skip_unknown(
     if prior_cues and isinstance(prior_cues[0], dict):
         prior_cue = prior_cues[0].get("cue_id")
 
-    commit_sound_design_plan_doc(ctx, sdp_new, reason="soundscape_bed_trim")
+    commit_sound_design_plan_doc(ctx, sdp_new, reason="unknown_hijack_not_enda")
     sdp = ctx.read_json("understanding/sound_design_plan.json")
     after_cues = ((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or []
     after_id = after_cues[0].get("cue_id") if after_cues and isinstance(after_cues[0], dict) else None
@@ -595,3 +747,87 @@ def test_a3_write_plan_preserves_vo_seats_under_freeze(ctx: RunContext) -> None:
     plan = ctx.read_json("mastering/mastering_plan.json")
     seats = ((plan.get("air_script") or {}).get("vo_seats") or {})
     assert seats.get("seated_line_ids") == ["vo_a"]
+
+
+def test_enda_episode_close_rebind_verified_under_hard_freeze(
+    ctx: RunContext, tmp_path: Path
+) -> None:
+    """Footgun 1: outro rebind uses End-A verify; create skipped under freeze."""
+    from interview_mux.listen_quality import place_episode_close_cue
+    from run_fixtures import sound_design_plan_with
+
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001", "seg_002"]},
+        skip_handoff=True,
+    )
+    sdp = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "outro_bed",
+                "role": "theme_outro",
+                "description": "close",
+                "duration_seconds": 8,
+            }
+        ],
+        flow_plans={
+            "podcast": {
+                "cues": [
+                    {
+                        "cue_id": "theme_outro_old",
+                        "role": "theme_outro",
+                        "asset_id": "outro_bed",
+                        "placement": "after_segment",
+                        "segment_id": "seg_001",
+                        "after_segment_id": "seg_001",
+                    }
+                ]
+            }
+        },
+    )
+    ctx.write_json("understanding/sound_design_plan.json", sdp, skip_handoff=True)
+    _stamp_hard(ctx)
+    written = place_episode_close_cue(ctx, allow_create=False)
+    assert "understanding/sound_design_plan.json" in written
+    live = ctx.read_json("understanding/sound_design_plan.json")
+    cues = list(((live.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    outro = next(c for c in cues if c.get("cue_id") == "theme_outro_old")
+    assert outro.get("after_segment_id") == "seg_002"
+
+    # Create path refused under hard freeze (fresh plan with no outro cue).
+    ctx2 = isolated_run_ctx(tmp_path, "enda_outro_create")
+    ctx2.write_json(
+        "run_meta.json",
+        {
+            "homunculus_version": "0.1.0",
+            "homunculus_kind": "homunculus",
+            "delivery_epoch": {},
+        },
+        skip_handoff=True,
+    )
+    ctx2.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001"]},
+        skip_handoff=True,
+    )
+    empty = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "outro_bed",
+                "role": "theme_outro",
+                "description": "close",
+                "duration_seconds": 8,
+            }
+        ],
+        flow_plans={"podcast": {"cues": []}},
+    )
+    ctx2.write_json("understanding/sound_design_plan.json", empty, skip_handoff=True)
+    stamp_hard_seat_freeze(ctx2, reason="vo_synthesize")
+    written2 = place_episode_close_cue(ctx2, allow_create=True)
+    assert "understanding/sound_design_plan.json" not in written2
+    live2 = ctx2.read_json("understanding/sound_design_plan.json")
+    cues2 = list(((live2.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    assert not any(
+        isinstance(c, dict) and str(c.get("cue_id") or "") == "theme_outro_seed"
+        for c in cues2
+    )

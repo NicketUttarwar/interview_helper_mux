@@ -13,12 +13,19 @@ outputs:
   schema: master_selection_artifact.schema.json
   staging: true
 - path: master/rank_candidates.json
-- path: master/order_reconcile.json
+  staging: true
 - path: master/story_health.json
+  staging: true
+- path: master/order_reconcile.json
+  staging: true
 - path: mastering/media_ip_cta.json
+  staging: true
 - path: understanding/reorder_bridges.json
+  staging: true
 - path: understanding/speaker_delivery_plan.json
+  staging: true
 - path: analysis/stt_lexicon_islands.json
+  staging: true
 inputs:
   hard:
   - path: master/narrative_plan.json

@@ -96,3 +96,60 @@ def test_hc3_committed_only_can_complete(ctx: RunContext) -> None:
         assert "newer uncommitted pending" not in reason
     else:
         assert seed_stage_complete(ctx, "vo_synthesize") is True
+
+
+def test_hc3_content_equal_newer_pending_not_incomplete(ctx: RunContext) -> None:
+    """Mirrored commit sync can leave pending mtime newer with identical bytes."""
+    from interview_mux.write_staging import uncommitted_pending_reason
+
+    body = '{"status":"sealed","n":1}'
+    committed = ctx.final_path("master", "selection.json")
+    committed.parent.mkdir(parents=True, exist_ok=True)
+    committed.write_text(body, encoding="utf-8")
+    time.sleep(0.02)
+    pending = ctx.run_dir / ".pending_writes" / "selection_order_sanitize" / "master"
+    pending.mkdir(parents=True, exist_ok=True)
+    twin = pending / "selection.json"
+    twin.write_text(body, encoding="utf-8")
+    assert twin.stat().st_mtime_ns > committed.stat().st_mtime_ns
+    assert uncommitted_pending_reason(ctx, "master/selection.json") is None
+
+
+def test_write_committed_under_active_stage_does_not_invent_pending(
+    ctx: RunContext,
+) -> None:
+    """exec_13170: write_committed must not create active-stage pending twin."""
+    from interview_mux.write_staging import (
+        enter_stage_staging,
+        exit_stage_staging,
+        uncommitted_pending_reason,
+        write_committed_json,
+    )
+
+    enter_stage_staging("selection_order_sanitize")
+    try:
+        (ctx.run_dir / ".pending_writes" / "selection_order_sanitize").mkdir(
+            parents=True, exist_ok=True
+        )
+        write_committed_json(
+            ctx,
+            "master/selection.json",
+            {
+                "ordered_segment_ids": ["seg_001"],
+                "excluded_segment_ids": [],
+                "order_lock": {"revision": 1},
+            },
+            stage_key="selection_order_sanitize",
+        )
+        pending = (
+            ctx.run_dir
+            / ".pending_writes"
+            / "selection_order_sanitize"
+            / "master"
+            / "selection.json"
+        )
+        assert not pending.is_file()
+        assert uncommitted_pending_reason(ctx, "master/selection.json") is None
+        assert ctx.final_path("master", "selection.json").is_file()
+    finally:
+        exit_stage_staging()

@@ -95,6 +95,7 @@
         "mastering/chapter_close_hitch/intent_plan.json",
         "mastering/chapter_close_hitch/remap.json",
         "understanding/episode_structure_compact.txt",
+        "understanding/flow_adaptation.json",
         "segments/boundaries.json",
         "mastering/chapter_close_hitch/hitch_keepers.json",
         "mastering/chapter_close_hitch/pre_keepers.json",
@@ -121,7 +122,11 @@
       "tier": "llm_full",
       "outputs": [
         "analysis/connector_fuse_rounds.json",
-        "segments/manifest.json"
+        "segments/manifest.json",
+        "segments/boundaries.json",
+        "analysis/connector_fuse_audit.json",
+        "analysis/connector_seam_packets.json",
+        "analysis/connector_seam_verdicts.json"
       ]
     },
     {
@@ -176,8 +181,7 @@
       "stage": "edl_narrative_audit",
       "tier": "llm_full",
       "outputs": [
-        "master/edl_narrative_audit.json",
-        "master/selection.json"
+        "master/edl_narrative_audit.json"
       ]
     },
     {
@@ -244,8 +248,8 @@
       "outputs": [
         "master/selection.json",
         "master/rank_candidates.json",
-        "master/order_reconcile.json",
         "master/story_health.json",
+        "master/order_reconcile.json",
         "mastering/media_ip_cta.json",
         "understanding/reorder_bridges.json",
         "understanding/speaker_delivery_plan.json",
@@ -269,6 +273,8 @@
         "understanding/interviewer_script.txt",
         "understanding/gap_framing_plan.json",
         "understanding/gap_vo_context_audit.json",
+        "glob:understanding/llm_calls/gap_framing_compose/**",
+        "glob:understanding/stage_runs/gap_framing_compose/**",
         "understanding/speaker_delivery_plan.json"
       ]
     },
@@ -517,7 +523,10 @@
       "stage": "missing_framing",
       "tier": "llm_full",
       "outputs": [
-        "understanding/gap_evaluations.json"
+        "understanding/gap_evaluations.json",
+        "understanding/flow_adaptation.json",
+        "glob:understanding/llm_calls/missing_framing/**",
+        "glob:understanding/stage_runs/missing_framing/**"
       ]
     },
     {
@@ -911,7 +920,8 @@
       "outputs": [
         "mastering/vo_synthesize.json",
         "master/transitions/",
-        "vo_pickup/synthesized/"
+        "vo_pickup/synthesized/",
+        "vo_pickup/"
       ]
     },
     {

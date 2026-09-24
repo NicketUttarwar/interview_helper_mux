@@ -100,7 +100,12 @@ def test_exec_5175_hole_tier_d_waive(ctx: RunContext) -> None:
 
 
 def test_tier_d_waive_orientation_survives_reconcile(ctx: RunContext) -> None:
-    """exec_5177 class: seated + skip/omit orientation must stay unseated after tier D."""
+    """exec_5177 class: seated + skip/omit orientation must stay unseated after tier D.
+
+    When opening_orientation is not required, tier-D may durable-waive (omitted +
+    required=false). Required meta is refused separately (see
+    test_tier_d_refuses_while_orientation_required).
+    """
     from interview_mux.air_script import seated_vo_line_ids
     from interview_mux.execution_contract import _tier_d_logged_waive, classify_vo_violation
     from interview_mux.mastering_plan_loader import load_plan_raw
@@ -156,6 +161,69 @@ def test_tier_d_waive_orientation_survives_reconcile(ctx: RunContext) -> None:
     meta = gap.get("opening_orientation") or {}
     assert meta.get("omitted") is True
     assert meta.get("required") is False
+
+
+def test_tier_d_refuses_while_orientation_required(ctx: RunContext) -> None:
+    """Required opening orientation is non-waivable by VO ladder (T0-4 constitution)."""
+    from interview_mux.execution_contract import _tier_d_logged_waive, classify_vo_violation
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    lid = "vo_preface_cta_open_seg_002"
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "beats": [],
+                "vo_seats": {
+                    "seated_line_ids": [lid],
+                    "omitted_line_ids": [],
+                    "orientation_id": lid,
+                },
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": lid,
+                    "delivery": "synthesize",
+                    "gap_type": "media_ip_cta_hole",
+                    "targets_segment_id": "seg_002",
+                    "placement": "before",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "skip_reason_code": "execution_contract_waive",
+                    "compensating_path": "tier_d_logged_waive",
+                    "text": (
+                        "Host opens on precision oncology — what listeners "
+                        "stand to gain from this cancer-science conversation."
+                    ),
+                }
+            ],
+            "opening_orientation": {
+                "line_id": lid,
+                "required": True,
+                "target_segment_id": "seg_002",
+            },
+        },
+    )
+    violation = classify_vo_violation(
+        f"seated synthesize {lid} has skip/omit flags"
+    )
+    written = _tier_d_logged_waive(ctx, violation)
+    assert written == []
+    gap = ctx.read_json("understanding/gap_report.json")
+    meta = gap.get("opening_orientation") or {}
+    assert meta.get("required") is True
+    assert meta.get("omitted") is not True
+    plan = load_plan_raw(ctx) or {}
+    seats = (plan.get("air_script") or {}).get("vo_seats") or {}
+    assert lid in (seats.get("seated_line_ids") or [])
+    assert seats.get("orientation_id") == lid
 
 
 def test_tier_d_waive_missing_line_no_schema_invalid_stub(ctx: RunContext) -> None:

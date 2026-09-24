@@ -620,9 +620,84 @@ class RunContext:
         # Hollow delivery producers: non-force marks still refuse incompleteness.
         # Force hollow-stamp is gated solely by heal_or_refuse_mark /
         # assert_may_force_done (FORCE_DONE_GUARDED includes junction_snip_qa).
+        # Never swallow AuthorityDenied — pending_only / hollow must refuse stamp
+        # so flush-then-mark in approve_stage_writes is the only seal path.
+        from interview_mux.artifact_ownership import AuthorityDenied as _AD
+
         try:
             from interview_mux.thrash_hardening import FORCE_DONE_GUARDED
             from interview_mux.stage_completion import stage_artifact_incompleteness
+            from interview_mux.write_staging import uncommitted_pending_reason
+
+            if not force and not raw_stamp and not getattr(self, "_heal_flushing_stage", None):
+                # In-body mark_done under open staging is normal (preclean/ingest/…).
+                # Auto-commit: flush-then-seal here. Refuse-only left a split-brain
+                # where exception-path flush stamped .stage_done then re-raised
+                # authority_denied:mark_done:pending_writes (exec_13177).
+                if has_pending_writes(self, stage):
+                    from interview_mux.v2.config import v2_auto_commit
+                    from interview_mux.write_staging import _commit_stage_writes
+
+                    if (
+                        v2_auto_commit()
+                        and not write_approval_enabled()
+                        and not self.is_done(stage)
+                    ):
+                        self.log(
+                            f"mark_done({stage}): auto-flushing pending writes before seal",
+                            level="info",
+                            stage=stage,
+                        )
+                        self._heal_flushing_stage = stage
+                        try:
+                            _commit_stage_writes(self, stage)
+                        finally:
+                            self._heal_flushing_stage = None
+                        if self.is_done(stage):
+                            return
+                        if has_pending_writes(self, stage):
+                            self.log(
+                                f"Refusing mark_done({stage}): pending writes remain "
+                                "after auto-flush",
+                                level="warning",
+                                stage=stage,
+                            )
+                            raise _AD(
+                                f"authority_denied:mark_done:pending_writes:{stage}",
+                                path="",
+                                stage_key=stage,
+                                suggested_owner=stage,
+                                verb="mark_done",
+                            )
+                    else:
+                        self.log(
+                            f"Refusing mark_done({stage}): unflushed pending writes "
+                            "(flush-then-mark only)",
+                            level="warning",
+                            stage=stage,
+                        )
+                        raise _AD(
+                            f"authority_denied:mark_done:pending_writes:{stage}",
+                            path="",
+                            stage_key=stage,
+                            suggested_owner=stage,
+                            verb="mark_done",
+                        )
+                if rel:
+                    pending_reason = uncommitted_pending_reason(self, rel)
+                    if pending_reason:
+                        self.log(
+                            f"Refusing mark_done({stage}): {pending_reason}",
+                            level="warning",
+                            stage=stage,
+                        )
+                        raise _AD(
+                            f"authority_denied:mark_done:pending_only:{stage}:{rel}",
+                            path=rel,
+                            stage_key=stage,
+                            suggested_owner=stage,
+                            verb="mark_done",
+                        )
 
             if stage in FORCE_DONE_GUARDED and not force and not raw_stamp:
                 hollow = stage_artifact_incompleteness(self, stage)
@@ -645,15 +720,15 @@ class RunContext:
                             stage=stage,
                             detail={"hollow_reason": hollow},
                         )
-                        from interview_mux.artifact_ownership import AuthorityDenied
-
-                        raise AuthorityDenied(
+                        raise _AD(
                             f"authority_denied:mark_done:hollow:{stage}:{hollow}",
                             path="",
                             stage_key=stage,
                             suggested_owner=stage,
                             verb="mark_done",
                         )
+        except _AD:
+            raise
         except Exception:
             pass
 

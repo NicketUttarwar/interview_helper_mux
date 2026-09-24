@@ -37,4 +37,6 @@
 | [templates/](templates/) | Packet / analysis templates |
 | [analysis/](analysis/) | Four-level phase writes |
 
+**Heal variance (pins / leapfrog / hollow pass / validate≠stage / post-heal budget):** separate operator clinic — [Heal Clinic](../heal-clinic/README.md) · plan [`heal_clinic.plan.md`](heal_clinic.plan.md) · paste `/heal-clinic-next`. Does not replace Partial Zero soak; improves shared heal SSOT for Partial + all modes.
+
 Plan SSOT (do not edit during campaign): `~/.cursor/plans/partial_zero_protocol_dcd491c4.plan.md`

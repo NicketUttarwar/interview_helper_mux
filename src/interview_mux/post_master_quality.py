@@ -921,12 +921,30 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
             if int((detail or {}).get("count") or 0) > 0:
                 structural_failed.append(cid)
                 continue
-        # F7 1C: aspirational listen misses stay rubric unless catastrophic.
+        # F7 1C: aspirational listen misses stay rubric unless catastrophic
+        # (or catastrophic_as_advisory under progress_floors).
         if cid == "listen_delight_floors" and aspirational:
-            cata_ok, _cata = passes_catastrophic_floors(ctx)
+            cata_ok, cata_reasons = passes_catastrophic_floors(ctx)
             if cata_ok:
                 rubric_failed.append(cid)
                 continue
+            try:
+                from interview_mux.floor_progress import (
+                    catastrophic_as_advisory,
+                    record_floor_advisory,
+                )
+
+                if catastrophic_as_advisory(ctx):
+                    rubric_failed.append(cid)
+                    record_floor_advisory(
+                        ctx,
+                        "catastrophic_floors",
+                        {"reasons": list(cata_reasons or [])[:8], "source": "pmq"},
+                        aspirational_proceeded=True,
+                    )
+                    continue
+            except Exception:
+                pass
         if aspirational and is_rubric_pmq_check(cid):
             rubric_failed.append(cid)
         else:

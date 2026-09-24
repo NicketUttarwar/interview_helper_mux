@@ -19,6 +19,8 @@ outputs:
   staging: true
 - path: understanding/episode_structure_compact.txt
   staging: true
+- path: understanding/flow_adaptation.json
+  staging: true
 - path: segments/boundaries.json
   staging: true
 - path: mastering/chapter_close_hitch/hitch_keepers.json

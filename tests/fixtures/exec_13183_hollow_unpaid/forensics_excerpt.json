@@ -1,0 +1,13 @@
+{
+  "source_run": "exec_13183_d19c15b58ab4_20260924T001619Z",
+  "cluster": "A",
+  "dig": 2,
+  "intervene": "i10",
+  "fingerprints": [
+    {
+      "detail": "cannot run junction_snip_qa: delivery epoch speech_first_remaster_pending",
+      "source": "operator/forensics_errors.json / e2e_failure_brief.json"
+    }
+  ],
+  "notes": "Orphan promote restamped mix from speech-first assembly while music_epoch remaster still owed. Fixture uses tiny assembly bytes + epoch stamps \u2014 not the live 450MB assembly."
+}

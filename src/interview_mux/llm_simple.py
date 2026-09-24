@@ -400,10 +400,46 @@ def run_llm_stage_simple(
                         and n.get("type") != "operator"
                     ]
                     if not still_blocking:
-                        raise StageError(
-                            stage_key,
-                            "LLM stage nugget_layup_compose incomplete: "
-                            f"cta_omit_applied dropped {','.join(dropped[:8])}",
+                        # CTA omit already mutated selection — one in-invoke LLM
+                        # retry with the pruned order. Raising StageError here
+                        # (old path) fed selection_cta_omit → budget_exhausted
+                        # thrash (exec_13177).
+                        if attempt < 2:
+                            ctx.log(
+                                "nugget_layup_compose: CTA omit applied — "
+                                "retrying LLM once with pruned selection "
+                                f"({','.join(dropped[:8])})",
+                                level="warning",
+                                stage=stage_key,
+                                detail={"dropped_segment_ids": dropped[:12]},
+                            )
+                            last_schema_errors = [
+                                "cta_omit_applied dropped "
+                                + ",".join(dropped[:8])
+                            ]
+                            # Rebuild tape packet so retry sees pruned ordered ids.
+                            try:
+                                base_input = build_stage_input(ctx)
+                                user_payload = json.dumps(
+                                    base_input, indent=2, ensure_ascii=False
+                                )
+                            except Exception as rebuild_exc:
+                                ctx.log(
+                                    f"nugget_layup_compose: CTA omit rebuild "
+                                    f"failed open: {rebuild_exc}",
+                                    level="warning",
+                                    stage=stage_key,
+                                )
+                            continue
+                        # Final attempt: fall through to soft-accept / persist
+                        # with CTA needs already demoted to non-blocking.
+                        ctx.log(
+                            "nugget_layup_compose: CTA omit on final attempt — "
+                            "accepting demoted needs "
+                            f"({','.join(dropped[:8])})",
+                            level="warning",
+                            stage=stage_key,
+                            detail={"dropped_segment_ids": dropped[:12]},
                         )
             msg = f"LLM stage {stage_key} incomplete: status={envelope.get('status')} needs={needs[:3]}"
             artifacts = envelope.get("artifacts")
@@ -564,6 +600,53 @@ def run_llm_stage_simple(
 
         last_schema_errors = validate_stage_artifacts(stage_key, artifacts)
         if last_schema_errors:
+            # Ranking: ordered_ids are the critical field — strip optional bad
+            # leaves and persist when air order is usable (§3B partial soften).
+            if stage_key == "full_master_ranking" and isinstance(artifacts, dict):
+                ordered = [
+                    str(s)
+                    for s in (artifacts.get("ordered_segment_ids") or [])
+                    if str(s).strip()
+                ]
+                if ordered:
+                    softened = {
+                        "ordered_segment_ids": ordered,
+                        "excluded_segment_ids": artifacts.get("excluded_segment_ids") or [],
+                        "notes": artifacts.get("notes")
+                        or "schema_soften:optional_fields_dropped",
+                    }
+                    # Prefer exclude list without contradicting rationales.
+                    try:
+                        from interview_mux.artifact_repairs import prune_stale_exclude_rationales
+
+                        softened, _ = prune_stale_exclude_rationales(softened)
+                    except Exception:
+                        pass
+                    ctx.log(
+                        "ranking schema soften — persisting ordered_ids only "
+                        f"({len(ordered)} ids); "
+                        + "; ".join(last_schema_errors[:3]),
+                        level="warning",
+                        stage=stage_key,
+                    )
+                    try:
+                        return _commit_partial_artifacts(
+                            ctx,
+                            stage_key,
+                            {**envelope, "artifacts": softened, "status": "partial"},
+                            softened,
+                            persist_artifacts,
+                            sync_fn,
+                            auto_complete,
+                            f"Schema validation failed for {stage_key}",
+                            note="schema soften: optional fields dropped; order persisted",
+                        )
+                    except Exception as exc:
+                        ctx.log(
+                            f"ranking schema-soften persist failed: {exc}",
+                            level="warning",
+                            stage=stage_key,
+                        )
             if attempt == 2:
                 msg = f"Schema validation failed for {stage_key}: {'; '.join(last_schema_errors[:6])}"
                 ctx.log(msg, level="error", stage=stage_key, detail={"schema_errors": last_schema_errors[:8]})

@@ -12,6 +12,12 @@ outputs:
 - path: understanding/gap_evaluations.json
   schema: gap_evaluations_artifact.schema.json
   staging: true
+- path: understanding/flow_adaptation.json
+  staging: true
+- path: glob:understanding/llm_calls/missing_framing/**
+  staging: true
+- path: glob:understanding/stage_runs/missing_framing/**
+  staging: true
 inputs:
   hard:
   - path: segments/boundaries.json

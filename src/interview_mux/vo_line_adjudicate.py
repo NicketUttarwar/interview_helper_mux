@@ -580,8 +580,19 @@ def persist_adjudication_skip_stub(
 
 
 def _heal_adjudicate_mark(ctx: RunContext) -> None:
+    from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
     from interview_mux.stage_completion import heal_or_refuse_mark
 
+    try:
+        ident = identify_hosted_vo_floor(
+            ctx, stage_id=STAGE_ID, persist=True
+        )
+        if ident.status == "HOLLOW_ZERO":
+            # Do not force-clear hosted-floor incompleteness on hollow mint.
+            heal_or_refuse_mark(ctx, STAGE_ID)
+            return
+    except Exception:
+        pass
     heal_or_refuse_mark(ctx, STAGE_ID)
 
 

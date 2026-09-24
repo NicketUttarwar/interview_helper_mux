@@ -1,0 +1,13 @@
+{
+  "ordered_segment_ids": [
+    "seg_062",
+    "seg_062la",
+    "seg_062lb"
+  ],
+  "parent_spans": {
+    "seg_062": {
+      "start_ms": 1000,
+      "end_ms": 5000
+    }
+  }
+}

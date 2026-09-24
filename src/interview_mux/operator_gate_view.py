@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
 from interview_mux.run_context import RunContext
@@ -34,6 +34,7 @@ class GateOperatorView:
     ui_mode: str = ""
     message: str = ""
     automation: GateAutomation = field(default_factory=GateAutomation)
+    hosted_vo_floor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -50,7 +51,28 @@ class GateOperatorView:
         auto = self.automation.to_dict()
         if auto:
             out["automation"] = auto
+        if self.hosted_vo_floor:
+            out["hosted_vo_floor"] = self.hosted_vo_floor
         return out
+
+
+def _hosted_vo_floor_snapshot(ctx: RunContext) -> dict[str, Any] | None:
+    try:
+        from interview_mux.hosted_vo_authority import (
+            floor_identity_to_dict,
+            identify_hosted_vo_floor,
+        )
+
+        return floor_identity_to_dict(identify_hosted_vo_floor(ctx, persist=False))
+    except Exception:
+        return None
+
+
+def _attach_hosted_vo_floor(ctx: RunContext, view: GateOperatorView) -> GateOperatorView:
+    payload = _hosted_vo_floor_snapshot(ctx)
+    if not payload:
+        return view
+    return replace(view, hosted_vo_floor=payload)
 
 
 def _run_meta(ctx: RunContext) -> dict[str, Any]:
@@ -413,8 +435,10 @@ def build_operator_gates(
     meta = meta if isinstance(meta, dict) else _run_meta(ctx)
     gates = {
         "transcript_review": resolve_transcript_review_gate(ctx, meta),
-        "g1_vo_pickup": resolve_g1_vo_gate(ctx, job, meta, missing=g1_missing),
-        "missing_framing": resolve_framing_gate(ctx, meta),
+        "g1_vo_pickup": _attach_hosted_vo_floor(
+            ctx, resolve_g1_vo_gate(ctx, job, meta, missing=g1_missing)
+        ),
+        "missing_framing": _attach_hosted_vo_floor(ctx, resolve_framing_gate(ctx, meta)),
     }
     return {gid: view.to_dict() for gid, view in gates.items()}
 

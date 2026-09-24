@@ -44,7 +44,9 @@ def ensure_preclean_skipped(
 ) -> None:
     """Finalize optional pre-clean without outputs so downstream stages can run."""
     write_skip_artifact(ctx, checkpoint=checkpoint, scope=scope, reason=reason)
-    if not ctx.is_done("audio_preclean"):
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if not seed_stage_complete(ctx, "audio_preclean"):
         ctx.log(
             f"Audio pre-clean skipped ({checkpoint}, scope={scope}).",
             level="info",
@@ -56,6 +58,7 @@ def ensure_preclean_skipped(
 def preclean_was_skipped(ctx: RunContext) -> bool:
     if ctx.artifact_exists("preclean/skip.json"):
         return True
+    # DETECTION_ONLY_IS_DONE: skip.json absent — hollow done without isolated wav.
     if not ctx.is_done("audio_preclean"):
         return False
     return not ctx.artifact_exists("preclean/isolated.wav") and not ctx.final_path(

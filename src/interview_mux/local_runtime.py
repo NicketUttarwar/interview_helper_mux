@@ -351,6 +351,27 @@ def persist_runtime_last_error(ctx: Any, payload: dict[str, Any]) -> None:
         pass
 
 
+def _usable_runtime_out_wav(path: Path, *, min_bytes: int = 256) -> bool:
+    """True when dest WAV exists and looks like a real take (not empty stub)."""
+    try:
+        if not path.is_file():
+            return False
+        if path.stat().st_size < int(min_bytes):
+            return False
+    except OSError:
+        return False
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as wf:
+            rate = int(wf.getframerate() or 0)
+            frames = int(wf.getnframes() or 0)
+        return rate > 0 and frames > 0
+    except Exception:
+        # Non-wave container still counts if non-trivial bytes landed.
+        return True
+
+
 def run_runtime_json(
     runtime_id: str,
     script_rel: str,
@@ -384,6 +405,36 @@ def run_runtime_json(
         "stage": stage,
         "line_id": (payload or {}).get("line_id"),
     }
+
+    def _accept_landed_wav(*, cause: str) -> dict[str, Any] | None:
+        """Chatterbox may write WAV then pollute stdout (pkg_resources) — accept bytes."""
+        out_raw = str((payload or {}).get("out_wav") or "").strip()
+        if not out_raw:
+            return None
+        out_path = Path(out_raw)
+        if not _usable_runtime_out_wav(out_path):
+            return None
+        if ctx is not None:
+            try:
+                ctx.log(
+                    f"local_runtime {runtime_id}: accepted usable out_wav after {cause}",
+                    level="warning",
+                    stage=stage or runtime_id,
+                    detail={
+                        **event,
+                        "out_wav": out_raw,
+                        "accepted_despite": cause,
+                    },
+                )
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "out_wav": out_raw,
+            "accepted_despite": cause,
+            "likely_cause": cause,
+        }
+
     if ctx is not None:
         try:
             ctx.log(
@@ -398,11 +449,17 @@ def run_runtime_json(
             persist_runtime_last_error(ctx, event)
     if parsed is not None:
         if proc.returncode != 0 or parsed.get("ok") is False:
+            accepted = _accept_landed_wav(cause=str(likely or "runtime_failed"))
+            if accepted is not None:
+                return accepted
             err = str(parsed.get("error") or "runtime failed")[:500]
             raise LocalRuntimeUnavailable(
                 f"Local runtime {runtime_id} failed: {err} (likely_cause={likely})"
             )
         return parsed
+    accepted = _accept_landed_wav(cause=str(likely or "invalid_json_stdout"))
+    if accepted is not None:
+        return accepted
     err = (proc.stderr or proc.stdout or "").strip()[:500]
     raise LocalRuntimeUnavailable(
         f"Local runtime {runtime_id} failed: {err or 'invalid JSON'} (likely_cause={likely})"

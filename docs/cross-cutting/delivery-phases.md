@@ -32,7 +32,7 @@ Internal sub-step: `sfx_prompt_refine` runs inside `mmaudio_sfx`, not as an agen
 
 Mix → junction → master, then ship (`SHIP_AFTER_MASTER`).
 
-**B3 mix epoch:** after Phase A is sealed, `mix` / `junction_snip_qa` / `master_finalize` wait until `music_epoch_complete` (MUSIC_BEFORE_MIX seed-complete + SDP WAV parity). Isolated unit dispatch without a checkpoint is not gated.
+**B3 mix epoch:** after Phase A is sealed, `junction_snip_qa` / `master_finalize` wait until `music_epoch_complete` (MUSIC_BEFORE_MIX seed-complete + SDP WAV parity). **Always-HAU** (`optional_beds_until_remaster`): first `mix` may seat speech-only assembly before MusicGen via `mix_junction_seat.next_delivery_seat` / `allow_speech_first_mix`; beds remaster after the music epoch. Soft theme/SFX gates use `beds_deferred_for_mix` (stamp + music incomplete), not live speech-first alone. Isolated unit dispatch without a checkpoint is not gated.
 
 **Phase A lock:** when `delivery_epoch.phase_a_sealed_at` is set, `delivery_epoch.locked` defaults true. Structural invalidation requires **G-DeliveryUnlock** (`POST …/delivery/unlock`). See [operator-gates.md](../workflows/operator-gates.md).
 

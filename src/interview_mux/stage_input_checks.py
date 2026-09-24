@@ -229,13 +229,19 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
             violations = [
                 v for v in violations if "missing WAV" not in v and "missing wav" not in v.lower()
             ]
-        if not violations and result.contract_ok:
-            return []
-    if not violations:
+    book_errs: list[str] = []
+    try:
+        from interview_mux.hosted_vo_authority import assert_books_agree
+
+        book_errs = assert_books_agree(ctx)
+    except Exception:
+        pass
+    if not violations and not book_errs:
         return []
+    msgs = violations + book_errs
     return [
         StageInputIssue(
-            f"VO contract: {violations[0]}",
+            f"VO contract: {msgs[0]}",
             "Run vo_contract ladder or re-run layup/adjudicate before synthesis.",
             kind="vo_contract",
         )
@@ -512,16 +518,30 @@ def _edl_seat_preflight_issues(
                 kind="edl_seat",
             )
         ]
-    if report.get("ok", True):
-        return []
-    errs = list(report.get("errors") or [])[:6]
-    return [
-        StageInputIssue(
-            f"EDL seat preflight blocked {consumer}: {', '.join(str(e) for e in errs)}",
-            "Heal seated VO WAVs / script stamps; never skip required seats.",
-            kind="edl_seat",
+    issues: list[StageInputIssue] = []
+    if not report.get("ok", True):
+        errs = list(report.get("errors") or [])[:6]
+        issues.append(
+            StageInputIssue(
+                f"EDL seat preflight blocked {consumer}: {', '.join(str(e) for e in errs)}",
+                "Heal seated VO WAVs / script stamps; never skip required seats.",
+                kind="edl_seat",
+            )
         )
-    ]
+    try:
+        from interview_mux.hosted_vo_authority import assert_books_agree
+
+        for err in assert_books_agree(ctx):
+            issues.append(
+                StageInputIssue(
+                    err,
+                    "Reconcile orientation gap/EDL via hosted_vo_authority apply/ensure.",
+                    kind="edl_seat",
+                )
+            )
+    except Exception:
+        pass
+    return issues
 
 
 def _vo_script_wav_agreement_issues(

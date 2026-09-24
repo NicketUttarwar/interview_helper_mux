@@ -83,6 +83,13 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
         "episode_meta_build",
         "episode_cover_prompt_craft",
         "podcast_encode_mp3",
+        # Hollow-pass B+ R7: sanitize / air spine MUST_PRECEDE producers
+        "air_contract_sanitize",
+        "air_script_seams",
+        "air_script_compose",
+        "selection_order_sanitize",
+        "full_master_ranking",
+        "gap_report_sanitize",
     }
 )
 
@@ -274,6 +281,7 @@ def stage_predicate_token(ctx: RunContext, stage: str) -> str:
     except Exception:
         inc = "err"
     # Hollow done: incompleteness wins over done=1 for progress honesty
+    # DETECTION_ONLY_IS_DONE: predicate token fingerprint (not advance/skip).
     done = "1" if ctx.is_done(sid) and not inc else "0"
     seed = "1" if seed_stage_complete(ctx, sid) else "0"
     token = f"{sid}:{done}:{seed}:{inc or 'ok'}"
@@ -282,6 +290,8 @@ def stage_predicate_token(ctx: RunContext, stage: str) -> str:
     # progress signal sticky heal treats that as unchanged thrash (×3 halt).
     if sid in {"vo_synthesize", "vo_line_adjudicate", "sound_design_vo_finalize"}:
         token = f"{token}:{_vo_synth_progress_suffix(ctx)}"
+    if sid in {"gap_framing_compose", "optimal_questions"}:
+        token = f"{token}:{_gap_compose_progress_suffix(ctx)}"
     if sid in {
         "mmaudio_sfx",
         "music_palette_compose",
@@ -294,6 +304,35 @@ def stage_predicate_token(ctx: RunContext, stage: str) -> str:
     }:
         token = f"{token}:{_disk_progress_suffix(ctx, sid)}"
     return token
+
+
+def _gap_compose_progress_suffix(ctx: RunContext) -> str:
+    """R6: identical×3 fingerprint includes high_gap_count + line_count."""
+    lines_n = 0
+    high_n = 0
+    auth = "0"
+    try:
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            doc = ctx.read_json("understanding/gap_report.json")
+            if isinstance(doc, dict):
+                lines = doc.get("interviewer_lines") or []
+                lines_n = len(lines) if isinstance(lines, list) else 0
+                auth = "1" if doc.get("nugget_layup_authority") else "0"
+    except Exception:
+        pass
+    try:
+        if ctx.artifact_exists("understanding/gap_evaluations.json"):
+            evals = ctx.read_json("understanding/gap_evaluations.json")
+            if isinstance(evals, dict):
+                high_n = sum(
+                    1
+                    for r in (evals.get("evaluations") or [])
+                    if isinstance(r, dict)
+                    and str(r.get("severity") or "").lower() == "high"
+                )
+    except Exception:
+        pass
+    return f"hg={high_n}:ln={lines_n}:la={auth}"
 
 
 def predicate_flipped(ctx: RunContext, stage: str, prior_token: str | None) -> bool:
@@ -379,19 +418,40 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
         stage = str(job.get("current_stage") or job.get("stage") or "").strip()
         if status in {"running", "starting"}:
             if stage in lease_stages:
-                return True, stage
-            try:
-                from interview_mux.delivery_guardrails import EXPENSIVE_STAGES
+                # Sealed expensive producers must not hold the lease forever when
+                # gui_job still says running (exec_13170: VO done → EDL blocked).
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
 
-                if stage in EXPENSIVE_STAGES:
+                    if seed_stage_complete(ctx, stage):
+                        stage = ""  # fall through — no active lease from sealed stage
+                    else:
+                        return True, stage
+                except Exception:
                     return True, stage
-            except Exception:
-                pass
+            if stage:
+                try:
+                    from interview_mux.delivery_guardrails import EXPENSIVE_STAGES
+
+                    if stage in EXPENSIVE_STAGES:
+                        try:
+                            from interview_mux.delivery_guardrails import (
+                                seed_stage_complete,
+                            )
+
+                            if seed_stage_complete(ctx, stage):
+                                stage = ""
+                            else:
+                                return True, stage
+                        except Exception:
+                            return True, stage
+                except Exception:
+                    pass
             # a10: pending_writes lease only for expensive producers. LLM stages
             # (vo_line_adjudicate) leave orphan pending after LimitExhausted —
             # treating that as an active lease deadlocks ESR wait forever.
-            expensive_pending = stage in lease_stages
-            if not expensive_pending:
+            expensive_pending = bool(stage) and stage in lease_stages
+            if not expensive_pending and stage:
                 try:
                     from interview_mux.delivery_guardrails import EXPENSIVE_STAGES
 
@@ -402,7 +462,18 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
                 try:
                     pending = ctx.run_dir / ".pending_writes" / stage
                     if pending.is_dir() and any(pending.rglob("*")):
-                        return True, stage
+                        # Pending after seed-complete is flush residue, not active work.
+                        try:
+                            from interview_mux.delivery_guardrails import (
+                                seed_stage_complete,
+                            )
+
+                            if seed_stage_complete(ctx, stage):
+                                pass
+                            else:
+                                return True, stage
+                        except Exception:
+                            return True, stage
                 except Exception:
                     pass
         # WS5: seed-complete stage with idle/stalled job is not an active lease
@@ -441,18 +512,26 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
         except Exception:
             skip_mtime_lease = False
     # gui_job can lag on error while chatterbox still writes wavs (forensics thrash).
+    # Skip mtime lease when vo_synthesize is already seed-complete (exec_13170).
     if not skip_mtime_lease:
         try:
-            synth_dir = ctx.final_path("vo_pickup", "synthesized")
-            if synth_dir.is_dir():
-                newest = 0.0
-                for p in synth_dir.glob("*.wav"):
-                    if p.is_file():
-                        newest = max(newest, p.stat().st_mtime)
-                if newest and (time.time() - newest) < 180.0:
-                    return True, "vo_synthesize"
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            vo_sealed = seed_stage_complete(ctx, "vo_synthesize")
         except Exception:
-            pass
+            vo_sealed = False
+        if not vo_sealed:
+            try:
+                synth_dir = ctx.final_path("vo_pickup", "synthesized")
+                if synth_dir.is_dir():
+                    newest = 0.0
+                    for p in synth_dir.glob("*.wav"):
+                        if p.is_file():
+                            newest = max(newest, p.stat().st_mtime)
+                    if newest and (time.time() - newest) < 180.0:
+                        return True, "vo_synthesize"
+            except Exception:
+                pass
 
         # a10: host_tools / MusicGen wav growth even when gui_job stage drifted
         try:
@@ -463,7 +542,15 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
                     if p.is_file():
                         newest = max(newest, p.stat().st_mtime)
             if newest and (time.time() - newest) < 120.0:
-                return True, "music_palette_compose"
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+
+                    if seed_stage_complete(ctx, "music_palette_compose"):
+                        pass  # sealed — no mtime lease (F6)
+                    else:
+                        return True, "music_palette_compose"
+                except Exception:
+                    return True, "music_palette_compose"
         except Exception:
             pass
 
@@ -500,7 +587,19 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
                     if p.is_file():
                         newest = max(newest, p.stat().st_mtime)
             if newest and (time.time() - newest) < 300.0:
-                return True, "mmaudio_sfx"
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+
+                    if seed_stage_complete(ctx, "mmaudio_sfx") and seed_stage_complete(
+                        ctx, "music_palette_compose"
+                    ):
+                        pass  # sealed — no mtime lease (F6)
+                    elif not seed_stage_complete(ctx, "mmaudio_sfx"):
+                        return True, "mmaudio_sfx"
+                    elif not seed_stage_complete(ctx, "music_palette_compose"):
+                        return True, "music_palette_compose"
+                except Exception:
+                    return True, "mmaudio_sfx"
     except Exception:
         pass
     # Mix / assembly growth
@@ -509,7 +608,14 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
             for name in ("assembly.wav", "assembly_preview.wav"):
                 p = ctx.final_path("master", name)
                 if p.is_file() and (time.time() - p.stat().st_mtime) < 300.0:
-                    return True, "mix"
+                    try:
+                        from interview_mux.delivery_guardrails import seed_stage_complete
+
+                        if seed_stage_complete(ctx, "mix"):
+                            break
+                        return True, "mix"
+                    except Exception:
+                        return True, "mix"
     except Exception:
         pass
     # Junction remaster / NLE activity
@@ -535,7 +641,15 @@ def expensive_stage_lease_active(ctx: RunContext) -> tuple[bool, str]:
                     if p.is_file():
                         newest = max(newest, p.stat().st_mtime)
             if newest and (time.time() - newest) < 300.0:
-                return True, "music_palette_compose"
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+
+                    if seed_stage_complete(ctx, "music_palette_compose"):
+                        pass
+                    else:
+                        return True, "music_palette_compose"
+                except Exception:
+                    return True, "music_palette_compose"
     except Exception:
         pass
     return False, ""
@@ -604,7 +718,12 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
                 return canonical_resume_pin(
                     ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=hint_s
                 )
-        return _music_epoch_producer_pin(ctx)
+        try:
+            from interview_mux.mix_junction_seat import next_delivery_seat
+
+            return next_delivery_seat(ctx)
+        except Exception:
+            return _music_epoch_producer_pin(ctx)
 
     if intent_l in {"mix_seat", "mix", FAIL_CLASS_MIX_SEAT}:
         return safe_mix_resume_stage(ctx)
@@ -695,6 +814,36 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
             music_epoch_complete,
             phase_a_sealed,
         )
+
+        # Gap VO gate / hollow hosted floor → layup/compose producer, never
+        # leapfrog to edl_narrative_audit (exec_13183 thrash / Cluster C SSOT).
+        hint_l = hint_s.lower()
+        if (
+            "no synthesize lines" in hint_l
+            or "hollow_zero" in hint_l
+            or "hosted_vo_floor" in hint_l
+            or "hosted_vo_hollow" in hint_l
+        ):
+            try:
+                from interview_mux.hosted_vo_authority import resume_producer as _hvo_resume
+
+                pin = _hvo_resume(ctx)
+                if pin:
+                    return pin
+            except Exception:
+                pass
+            try:
+                from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+                pin = high_gap_heal_resume_stage(ctx)
+                if pin:
+                    return pin
+            except Exception:
+                pass
+            return "nugget_layup_compose"
+        # EDL narrative QC → edl producer only (exec_13183 blank-parity thrash).
+        if "edl_narrative_qc" in hint_s.lower():
+            return "edl"
 
         try:
             ensure_phase_a_seal_deadline(ctx)
@@ -1175,6 +1324,31 @@ def stable_fail_key(label: str, *, stage: str = "", reason: str = "", resume: st
     return f"{label}:{cls}"
 
 
+def sticky_pin_is_sealed(ctx: RunContext, pin: str) -> bool:
+    """True when sticky pin is seed-complete (never bare is_done — F5)."""
+    sid = str(pin or "").strip()
+    if not sid:
+        return False
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        return bool(seed_stage_complete(ctx, sid))
+    except Exception:
+        return False
+
+
+def remutate_resume_allowed(ctx: RunContext) -> bool:
+    """False while G1 VO is open — remutate must not yank to transitions/edl/mix."""
+    try:
+        from interview_mux.delivery_guardrails import _g1_open
+
+        if _g1_open(ctx):
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def note_sticky_heal_attempt(
     ctx: RunContext,
     *,
@@ -1197,6 +1371,31 @@ def note_sticky_heal_attempt(
     intent_s = str(intent or "").strip()[:80]
     token_s = str(predicate_token or "").strip()[:240]
     key = f"{kind_s}|{pin_s}|{intent_s}"
+    # F5: sealed pin must clear sticky, never reinforce active_halt.
+    if pin_s and sticky_pin_is_sealed(ctx, pin_s):
+        doc: dict[str, Any] = {"version": 1, "attempts": {}}
+        if ctx.artifact_exists(STICKY_HEAL_REL):
+            try:
+                loaded = ctx.read_json(STICKY_HEAL_REL)
+                if isinstance(loaded, dict):
+                    doc = dict(loaded)
+            except Exception:
+                pass
+        if isinstance(doc.get("active_halt"), dict):
+            doc.pop("active_halt", None)
+            try:
+                ctx.write_json(STICKY_HEAL_REL, doc, skip_handoff=True)
+            except Exception:
+                pass
+        return {
+            "kind": kind_s,
+            "pin": pin_s,
+            "intent": intent_s,
+            "predicate_token": token_s,
+            "count": 0,
+            "halt": False,
+            "cleared_sealed": True,
+        }
     now = time.time()
     doc: dict[str, Any] = {"version": 1, "attempts": {}}
     if ctx.artifact_exists(STICKY_HEAL_REL):
@@ -1421,13 +1620,15 @@ def note_authority_undo_attempt(
             distinct_actions = {a for a in actions[-limit:] if a}
             # Same canonical writer flipping two content hashes during unfinished
             # EDL is bridge-heal ↔ restamp refinement (exec_11130), not A↔B thrash.
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
             if (
                 (
                     art.endswith("transitions.json")
                     or art.endswith("gap_report.json")
                 )
                 and len(distinct_actions) <= 1
-                and not ctx.is_done("edl")
+                and not seed_stage_complete(ctx, "edl")
             ):
                 halt = False
                 reason = ""
@@ -1524,14 +1725,18 @@ def note_authority_undo_attempt(
 
 
 
-def heal_navigate(
+def _heal_navigate_ungated(
     ctx: RunContext,
     *,
     error: str = "",
     stage: str = "",
     intent: str = "",
 ) -> dict[str, str]:
-    """Single heal navigator: error/stage → intent → canonical pin."""
+    """Propose a heal pin (no Option E allowlist/checklist gate).
+
+    Callers that rewrite ``from_stage`` must use ``heal_navigate`` /
+    ``resolve_heal_from_stage`` so refuse-by-default authority applies.
+    """
     # A refused soft pre-EDL shortcut is itself not a producer. Route to the
     # product QC writer and let normal attempt accounting begin there.
     soft_refuse = f"{error} {stage}".lower()
@@ -1752,11 +1957,30 @@ def heal_navigate(
     try:
         blob_w1 = f"{error} {stage}".strip().lower()
         pin = None
-        if "gap_unsanitary" not in blob_w1:
+        # HR-2 selection_commit_refused embeds sanitize_refused text in the refuse
+        # detail — do not hijack to W1 (exec_13177 / test_hr2_layup_commit_refuse).
+        if "gap_unsanitary" not in blob_w1 and "selection_commit_refused" not in blob_w1:
             from interview_mux.stage_completion import parse_resume_stage_from_reason
 
             parsed = parse_resume_stage_from_reason(str(error or ""))
-            if parsed == "selection_order_sanitize" or "selection still unsanitary" in blob_w1:
+            if parsed == "full_master_ranking" or (
+                (
+                    "selection still unsanitary" in blob_w1
+                    or "selection_unsanitary" in blob_w1
+                    or "sanitize_refused:selection" in blob_w1
+                )
+                and (
+                    "hard_keep_" in blob_w1
+                    or "air_order_integrity_critical" in blob_w1
+                )
+            ):
+                pin = "full_master_ranking"
+            elif (
+                parsed == "selection_order_sanitize"
+                or "selection still unsanitary" in blob_w1
+                or "selection_unsanitary" in blob_w1
+                or "sanitize_refused:selection" in blob_w1
+            ):
                 pin = "selection_order_sanitize"
             elif parsed == "gap_report_sanitize" or "gap still unsanitary" in blob_w1:
                 pin = "gap_report_sanitize"
@@ -2092,6 +2316,26 @@ def heal_navigate(
         pass
     return out
 
+
+def heal_navigate(
+    ctx: RunContext,
+    *,
+    error: str = "",
+    stage: str = "",
+    intent: str = "",
+) -> dict[str, str]:
+    """Single heal navigator with Heal Clinic Option E authority gate.
+
+    Propose via ``_heal_navigate_ungated``, then refuse-by-default unless the
+    error/intent is allowlisted and the target prereq checklist is green.
+    """
+    from interview_mux.heal_pin_authority import resolve_heal_from_stage
+
+    return resolve_heal_from_stage(
+        ctx, error=error, stage=stage, intent=intent
+    )
+
+
 def bump_assembly_seating_generation(ctx: RunContext, reason: str) -> None:
     """Mark mix/preview seating stale so file presence is not enough."""
 
@@ -2168,6 +2412,7 @@ def demote_incomplete_orphans(ctx: RunContext) -> list[str]:
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
         if not rel or not ctx.artifact_exists(rel):
             continue
+        # DETECTION_ONLY_IS_DONE: already stamped → skip demote of live incomplete.
         if ctx.is_done(sid):
             continue
         try:
@@ -2704,14 +2949,16 @@ def _enforce_ship_path_honesty(ctx: RunContext, job: dict[str, Any]) -> dict[str
     except Exception:
         pass
 
-    encode_done = ctx.is_done("podcast_encode_mp3")
+    from interview_mux.done_authority import may_skip_as_complete
+
+    encode_done = may_skip_as_complete(ctx, "podcast_encode_mp3")
     has_mp3 = ctx.artifact_exists("publish/audio.mp3") or ctx.artifact_exists(
         "publish/master.mp3"
     )
     if not encode_done and not has_mp3:
         holes.append("publish/audio.mp3 missing")
         pin = "podcast_encode_mp3"
-    elif left and not ctx.is_done("podcast_publish"):
+    elif left and not may_skip_as_complete(ctx, "podcast_publish"):
         # Remaining ship producers with no skip — false complete.
         holes.append("ship remaining: " + ", ".join(left[:6]))
         pin = left[0]
@@ -2951,12 +3198,25 @@ def path_to_master_pin(ctx: RunContext) -> str:
         except Exception:
             pass
         # Seal-only skew with all Phase A seed-complete: fall through to music.
-    # Music epoch still open → earliest music producer only.
+    # Music epoch still open → speech-first mix or music producers (Phase A
+    # already handled above; do not re-enter next_delivery_seat Phase-A walk).
     if not music_epoch_complete(ctx):
-        for sid in MUSIC_BEFORE_MIX:
-            if not seed_stage_complete(ctx, sid):
-                return sid
-        return "mmaudio_sfx"
+        try:
+            from interview_mux.mix_junction_seat import hold_speech_first_mix
+
+            if hold_speech_first_mix(ctx, "mix"):
+                return "mix"
+        except Exception:
+            pass
+        try:
+            from interview_mux.mix_junction_seat import next_delivery_seat
+
+            return next_delivery_seat(ctx)
+        except Exception:
+            for sid in MUSIC_BEFORE_MIX:
+                if not seed_stage_complete(ctx, sid):
+                    return sid
+            return "mmaudio_sfx"
     # Music sealed: never rewind to edl_narrative_audit / Phase-A consumers.
     from interview_mux.air_order import mix_seat_resume_stage
 
@@ -3067,9 +3327,11 @@ def ensure_phase_a_seal_deadline(ctx: RunContext) -> dict[str, Any]:
     has_preview = ctx.artifact_exists("master/assembly_preview.wav") or assembly_wav_present(
         ctx
     )
-    has_delight = ctx.artifact_exists("mastering/listen_delight_audit.json") or ctx.is_done(
-        "listen_delight_audit"
-    )
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    has_delight = ctx.artifact_exists(
+        "mastering/listen_delight_audit.json"
+    ) or seed_stage_complete(ctx, "listen_delight_audit")
     has_edl = ctx.artifact_exists("master/edl.json")
     if not (has_preview or has_delight or has_edl):
         return out

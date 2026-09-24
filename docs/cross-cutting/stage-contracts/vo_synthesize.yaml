@@ -16,6 +16,8 @@ outputs:
   staging: true
 - path: vo_pickup/synthesized/
   staging: true
+- path: vo_pickup/
+  staging: true
 inputs:
   hard:
   - path: understanding/gap_report.json

@@ -100,9 +100,24 @@ def live_producer_authority(ctx: RunContext, stage: str) -> bool:
 
             return bool(music_epoch_complete(ctx))
         if stage in {"mix", "assembly_preview"}:
+            # Land Honesty: assembly.wav alone is not live authority while remaster
+            # is unpaid (orphan promote / restamp must not treat pre-beds seat as land).
+            if stage == "mix":
+                try:
+                    from interview_mux.done_authority import unpaid_land_reason
+
+                    if unpaid_land_reason(ctx, "mix") is not None:
+                        return False
+                except Exception:
+                    pass
+                try:
+                    from interview_mux.air_order import mix_outputs_seated
+
+                    return bool(mix_outputs_seated(ctx))
+                except Exception:
+                    return committed_path_exists(ctx, "master", "assembly.wav")
             return committed_path_exists(ctx, "master", "assembly.wav") or (
-                stage == "assembly_preview"
-                and committed_path_exists(ctx, "master", "assembly_preview.wav")
+                committed_path_exists(ctx, "master", "assembly_preview.wav")
             )
         if stage == "vo_line_adjudicate":
             from interview_mux.delivery_guardrails import (
@@ -140,7 +155,7 @@ def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> 
             tail = low.split("before running ", 1)[1]
             consumer = tail.split()[0].strip(".:;")
             if consumer and consumer != pin:
-                # SDP → never jump to mix while music epoch incomplete.
+                # SDP → never jump to mix while music incomplete (Always-HAU).
                 if pin == "sound_design_plan" and consumer == "mix":
                     try:
                         from interview_mux.delivery_guardrails import (
@@ -148,17 +163,21 @@ def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> 
                             music_epoch_complete,
                             seed_stage_complete,
                         )
+                        from interview_mux.mix_junction_seat import hold_speech_first_mix
 
+                        if hold_speech_first_mix(ctx, "mix"):
+                            return "mix"
                         if not music_epoch_complete(ctx):
                             for sid in MUSIC_BEFORE_MIX:
                                 if not seed_stage_complete(ctx, sid):
                                     return sid
+                            return "mmaudio_sfx"
                     except Exception:
                         pass
                 return consumer
         except Exception:
             pass
-    # sound_design_plan restamp → earliest incomplete MUSIC_BEFORE_MIX (not mix).
+    # sound_design_plan restamp → music producer while epoch open (not bare mix).
     if pin == "sound_design_plan":
         try:
             from interview_mux.delivery_guardrails import (
@@ -166,11 +185,15 @@ def seed_order_consumer_for(ctx: RunContext, pin: str, *, message: str = "") -> 
                 music_epoch_complete,
                 seed_stage_complete,
             )
+            from interview_mux.mix_junction_seat import hold_speech_first_mix
 
+            if hold_speech_first_mix(ctx, "mix"):
+                return "mix"
             if not music_epoch_complete(ctx):
                 for sid in MUSIC_BEFORE_MIX:
                     if not seed_stage_complete(ctx, sid):
                         return sid
+                return "mmaudio_sfx"
         except Exception:
             pass
     defaults = {
@@ -196,10 +219,50 @@ def seed_order_heal_action(
     """
     pin = str(pin or "").strip()
     if pin == "master_finalize" and not committed_master_integrity_ok(ctx):
-        return "unmark", pin
+        return "unmark", _clamp_pre_ranking_seed_resume(ctx, pin, message=message)
     if live_producer_authority(ctx, pin):
-        return "restamp", seed_order_consumer_for(ctx, pin, message=message)
-    return "unmark", pin
+        resume = seed_order_consumer_for(ctx, pin, message=message)
+        return "restamp", _clamp_pre_ranking_seed_resume(ctx, resume, message=message)
+    return "unmark", _clamp_pre_ranking_seed_resume(ctx, pin, message=message)
+
+
+PRE_RANKING_SEED_CHAIN: tuple[str, ...] = (
+    "narrative_arc_plan",
+    "chapter_close_hitch",
+    "connector_fuse_pass_pre_ranking",
+)
+
+
+def _clamp_pre_ranking_seed_resume(
+    ctx: RunContext, resume: str, *, message: str = ""
+) -> str:
+    """G6: never resume past unfinished arc/hitch/pre_ranking (exec_13174)."""
+    resume_s = str(resume or "").strip()
+    low = (message or "").lower()
+    chain_named = any(s in low for s in PRE_RANKING_SEED_CHAIN) or resume_s in {
+        *PRE_RANKING_SEED_CHAIN,
+        "full_master_ranking",
+        "selection_order_sanitize",
+    }
+    if not chain_named and resume_s not in {
+        "full_master_ranking",
+        "selection_order_sanitize",
+    }:
+        return resume_s
+    try:
+        from interview_mux.delivery_guardrails import (
+            clamp_resume_through_order,
+            producer_ready,
+        )
+
+        for sid in PRE_RANKING_SEED_CHAIN:
+            if not producer_ready(ctx, sid):
+                return sid
+        if resume_s in {"full_master_ranking", "selection_order_sanitize"}:
+            return clamp_resume_through_order(ctx, resume_s) or resume_s
+    except Exception:
+        pass
+    return resume_s
 
 
 def _remutate_plan_active(doc: dict[str, Any]) -> bool:
@@ -586,31 +649,53 @@ def apply_seed_order_heal(
     message: str = "",
     unmark_fn: Callable[[RunContext, str], None] | None = None,
 ) -> str:
-    """Restamp or unmark per live authority; return resume stage."""
+    """Restamp or unmark per live authority; return resume stage.
+
+    Hollow-pass B+ R1: restamp via Done Authority ``honest_restamp`` — never
+    bare ``Path.touch`` on ``.stage_done``.
+    """
     action, resume = seed_order_heal_action(ctx, pin, message=message)
     if action == "restamp":
-        try:
-            marker = ctx.run_dir / ".stage_done" / pin
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.touch()
-        except Exception:
-            pass
-        record_invariant_heal(
+        from interview_mux.done_authority import honest_restamp
+
+        stamped = honest_restamp(ctx, pin)
+        if stamped:
+            record_invariant_heal(
+                ctx,
+                kind="seed_order_restamp",
+                stage=pin,
+                detail={"resume": resume, "message": (message or "")[:160]},
+            )
+        else:
+            # Refuse hollow restamp — fall through to unmark.
+            action = "unmark"
+            record_invariant_heal(
+                ctx,
+                kind="seed_order_restamp_refused",
+                stage=pin,
+                detail={"resume": resume, "message": (message or "")[:160]},
+            )
+    if action == "unmark":
+        if unmark_fn is not None:
+            try:
+                unmark_fn(ctx, pin)
+            except Exception:
+                pass
+        else:
+            try:
+                marker = ctx.run_dir / ".stage_done" / pin
+                marker.unlink(missing_ok=True)
+            except Exception:
+                pass
+    # Leapfrog B+: admit (clamp + authority) before returning resume.
+    try:
+        from interview_mux.heal_pin_authority import admit_resume
+
+        return admit_resume(
             ctx,
-            kind="seed_order_restamp",
-            stage=pin,
-            detail={"resume": resume, "message": (message or "")[:160]},
+            str(resume or pin or "").strip(),
+            error=message,
+            intent="seed_order_prereq",
         )
+    except Exception:
         return resume
-    if unmark_fn is not None:
-        try:
-            unmark_fn(ctx, pin)
-        except Exception:
-            pass
-    else:
-        try:
-            marker = ctx.run_dir / ".stage_done" / pin
-            marker.unlink(missing_ok=True)
-        except Exception:
-            pass
-    return resume

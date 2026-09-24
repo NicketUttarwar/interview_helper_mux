@@ -218,21 +218,47 @@ def refuse_dispatch(
     except Exception:
         pass
     reach = ship_reachable(ctx)
+    # FLOW-critical with missing primary: pin resume — never leapfrog (NAP exec_13174).
+    pin_instead = False
     try:
-        ctx.log(
-            f"dispatch refused {stage}: {verdict.reason} — advancing "
-            f"(ship reachable={reach.reachable} certain={reach.certain})",
-            level="warning",
-            stage=stage,
-        )
+        from interview_mux.llm_flow_hardening import FLOW_CRITICAL_LLM_STAGES
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+        from interview_mux.homunculus.agenda import stage_outputs_present
+
+        if str(stage or "") in FLOW_CRITICAL_LLM_STAGES:
+            rel = STAGE_ARTIFACT_DISK_PATHS.get(str(stage or ""))
+            missing_primary = bool(rel) and not ctx.artifact_exists(rel)
+            if missing_primary or not stage_outputs_present(ctx, str(stage or "")):
+                pin_instead = True
+    except Exception:
+        pin_instead = False
+    try:
+        if pin_instead:
+            ctx.log(
+                f"dispatch refused {stage}: {verdict.reason} — pinning resume "
+                f"(FLOW-critical primary missing; ship reachable={reach.reachable})",
+                level="warning",
+                stage=stage,
+            )
+        else:
+            ctx.log(
+                f"dispatch refused {stage}: {verdict.reason} — advancing "
+                f"(ship reachable={reach.reachable} certain={reach.certain})",
+                level="warning",
+                stage=stage,
+            )
     except Exception:
         pass
-    return {
+    out = {
         "refused": True,
         "reason": verdict.reason,
         "defect_id": defect.get("defect_id"),
         "reachability": reach.as_row(),
     }
+    if pin_instead:
+        out["pin_resume"] = str(stage or "")
+        out["no_advance"] = True
+    return out
 
 
 def note_dispatch_outcome(

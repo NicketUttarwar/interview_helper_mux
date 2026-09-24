@@ -414,6 +414,9 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO �
 | `analysis.gap_fill.frame_confidence_min` | `0.65` | Clone **auto-approve** floor (voice-ref / consent). Does not skip G-Framing eligibility. Below this, Homunculus still auto-Yes but will not auto-approve a non-frame or low-confidence clone. |
 | `analysis.gap_fill.min_synthetic_vo_lines` | `3` | Post-layup / EDL / G1 ship bar for hosted 1:1 with G-Framing Yes (capped by native count). Not enforced at `gap_framing_compose`. Panels / sparse-host are auto-Yes without this floor. |
 | `analysis.gap_fill.hide_gui_stages_when_skipped` | `false` | If `true`, skipped gap stages are hidden from the step list (legacy v2 behavior; Refinement Pass keeps the full step list always visible) |
+| `analysis.gap_fill.sealed_ratio_max` | `0.15` | CAP-seal fraction that triggers one bounded rescue micro-volley |
+| `analysis.gap_fill.sealed_ratio_hard_max` | `0.35` | After rescue, seal fraction above this is operator-STOP (`sealed_ratio_hard`) |
+| `analysis.gap_fill.sealed_ratio_rescue_max_ids` | `32` | Max segment ids re-volleyed in sealed_ratio / sealed_vs_risk rescue |
 
 ---
 
@@ -1072,6 +1075,18 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.aspirational_quality.require_operator_publish_when_advisory` | `true` | `podcast_publish` / S3 when `quality_advisories` present | `false` allows unattended RSS with advisories |
 | `mastering.aspirational_quality.catastrophic_floors.*` | cut_integrity `0.55`; listen_delight_overall `0.50` | Hard stop even under aspirational policy | Below these = no master |
 | `mastering.aspirational_quality.pick_best_weights.*` | delight overall `0.5`; cut_integrity `0.2`; … | `select_best_quality_candidate` ranking | Tune pick-best tie-breaks |
+| `mastering.progress_floors.enabled` | `true` | Count/score floors as goals: stretch then advisory-continue; playability-only hard stops | `false` restores legacy fail-closed floors |
+| `mastering.progress_floors.max_attempts_per_family` | `3` | Best-of-N / remutate budget for floor families | Lower = faster advisory-continue |
+| `mastering.progress_floors.record_advisories` | `true` | Write `run_meta.floor_advisories` (+ mirror `quality_advisories`) | `false` skips advisory stamps |
+| `mastering.progress_floors.require_operator_publish_when_advisory` | `true` | G-Publish / S3 when floor or quality advisories present | `false` allows unattended sync with advisories |
+| `mastering.progress_floors.hosted_vo.aspirational` | `true` | Hosted VO count floor (`min_synthetic_vo_lines`) **PARTIAL** miss (`have≥1`) → revive discarded then advisory. **Never** covers **HOLLOW_ZERO** (`have==0`; playability stop). SSOT labels via `identify_hosted_vo_floor`: `UNWARRANTED` \| `WAIVED` \| `MET` \| `PARTIAL` \| `HOLLOW_ZERO` — see [hosted-vo-authority.md](hosted-vo-authority.md) | `false` keeps `hosted_vo_floor_unsatisfiable` halt on PARTIAL too |
+| `mastering.progress_floors.layup_coverage.aspirational` | `true` | `min_layup_coverage` miss → advisory | `false` hard QC error |
+| `mastering.progress_floors.nugget_air.aspirational` | `true` | Aligns with `air_coverage_aspirational` SSOT advisories | `false` does not override layup hard path alone |
+| `mastering.progress_floors.listenability.aspirational` | `true` | Listenability coverage bands → advisory after remux budget | `false` fail-closed bands |
+| `mastering.progress_floors.soundscape_density.aspirational` | `true` | Bed/SFX density miss after remux → advisory continue mix | `false` palette/mix refuse |
+| `mastering.progress_floors.listen_delight.aspirational` | `true` | Delight/PMQ score floors → remutate then ship-best | `false` defer to `aspirational_quality` alone |
+| `mastering.progress_floors.listen_delight.catastrophic_as_advisory` | `true` | Former catastrophic score floors become loud advisory + ship-best | `false` restores catastrophic hard-stop |
+| `mastering.progress_floors.boundary_coverage.aspirational` | `true` | Boundary timeline coverage lint → soft advisory | `false` blocking lint |
 | `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |

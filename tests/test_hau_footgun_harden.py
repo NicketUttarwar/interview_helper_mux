@@ -67,6 +67,17 @@ def test_fg2_bare_mix_epoch_block_stays_music_incomplete(ctx: RunContext) -> Non
     assert mix_epoch_block(ctx, stage="") == "music_incomplete"
 
 
+def test_fg2_guardrails_no_raw_allow_speech_first_import() -> None:
+    """Footgun 4: mix_epoch_block must not import allow_speech_first_mix."""
+    import inspect
+
+    import interview_mux.delivery_guardrails as dg
+
+    src = inspect.getsource(dg.mix_epoch_block)
+    assert "allow_speech_first_mix" not in src
+    assert "clear_mix_epoch_for_speech_first" in src
+
+
 # --- FG3: speech-first refuses assembly_kind none ---
 
 
@@ -103,6 +114,41 @@ def test_fg4_music_epoch_remaster_does_not_precede_junction(
     # Junction remaster owner still precedes.
     begin_remaster(ctx, owner="junction")
     assert junction_precedes_mix(ctx) is True
+
+
+def test_speech_first_remaster_blocks_junction_until_land(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Footgun 3: music complete must not clear junction while remaster owed."""
+    from interview_mux.mix_junction_seat import (
+        ensure_speech_first_remaster,
+        next_delivery_seat,
+        speech_first_remaster_owed,
+    )
+
+    _write_preview(ctx)
+    note_speech_first_mix(ctx)
+    marker = ctx.final_path(".stage_done", "mix")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("done")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.music_epoch_complete", lambda _c: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed", lambda _c: True
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _c, sid: True,
+    )
+    assert speech_first_remaster_owed(ctx) is True
+    assert ensure_speech_first_remaster(ctx) is True
+    assert remaster_owner(ctx) == "music_epoch"
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "speech_first_remaster_pending"
+    assert mix_epoch_block(ctx, stage="master_finalize") == "speech_first_remaster_pending"
+    assert mix_epoch_block(ctx) == "speech_first_remaster_pending"
+    assert mix_epoch_block(ctx, stage="mix") is None
+    assert next_delivery_seat(ctx) == "mix"
 
 
 # --- FG5: preview-era music stamps remaster when seat predated beds ---

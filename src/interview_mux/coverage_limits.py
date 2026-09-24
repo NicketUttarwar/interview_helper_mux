@@ -61,6 +61,7 @@ _SOFT_PROGRESSION_DEFAULTS: dict[str, Any] = {
         "time gap",
         "no boundaries",
         "time gaps",
+        "boundary timeline coverage",
     ],
 }
 

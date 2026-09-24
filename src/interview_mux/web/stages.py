@@ -308,7 +308,13 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Find missing interviewer framing and context gaps in the recording.",
         "analysis",
         # flow_adaptation: G-Framing / pickup confirm overrides (DP-GAP-PICKUP-CONFIRM A)
-        ("understanding/gap_evaluations.json", "understanding/flow_adaptation.json"),
+        # llm_calls / stage_runs: declare so flush does not warn-drop operational traces
+        (
+            "understanding/gap_evaluations.json",
+            "understanding/flow_adaptation.json",
+            "glob:understanding/llm_calls/missing_framing/**",
+            "glob:understanding/stage_runs/missing_framing/**",
+        ),
         ("understanding/gap_evaluations.json", "understanding/flow_adaptation.json"),
     ),
     StageInfo(
@@ -324,7 +330,16 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Interviewer script",
         "Generate optimal pickup lines and a human-readable VO script for any gaps.",
         "analysis",
-        ("understanding/gap_report.json", "understanding/interviewer_script.txt"),
+        # Companions + operational globs: declare so flush does not silently drop
+        # gap_framing_plan / vo context audit (exec_13159–13174 undeclared drops).
+        (
+            "understanding/gap_report.json",
+            "understanding/interviewer_script.txt",
+            "understanding/gap_framing_plan.json",
+            "understanding/gap_vo_context_audit.json",
+            "glob:understanding/llm_calls/gap_framing_compose/**",
+            "glob:understanding/stage_runs/gap_framing_compose/**",
+        ),
         ("understanding/gap_report.json",),
     ),
     StageInfo(
@@ -372,7 +387,12 @@ VO_SYNTHESIZE_STAGE = StageInfo(
     "Synthesize spoken VO",
     "Generate current-pair transition WAVs and remaining delivery:synthesize gap lines (fail-open). G1 API still synthesizes one line.",
     "delivery",
-    ("mastering/vo_synthesize.json", "master/transitions/", "vo_pickup/synthesized/"),
+    (
+        "mastering/vo_synthesize.json",
+        "master/transitions/",
+        "vo_pickup/synthesized/",
+        "vo_pickup/",
+    ),
     ("mastering/vo_synthesize.json",),
 )
 
@@ -412,6 +432,7 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
             "mastering/chapter_close_hitch/intent_plan.json",
             "mastering/chapter_close_hitch/remap.json",
             "understanding/episode_structure_compact.txt",
+            "understanding/flow_adaptation.json",
             "segments/boundaries.json",
         ),
         (),
@@ -424,6 +445,10 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         (
             "analysis/connector_fuse_rounds.json",
             "segments/manifest.json",
+            "segments/boundaries.json",
+            "analysis/connector_fuse_audit.json",
+            "analysis/connector_seam_packets.json",
+            "analysis/connector_seam_verdicts.json",
         ),
         (),
     ),
@@ -432,7 +457,16 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Segment ordering",
         "Ranked optimal segment order for the full master podcast (not chronological default).",
         "delivery",
-        ("master/selection.json",),
+        (
+            "master/selection.json",
+            "master/rank_candidates.json",
+            "master/story_health.json",
+            "master/order_reconcile.json",
+            "mastering/media_ip_cta.json",
+            "understanding/reorder_bridges.json",
+            "understanding/speaker_delivery_plan.json",
+            "analysis/stt_lexicon_islands.json",
+        ),
         ("master/selection.json",),
     ),
     StageInfo(
@@ -572,7 +606,12 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Synthesize spoken VO",
         "Generate current-pair transition WAVs and remaining delivery:synthesize gap lines (fail-open). G1 API still synthesizes one line.",
         "delivery",
-        ("mastering/vo_synthesize.json", "master/transitions/", "vo_pickup/synthesized/"),
+        (
+            "mastering/vo_synthesize.json",
+            "master/transitions/",
+            "vo_pickup/synthesized/",
+            "vo_pickup/",
+        ),
         ("mastering/vo_synthesize.json",),
     ),
     StageInfo(

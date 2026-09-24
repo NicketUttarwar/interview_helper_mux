@@ -310,3 +310,39 @@ def required_bridge_keys(
         if a and b:
             keys.add((a, b))
     return keys
+
+
+def mint_needs_spoken_glue_placeholders(
+    ctx: Any,
+    reorder_bridges: dict[str, Any] | None,
+    *,
+    ordered: list[str] | None = None,
+) -> dict[str, Any]:
+    """Tag incomplete reorder pairs with needs_spoken_glue (never claim complete).
+
+    Does not invent spoken stub text — transitions/layup must supply real glue.
+    """
+    del ctx, ordered  # reserved for future context-aware tagging
+    bridges = dict(reorder_bridges or {}) if isinstance(reorder_bridges, dict) else {"pairs": []}
+    pairs = [dict(p) for p in (bridges.get("pairs") or []) if isinstance(p, dict)]
+    tagged = 0
+    for pair in pairs:
+        a = str(pair.get("after_id") or pair.get("after_segment_id") or "")
+        b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
+        if not a or not b:
+            continue
+        if pair.get("complete") is True or pair.get("bridged") is True:
+            continue
+        text = str(pair.get("text") or pair.get("spoken_text") or "").strip()
+        if text and _normalize_bridge_text(text) not in _GENERIC_STUB_PHRASES:
+            continue
+        pair["needs_spoken_glue"] = True
+        pair["complete"] = False
+        # Strip any stub text so assert_bridges_complete does not soft-green.
+        if text and _normalize_bridge_text(text) in _GENERIC_STUB_PHRASES:
+            pair.pop("text", None)
+            pair.pop("spoken_text", None)
+        tagged += 1
+    bridges["pairs"] = pairs
+    bridges["needs_spoken_glue_count"] = tagged
+    return bridges

@@ -56,6 +56,33 @@ def sanitize_selection_cfg() -> dict[str, Any]:
 
 
 def block_consumers_on_unsanitary() -> bool:
+    """True when unsanitary artifacts must block consumers.
+
+    Full-auto / automation-driver / publishability-enforce paths always block
+    (ship parity) even if ``artifact_sanitize.block_consumers`` is False.
+    """
+    try:
+        from interview_mux.automation_run import automation_driver_env_enabled
+
+        if automation_driver_env_enabled():
+            return True
+    except Exception:
+        pass
+    try:
+        from interview_mux.config import merged_config
+
+        cfg = merged_config()
+        resilience = cfg.get("resilience") if isinstance(cfg, dict) else None
+        if isinstance(resilience, dict) and resilience.get("publishability_enforce"):
+            return True
+        run_meta = cfg.get("run_meta") if isinstance(cfg, dict) else None
+        if isinstance(run_meta, dict):
+            from interview_mux.automation_run import is_full_auto_run
+
+            if is_full_auto_run(run_meta):
+                return True
+    except Exception:
+        pass
     from interview_mux.config import merged_config
 
     root = merged_config().get("artifact_sanitize") or {}

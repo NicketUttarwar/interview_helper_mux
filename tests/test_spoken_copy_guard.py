@@ -570,3 +570,45 @@ def test_edl_raises_on_duplicate_spoken_sentence(tmp_path) -> None:
     except ValueError as exc:
         assert "duplicate spoken sentence" in str(exc)
 
+
+def test_performance_title_case_common_noun_allowed_for_transition() -> None:
+    """exec_13177: 'Performance …' must not trip spoken_unsupported_entity thrash."""
+    decision = guard_spoken_copy(
+        "Performance pressure shifted how the team allocated capital.",
+        evidence={
+            "strict_grounding": True,
+            "before_excerpt": "We missed the quarterly target.",
+            "after_excerpt": "Hiring slowed across the board.",
+            "source_gap_ms": 2000,
+        },
+        required=True,
+        purpose="transition",
+    )
+    assert decision["action"] == "allow"
+    assert decision["text"].startswith("Performance")
+    assert not any(
+        v.startswith("spoken_unsupported_entity") for v in decision["violations"]
+    )
+
+
+def test_mid_sentence_fallback_softened_not_blocked() -> None:
+    """Entity strip that leaves a lowercase fragment is prefixed, not blocked."""
+    decision = guard_spoken_copy(
+        "Zorpaxon alone does not settle the capital question.",
+        evidence={
+            "strict_grounding": True,
+            "before_excerpt": "Cash runway shrank.",
+            "after_excerpt": "Investors asked for a plan.",
+            "source_gap_ms": 1500,
+            "before_topic": "cash runway",
+            "after_topic": "investor plan",
+        },
+        required=True,
+        purpose="transition",
+    )
+    assert decision["action"] in {"allow", "fallback"}
+    assert decision["text"]
+    text = str(decision["text"])
+    assert text[:1].isupper()
+    assert "spoken_mid_sentence_fallback" not in decision["violations"]
+

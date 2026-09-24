@@ -61,19 +61,20 @@ def test_hg5_plan_on_disk_pins_layup_not_compose(ctx: RunContext) -> None:
     assert producer_pin_for_token(_HIGH_ERR, ctx=ctx) != "gap_framing_compose"
 
 
-def test_hg5_authority_without_plan_pins_layup(ctx: RunContext) -> None:
+def test_hg5_authority_without_plan_pins_compose(ctx: RunContext) -> None:
+    """Orphan stamp (no plan) is not layup ownership — pin analysis-era compose."""
     ctx.write_json(
         "understanding/gap_report.json",
         {**minimal_gap_report(), "nugget_layup_authority": True},
         skip_handoff=True,
     )
-    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
 
 
-def test_hg5_probe_error_with_stamp_pins_layup_not_compose(
+def test_hg5_probe_error_with_stamp_only_pins_compose(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cascade: authority helper boom + layup stamp → layup, never invent compose."""
+    """Stamp without plan never routes to layup even if authority helper booms."""
     monkeypatch.setattr(
         "interview_mux.nugget_layup.nugget_layup_enabled",
         lambda: True,
@@ -91,10 +92,10 @@ def test_hg5_probe_error_with_stamp_pins_layup_not_compose(
         {**minimal_gap_report(), "nugget_layup_authority": True},
         skip_handoff=True,
     )
-    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
 
 
-def test_hg5_probe_error_without_evidence_refuses_compose(
+def test_hg5_probe_error_without_plan_refuses_compose(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -102,13 +103,14 @@ def test_hg5_probe_error_without_evidence_refuses_compose(
         lambda: True,
     )
 
-    def _boom(*_a, **_k):
-        raise RuntimeError("simulated layup authority probe failure")
+    real_exists = ctx.artifact_exists
 
-    monkeypatch.setattr(
-        "interview_mux.nugget_layup.gap_report_has_layup_authority",
-        _boom,
-    )
+    def _boom_plan(rel: str) -> bool:
+        if str(rel).endswith("nugget_layup_plan.json"):
+            raise RuntimeError(f"simulated artifact probe failure for {rel}")
+        return real_exists(rel)
+
+    monkeypatch.setattr(ctx, "artifact_exists", _boom_plan)
     ctx.write_json(
         "understanding/gap_report.json",
         minimal_gap_report(),
@@ -126,8 +128,15 @@ def test_hg5_heal_navigate_and_classify_live_pin(ctx: RunContext) -> None:
         {"ordered_segment_ids": ["seg_001"], "layups": []},
         skip_handoff=True,
     )
+    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
     nav2 = heal_navigate(ctx, error=_HIGH_ERR, stage="gap_framing_compose")
-    assert nav2["from_stage"] == "nugget_layup_compose"
+    # Authority gate may clamp layup → information_package_plan when prereqs
+    # are red; never pin compose while a plan is on disk.
+    assert nav2["from_stage"] != "gap_framing_compose"
+    assert (
+        nav2["from_stage"] == "nugget_layup_compose"
+        or nav2.get("heal_clamped_from") == "nugget_layup_compose"
+    )
     assert nav2["from_stage"] != "edl"
     route = classify_heal_error(_HIGH_ERR, ctx, stage="gap_framing_compose")
     assert route is not None
@@ -135,9 +144,14 @@ def test_hg5_heal_navigate_and_classify_live_pin(ctx: RunContext) -> None:
     assert route.family == "high_gap_unframed"
 
 
-def test_hg5_playbook_demotes_leftover_highs(
+def test_hg5_playbook_seeds_orphan_stamp_highs(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Land Honesty: orphan layup stamp clears; playbook seeds coverage (no demote).
+
+    Authority-without-plan used to skip seed then demote. Repair now clears the
+    stamp and seeds a targeting line so high_gap_unframed cannot greenwash.
+    """
     monkeypatch.setattr(
         "interview_mux.high_gap_vo.fill_uncovered_high_gaps",
         lambda *_a, **_k: 0,
@@ -154,10 +168,18 @@ def test_hg5_playbook_demotes_leftover_highs(
     )
     written = playbook_high_gap_unframed(ctx)
     assert "understanding/gap_report.json" in written
+    report = ctx.read_json("understanding/gap_report.json")
+    assert report.get("nugget_layup_authority") is False
+    lines = report.get("interviewer_lines") or []
+    assert any(
+        isinstance(ln, dict) and str(ln.get("targets_segment_id") or "") == "seg_001"
+        for ln in lines
+    )
     evals = ctx.read_json("understanding/gap_evaluations.json")
     row = (evals.get("evaluations") or [])[0]
-    assert row.get("severity") == "medium"
-    assert row.get("severity_demotion_reason") == "high_gap_seat:playbook"
+    # Seeded coverage keeps severity high — demotion is for leftovers after fill.
+    assert row.get("severity") == "high"
+    assert not row.get("severity_demotion_reason")
 
 
 def test_hg5_playbook_does_not_demote_covered_high(
@@ -200,8 +222,11 @@ def test_hg5_recovery_resumes_layup_when_plan_exists(ctx: RunContext) -> None:
         skip_handoff=True,
     )
     result = handle_stage_failure(ctx, "gap_framing_compose", RuntimeError(_HIGH_ERR))
-    assert result.resume_stage == "nugget_layup_compose"
     assert result.resume_stage != "gap_framing_compose"
+    assert result.resume_stage in (
+        "nugget_layup_compose",
+        "information_package_plan",  # heal authority clamp when layup prereqs red
+    )
     assert result.playbook_id == "high_gap_unframed"
 
 

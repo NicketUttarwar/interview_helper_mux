@@ -676,12 +676,13 @@ def test_validate_vo_contract_post_layup(
 
 
 def test_recovery_transient_retry_budget(ctx: RunContext) -> None:
+    """Transient budget=3: escalate/mirror burns; recovered does not (Post-Heal P2)."""
     from datetime import datetime, timezone
 
     from interview_mux.recovery_controller import (
         _append_action,
+        attempt_count,
         budget_exhausted,
-        handle_stage_failure,
         recovery_attempt_budget,
         signature_key,
     )
@@ -698,13 +699,34 @@ def test_recovery_transient_retry_budget(ctx: RunContext) -> None:
                 "status": "recovered",
             },
         )
+    # P1/P2: recovered alone must not fuel attempt budget.
+    assert attempt_count(ctx, sig) == 0
     assert not budget_exhausted(ctx, sig, "vo_seated_coverage")
-    result = handle_stage_failure(
-        ctx,
-        "edl_narrative_audit",
-        RuntimeError("VO coverage not rendered: ['vo_layup_seg_019']"),
+    for _ in range(3):
+        _append_action(
+            ctx,
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "signature": sig,
+                "playbook_id": "vo_seated_coverage",
+                "status": "escalate",
+            },
+        )
+    assert budget_exhausted(ctx, sig, "vo_seated_coverage")
+
+
+def test_unified_recovery_counters_r12c(ctx: RunContext) -> None:
+    """R12c: escalate mirrors into identical; recovered must not (Post-Heal P1)."""
+    from datetime import datetime, timezone
+
+    from interview_mux.identical_failures import read_identical_failures
+    from interview_mux.recovery_controller import (
+        _append_action,
+        attempt_count,
+        signature_key,
     )
-    assert result.status in {"recovered", "escalate"}
+
+    sig = signature_key("edl_narrative_audit", "vo_seated_coverage")
     _append_action(
         ctx,
         {
@@ -714,7 +736,28 @@ def test_recovery_transient_retry_budget(ctx: RunContext) -> None:
             "status": "recovered",
         },
     )
-    assert budget_exhausted(ctx, sig, "vo_seated_coverage")
+    assert attempt_count(ctx, sig) == 0
+    for row in (read_identical_failures(ctx).get("signatures") or {}).values():
+        if isinstance(row, dict) and str(row.get("error_class") or "") == "vo_seated_coverage":
+            assert int(row.get("count") or 0) == 0
+
+    _append_action(
+        ctx,
+        {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "signature": sig,
+            "playbook_id": "vo_seated_coverage",
+            "status": "escalate",
+        },
+    )
+    assert attempt_count(ctx, sig) >= 1
+    class_counts = [
+        int(row.get("count") or 0)
+        for row in (read_identical_failures(ctx).get("signatures") or {}).values()
+        if isinstance(row, dict)
+        and str(row.get("error_class") or "") == "vo_seated_coverage"
+    ]
+    assert class_counts and max(class_counts) >= 1
 
 
 def test_stage_done_coherence_after_invalidate(ctx: RunContext) -> None:
@@ -856,35 +899,6 @@ def test_stage_input_preflight_recovery_h0c(ctx: RunContext) -> None:
     mark_done_raw(ctx, "vo_synthesize")
     require_stage_inputs(ctx, "edl_narrative_audit")
     assert not collect_stage_input_issues(ctx, "edl_narrative_audit")
-
-
-def test_unified_recovery_counters_r12c(ctx: RunContext) -> None:
-    from datetime import datetime, timezone
-
-    from interview_mux.identical_failures import failure_signature_by_class, read_identical_failures
-    from interview_mux.recovery_controller import (
-        _append_action,
-        attempt_count,
-        signature_key,
-    )
-
-    sig = signature_key("edl_narrative_audit", "vo_seated_coverage")
-    _append_action(
-        ctx,
-        {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "signature": sig,
-            "playbook_id": "vo_seated_coverage",
-            "status": "recovered",
-        },
-    )
-    assert attempt_count(ctx, sig) == 1
-    halt_sig = failure_signature_by_class(
-        failed_stage="edl_narrative_audit",
-        error_class="vo_seated_coverage",
-    )
-    row = (read_identical_failures(ctx).get("signatures") or {}).get(halt_sig) or {}
-    assert int(row.get("count") or 0) == 1
 
 
 def test_delivery_filter_rejects_blocked_stages(ctx: RunContext) -> None:

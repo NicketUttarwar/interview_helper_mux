@@ -99,6 +99,56 @@ def test_apply_nle_to_selection_merges_order_and_excludes() -> None:
     assert merged.get("nle_applied") is True
 
 
+def test_apply_nle_ignores_full_spine_sequence_order_dump() -> None:
+    """Full sequence_order covering every keep must not clobber ranking order.
+
+    Fixture shape from exec_13177: NLE sequence_order listed all keeps (chrono-ish)
+    while selection ranked 018 before 014 — apply_nle treated every id as locked.
+    """
+    selection = {
+        "ordered_segment_ids": [
+            "seg_012",
+            "seg_018",
+            "seg_019",
+            "seg_014",
+            "seg_017",
+            "seg_059",
+            "seg_053",
+        ],
+        "excluded_segment_ids": [],
+        "order_authority": "ranking",
+    }
+    # Full-spine dump (plus extras) — not a partial operator touch list.
+    nle = {
+        "sequence_order": [
+            "seg_012",
+            "seg_014",
+            "seg_017",
+            "seg_018",
+            "seg_019",
+            "seg_053",
+            "seg_059",
+            "seg_extra_01",
+            "seg_extra_02",
+            "seg_extra_03",
+        ],
+        "segment_overrides": {
+            "seg_003g": {"excluded": True, "parent_id": "seg_003"},
+        },
+    }
+    by_id = {
+        sid: {"segment_id": sid}
+        for sid in selection["ordered_segment_ids"]
+        + ["seg_003g", "seg_extra_01", "seg_extra_02", "seg_extra_03"]
+    }
+    merged = apply_nle_to_selection(selection, nle, segments_by_id=by_id)
+    assert merged["ordered_segment_ids"] == selection["ordered_segment_ids"]
+    assert any(
+        e["segment_id"] == "seg_003g" and e["reason"] == "nle_operator"
+        for e in merged["excluded_segment_ids"]
+    )
+
+
 def test_apply_nle_inserts_keepable_children_when_parent_unranked() -> None:
     selection = {
         "ordered_segment_ids": ["seg_005"],

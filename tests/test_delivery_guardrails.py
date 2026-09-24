@@ -664,8 +664,11 @@ def test_mix_blocked_until_music_complete(tmp_path: Path, monkeypatch: pytest.Mo
         "interview_mux.delivery_guardrails.music_epoch_complete",
         lambda _ctx: True,
     )
-    assert mix_epoch_block(ctx) is None
-
+    # Land Honesty: speech-first seat + music complete ⇒ remaster owed.
+    # Mix may re-land; junction/finalize stay blocked until clear_remaster.
+    assert mix_epoch_block(ctx, stage="mix") is None
+    assert mix_epoch_block(ctx, stage="junction_snip_qa") == "speech_first_remaster_pending"
+    assert mix_epoch_block(ctx) == "speech_first_remaster_pending"
 
 def test_hollow_mmaudio_qa_does_not_complete_music_epoch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
