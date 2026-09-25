@@ -42,9 +42,10 @@ _SHARED_JSON_STAGES: list[str] = sorted(
     if str(STAGE_ARTIFACT_DISK_PATHS.get(sid) or "").endswith(".json")
 )
 
-# Wrong producer stamped on the shared primary (must not equal the stage id).
+# Wrong producer stamped on the shared primary (must not equal the stage id
+# and must not be a land co-producer for that stage).
 _WRONG_PRODUCER: dict[str, str] = {
-    "gap_report_sanitize": "gap_framing_compose",
+    "gap_report_sanitize": "vo_synthesize",
     "air_contract_sanitize": "air_script_compose",
     "selection_order_sanitize": "full_master_ranking",
     "sound_design_plan": "sound_design_palettes",

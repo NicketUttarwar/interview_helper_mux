@@ -851,8 +851,31 @@ def build_flow1_edl(
                 )
         speech_dur = max(0, speech_end - speech_start)
         if speech_dur < 400:
-            omitted_unplayable.append(sid)
-            continue
+            hard_keep = False
+            if ctx is not None:
+                try:
+                    from interview_mux.hard_keep import hard_keep_segment_ids
+
+                    hard_keep = sid in hard_keep_segment_ids(ctx)
+                except Exception:
+                    hard_keep = False
+            if not hard_keep:
+                omitted_unplayable.append(sid)
+                continue
+            # Hard-keep microfragments must stay on the speech list so narrative
+            # QC matches selection (exec_13198 seg_028 "Okay.").
+            raw_s = int(seg.get("start_ms") or seg.get("source_start_ms") or speech_start)
+            raw_e = int(seg.get("end_ms") or seg.get("source_end_ms") or speech_end)
+            if raw_e > raw_s:
+                speech_start, speech_end = raw_s, raw_e
+                speech_dur = raw_e - raw_s
+            if speech_dur < 400:
+                speech_end = speech_start + 400
+                speech_dur = 400
+            air_meta = dict(air_meta or {})
+            air_meta["air_bound_reason"] = (
+                str(air_meta.get("air_bound_reason") or "") + "+hard_keep_min_air"
+            ).lstrip("+")
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
@@ -1232,7 +1255,19 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
         selection if isinstance(selection, dict) else {}
     )
     order = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
-    cleaned = [s for s in order if not _segment_is_blank_or_unusable(ctx, s)]
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        hard_keeps = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+    except Exception:
+        hard_keeps = set()
+    # Keep hard-keep microfragments on the EDL speech list so narrative QC
+    # parity matches selection (exec_13198 seg_028 "Okay.").
+    cleaned = [
+        s
+        for s in order
+        if (not _segment_is_blank_or_unusable(ctx, s)) or s in hard_keeps
+    ]
     if cleaned != order:
         have = {
             str(r.get("segment_id") if isinstance(r, dict) else r)

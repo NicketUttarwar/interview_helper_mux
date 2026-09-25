@@ -1280,6 +1280,141 @@ def test_short_story_child_survives_blank_repair() -> None:
     assert not any(a.get("action") == "drop_blank_segments" for a in actions)
 
 
+def test_repair_master_selection_keeps_hard_keep_short_blankish() -> None:
+    """Hard-keep microfragments must not blank-drop (exec_13198 seg_028)."""
+    import json
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_027", "Real substance on the air.", start=0, end=2000),
+            _seg("seg_028", "Okay.", start=2000, end=2500),
+        ),
+    )
+    ideal = ctx.path("understanding") / "ideal_cuts.json"
+    ideal.parent.mkdir(parents=True, exist_ok=True)
+    ideal.write_text(
+        json.dumps(
+            {
+                "must_keep_segment_ids": ["seg_028"],
+                "cuts": [{"segment_id": "seg_028", "must_keep": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.artifact_repairs import (
+        _segment_is_blank_or_unusable,
+        repair_master_selection,
+    )
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    assert _segment_is_blank_or_unusable(ctx, "seg_028") is True
+    assert "seg_028" in hard_keep_segment_ids(ctx)
+    repaired, actions = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_027", "seg_028"],
+            "excluded_segment_ids": [],
+            "chapters": [
+                {"title": "A", "segment_ids": ["seg_027"]},
+            ],
+        },
+    )
+    assert "seg_028" in repaired["ordered_segment_ids"]
+    assert not any(
+        a.get("action") == "drop_blank_segments" and "seg_028" in (a.get("ids") or [])
+        for a in actions
+    )
+
+
+def test_repair_edl_narrative_selection_keeps_hard_keep_blank() -> None:
+    """EDL narrative pre-repair must not drop hard-keep blanks (exec_13198)."""
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_027", "Real substance on the air.", start=0, end=2000),
+            _seg("seg_028", "Okay.", start=2000, end=2500),
+        ),
+    )
+    ideal = ctx.path("understanding") / "ideal_cuts.json"
+    ideal.parent.mkdir(parents=True, exist_ok=True)
+    ideal.write_text(
+        json.dumps(
+            {
+                "must_keep_segment_ids": ["seg_028"],
+                "cuts": [{"segment_id": "seg_028", "must_keep": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_027", "seg_028"],
+            "excluded_segment_ids": [],
+            "chapters": [
+                {"title": "A", "segment_ids": ["seg_027", "seg_028"]},
+            ],
+        },
+    )
+    from interview_mux.artifact_repairs import repair_edl_narrative_selection
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    assert "seg_028" in hard_keep_segment_ids(ctx)
+    notes = repair_edl_narrative_selection(ctx)
+    assert not any(
+        n.get("action") == "exclude_for_edl_narrative" and n.get("segment_id") == "seg_028"
+        for n in notes
+        if isinstance(n, dict)
+    )
+    sel = ctx.read_json("master/selection.json")
+    assert "seg_028" in (sel.get("ordered_segment_ids") or [])
+
+
+def test_prepare_locked_selection_keeps_hard_keep_blank() -> None:
+    """EDL prepare must keep hard-keep blanks on speech order (exec_13198)."""
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_027", "Real substance on the air.", start=0, end=2000),
+            _seg("seg_028", "Okay.", start=2000, end=2500),
+        ),
+    )
+    ideal = ctx.path("understanding") / "ideal_cuts.json"
+    ideal.parent.mkdir(parents=True, exist_ok=True)
+    ideal.write_text(
+        json.dumps(
+            {
+                "must_keep_segment_ids": ["seg_028"],
+                "cuts": [{"segment_id": "seg_028", "must_keep": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.stages.assembly import _prepare_locked_selection
+
+    out = _prepare_locked_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_027", "seg_028"],
+            "excluded_segment_ids": [],
+            "chapters": [{"title": "A", "segment_ids": ["seg_027", "seg_028"]}],
+        },
+    )
+    assert "seg_028" in (out.get("ordered_segment_ids") or [])
+
+
 def test_unstamped_short_admitted_story_is_blank_unusable() -> None:
     """Admitted story kids without story_keep_ok stay blank (incomplete microfragments)."""
     ctx = _ctx_010()
@@ -1630,6 +1765,83 @@ def test_execute_cta_omit_drops_degraded_transcript_excerpt_need() -> None:
     assert "seg_066j" in dropped
     assert "seg_065" not in dropped
     assert order == ["seg_065"]
+
+
+def test_execute_cta_omit_keeps_garbled_degraded_scrap_off_air_after_heal() -> None:
+    """Garbled post-CTA scrap (not hard-omit phrase) must stay omitted (exec_13198).
+
+    heal_on_air_cta_residue used to release_false + restore scraps whose tape is
+    not a hard-omit CTA phrase, undoing the host transcript_excerpt omit.
+    """
+    from interview_mux.homunculus.values import should_hard_omit_cta
+    from interview_mux.media_ip_cta import (
+        execute_cta_omit_from_needs,
+        is_selection_cta_omit_need,
+        never_touch_segment_ids,
+        release_false_cta_never_touch,
+    )
+
+    garbled = "And this is Thanks for play so together check"
+    assert not should_hard_omit_cta(garbled)
+    need = {
+        "type": "transcript_excerpt",
+        "stage": "nugget_layup_compose",
+        "blocking": True,
+        "reason": (
+            "Provide verified transcript text, speaker attribution and timestamps "
+            "for seg_070. Its empty/heavily degraded transcript prevents a grounded "
+            "CTA-hole cover or native lay-up."
+        ),
+    }
+    assert is_selection_cta_omit_need(need)
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_068", "Real substance remains on air.", start=0, end=4000),
+            # Late-tape scrap (~end of show) so release_false late-tape keep applies.
+            _seg("seg_070", garbled, start=3_554_299, end=3_567_460),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_068", "seg_070"]},
+    )
+    dropped = execute_cta_omit_from_needs(ctx, [need])
+    order = ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    assert "seg_070" in dropped
+    assert "seg_068" not in dropped
+    assert order == ["seg_068"]
+    assert "seg_070" in never_touch_segment_ids(ctx)
+    assert "seg_070" not in release_false_cta_never_touch(ctx)
+    assert "seg_070" in never_touch_segment_ids(ctx)
+    assert "seg_070" not in (
+        ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    )
+
+
+def test_empty_text_temporary_omission_is_cta_omit_need() -> None:
+    from interview_mux.media_ip_cta import is_selection_cta_omit_need
+
+    need = {
+        "type": "transcript_excerpt",
+        "stage": "nugget_layup_compose",
+        "blocking": True,
+        "reason": (
+            "Provide verified audio/transcript text, speaker attribution, and "
+            "timestamps for seg_070, including any clean non-CTA span. Its "
+            "current text is empty, so no listener-facing lay-up or retention "
+            "decision beyond temporary omission can be grounded."
+        ),
+    }
+    assert is_selection_cta_omit_need(need)
+
+
+def test_drop_never_touch_cta_reason_is_editorial() -> None:
+    from interview_mux.media_ip_cta import is_editorial_exclude_reason
+
+    assert is_editorial_exclude_reason("drop_never_touch_cta")
+    assert is_editorial_exclude_reason("media_ip_cta")
 
 
 def test_execute_cta_omit_keeps_reverse_jump_intro_and_commits_under_staging() -> None:
@@ -2208,3 +2420,52 @@ def test_cta_omit_excluded_in_order() -> None:
     order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
     assert "seg_054" not in order
     assert "seg_010" in order
+
+def test_build_flow1_edl_keeps_hard_keep_short_speech() -> None:
+    """Sub-400ms hard-keeps must remain speech clips (exec_13198 seg_028)."""
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_027", "Real substance on the air.", start=0, end=2000),
+            _seg("seg_028", "Okay.", start=2000, end=2300),  # 300ms < 400
+        ),
+    )
+    ideal = ctx.path("understanding") / "ideal_cuts.json"
+    ideal.parent.mkdir(parents=True, exist_ok=True)
+    ideal.write_text(
+        json.dumps(
+            {
+                "must_keep_segment_ids": ["seg_028"],
+                "cuts": [{"segment_id": "seg_028", "must_keep": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.stages.assembly import build_flow1_edl, _segment_by_id
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    assert "seg_028" in hard_keep_segment_ids(ctx)
+    by_id = _segment_by_id(ctx)
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_027", "seg_028"]},
+        segments_by_id=by_id,
+        ctx=ctx,
+    )
+    speech = [
+        str(c.get("segment_id"))
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "speech"
+    ]
+    assert speech == ["seg_027", "seg_028"]
+    clip028 = next(
+        c
+        for c in edl["clips"]
+        if isinstance(c, dict) and c.get("segment_id") == "seg_028"
+    )
+    assert int(clip028.get("duration_ms") or 0) >= 300
+

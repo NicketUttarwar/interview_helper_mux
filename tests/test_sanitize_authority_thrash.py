@@ -259,3 +259,35 @@ def test_music_epoch_and_pair_freeze_still_importable() -> None:
     ctx = RunContext(create=True)
     assert music_epoch_complete(ctx) in (True, False)
     assert may_rewind_to_vo_synthesize(ctx) in (True, False)
+
+def test_selection_metadata_align_sanitize_oscillation_not_halt(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """sanitize ↔ edl_narrative_metadata_align co-write must not thrash halt."""
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "sel_meta_thrash")
+    h_a = "aaaaaaaaaaaaaaaaaaaaaaaa"
+    h_b = "bbbbbbbbbbbbbbbbbbbbbbbb"
+    # A→B→A action oscillation with matching hashes
+    for action, h in (
+        ("artifact_sanitize.selection", h_a),
+        ("edl_narrative_metadata_align", h_b),
+        ("artifact_sanitize.selection", h_a),
+        ("edl_narrative_metadata_align", h_b),
+        ("artifact_sanitize.selection", h_a),
+    ):
+        row = note_authority_undo_attempt(
+            ctx,
+            artifact="master/selection.json",
+            action_class=action,
+            content_hash=h,
+        )
+    assert row.get("halt") is False
+    assert "selection_metadata_co_write" in str(row.get("reason") or "")
+

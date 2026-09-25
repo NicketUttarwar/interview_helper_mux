@@ -104,6 +104,13 @@ _FRAGMENTARY_TAIL_TOKENS = (
     "after the cta",
     "cta cut",
     "required to keep it on air",
+    # Layup asks for excerpts after host already omitted the scrap (exec_13198).
+    "current text is empty",
+    "text is empty",
+    "temporary omission",
+    "empty/heavily degraded",
+    "blank/heavily degraded",
+    "empty, so no listener",
 )
 
 REASON = "media_ip_cta"
@@ -562,13 +569,59 @@ def release_false_cta_never_touch(ctx: RunContext) -> list[str]:
         elif not re.search(r"[a-z]$", suffix):
             parents.add(sid)
     released: list[str] = []
+    # Host-executed editorial omits (degraded transcript_excerpt scraps, etc.) must
+    # stick even when tape text is not a hard-omit CTA phrase (exec_13198 seg_070).
+    editorial_keep: set[str] = set()
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            loaded = ctx.read_json("master/selection.json") or {}
+            rats = (
+                loaded.get("exclude_rationales")
+                if isinstance(loaded.get("exclude_rationales"), dict)
+                else {}
+            )
+            for sid, reason in (rats or {}).items():
+                key = str(sid or "").strip()
+                if key and is_editorial_exclude_reason(str(reason or "")):
+                    editorial_keep.add(key)
+            for row in loaded.get("excluded_segment_ids") or []:
+                if isinstance(row, dict):
+                    sid = str(row.get("segment_id") or "").strip()
+                    reason = str(row.get("reason") or (rats or {}).get(sid) or "")
+                else:
+                    sid = str(row or "").strip()
+                    reason = str((rats or {}).get(sid) or "")
+                if sid and is_editorial_exclude_reason(reason):
+                    editorial_keep.add(sid)
+    except Exception:
+        editorial_keep = set()
 
     def _keep(sid: str) -> bool:
+        if sid in editorial_keep:
+            return True
         text = str((by_id.get(sid) or {}).get("text") or "").strip()
         if not text:
             return True
         if _tape_is_hard_omit_cta(ctx, sid, by_id):
             return True
+        # Late-tape short scraps (garbled post-CTA) must stay never-touch even
+        # when the phrase is not a hard-omit CTA (exec_13198 seg_070).
+        try:
+            start = int((by_id.get(sid) or {}).get("start_ms") or 0)
+            max_end = 0
+            for row in by_id.values():
+                try:
+                    max_end = max(max_end, int((row or {}).get("end_ms") or 0))
+                except (TypeError, ValueError):
+                    pass
+            if (
+                max_end
+                and start >= int(max_end * 0.85)
+                and len(text.split()) <= 16
+            ):
+                return True
+        except Exception:
+            pass
         if any(_is_nle_child(sid, parent) for parent in parents):
             return True
         if any(_is_nle_child(child, sid) for child in pool):
@@ -1908,7 +1961,14 @@ def _fragmentary_tail_reason(reason: str) -> bool:
 def is_editorial_exclude_reason(reason: str) -> bool:
     """True for CTA / sponsor / monetization / editorial-omit / blank-audio reasons."""
     r = str(reason or "").strip().lower()
-    if r in {"blank_or_unusable_answer_audio", "blank_or_unusable"}:
+    if r in {
+        "blank_or_unusable_answer_audio",
+        "blank_or_unusable",
+        "drop_never_touch_cta",
+        "media_ip_cta",
+    }:
+        return True
+    if "never_touch" in r.replace("-", "_"):
         return True
     return (
         _cta_like_reason(reason)
@@ -2215,6 +2275,58 @@ def execute_cta_omit_from_needs(
         loaded = ctx.read_json("master/selection.json")
         out = dict(loaded) if isinstance(loaded, dict) else {}
     healed = heal_on_air_cta_residue(ctx, out) if out else {}
+    # heal_on_air may release_false + restore garbled scraps whose text is not a
+    # hard-omit CTA phrase. Host-executed editorial extras must stay off-air
+    # (exec_13198 seg_070 transcript_excerpt / CTA-hole cover thrash).
+    if healed and extra:
+        drop_extra = set(extra)
+        ordered_h = [
+            str(s) for s in (healed.get("ordered_segment_ids") or []) if s and s not in drop_extra
+        ]
+        if ordered_h:
+            healed = dict(healed)
+            healed["ordered_segment_ids"] = ordered_h
+            rats_h = (
+                dict(healed.get("exclude_rationales") or {})
+                if isinstance(healed.get("exclude_rationales"), dict)
+                else {}
+            )
+            excl_h: list[Any] = []
+            have_h: set[str] = set()
+            for row in healed.get("excluded_segment_ids") or []:
+                sid = str(row.get("segment_id") if isinstance(row, dict) else row or "").strip()
+                if sid in drop_extra:
+                    continue
+                excl_h.append(row)
+                if sid:
+                    have_h.add(sid)
+            for sid, reason in extra.items():
+                rats_h[sid] = reason
+                if sid not in have_h:
+                    excl_h.append({"segment_id": sid, "reason": reason})
+                    have_h.add(sid)
+            healed["exclude_rationales"] = rats_h
+            healed["excluded_segment_ids"] = excl_h
+            try:
+                state = load_state(ctx)
+                if isinstance(state, dict):
+                    nt = [
+                        str(x)
+                        for x in (state.get("never_touch_segment_ids") or [])
+                        if x
+                    ]
+                    state["never_touch_segment_ids"] = list(
+                        dict.fromkeys([*nt, *sorted(drop_extra)])
+                    )
+                    dropped_prev = [
+                        str(x) for x in (state.get("dropped_segment_ids") or []) if x
+                    ]
+                    state["dropped_segment_ids"] = list(
+                        dict.fromkeys([*dropped_prev, *sorted(drop_extra)])
+                    )
+                    _write_state(ctx, state)
+            except Exception:
+                pass
     if not extra and healed:
         try:
             from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded

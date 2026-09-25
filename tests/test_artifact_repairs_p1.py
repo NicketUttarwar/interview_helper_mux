@@ -937,3 +937,61 @@ def test_repair_master_selection_prunes_stale_air_order_rationales(
         row.get("action") in {"prune_stale_exclude_rationales", "reconcile_ordered_vs_excluded"}
         for row in applied
     )
+
+def test_repair_edl_audit_demotes_filled_chapter_and_hard_keep_blank(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stale LLM chapter/blank blockers demote once disk is fixed (exec_13198)."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_chapter_blank")
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_012", "seg_028"],
+            "chapters": [
+                {"title": "Ch1", "segment_ids": ["seg_012"]},
+                {"title": "Ch2", "segment_ids": ["seg_028"]},
+            ],
+        },
+        skip_handoff=True,
+    )
+    import json
+
+    ideal = ctx.path("understanding") / "ideal_cuts.json"
+    ideal.parent.mkdir(parents=True, exist_ok=True)
+    ideal.write_text(
+        json.dumps({"must_keep_segment_ids": ["seg_028"], "cuts": [{"segment_id": "seg_028", "must_keep": True}]}),
+        encoding="utf-8",
+    )
+    doc = {
+        "verdict": "fail",
+        "blocking_issues": [
+            {
+                "code": "chapter_continuity_broken",
+                "issue": (
+                    "Two selected air-order segments are not assigned to any "
+                    "selection chapter: seg_012 sits between chapter 1 and "
+                    "chapter 2, and seg_028 sits inside the chapter-2 run. "
+                    "This breaks the chapter map even though both segments "
+                    "remain in selection.ordered_segment_ids."
+                ),
+                "evidence": ["selection.ordered_segment_ids includes seg_012 and seg_028"],
+            },
+            {
+                "code": "blank_segment",
+                "segment_id": "seg_028",
+                "issue": (
+                    "seg_028 is selected despite being a 930 ms Okay. backchannel, "
+                    "while selection sanitization records it as a blank segment to drop."
+                ),
+                "evidence": ["seg_028"],
+            },
+        ],
+        "warnings": [],
+    }
+    patched, applied = repair_edl_audit(ctx, doc)
+    assert not patched.get("blocking_issues")
+    assert patched["verdict"] in ("pass", "warn")
+    assert any(row.get("action") == "demote_stale_audit_vs_disk" for row in applied)
+

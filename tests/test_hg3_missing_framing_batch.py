@@ -111,6 +111,36 @@ def test_hg3_batch_fill_still_counts_as_scored(ctx: RunContext) -> None:
     assert "batch_fill" in reason
 
 
+def test_hg3_superseded_fill_duplicate_does_not_block_done(ctx: RunContext) -> None:
+    """MUX_FORENSICS=0: last-wins scored row clears batch_fill incompleteness.
+
+    exec_13198: fabricate fill + later LLM row for the same seg_id left
+    incompleteness true while leftover_ids was empty → instant fail + attempt_memo.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.stage_completion import _missing_framing_batch_fill_incompleteness
+
+    fabricate = _llm_row("seg_066")
+    fabricate["_meta"] = {
+        "filled_by": "repair_gap_evaluations",
+        "reason": "fabricate_evaluation",
+    }
+    scored = _llm_row("seg_066")  # no fill tag — authoritative last-wins
+    ctx.write_json(
+        _REL,
+        {"evaluations": [fabricate, scored, _llm_row("seg_067")]},
+        skip_handoff=True,
+    )
+    assert _missing_framing_batch_fill_incompleteness(ctx) is None
+    assert stage_artifact_incompleteness(ctx, _STAGE) is None or "batch_fill" not in (
+        stage_artifact_incompleteness(ctx, _STAGE) or ""
+    )
+    out = heal_or_refuse_mark(ctx, _STAGE, force=True)
+    assert out.get("marked") is True or ctx.is_done(_STAGE)
+
+
 def test_hg3_llm_scored_rows_heal_mark(ctx: RunContext) -> None:
     ctx.write_json(
         _REL,

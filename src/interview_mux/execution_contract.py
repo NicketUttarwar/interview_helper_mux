@@ -542,6 +542,9 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
                     row,
                     reason_code="execution_contract_waive",
                     compensating_path="tier_d_logged_waive",
+                    ctx=ctx,
+                    gap_report=gap,
+                    peer_lines=list(gap.get("interviewer_lines") or []),
                 )
             )
             found = True

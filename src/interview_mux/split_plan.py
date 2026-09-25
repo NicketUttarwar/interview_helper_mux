@@ -153,7 +153,15 @@ def apply_split_plan(
     out = dict(boundaries)
     out["boundaries"] = normalized
     publish_boundary_contract(out)
-    ctx.write_json("segments/boundaries.json", out, stage_key="split_plan_apply")
+    from interview_mux.shared_path_commit import commit_boundaries_doc
+
+    # split_plan_apply is not an ALLOW producer — enrich only; keep prior claim.
+    commit_boundaries_doc(
+        ctx,
+        out,
+        stage_key="split_plan_apply",
+        claim_producer=False,
+    )
 
     doc = dict(doc)
     doc["applied"] = True

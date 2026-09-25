@@ -60,6 +60,32 @@ SHARED_PATH_PRODUCER_STAGES: frozenset[str] = frozenset(
     }
 )
 
+# Ownership-ALLOW co-writers may leave producer_stage on the shared primary.
+# Sanitize still re-runs to restamp; unpaid must not thrash when layup just
+# published VO into gap_report (exec_13198).
+_SHARED_PATH_LAND_CO_PRODUCERS: dict[str, frozenset[str]] = {
+    "gap_report_sanitize": frozenset(
+        {
+            "gap_report_sanitize",
+            "nugget_layup_compose",
+            "gap_framing_compose",
+            "gap_framing_recompose",
+        }
+    ),
+    # Metadata align under seat freeze stamps edl_narrative_audit; sanitize
+    # restamps selection_order_sanitize. Either claim is paid land (exec_13198).
+    "selection_order_sanitize": frozenset(
+        {
+            "selection_order_sanitize",
+            "edl_narrative_audit",
+            "edl_narrative_metadata_align",
+            # Legacy/alias stamps from sanitize commit paths (exec_13198).
+            "selection",
+            "artifact_sanitize.selection",
+        }
+    ),
+}
+
 # Stages that must not look complete under nugget_layup_authority without a plan.
 LAYUP_AUTHORITY_STAGES: frozenset[str] = frozenset(
     {
@@ -241,6 +267,9 @@ def shared_path_producer_mismatch(ctx: RunContext, stage: str) -> str | None:
                 f"{rel} missing producer_stage"
             )
         if producer == sid:
+            return None
+        co = _SHARED_PATH_LAND_CO_PRODUCERS.get(sid)
+        if co and producer in co:
             return None
         return (
             f"shared-path unpaid land — resume {sid}: "

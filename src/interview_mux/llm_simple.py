@@ -377,7 +377,15 @@ def run_llm_stage_simple(
                 dropped = execute_cta_omit_from_needs(ctx, needs)
                 extra = omit_locked_degraded_cta_scraps(ctx)
                 dropped = list(dict.fromkeys([*(dropped or []), *(extra or [])]))
-                if dropped:
+                cta_needs = [
+                    n
+                    for n in needs
+                    if isinstance(n, dict) and is_selection_cta_omit_need(n)
+                ]
+                # Already-omitted CTA scraps still draw transcript_excerpt needs;
+                # demote those needs even when execute returns no new drops
+                # (exec_13198 seg_070 after durable never-touch).
+                if dropped or cta_needs:
                     needs = [
                         ({**n, "blocking": False} if is_selection_cta_omit_need(n) else n)
                         if isinstance(n, dict)
@@ -385,13 +393,22 @@ def run_llm_stage_simple(
                         for n in needs
                     ]
                     envelope = {**envelope, "needs": needs}
-                    ctx.log(
-                        "nugget_layup_compose: host-executed media-IP CTA omit "
-                        + ",".join(dropped[:12]),
-                        level="warning",
-                        stage=stage_key,
-                        detail={"dropped_segment_ids": dropped[:12]},
-                    )
+                    if dropped:
+                        ctx.log(
+                            "nugget_layup_compose: host-executed media-IP CTA omit "
+                            + ",".join(dropped[:12]),
+                            level="warning",
+                            stage=stage_key,
+                            detail={"dropped_segment_ids": dropped[:12]},
+                        )
+                    elif cta_needs:
+                        ctx.log(
+                            "nugget_layup_compose: demoted CTA transcript_excerpt "
+                            "need(s) for already-omitted scrap(s)",
+                            level="warning",
+                            stage=stage_key,
+                            detail={"cta_need_count": len(cta_needs)},
+                        )
                     still_blocking = [
                         n
                         for n in needs
@@ -404,7 +421,7 @@ def run_llm_stage_simple(
                         # retry with the pruned order. Raising StageError here
                         # (old path) fed selection_cta_omit → budget_exhausted
                         # thrash (exec_13177).
-                        if attempt < 2:
+                        if attempt < 2 and dropped:
                             ctx.log(
                                 "nugget_layup_compose: CTA omit applied — "
                                 "retrying LLM once with pruned selection "
@@ -431,12 +448,12 @@ def run_llm_stage_simple(
                                     stage=stage_key,
                                 )
                             continue
-                        # Final attempt: fall through to soft-accept / persist
-                        # with CTA needs already demoted to non-blocking.
+                        # Final attempt or already-omitted: fall through to
+                        # soft-accept / persist with CTA needs demoted.
                         ctx.log(
                             "nugget_layup_compose: CTA omit on final attempt — "
                             "accepting demoted needs "
-                            f"({','.join(dropped[:8])})",
+                            f"({','.join(dropped[:8]) or 'already_omitted'})",
                             level="warning",
                             stage=stage_key,
                             detail={"dropped_segment_ids": dropped[:12]},

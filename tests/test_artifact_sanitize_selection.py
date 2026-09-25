@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
 from interview_mux.artifact_sanitize.selection import (
     _fragment_depth,
@@ -298,3 +300,70 @@ def test_sos_b1_contract_schema_matches_selection_artifact() -> None:
     assert ranking is not None
     ranked = next(o for o in ranking.outputs if o.path == "master/selection.json")
     assert ranked.schema == primary.schema
+
+
+def test_sanitize_restores_primary_impact_not_selected(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MUX_FORENSICS=0: sanitize must restore never-exclude primary impact segs.
+
+    exec_13198: sanitize stamped ok while framing:primary impact… stayed in
+    selection_sanitary_errors → incomplete_after_conductor sticky ×4.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    from interview_mux.artifact_sanitize.selection import selection_sanitary_errors
+    from interview_mux.framing_coverage_guard import validate_framing_ranking
+    from run_fixtures import isolated_run_ctx, minimal_manifest, patch_executions_root
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = isolated_run_ctx(tmp_path, "sos_primary_restore")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.2.0", "run_mode": "full-auto", "full_auto": True},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_010", "seg_012", "seg_069"),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {"source_segment_ids": ["seg_012", "seg_069"]},
+                    ],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    sel = {
+        "ordered_segment_ids": ["seg_010"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_012", "reason": "not_selected"},
+            {"segment_id": "seg_069", "reason": "not_selected"},
+        ],
+        "chapters": [],
+    }
+    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    before = validate_framing_ranking(ctx, sel)
+    assert any("never_exclude_primary_impact" in e for e in before)
+    result = sanitize_master_selection(ctx, sel)
+    assert result.ok, result.errors
+    ordered = result.doc.get("ordered_segment_ids") or []
+    assert "seg_012" in ordered and "seg_069" in ordered
+    # Restored primaries must land in tape order (not appended → reverse jump).
+    assert ordered.index("seg_012") < ordered.index("seg_069")
+    assert ordered.index("seg_010") < ordered.index("seg_012")
+    assert any(a.get("action") == "apply_selection_constraints" for a in result.actions)
+    ctx.write_json("master/selection.json", result.doc, skip_handoff=True)
+    after = selection_sanitary_errors(ctx)
+    assert not any("never_exclude_primary_impact" in e for e in after)
+    assert not validate_framing_ranking(ctx, result.doc)

@@ -377,6 +377,7 @@ def sanitize_air_contract(
 
         new_lines = []
         stamped = 0
+        reseated_gate = 0
         for row in lines:
             if not isinstance(row, dict):
                 continue
@@ -386,20 +387,43 @@ def sanitize_air_contract(
                 or row.get("omit")
                 or row.get("air_script_omit")
             ):
-                row = dict(row)
-                row["skipped_optional"] = True
-                row["omit"] = True
-                row["air_script_omit"] = True
-                row["skip_reason"] = row.get("skip_reason") or "air_contract_omit"
-                row["skip_reason_code"] = (
-                    row.get("skip_reason_code") or "air_script_omit_sync"
+                from interview_mux.vo_contract import mark_gap_line_not_on_air
+
+                stamped_row = mark_gap_line_not_on_air(
+                    row,
+                    reason_code=str(
+                        row.get("skip_reason_code") or "air_script_omit_sync"
+                    ),
+                    ctx=ctx,
+                    gap_report=gap,
+                    peer_lines=lines,
                 )
-                stamped += 1
+                if stamped_row.get("skipped_optional") and stamped_row.get(
+                    "air_script_omit"
+                ):
+                    row = stamped_row
+                    stamped += 1
+                else:
+                    # Pre-synth floor gate refused — keep on air / reseat.
+                    if lid not in seated:
+                        seated.append(lid)
+                    omitted = [o for o in omitted if o != lid]
+                    reseated_gate += 1
             new_lines.append(row)
-        if stamped:
+        if stamped or reseated_gate:
             gap = dict(gap)
             gap["interviewer_lines"] = new_lines
-            actions.append({"action": "stamp_gap_omit_flags", "count": stamped})
+            if stamped:
+                actions.append({"action": "stamp_gap_omit_flags", "count": stamped})
+            if reseated_gate:
+                actions.append(
+                    {
+                        "action": "pre_synth_floor_gate_kept_on_air",
+                        "count": reseated_gate,
+                    }
+                )
+            omit_set = set(omitted)
+            plan, air, seats = _apply_seats(plan, seated, omitted)
 
     # Orientation protect — never strip required orientation from omit ledger.
     try:
@@ -487,12 +511,15 @@ def sanitize_air_contract(
             )
             # Clamp may expand omitted after stamp_gap_omit_flags — sync gap flags
             # so vo_contract cannot thrash on omitted-without-flags (exec_13177).
+            # Pre-synth floor: may_soft_omit_hosted_line refuses process omit below
+            # need (exec_13196) — do not hollow-only band-aid.
             try:
                 from interview_mux.vo_contract import mark_gap_line_not_on_air
 
                 unseat_set = set(unseated)
                 new_lines: list[Any] = []
                 stamped_u = 0
+                kept_gate = 0
                 for row in gap.get("interviewer_lines") or []:
                     if not isinstance(row, dict):
                         new_lines.append(row)
@@ -506,25 +533,108 @@ def sanitize_air_contract(
                             or row.get("air_script_omit")
                         )
                     ):
-                        new_lines.append(
-                            mark_gap_line_not_on_air(
-                                row, reason_code="air_script_omit_sync"
-                            )
+                        stamped_row = mark_gap_line_not_on_air(
+                            row,
+                            reason_code="air_script_omit_sync",
+                            ctx=ctx,
+                            gap_report=gap,
+                            peer_lines=gap.get("interviewer_lines") or [],
                         )
-                        stamped_u += 1
+                        if stamped_row.get("skipped_optional") and stamped_row.get(
+                            "air_script_omit"
+                        ):
+                            new_lines.append(stamped_row)
+                            stamped_u += 1
+                        else:
+                            new_lines.append(row)
+                            kept_gate += 1
+                            if lid not in seated:
+                                seated.append(lid)
+                            omitted = [o for o in omitted if o != lid]
                     else:
                         new_lines.append(row)
-                if stamped_u:
+                if stamped_u or kept_gate:
                     gap = dict(gap)
                     gap["interviewer_lines"] = new_lines
-                    actions.append(
-                        {"action": "stamp_gap_omit_flags", "count": stamped_u}
-                    )
+                    if stamped_u:
+                        actions.append(
+                            {"action": "stamp_gap_omit_flags", "count": stamped_u}
+                        )
+                    if kept_gate:
+                        actions.append(
+                            {
+                                "action": "protect_pre_synth_floor_from_omit_stamp",
+                                "count": kept_gate,
+                            }
+                        )
+                        plan, air, seats = _apply_seats(plan, seated, omitted)
             except Exception:
                 pass
     except Exception as exc:
         actions.append({"action": "clamp_failed", "error": str(exc)[:120]})
         errors.append(f"clamp_failed:{exc}")
+
+    # Revive soft-omit below floor before synth (SSOT full need, not hollow-only).
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+        from interview_mux.hosted_vo_authority import vo_synth_era_complete
+        from interview_mux.vo_contract import ensure_gap_line_on_air, omit_wins_skip_reason
+
+        if (
+            not vo_synth_era_complete(ctx)
+            and hosted_framing_requires_synthetic_vo(ctx)
+        ):
+            active = _count_active_synth(gap.get("interviewer_lines") or [])
+            need_n = int(min_synthetic_vo_lines(ctx) or 0)
+            if need_n and active < need_n:
+                revived: list[str] = []
+                new_lines = []
+                for row in gap.get("interviewer_lines") or []:
+                    if not isinstance(row, dict):
+                        new_lines.append(row)
+                        continue
+                    soft = bool(
+                        row.get("skipped_optional")
+                        or row.get("omit")
+                        or row.get("air_script_omit")
+                    )
+                    text = str(row.get("text") or "").strip()
+                    raw = row.get("delivery")
+                    delivery = (
+                        "synthesize" if raw is None else str(raw).strip().lower()
+                    )
+                    if (
+                        soft
+                        and text
+                        and delivery
+                        in {"synthesize", "chatterbox", "record", "mlx_audio"}
+                        and active < need_n
+                        and not omit_wins_skip_reason(row, gap_report=gap)
+                    ):
+                        row = ensure_gap_line_on_air(row, gap_report=gap)
+                        revived.append(str(row.get("line_id") or ""))
+                        lid = str(row.get("line_id") or "")
+                        if lid and lid not in seated:
+                            seated.append(lid)
+                        if lid and lid in omitted:
+                            omitted = [x for x in omitted if x != lid]
+                        active = _count_active_synth(new_lines + [row])
+                    new_lines.append(row)
+                if revived:
+                    gap = dict(gap)
+                    gap["interviewer_lines"] = new_lines
+                    plan, air, seats = _apply_seats(plan, seated, omitted)
+                    actions.append(
+                        {
+                            "action": "revive_pre_synth_floor_soft_omit",
+                            "ids": revived[:24],
+                        }
+                    )
+    except Exception:
+        pass
 
     # Drop seated synthesize lines missing from gap (orphan seats).
     gap_ids = {
@@ -893,6 +1003,11 @@ def commit_air_contract(ctx: Any, *, reason: str = "") -> SanitizeResult:
             plan = ensure_episode_close_on_plan(plan)
         except Exception:
             pass
+
+        # Land Honesty: mastering_plan is air_contract_sanitize's shared primary.
+        meta = dict(plan.get("_meta") or {}) if isinstance(plan.get("_meta"), dict) else {}
+        meta["producer_stage"] = "air_contract_sanitize"
+        plan["_meta"] = meta
 
         try:
             ctx.write_json(PLAN_REL, plan)

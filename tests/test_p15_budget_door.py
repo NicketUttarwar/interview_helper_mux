@@ -177,6 +177,61 @@ def test_budget_epoch_resets_count_attempts_after_product_patch(tmp_path: Path) 
     assert dispatch_cap_refusal(ctx, "vo_line_adjudicate") is None
 
 
+def test_batch_fill_incompleteness_grants_walk_door_grace(tmp_path: Path) -> None:
+    """MUX_FORENSICS=0: hitch-burned cap must not strand missing_framing batch_fill.
+
+    exec_13198: three started rows (analysis + done + hitch) then batch_fill heal
+    refused at max_invokes_per_identity while 5 unscored fills remained.
+    """
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    ctx = _driver_ctx(tmp_path, "door_batch_fill_grace")
+    # Unscored batch_fill leftovers — incompleteness predicate for missing_framing.
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_066",
+                    "self_explanatory": True,
+                    "gap_type": "ok_with_light_bridge",
+                    "severity": "low",
+                    "listener_confusion": "",
+                    "_meta": {
+                        "filled_by": "missing_framing_batch_coverage",
+                        "reason": "llm_sparse_shard_output",
+                    },
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.stage_completion import _missing_framing_batch_fill_incompleteness
+
+    assert _missing_framing_batch_fill_incompleteness(ctx) is not None
+    assert "batch_fill" in (_missing_framing_batch_fill_incompleteness(ctx) or "")
+    cap, _ = attempt_cap("missing_framing")
+    _dispatch_rows(ctx, "missing_framing", cap)
+    assert count_attempts(ctx, "missing_framing") >= cap
+    # Without batch_fill incompleteness, the door would refuse; with it, grace applies.
+    assert dispatch_cap_refusal(ctx, "missing_framing") is None
+    ex = exemption_for(ctx, "missing_framing", "stage")
+    assert ex is not None and ex.name == "missing_framing_batch_fill"
+    # Grace is still bounded — burn through grace too and the door refuses.
+    _dispatch_rows(ctx, "missing_framing", EXEMPTION_GRACE)
+    hit = dispatch_cap_refusal(ctx, "missing_framing")
+    assert hit is not None and hit[1].get("exhausted_with_grace") is True
+    # Other incomplete stages do not get this grace (policy door stays honest).
+    _dispatch_rows(ctx, "transitions", cap)
+    assert exemption_for(ctx, "transitions", "stage") is None
+    assert dispatch_cap_refusal(ctx, "transitions") is not None
+    # AUDIO_MUTATING never exempt.
+    _dispatch_rows(ctx, "mix", 3)
+    assert exemption_for(ctx, "mix", "stage") is None
+    assert dispatch_cap_refusal(ctx, "mix") is not None
+
+
 def test_walk_refuses_incomplete_critical_without_advancing(
     tmp_path: Path, monkeypatch
 ) -> None:

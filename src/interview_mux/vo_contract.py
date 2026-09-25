@@ -117,12 +117,33 @@ def mark_gap_line_not_on_air(
     *,
     reason_code: str,
     compensating_path: str | None = None,
+    ctx: RunContext | None = None,
+    gap_report: dict[str, Any] | None = None,
+    peer_lines: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Atomically mark a gap line as not on air (skip + omit flags).
 
     Fills gap_report.schema.json required fields when absent so omit stamps
     cannot fail pre-flush commit (tier-D mint / incomplete LLM rows).
+
+    When ``ctx`` is provided, pre-synth hosted floor gate
+    (``may_soft_omit_hosted_line``) may refuse process soft-omit and return the
+    line unchanged (exec_13196).
     """
+    if ctx is not None:
+        try:
+            from interview_mux.hosted_vo_authority import may_soft_omit_hosted_line
+
+            if not may_soft_omit_hosted_line(
+                ctx,
+                line,
+                gap_report=gap_report,
+                reason_code=reason_code,
+                peer_lines=peer_lines,
+            ):
+                return dict(line)
+        except Exception:
+            pass
     row = dict(line)
     row["skipped_optional"] = True
     row["air_script_omit"] = True
@@ -846,6 +867,14 @@ def clamp_hosted_seats_docs(
         return gap, []
     if not isinstance(gap, dict):
         return gap, []
+    # Pre-synth (exec_13196): never WAV-prefer omit — no rendered floor yet.
+    try:
+        from interview_mux.hosted_vo_authority import vo_synth_era_complete
+
+        if not vo_synth_era_complete(ctx):
+            return gap, []
+    except Exception:
+        pass
     need = min_synthetic_vo_lines(ctx)
     rows = [dict(r) for r in (gap.get("interviewer_lines") or []) if isinstance(r, dict)]
     with_wav: list[dict[str, Any]] = []
@@ -875,9 +904,18 @@ def clamp_hosted_seats_docs(
         idx = by_id.get(lid)
         if idx is None:
             continue
-        rows[idx] = mark_gap_line_not_on_air(
-            row, reason_code="rendered_floor_prefer_wav"
+        stamped = mark_gap_line_not_on_air(
+            row,
+            reason_code="rendered_floor_prefer_wav",
+            ctx=ctx,
+            gap_report=gap,
+            peer_lines=rows,
         )
+        if not (
+            stamped.get("skipped_optional") and stamped.get("air_script_omit")
+        ):
+            continue
+        rows[idx] = stamped
         unseated.append(lid)
     if not unseated:
         return gap, []
@@ -1128,14 +1166,26 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
                     reason = "skip_omit_unseat"
                 if reason == "seated_bind_synth_failed":
                     reason = "skip_omit_unseat"
-                kept = mark_gap_line_not_on_air(kept, reason_code=reason)
-                changed.append(lid)
+                kept = mark_gap_line_not_on_air(
+                    kept,
+                    reason_code=reason,
+                    ctx=ctx,
+                    gap_report=gap,
+                    peer_lines=list(gap.get("interviewer_lines") or []),
+                )
+                if kept.get("skipped_optional") and kept.get("air_script_omit"):
+                    changed.append(lid)
             elif not (kept.get("skipped_optional") and kept.get("air_script_omit")):
                 kept = mark_gap_line_not_on_air(
                     kept,
-                    reason_code=str(kept.get("skip_reason_code") or "air_script_omit_sync"),
+                    reason_code=str(
+                        kept.get("skip_reason_code") or "air_script_omit_sync"
+                    ),
+                    ctx=ctx,
+                    gap_report=gap,
+                    peer_lines=list(gap.get("interviewer_lines") or []),
                 )
-                if lid:
+                if lid and kept.get("skipped_optional") and kept.get("air_script_omit"):
                     changed.append(lid)
             lines.append(kept)
             continue
@@ -1154,10 +1204,16 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
                 )
                 changed.append(lid)
                 continue
-            lines.append(
-                mark_gap_line_not_on_air(row, reason_code="air_script_omit_sync")
+            stamped = mark_gap_line_not_on_air(
+                row,
+                reason_code="air_script_omit_sync",
+                ctx=ctx,
+                gap_report=gap,
+                peer_lines=list(gap.get("interviewer_lines") or []),
             )
-            changed.append(lid)
+            lines.append(stamped)
+            if stamped.get("skipped_optional") and stamped.get("air_script_omit"):
+                changed.append(lid)
             continue
         if lid in seated and str(row.get("delivery") or "").lower() == "synthesize":
             # On-air seat with no omit flags — leave as-is.
@@ -1166,10 +1222,16 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
             lines.append(dict(row))
         elif lid in omitted or lid not in seated:
             if not row.get("skipped_optional"):
-                lines.append(
-                    mark_gap_line_not_on_air(row, reason_code="air_script_omit_sync")
+                stamped = mark_gap_line_not_on_air(
+                    row,
+                    reason_code="air_script_omit_sync",
+                    ctx=ctx,
+                    gap_report=gap,
+                    peer_lines=list(gap.get("interviewer_lines") or []),
                 )
-                changed.append(lid)
+                lines.append(stamped)
+                if stamped.get("skipped_optional") and stamped.get("air_script_omit"):
+                    changed.append(lid)
             else:
                 lines.append(dict(row))
         else:

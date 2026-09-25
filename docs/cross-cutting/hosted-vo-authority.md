@@ -9,7 +9,7 @@ Implementation: [`src/interview_mux/hosted_vo_authority.py`](../../src/interview
 |-------|----------------|
 | `never_minted` | Compose/layup hollow or heal pinned a consumer |
 | `stripped_last_seat` | `native_open_self_orients` omitted the only synth seat |
-| `soft_omit_wipe` | Air-script / omit stamps skipped contentful lines |
+| `soft_omit_wipe` | Air-script / omit stamps skipped contentful lines. **Pre-synth process omit is illegal** when it would leave `active < need` — see `may_soft_omit_hosted_line` |
 | `cta_anchor_lost` | CTA prune dropped natives that anchored floor lines |
 | `freeze_pool_empty` | Hard freeze forbids invent; revive pool empty |
 | `counter_skew` | Gap vs EDL counts disagree |
@@ -39,6 +39,24 @@ Persisted on `run_meta.hosted_vo_floor_identity`. Never aspirational-continue on
 5. **KEEP_REQUIRED** — otherwise keep/mint  
 
 Intentional omit must clear EDL + WAV + seats atomically. Heard artifacts always beat gap omit.
+
+## Soft-omit gate (pre-synth)
+
+`may_soft_omit_hosted_line(ctx, line, *, gap_report, reason_code) → bool`
+
+- **False** ⇒ callers must not set `skipped_optional` / `air_script_omit` for process reasons (`air_script_omit_sync`, `rendered_floor_prefer_wav`, `skip_omit_unseat`, …) on contentful hosted synth lines when omitting would leave `active_after < need` and `vo_synthesize` is not done.
+- Durable policy / omit-wins (CTA, `execution_contract_waive`) still allow omit.
+- Post-synth: gate returns True; WAV clamp / omit-ledger use their own rendered-floor rules.
+- Wire every stamper (Pass B filter, air_contract E1/E4, `mark_gap_line_not_on_air`, drift repair, omit ledger) through this helper — do not re-implement hollow-only (`active < 1`) band-aids.
+
+## Rank-to-budget step-down
+
+`vo_budget_bands` → `(need, ideal, max)`. `score_hosted_vo_line` / `rank_to_budget_select` / `apply_rank_to_budget_fill`:
+
+- Keep **orientation** always; rank contentful body lines by severity, open TP/nuggets, origin, copy length.
+- **Fill up to ideal** by adopting framing / fill priors into `nugget_layup` (no invent). Prefer-native plan skips (`listener_already_oriented`, `native_self_orients`, …) are **soft** under ideal — cleared when a ranked prior is adopted onto that target.
+- Hollow-preserve uses the same ranker (keep top ideal) instead of mass-deleting `gap_framing_compose` then re-admitting to floor.
+- Soft-omit / process prune only the tail below the ranked cut; floor gate remains the backstop.
 
 ## Floor / heal
 

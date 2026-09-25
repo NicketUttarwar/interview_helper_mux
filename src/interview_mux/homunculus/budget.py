@@ -116,6 +116,21 @@ def exemption_for(
         return None
     if identity in _policy_remediation_identities(ctx):
         return BudgetExemption("policy_remediation_plan", identity, EXEMPTION_GRACE)
+    # Hitch / re-exec can burn the base attempt cap while unscored batch_fill
+    # leftovers still require one more LLM resume (exec_13198). Bound grace for
+    # that incompleteness only — never a blanket incompleteness void.
+    if identity == "missing_framing":
+        try:
+            from interview_mux.stage_completion import (
+                _missing_framing_batch_fill_incompleteness,
+            )
+
+            if _missing_framing_batch_fill_incompleteness(ctx):
+                return BudgetExemption(
+                    "missing_framing_batch_fill", identity, EXEMPTION_GRACE
+                )
+        except Exception:
+            pass
     return None
 
 

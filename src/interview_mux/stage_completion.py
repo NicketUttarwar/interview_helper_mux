@@ -141,6 +141,9 @@ def _high_gap_unframed_incompleteness(
         "gap_framing_compose",
         "optimal_questions",
         "gap_report_sanitize",
+        # Layup owns high-gap VO under hosted framing — refuse hollow done while
+        # a high gap still has no interviewer line (exec_13198 seg_014).
+        "nugget_layup_compose",
     }:
         return None
     if not ctx.artifact_exists("understanding/gap_report.json"):
@@ -229,6 +232,10 @@ def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
     Default ``ok_with_light_bridge`` coverage fills are not LLM-scored. Persist is allowed;
     heal must not mark ``missing_framing`` complete until a leftover re-volley scores them
     or the in-invoke coverage CAP seals leftovers.
+
+    Last-wins per ``segment_id`` (same as ``_split_keep_and_leftover``): a superseded
+    fabricate/fill row must not strand done when a later keep-eligible row exists
+    (exec_13198: duplicate repair fills + scored rows → attempt_memo thrash).
     """
     rel = "understanding/gap_evaluations.json"
     if not ctx.artifact_exists(rel):
@@ -241,14 +248,16 @@ def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
         return None
     from interview_mux.stages.gaps import _gap_eval_is_unscored_fill
 
+    by_id: dict[str, dict] = {}
+    for row in doc.get("evaluations") or []:
+        if isinstance(row, dict) and row.get("segment_id"):
+            by_id[str(row["segment_id"])] = row
     filled = [
-        str(row.get("segment_id") or "")
-        for row in (doc.get("evaluations") or [])
-        if isinstance(row, dict)
-        and _gap_eval_is_unscored_fill(row)
+        sid
+        for sid, row in by_id.items()
+        if _gap_eval_is_unscored_fill(row)
         and str((row.get("_meta") or {}).get("producer") or "") != "gap_fill_skip"
     ]
-    filled = [sid for sid in filled if sid]
     if not filled:
         return None
     return (
@@ -1634,6 +1643,7 @@ def stage_artifact_incompleteness(
         "gap_framing_compose",
         "optimal_questions",
         "gap_report_sanitize",
+        "nugget_layup_compose",
     }:
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:

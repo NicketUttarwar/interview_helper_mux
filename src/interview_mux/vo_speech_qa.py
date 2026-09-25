@@ -13,6 +13,33 @@ from interview_mux.config import merged_config
 
 FORBIDDEN_VO_BACKENDS = frozenset({"tone_stub", "sine_stub", "music_stub", "musical_stub"})
 
+# Path+mtime+size+cfg fingerprint → analyze_vo_wav row. Hot path: G1 /
+# resolve_vo_pickup_path / remaining_stages re-enter this dozens of times per
+# heal (forensics exec_13198: unpaid_land(mix) burned ~12s in pure-Python DFT).
+_ANALYZE_CACHE: dict[tuple[str, int, int, str], dict[str, Any]] = {}
+_ANALYZE_CACHE_MAX = 256
+
+
+def _analyze_cache_key(path: Path, cfg: dict[str, Any], script_text: str | None) -> tuple[str, int, int, str] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    # Stable cfg subset that affects metrics / pass-fail.
+    cfg_fp = (
+        f"{cfg.get('enabled')}|{cfg.get('speech_qa_enabled')}|"
+        f"{cfg.get('max_tonal_peak_ratio')}|{cfg.get('min_speech_band_ratio')}|"
+        f"{cfg.get('min_envelope_cv')}|{cfg.get('min_duration_ms')}|"
+        f"{cfg.get('max_ms_per_word')}|{cfg.get('min_ms_per_word')}|"
+        f"{cfg.get('min_words_for_duration_check')}|{(script_text or '')[:200]}"
+    )
+    return (str(path.resolve()), int(st.st_mtime_ns), int(st.st_size), cfg_fp)
+
+
+def clear_vo_speech_qa_cache() -> None:
+    """Test / heal helper — drop analyze cache."""
+    _ANALYZE_CACHE.clear()
+
 
 def vo_speech_qa_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     block = ((cfg or merged_config()).get("analysis") or {}).get("gap_vo") or {}
@@ -141,6 +168,22 @@ def _tonal_peak_ratio(samples: list[float], rate: int) -> float:
     if nfft < 64:
         return 0.0
     chunk = down[:nfft]
+    # Vectorized rFFT (numpy is a runtime dep) — pure-Python DFT was ~0.5–1s/clip
+    # and dominated remaining_stages / unpaid_land(mix) heals (exec_13198).
+    try:
+        import numpy as np
+
+        arr = np.asarray(chunk, dtype=np.float64)
+        window = 0.5 - 0.5 * np.cos(2.0 * np.pi * np.arange(nfft) / max(1, nfft - 1))
+        windowed = arr * window
+        spec = np.fft.rfft(windowed)
+        mags = (spec.real * spec.real + spec.imag * spec.imag)[1:]  # skip DC
+        total = float(mags.sum()) if mags.size else 0.0
+        if total < 1e-12:
+            return 0.0
+        return float(mags.max() / total)
+    except Exception:
+        pass
     # Hann window
     windowed = [
         chunk[i] * (0.5 - 0.5 * math.cos(2 * math.pi * i / max(1, nfft - 1))) for i in range(nfft)
@@ -170,6 +213,11 @@ def analyze_vo_wav(
 ) -> dict[str, Any]:
     """Return speech-QA metrics and pass/fail for a VO pickup WAV."""
     qc = cfg or vo_speech_qa_cfg()
+    cache_key = _analyze_cache_key(Path(path), qc, script_text)
+    if cache_key is not None:
+        hit = _ANALYZE_CACHE.get(cache_key)
+        if hit is not None:
+            return dict(hit)
     row: dict[str, Any] = {
         "path": str(path),
         "pass": False,
@@ -230,6 +278,14 @@ def analyze_vo_wav(
             )
 
     row["pass"] = not row["reasons"]
+    if cache_key is not None:
+        if len(_ANALYZE_CACHE) >= _ANALYZE_CACHE_MAX:
+            # Drop an arbitrary oldest-ish entry (FIFO-ish via next(iter)).
+            try:
+                del _ANALYZE_CACHE[next(iter(_ANALYZE_CACHE))]
+            except Exception:
+                _ANALYZE_CACHE.clear()
+        _ANALYZE_CACHE[cache_key] = dict(row)
     return row
 
 

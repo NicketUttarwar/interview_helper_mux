@@ -18,17 +18,50 @@ def _excluded_blank_ids(selection: dict[str, Any]) -> set[str]:
 def _impact_source_is_unenforceable(
     ctx: RunContext, sid: str, *, blank_excl: set[str], selection: dict[str, Any]
 ) -> bool:
-    """Blank/unusable tape cannot be forced on-air as primary impact.
+    """Blank/unusable / CTA tape cannot be forced on-air as primary impact.
 
     Playability SSOT: blank_or_unusable exclude only — live blank heuristics
     are too aggressive for short-but-valid fixture/content text.
+
+    Media-IP / never-touch CTA scraps also cannot be forced back by framing
+    restore (exec_13198 seg_070 garbled post-CTA thrash).
     """
+    key = str(sid or "").strip()
+    if not key:
+        return True
+    try:
+        from interview_mux.media_ip_cta import (
+            is_editorial_exclude_reason,
+            never_touch_segment_ids,
+        )
+
+        if key in never_touch_segment_ids(ctx):
+            return True
+        rats = (
+            selection.get("exclude_rationales")
+            if isinstance(selection.get("exclude_rationales"), dict)
+            else {}
+        )
+        if is_editorial_exclude_reason(str((rats or {}).get(key) or "")):
+            return True
+        for row in selection.get("excluded_segment_ids") or []:
+            if isinstance(row, dict):
+                if str(row.get("segment_id") or "") != key:
+                    continue
+                if is_editorial_exclude_reason(str(row.get("reason") or "")):
+                    return True
+            elif str(row or "") == key and is_editorial_exclude_reason(
+                str((rats or {}).get(key) or "")
+            ):
+                return True
+    except Exception:
+        pass
     try:
         from interview_mux.playability import is_unplayable_for_primary_impact
 
         return is_unplayable_for_primary_impact(ctx, sid, selection)
     except Exception:
-        return sid in blank_excl
+        return key in blank_excl
 
 def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list[str]:
     """Return lint errors/warnings for framing-aware ranking decisions."""
@@ -102,6 +135,49 @@ def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list
     return errors
 
 
+def _segment_start_ms(ctx: RunContext, sid: str) -> int:
+    """Best-effort source start for chronological restore placement."""
+    try:
+        from interview_mux.playability import segment_span_ms
+
+        span = segment_span_ms(ctx, sid)
+        if span is not None:
+            return int(span[0])
+    except Exception:
+        pass
+    try:
+        if ctx.artifact_exists("segments/boundaries.json"):
+            doc = ctx.read_json("segments/boundaries.json")
+            for row in doc.get("boundaries") or []:
+                if isinstance(row, dict) and str(row.get("segment_id") or "") == sid:
+                    return int(row.get("start_ms") or 0)
+    except Exception:
+        pass
+    return 10**12
+
+
+def _merge_restored_in_tape_order(
+    ctx: RunContext, ordered: list[str], restored: list[str]
+) -> list[str]:
+    """Insert restored ids by source start_ms among existing order (no full resort).
+
+    Appending at the end caused mid_arc_reverse_jump (exec_13198: …seg_070→seg_012).
+    """
+    need = [s for s in restored if s and s not in ordered]
+    if not need:
+        return list(ordered)
+    result = list(ordered)
+    for sid in sorted(need, key=lambda s: (_segment_start_ms(ctx, s), s)):
+        start = _segment_start_ms(ctx, sid)
+        insert_at = len(result)
+        for i, other in enumerate(result):
+            if _segment_start_ms(ctx, other) > start:
+                insert_at = i
+                break
+        result.insert(insert_at, sid)
+    return result
+
+
 def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
     """Apply deterministic guards; auto-heal primary-impact exclusions when possible."""
     out = dict(selection)
@@ -141,10 +217,9 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
             if restored:
                 out["excluded_segment_ids"] = kept_excl
                 ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-                for sid in restored:
-                    if sid not in ordered:
-                        ordered.append(sid)
-                out["ordered_segment_ids"] = ordered
+                out["ordered_segment_ids"] = _merge_restored_in_tape_order(
+                    ctx, ordered, restored
+                )
                 ctx.log(
                     "framing_coverage_guard: restored primary impact segment(s) "
                     f"{', '.join(restored[:6])}",

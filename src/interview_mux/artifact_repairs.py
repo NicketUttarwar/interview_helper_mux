@@ -1445,7 +1445,19 @@ def repair_master_selection(
         # Use the post-readmit list so CTA story children are not wiped here.
         # Never empty the entire air order — fixture/short manifests must not
         # collapse selection to [] (schema + one-writer refuse).
-        blank_drop = [s for s in ordered_now if _segment_is_blank_or_unusable(ctx, s)]
+        # Never drop hard-keeps as blank — lattice restore then fails with
+        # hard_keep_missing_from_order (exec_13198 seg_028 "Okay.").
+        try:
+            from interview_mux.hard_keep import hard_keep_segment_ids
+
+            hard_keeps = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+        except Exception:
+            hard_keeps = set()
+        blank_drop = [
+            s
+            for s in ordered_now
+            if _segment_is_blank_or_unusable(ctx, s) and s not in hard_keeps
+        ]
         if blank_drop:
             kept = [s for s in ordered_now if s not in set(blank_drop)]
             if kept:
@@ -3176,6 +3188,8 @@ def repair_gap_report(
                     line = mark_gap_line_not_on_air(
                         line,
                         reason_code="air_script_omit_sync",
+                        ctx=ctx,
+                        gap_report=out if isinstance(out, dict) else None,
                     )
                     applied.append(
                         {
@@ -3197,6 +3211,8 @@ def repair_gap_report(
                     line = mark_gap_line_not_on_air(
                         line,
                         reason_code="last_sentence_overlap",
+                        ctx=ctx,
+                        gap_report=out if isinstance(out, dict) else None,
                     )
                     applied.append(
                         {
@@ -3729,7 +3745,11 @@ def repair_gap_report(
                     except Exception:
                         pass
                     row = mark_gap_line_not_on_air(
-                        row, reason_code="air_script_omit_sync"
+                        row,
+                        reason_code="air_script_omit_sync",
+                        ctx=ctx,
+                        gap_report=out,
+                        peer_lines=list(out.get("interviewer_lines") or []),
                     )
                     applied.append(
                         {"action": "restamp_air_contract_omit", "line_id": lid}
@@ -4527,7 +4547,16 @@ def propagate_nle_split_segment_refs(
                         claim[key] = _rewrite_segment_id_list(seg_ids, parent_id, child_ids)
                         changed = True
             if changed:
-                ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+                from interview_mux.shared_path_commit import commit_content_brief_doc
+
+                # Segment-id remap after split — preserve producer claim.
+                commit_content_brief_doc(
+                    ctx,
+                    brief,
+                    claim_producer=False,
+                    protect_sacred=True,
+                    skip_handoff=True,
+                )
                 updated.append("understanding/content_brief.json")
 
     if ctx.artifact_exists("master/coverage_audit.json"):
@@ -5079,6 +5108,54 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
         )
         if x
     ).lower()
+    # Chapter membership filled after LLM audit (exec_13198 seg_012/028).
+    if code == "chapter_continuity_broken" or any(
+        needle in text
+        for needle in (
+            "not assigned to any selection chapter",
+            "breaks the chapter map",
+            "chapter map discontinuous",
+            "omitted from its membership",
+        )
+    ):
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+                owned: set[str] = set()
+                for ch in sel.get("chapters") or []:
+                    if not isinstance(ch, dict):
+                        continue
+                    owned.update(str(x) for x in (ch.get("segment_ids") or []) if x)
+                if ordered and all(sid in owned for sid in ordered):
+                    return True
+    # Blank scraps kept by hard-keep stay on-air by policy (exec_13198 seg_028).
+    if code == "blank_segment" or (
+        "blank" in text and "segment" in text and ("drop" in text or "backchannel" in text)
+    ):
+        if ctx.artifact_exists("master/selection.json"):
+            import re
+
+            sel = ctx.read_json("master/selection.json")
+            ordered = {
+                str(s)
+                for s in ((sel or {}).get("ordered_segment_ids") or [])
+                if s
+            } if isinstance(sel, dict) else set()
+            mentioned = set(re.findall(r"seg_\d+", text))
+            sid = str(row.get("segment_id") or "").strip()
+            if sid:
+                mentioned.add(sid)
+            on_air = (mentioned & ordered) if mentioned else set()
+            if on_air:
+                try:
+                    from interview_mux.hard_keep import hard_keep_segment_ids
+
+                    hard = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+                except Exception:
+                    hard = set()
+                if on_air <= hard:
+                    return True
     if code == "opening_orientation_invalid" or any(
         needle in text
         for needle in (
@@ -6979,8 +7056,16 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
     excl = list(sel.get("excluded_segment_ids") or [])
     have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
     drop_ids: set[str] = set()
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        hard_keeps = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+    except Exception:
+        hard_keeps = set()
     for sid in list(order):
-        if _segment_is_blank_or_unusable(ctx, sid):
+        # Never blank-drop hard-keeps — lattice seal then refuses
+        # hard_keep_missing_from_order and EDL/selection diverge (exec_13198 seg_028).
+        if _segment_is_blank_or_unusable(ctx, sid) and sid not in hard_keeps:
             drop_ids.add(sid)
     for sid in drop_ids:
         if sid in order:

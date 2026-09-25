@@ -1131,7 +1131,14 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
                 # Drop a prior coarse ideal-cuts contract so boundary_detection runs LLM.
                 retract_own_boundaries(ctx)
             else:
-                ctx.write_json(BOUNDARIES_REL, boundaries, stage_key="ideal_cuts_materialize")
+                from interview_mux.shared_path_commit import commit_boundaries_doc
+
+                commit_boundaries_doc(
+                    ctx,
+                    boundaries,
+                    stage_key="ideal_cuts_materialize",
+                    claim_producer=True,
+                )
                 wrote_boundaries = True
         except Exception as exc:
             # Fail-closed (DEEP-CUTS-01): never publish coarse keep-windows when

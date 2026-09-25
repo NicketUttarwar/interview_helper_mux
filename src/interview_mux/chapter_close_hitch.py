@@ -1869,7 +1869,15 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         ctx.write_json(
             PRE_KEEPERS_REL, {"keepers": old_keepers}, skip_handoff=True, stage_key=STAGE_ID
         )
-        ctx.write_json(BOUNDARIES_REL, boundaries, skip_handoff=True, stage_key=STAGE_ID)
+        from interview_mux.shared_path_commit import commit_boundaries_doc
+
+        commit_boundaries_doc(
+            ctx,
+            boundaries,
+            stage_key=STAGE_ID,
+            claim_producer=True,
+            skip_handoff=True,
+        )
         rewritten = rewrite_upstream_segment_refs(ctx, mapping)
         rebind_vo_pickup_files(ctx, mapping)
         remap_omit_ledger(ctx, mapping)

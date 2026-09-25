@@ -563,6 +563,42 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     except Exception:
         pass
 
+    # 7c. Constraint lattice — restore never-exclude primary impact + hard-keeps.
+    # Sanitize previously stamped ok=True while selection_sanitary_errors still
+    # reported framing:primary impact… (exec_13198 sticky incomplete_after_conductor).
+    try:
+        from interview_mux.selection_constraints import apply_selection_constraints
+
+        before_order = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+        out = apply_selection_constraints(ctx, out)
+        ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+        restored = [s for s in ordered if s not in before_order]
+        if restored or ordered != before_order:
+            actions.append(
+                {
+                    "action": "apply_selection_constraints",
+                    "restored": restored[:24],
+                    "before_count": len(before_order),
+                    "after_count": len(ordered),
+                }
+            )
+    except Exception as exc:
+        errors.append(f"selection_constraints_failed:{type(exc).__name__}")
+
+    # Fail closed on framing/hard-keep lattice criticals after restore.
+    # Air-order integrity criticals stay metrics-only (ranking repairs jumps).
+    try:
+        from interview_mux.selection_constraints import (
+            critical_lattice_lint_codes,
+            lattice_lint_codes,
+        )
+
+        for code in critical_lattice_lint_codes(lattice_lint_codes(ctx, out))[:6]:
+            if code and code not in errors:
+                errors.append(code)
+    except Exception:
+        pass
+
     # 8. stamp lock
     try:
         from interview_mux.order_hash import bump_order_lock
@@ -639,10 +675,14 @@ def _restamp_selection_sanitize_meta(ctx: Any, doc: dict[str, Any]) -> None:
     """Off-bus stamp refresh — only when ordered ids are unchanged."""
     from interview_mux.write_staging import write_committed_json
 
+    out = dict(doc)
+    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+    meta["producer_stage"] = "selection_order_sanitize"
+    out["_meta"] = meta
     write_committed_json(
         ctx,
         SELECTION_REL,
-        doc,
+        out,
         stage_key="selection_order_sanitize",
     )
 

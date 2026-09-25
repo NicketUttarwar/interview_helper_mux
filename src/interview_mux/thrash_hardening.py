@@ -1645,6 +1645,43 @@ def note_authority_undo_attempt(
             reason = f"action_oscillation:{actions[-1]}↔{actions[-2]}"
     # ESR: oscillation while producer disk/lease progress is fresh → wait, not HARD.
     if halt:
+        # Host media-IP CTA omit is editorial progress. Do not halt A↔B when the
+        # writer is media_ip_cta — heal_on_air used to restore garbled scraps and
+        # thrash with the omit (exec_13198 seg_070). Layup CTA residue commits
+        # that follow the same omit must not freeze the bus either.
+        act = str(action or "")
+        if act.startswith("media_ip_cta") or (
+            act.startswith("nugget_layup")
+            and any(str(a).startswith("media_ip_cta") for a in actions[-limit:])
+        ):
+            halt = False
+            reason = (
+                (reason + "|media_ip_cta_host_omit") if reason else "media_ip_cta_host_omit"
+            )
+        # Chapter/metadata align ↔ sanitize co-write on selection is progress
+        # under hard freeze, not A↔B thrash (exec_13198 chapter orphans).
+        _sel_co = {
+            "artifact_sanitize.selection",
+            "edl_narrative_metadata_align",
+            "edl_narrative_audit",
+        }
+        if (
+            halt
+            and (art.endswith("selection.json") or art == "master/selection.json")
+            and (
+                act in _sel_co
+                or (
+                    len(actions) >= 2
+                    and {str(actions[-1]), str(actions[-2])} <= _sel_co
+                )
+            )
+        ):
+            halt = False
+            reason = (
+                (reason + "|selection_metadata_co_write")
+                if reason
+                else "selection_metadata_co_write"
+            )
         # Workstream B: layup plan hash oscillation → pick-best archived candidate
         # instead of halt with no accepted plan (under-goal accounted stays advisory).
         if art.endswith("nugget_layup_plan.json") or art == "understanding/nugget_layup_plan.json":

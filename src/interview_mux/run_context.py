@@ -164,6 +164,21 @@ class RunContext:
             from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
             from interview_mux.prompt_validation import validate_artifact_write
 
+            # Co-producer shared paths (brief/boundaries): meta + sacred guard for
+            # every write_json — including write_json(rel) variable call sites.
+            try:
+                from interview_mux.shared_path_commit import (
+                    SHARED_PATH_COMMIT_RELS,
+                    guard_shared_path_on_write,
+                )
+
+                if rel in SHARED_PATH_COMMIT_RELS:
+                    data = guard_shared_path_on_write(
+                        self, rel, data, stage_key=stage_key
+                    )
+            except Exception:
+                pass
+
             data = prepare_edl_payload_for_disk(self, rel, data)
             payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
             # One-writer: admit hot authority JSON before schema so commit can harden
@@ -198,6 +213,10 @@ class RunContext:
                                 after_shared_path_write(self, rel, stage_key)
                         except Exception:
                             pass
+                    try:
+                        delattr(self, "_shared_path_disk_cache")
+                    except Exception:
+                        pass
                     return admitted
             except ImportError:
                 pass
@@ -215,6 +234,10 @@ class RunContext:
             path = self.path(rel)
             fs_write_json(path, data)
             self._homunculus_admit_write(rel, data)
+        try:
+            delattr(self, "_shared_path_disk_cache")
+        except Exception:
+            pass
         # A-05: shared brief/boundaries/SDP — stamp authoritative_producer + reconcile.
         if (
             stage_key

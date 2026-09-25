@@ -257,6 +257,27 @@ def test_forensics_restart_clears_failed_refused_memo(tmp_path: Path) -> None:
     assert memo_skip(ctx, "mastering_shape_agenda") is None
 
 
+def test_memo_skip_yields_when_incompleteness_resumes_same_stage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Multi-shard producers must resume despite a refused memo (exec_13198 layup)."""
+    stage = "nugget_layup_compose"
+    ctx = _ctx(tmp_path, "memo_shard_resume")
+    record_attempt(ctx, stage, outcome="refused", source="walk")
+    assert memo_skip(ctx, stage) is not None
+
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        lambda _ctx, st: (
+            "layup_compose_shards_pending — resume nugget_layup_compose: (shard 1/2)"
+            if st == stage
+            else None
+        ),
+    )
+    assert memo_skip(ctx, stage) is None
+    assert evaluate_dispatch(ctx, stage, source="walk", layer="walk").allowed
+
+
 def test_resume_after_intervene_clears_only_patched_stage_state(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, "memo_intervene")
     record_attempt(ctx, "edl", outcome="failed", source="walk")
@@ -283,3 +304,44 @@ def test_resume_after_intervene_clears_only_patched_stage_state(tmp_path: Path) 
     sticky = ctx.read_json("operator/sticky_heal.json")
     assert sticky.get("active_halt") is None
     assert set(sticky["attempts"]) == {"mix-key"}
+
+
+def test_resume_after_intervene_clears_selection_undo_and_refuse(
+    tmp_path: Path,
+) -> None:
+    """CTA omit patches must unstick selection_commit_refused + authority_undo."""
+    ctx = _ctx(tmp_path, "memo_selection_undo")
+    ctx.write_json(
+        "operator/selection_commit_refused.json",
+        {
+            "version": 1,
+            "active": True,
+            "stage": "nugget_layup_compose",
+            "error": "authority_undo_thrash:master/selection.json: hash_oscillation:a↔b",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "operator/authority_undo.json",
+        {
+            "version": 1,
+            "artifacts": {
+                "master/selection.json": {
+                    "history": [
+                        {"action": "media_ip_cta", "hash": "a"},
+                        {"action": "nugget_layup_compose", "hash": "b"},
+                    ],
+                    "last": {"halt": True, "reason": "hash_oscillation:a↔b"},
+                }
+            },
+            "active_halt": {"artifact": "master/selection.json", "pair": "a↔b"},
+        },
+        skip_handoff=True,
+    )
+    result = resume_after_intervene(ctx, stages=("nugget_layup_compose",))
+    assert result.get("undo_cleared") == 1
+    refused = ctx.read_json("operator/selection_commit_refused.json")
+    assert refused.get("active") is False
+    undo = ctx.read_json("operator/authority_undo.json")
+    assert "master/selection.json" not in (undo.get("artifacts") or {})
+    assert undo.get("active_halt") is None

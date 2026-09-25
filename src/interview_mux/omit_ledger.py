@@ -739,8 +739,25 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
             return 0
     stamped = 0
     for line in candidates:
-        line["skipped_optional"] = True
         reason = str(line.pop("_pending_omit_reason", None) or "omit_ledger")
+        try:
+            from interview_mux.hosted_vo_authority import may_soft_omit_hosted_line
+
+            gap_for_gate = {
+                "interviewer_lines": lines,
+            }
+            if not may_soft_omit_hosted_line(
+                ctx,
+                line,
+                gap_report=gap_for_gate,
+                reason_code=reason if reason != "omit_ledger" else "air_script_omit_sync",
+                peer_lines=lines,
+            ):
+                line.pop("_pending_omit_reason", None)
+                continue
+        except Exception:
+            pass
+        line["skipped_optional"] = True
         if not line.get("skip_reason_code"):
             line["skip_reason_code"] = reason
         stamped += 1

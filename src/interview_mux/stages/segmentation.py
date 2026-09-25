@@ -364,7 +364,11 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
                 out = dict(doc)
                 out["boundaries"] = normalized
                 out = publish_boundary_contract(out, publisher_stage="boundary_detection")
-                ctx.write_json("segments/boundaries.json", out)
+                from interview_mux.shared_path_commit import commit_boundaries_doc
+
+                commit_boundaries_doc(
+                    ctx, out, stage_key="boundary_detection", claim_producer=True
+                )
                 ctx.log(
                     f"boundary_detection: enforced max duration on {len(applied)} split(s) "
                     f"→ {len(normalized)} segments",
@@ -596,7 +600,11 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         out = dict(boundaries)
         out["boundaries"] = normalized
         publish_boundary_contract(out)
-        ctx.write_json("segments/boundaries.json", out, stage_key="boundary_topic_resplit")
+        from interview_mux.shared_path_commit import commit_boundaries_doc
+
+        commit_boundaries_doc(
+            ctx, out, stage_key="boundary_topic_resplit", claim_producer=True
+        )
 
     if ctx.artifact_exists("segments/boundaries.json"):
         def _stamp_wrote(m: dict) -> None:

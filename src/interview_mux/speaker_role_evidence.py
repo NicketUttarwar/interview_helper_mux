@@ -178,7 +178,12 @@ def enrich_content_brief_from_evidence(ctx: Any) -> bool:
         except Exception:
             pass
     if changed:
-        ctx.write_json("understanding/content_brief.json", brief)
+        from interview_mux.shared_path_commit import commit_content_brief_doc
+
+        # Name patch only — keep prior producer_stage (do not claim ownership).
+        commit_content_brief_doc(
+            ctx, brief, claim_producer=False, protect_sacred=True
+        )
     return changed
 
 

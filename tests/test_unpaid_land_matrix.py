@@ -151,6 +151,108 @@ def test_unpaid_shared_path_producer_mismatch(ctx: RunContext) -> None:
     assert unpaid_land_blocks_promote(ctx, "selection_order_sanitize")
 
 
+def test_gap_report_layup_co_producer_is_paid_land(ctx: RunContext) -> None:
+    """Layup publish into gap_report must not unpaid-thrash sanitize (exec_13198)."""
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("gap_report_sanitize")
+    assert rel
+    ctx.write_json(
+        str(rel),
+        {
+            "interviewer_lines": [],
+            "_meta": {"producer_stage": "nugget_layup_compose"},
+        },
+    )
+    assert unpaid_land_reason(ctx, "gap_report_sanitize") is None
+
+
+def test_selection_commit_stamps_producer_stage_clears_unpaid(
+    ctx: RunContext,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): missing producer_stage → commit stamps land.
+
+    exec_13196: selection_order_sanitize wrote sanitary selection without
+    ``_meta.producer_stage`` → shared-path unpaid land → incomplete-after-conductor
+    thrash. Commit path must stamp stage_key so land_honest flips.
+    """
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
+    assert rel
+    ctx.path("segments").mkdir(parents=True, exist_ok=True)
+    import json
+
+    (ctx.path("segments") / "boundaries.json").write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {"segment_id": "seg_001", "start_ms": 0, "end_ms": 1000},
+                    {"segment_id": "seg_002", "start_ms": 1000, "end_ms": 2000},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    unpaid_doc = {
+        "ordered_segment_ids": ["seg_001", "seg_002"],
+        "excluded_segment_ids": [],
+        "chapters": [],
+        "_meta": {"sanitize": {"ok": True, "source": "fixture", "actions": 0}},
+    }
+    ctx._one_writer_raw = True
+    ctx.write_json(str(rel), unpaid_doc, skip_handoff=True)
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is not None
+    assert "missing producer_stage" in (
+        unpaid_land_reason(ctx, "selection_order_sanitize") or ""
+    )
+
+    commit_selection_mutation(
+        ctx,
+        unpaid_doc,
+        producer="artifact_sanitize.selection",
+        stage_key="selection_order_sanitize",
+        checkpoint_mode="detect",
+        skip_checkpoint=True,
+        write_committed=True,
+    )
+    disk = ctx.read_json(str(rel))
+    assert (disk.get("_meta") or {}).get("producer_stage") == "selection_order_sanitize"
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
+    assert unpaid_land_blocks_promote(ctx, "selection_order_sanitize") is False
+
+
+def test_gap_report_sanitize_stamps_producer_stage_clears_unpaid(
+    ctx: RunContext,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): gap_report_sanitize stamps producer_stage.
+
+    exec_13196 hollow_done: understanding/gap_report.json missing producer_stage.
+    """
+    from interview_mux.artifact_sanitize.gap_report import run_gap_report_sanitize
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("gap_report_sanitize")
+    assert rel
+    ctx._one_writer_raw = True
+    ctx.write_json(
+        str(rel),
+        {
+            "version": 1,
+            "interviewer_lines": [],
+            "gaps": [],
+            "_meta": {"sanitize": {"ok": True, "source": "fixture", "actions": 0}},
+        },
+        skip_handoff=True,
+    )
+    assert unpaid_land_reason(ctx, "gap_report_sanitize") is not None
+    run_gap_report_sanitize(ctx)
+    disk = ctx.read_json(str(rel))
+    assert (disk.get("_meta") or {}).get("producer_stage") == "gap_report_sanitize"
+    assert unpaid_land_reason(ctx, "gap_report_sanitize") is None
+
+
 def test_promote_refuses_all_unpaid_mix_cases(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -170,3 +272,45 @@ def test_promote_refuses_all_unpaid_mix_cases(
     promoted = promote_complete_orphan_stage_done(ctx, ("mix", "junction_snip_qa"))
     assert "mix" not in promoted
     assert "junction_snip_qa" not in promoted
+
+def test_selection_edl_narrative_co_producer_is_paid_land(ctx: RunContext) -> None:
+    """edl_narrative_audit stamp on selection is paid for sanitize (exec_13198)."""
+    import json
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
+    assert rel
+    path = ctx.path(*str(rel).split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": ["seg_001"],
+                "_meta": {"producer_stage": "edl_narrative_audit"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
+
+
+def test_selection_alias_producer_stage_is_paid_land(ctx: RunContext) -> None:
+    """Alias producer_stage='selection' must not unpaid-thrash sanitize (exec_13198)."""
+    import json
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
+    assert rel
+    path = ctx.path(*str(rel).split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": ["seg_001"],
+                "_meta": {"producer_stage": "selection"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
+

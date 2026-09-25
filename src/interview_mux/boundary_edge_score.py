@@ -755,7 +755,19 @@ def apply_boundary_confidence_pass(
         repair=repair and bool(conf.get("repair_enabled", True)),
     )
     out = publish_boundary_contract(out, publisher_stage=stage)
-    ctx.write_json("segments/boundaries.json", out, stage_key=stage)
+    from interview_mux.shared_path_commit import commit_boundaries_doc
+
+    # Edge score may run under an ALLOW stage (e.g. boundary_detection) or a
+    # helper stage — claim only when stage is an ownership producer.
+    from interview_mux.shared_path_commit import persist_allow_stages
+
+    claim = str(stage or "").strip() in persist_allow_stages("segments/boundaries.json")
+    commit_boundaries_doc(
+        ctx,
+        out,
+        stage_key=str(stage or "") or None,
+        claim_producer=claim,
+    )
     ctx.write_json(BOUNDARY_REVIEW_QUEUE_REL, queue, stage_key=stage)
     low = sum(1 for r in out.get("boundaries") or [] if str(r.get("edge_grade")) in {"low", "reject"})
     ctx.log(

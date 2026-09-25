@@ -139,7 +139,17 @@ def _drop_blank_segments_under_freeze(
 
     out = dict(selection)
     order = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-    blank = [s for s in order if _segment_is_blank_or_unusable(ctx, s)]
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        hard_keeps = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+    except Exception:
+        hard_keeps = set()
+    blank = [
+        s
+        for s in order
+        if _segment_is_blank_or_unusable(ctx, s) and s not in hard_keeps
+    ]
     if not blank:
         return out
     kept = [s for s in order if s not in set(blank)]
@@ -696,6 +706,20 @@ def commit_selection_mutation(
                 mut = "segment_id_remap"
         except Exception:
             pass
+
+        # Land Honesty (SHARED_PATH_PRODUCER_STAGES): selection writes go through
+        # write_mirrored_json while admitting (no fingerprint_artifact), so the
+        # doc must carry _meta.producer_stage or selection_order_sanitize stays
+        # unpaid → incomplete-after-conductor thrash (exec_13196).
+        sk_stamp = str(write_sk or stage_key or "").strip()
+        if sk_stamp:
+            meta = (
+                dict(out.get("_meta") or {})
+                if isinstance(out.get("_meta"), dict)
+                else {}
+            )
+            meta["producer_stage"] = sk_stamp
+            out["_meta"] = meta
 
         if write_committed:
             from interview_mux.artifact_ownership import AuthorityDenied

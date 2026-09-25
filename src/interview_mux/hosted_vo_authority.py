@@ -138,6 +138,568 @@ def have(ctx: RunContext, *, stage_id: str | None = None) -> int:
     return g
 
 
+# Process soft-omit codes — illegal pre-synth when they would peel below floor.
+PROCESS_SOFT_OMIT_REASONS: frozenset[str] = frozenset(
+    {
+        "air_script_omit_sync",
+        "rendered_floor_prefer_wav",
+        "skip_omit_unseat",
+        "not_on_air",
+        "air_contract_omit",
+    }
+)
+
+_SYNTH_DELIVERIES = frozenset(
+    {"synthesize", "record", "voice_clone", "chatterbox", "mlx_audio"}
+)
+
+
+def vo_synth_era_complete(ctx: RunContext) -> bool:
+    """True when vo_synthesize has marked done (post-synth clamp era)."""
+    try:
+        return bool(ctx.is_done("vo_synthesize"))
+    except Exception:
+        return False
+
+
+def _row_is_contentful_synth(line: dict[str, Any] | None) -> bool:
+    if not isinstance(line, dict):
+        return False
+    if not str(line.get("text") or "").strip():
+        return False
+    raw = line.get("delivery")
+    delivery = "synthesize" if raw is None else str(raw).strip().lower()
+    if not delivery:
+        delivery = "synthesize"
+    return delivery in _SYNTH_DELIVERIES
+
+
+def _row_counts_active_synth(line: dict[str, Any] | None) -> bool:
+    if not _row_is_contentful_synth(line):
+        return False
+    assert isinstance(line, dict)
+    if line.get("skipped_optional") or line.get("air_script_omit") or line.get("omit"):
+        return False
+    return True
+
+
+def count_active_synth_lines(lines: list[Any] | None) -> int:
+    """Active contentful synth rows in a gap interviewer_lines list."""
+    n = 0
+    for ln in lines or []:
+        if _row_counts_active_synth(ln if isinstance(ln, dict) else None):
+            n += 1
+    return n
+
+
+def may_soft_omit_hosted_line(
+    ctx: RunContext,
+    line: dict[str, Any] | None,
+    *,
+    gap_report: dict[str, Any] | None = None,
+    reason_code: str = "",
+    peer_lines: list[Any] | None = None,
+) -> bool:
+    """False ⇒ caller must not process-soft-omit this hosted synth line.
+
+    Pre-synth (exec_13196): process omit codes that would leave
+    ``active_after < need`` are illegal — they hollow / peel the G-Framing Yes
+    floor before WAVs exist. Durable policy / omit-wins still allow omit.
+    Post-synth: returns True (clamp / ledger use their own WAV floor rules).
+    """
+    if not isinstance(line, dict):
+        return True
+    reason = str(reason_code or line.get("skip_reason_code") or "").strip().lower()
+    try:
+        from interview_mux.vo_contract import (
+            omit_wins_skip_reason,
+            policy_omit_skip_reason,
+        )
+
+        # Durable CTA / waive / intentional omit-wins always allowed.
+        if policy_omit_skip_reason(line, gap_report=gap_report):
+            return True
+        if reason in {"media_ip_cta_hole", "never_touch_cta", "execution_contract_waive"}:
+            return True
+        # skip_omit_unseat is omit-wins post-synth; pre-synth treat as process
+        # unless already stamped omit-wins with WAV-era bind failure context.
+        if omit_wins_skip_reason(line, gap_report=gap_report) and reason != "skip_omit_unseat":
+            return True
+    except Exception:
+        pass
+
+    if vo_synth_era_complete(ctx):
+        return True
+    try:
+        from interview_mux.gap_fill_eligibility import hosted_framing_requires_synthetic_vo
+
+        if not hosted_framing_requires_synthetic_vo(ctx):
+            return True
+    except Exception:
+        return True
+
+    if not _row_is_contentful_synth(line):
+        return True
+
+    # Unknown non-process reasons (e.g. last_sentence_overlap) — allow unless we
+    # treat empty reason as process (Pass B / E1 often omit without a code first).
+    process = (not reason) or reason in PROCESS_SOFT_OMIT_REASONS
+    if not process:
+        return True
+
+    need_n = need(ctx)
+    if need_n < 1:
+        return True
+
+    lines: list[Any]
+    if peer_lines is not None:
+        lines = list(peer_lines)
+    elif isinstance(gap_report, dict):
+        lines = list(gap_report.get("interviewer_lines") or [])
+    else:
+        try:
+            if ctx.artifact_exists("understanding/gap_report.json"):
+                doc = ctx.read_json("understanding/gap_report.json")
+                lines = (
+                    list((doc or {}).get("interviewer_lines") or [])
+                    if isinstance(doc, dict)
+                    else []
+                )
+            else:
+                lines = [line]
+        except Exception:
+            lines = [line]
+
+    lid = str(line.get("line_id") or "").strip()
+    active_now = count_active_synth_lines(lines)
+    currently_active = _row_counts_active_synth(line)
+    if not currently_active and lid:
+        for row in lines:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("line_id") or "").strip() == lid and _row_counts_active_synth(
+                row
+            ):
+                currently_active = True
+                break
+    active_after = active_now - (1 if currently_active else 0)
+    if active_after < need_n:
+        return False
+    return True
+
+
+# Prefer-native skip family — soft under ideal (not a hard veto when underfill).
+PREFER_NATIVE_SKIP_CODES: frozenset[str] = frozenset(
+    {
+        "listener_already_oriented",
+        "native_self_orients",
+        "self_explanatory_native",
+        "native_audio_self_orients",
+        "episode_open_native_self_orients",
+    }
+)
+
+# Origins eligible for rank-to-budget adopt into layup authority.
+RANK_ADOPTABLE_ORIGINS: frozenset[str] = frozenset(
+    {
+        "gap_framing_compose",
+        "high_gap_vo_fill",
+        "high_gap_vo_fill_no_key",
+        "nugget_layup",
+        "operator",
+        "vo_line_adjudicate",
+    }
+)
+
+_DURABLE_OMIT_SKIP_CODES: frozenset[str] = frozenset(
+    {
+        "media_ip_cta_hole",
+        "never_touch_cta",
+        "execution_contract_waive",
+        "operator_waive",
+        "g1_skipped_optional",
+    }
+)
+
+
+def vo_budget_bands(ctx: RunContext) -> tuple[int, int, int]:
+    """Return ``(need, ideal, max_)`` for hosted synth VO density.
+
+    ``need`` is the G-Framing Yes floor. ``ideal`` comes from selection rebudget
+    when present, else ``max(need, ceil(ordered_n * target_vo_insert_ratio))``.
+    """
+    need_n = max(0, int(need(ctx)))
+    ideal = need_n
+    max_ = need_n
+    try:
+        from interview_mux.gap_vo_rebudget import REBUDGET_REL
+
+        if ctx.artifact_exists(REBUDGET_REL):
+            doc = ctx.read_json(REBUDGET_REL)
+            if isinstance(doc, dict):
+                budget = doc.get("vo_line_budget") if isinstance(doc.get("vo_line_budget"), dict) else {}
+                ideal = max(need_n, int(budget.get("ideal") or need_n))
+                max_ = max(ideal, int(budget.get("max") or ideal))
+                return need_n, ideal, max_
+    except Exception:
+        pass
+    try:
+        import math
+
+        from interview_mux.config import merged_config
+
+        ordered_n = 0
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
+        gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
+        tgt_r = float(gf.get("target_vo_insert_ratio") or 0.08)
+        if ordered_n > 0:
+            ideal = max(need_n, int(math.ceil(ordered_n * tgt_r)))
+            max_ = ideal
+    except Exception:
+        pass
+    return need_n, max(need_n, ideal), max(max_, ideal)
+
+
+def score_hosted_vo_line(
+    line: dict[str, Any] | None,
+    *,
+    open_talking_point_ids: set[str] | None = None,
+    open_nugget_ids: set[str] | None = None,
+) -> float:
+    """Higher = more keep-worthy for rank-to-budget step-down."""
+    if not isinstance(line, dict):
+        return -1e9
+    if not str(line.get("text") or "").strip():
+        return -1e9
+    code = str(line.get("skip_reason_code") or "").strip().lower()
+    if code in _DURABLE_OMIT_SKIP_CODES:
+        return -1e9
+    try:
+        from interview_mux.vo_contract import policy_omit_skip_reason
+
+        if policy_omit_skip_reason(line):
+            return -1e9
+    except Exception:
+        pass
+    score = 0.0
+    sev = str(line.get("severity") or "medium").lower()
+    if sev in {"critical", "blocking"}:
+        score += 40.0
+    elif sev == "high":
+        score += 28.0
+    elif sev == "medium":
+        score += 12.0
+    else:
+        score += 4.0
+    if line.get("required") or line.get("blocking"):
+        score += 18.0
+    origin = str(line.get("origin") or "").strip()
+    if origin in {"nugget_layup", "operator", "vo_line_adjudicate"}:
+        score += 16.0
+    elif origin in {"high_gap_vo_fill", "high_gap_vo_fill_no_key"}:
+        score += 10.0
+    elif origin == "gap_framing_compose":
+        score += 8.0
+    nuggets = [str(x) for x in (line.get("nugget_ids") or []) if x]
+    tps = [
+        str(x)
+        for x in (
+            line.get("talking_point_ids")
+            or line.get("recovery_of_talking_point_ids")
+            or []
+        )
+        if x
+    ]
+    open_tps = open_talking_point_ids or set()
+    open_nugs = open_nugget_ids or set()
+    if any(t in open_tps for t in tps):
+        score += 22.0
+    if any(n in open_nugs for n in nuggets):
+        score += 20.0
+    if nuggets:
+        score += min(10.0, 3.0 * len(nuggets))
+    if tps:
+        score += min(8.0, 2.0 * len(tps))
+    words = len(str(line.get("text") or "").split())
+    if words >= 18:
+        score += 6.0
+    elif words >= 8:
+        score += 3.0
+    # Soft-omitted priors are still adoptable but rank below live actives.
+    if line.get("skipped_optional") or line.get("air_script_omit") or line.get("omit"):
+        score -= 5.0
+    if code in PREFER_NATIVE_SKIP_CODES:
+        score -= 8.0
+    return score
+
+
+def adopt_line_into_layup_authority(line: dict[str, Any]) -> dict[str, Any]:
+    """Clear process omit flags and re-home origin to nugget_layup."""
+    keep = dict(line)
+    prior_origin = str(keep.get("origin") or "").strip()
+    keep["origin"] = "nugget_layup"
+    keep["skipped_optional"] = False
+    keep.pop("omit", None)
+    keep.pop("omitted", None)
+    keep.pop("air_script_omit", None)
+    code = str(keep.get("skip_reason_code") or "").strip().lower()
+    if code in PROCESS_SOFT_OMIT_REASONS or code in PREFER_NATIVE_SKIP_CODES or not code:
+        keep.pop("skip_reason_code", None)
+        keep.pop("skip_reason", None)
+    meta = dict(keep.get("_meta") or {}) if isinstance(keep.get("_meta"), dict) else {}
+    meta["rank_to_budget_adopted"] = True
+    if prior_origin and prior_origin != "nugget_layup":
+        meta["rank_to_budget_adopted_from"] = prior_origin
+    keep["_meta"] = meta
+    if not str(keep.get("gap_type") or "").strip():
+        keep["gap_type"] = "nugget_layup"
+    return keep
+
+
+def rank_to_budget_select(
+    lines: list[Any] | None,
+    *,
+    need: int,
+    ideal: int,
+    live_targets: set[str] | None = None,
+    already_kept_targets: set[str] | None = None,
+    open_talking_point_ids: set[str] | None = None,
+    open_nugget_ids: set[str] | None = None,
+    protect_line_ids: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Pick value-ranked body lines up to ``ideal`` (at least ``need`` when available).
+
+    Returns ``(kept, pruned, meta)``. Orientation / protect_line_ids always kept.
+    Does not invent copy — only ranks existing contentful rows.
+    """
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    need_n = max(0, int(need))
+    ideal_n = max(need_n, int(ideal))
+    live = live_targets or set()
+    protected = protect_line_ids or set()
+    reserved_targets = set(already_kept_targets or set())
+
+    orientation: list[dict[str, Any]] = []
+    protected_rows: list[dict[str, Any]] = []
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for i, raw in enumerate(lines or []):
+        if not isinstance(raw, dict):
+            continue
+        lid = str(raw.get("line_id") or "").strip()
+        if is_episode_orientation(raw) or lid in protected:
+            orientation.append(dict(raw))
+            tid = str(raw.get("targets_segment_id") or "").strip()
+            if tid:
+                reserved_targets.add(tid)
+            continue
+        if lid and lid.startswith("vo_preface_episode"):
+            orientation.append(dict(raw))
+            continue
+        text = str(raw.get("text") or "").strip()
+        if not text:
+            continue
+        origin = str(raw.get("origin") or "").strip()
+        if origin and origin not in RANK_ADOPTABLE_ORIGINS and origin != "cta_hole_cover":
+            # Unknown origins still score if contentful synth (fail-open keep pool).
+            pass
+        code = str(raw.get("skip_reason_code") or "").strip().lower()
+        if code in _DURABLE_OMIT_SKIP_CODES:
+            continue
+        if origin == "cta_hole_cover" or code in {"media_ip_cta_hole", "never_touch_cta"}:
+            continue
+        tid = str(raw.get("targets_segment_id") or "").strip()
+        if live and tid and tid not in live:
+            continue
+        if tid and tid in reserved_targets:
+            continue
+        if not _row_is_contentful_synth(raw) and str(raw.get("delivery") or "").lower() not in {
+            "",
+            "synthesize",
+            "record",
+            "chatterbox",
+            "mlx_audio",
+        }:
+            continue
+        # Treat empty delivery as synthesize (gap framing often omits the field).
+        sc = score_hosted_vo_line(
+            raw,
+            open_talking_point_ids=open_talking_point_ids,
+            open_nugget_ids=open_nugget_ids,
+        )
+        if sc <= -1e8:
+            continue
+        scored.append((sc, i, dict(raw)))
+
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    kept_body: list[dict[str, Any]] = []
+    pruned: list[dict[str, Any]] = []
+    target_cap = ideal_n
+    for sc, _i, row in scored:
+        tid = str(row.get("targets_segment_id") or "").strip()
+        if len(kept_body) >= target_cap:
+            pruned.append(row)
+            continue
+        if tid and tid in reserved_targets:
+            pruned.append(row)
+            continue
+        adopted = adopt_line_into_layup_authority(row)
+        kept_body.append(adopted)
+        if tid:
+            reserved_targets.add(tid)
+
+    # If still under need, pull back highest pruned (should be rare).
+    if len(kept_body) < need_n and pruned:
+        for row in list(pruned):
+            if len(kept_body) >= need_n:
+                break
+            tid = str(row.get("targets_segment_id") or "").strip()
+            if tid and tid in reserved_targets:
+                continue
+            kept_body.append(adopt_line_into_layup_authority(row))
+            pruned.remove(row)
+            if tid:
+                reserved_targets.add(tid)
+
+    kept = orientation + protected_rows + kept_body
+    meta = {
+        "rank_to_budget": True,
+        "need": need_n,
+        "ideal": ideal_n,
+        "kept_body": len(kept_body),
+        "pruned": len(pruned),
+        "kept_line_ids": [str(x.get("line_id") or "") for x in kept_body],
+    }
+    return kept, pruned, meta
+
+
+def apply_rank_to_budget_fill(
+    ctx: RunContext,
+    *,
+    keep_lines: list[dict[str, Any]],
+    pool_lines: list[dict[str, Any]],
+    plan: dict[str, Any] | None = None,
+    seen_targets: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
+    """Fill ``keep_lines`` up to ideal from ranked ``pool_lines`` (adopt, no invent).
+
+    Returns ``(lines, meta, plan_or_none)``. Mutates plan rows when adopting over
+    prefer-native skips so plan and gap_report stay aligned.
+    """
+    need_n, ideal_n, _max_n = vo_budget_bands(ctx)
+    active = count_active_synth_lines(keep_lines)
+    meta: dict[str, Any] = {
+        "rank_to_budget_fill": True,
+        "need": need_n,
+        "ideal": ideal_n,
+        "active_before": active,
+        "adopted_line_ids": [],
+    }
+    if active >= ideal_n:
+        meta["active_after"] = active
+        meta["skipped"] = "already_at_ideal"
+        return list(keep_lines), meta, plan if isinstance(plan, dict) else None
+
+    live: set[str] = set()
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                live = {str(s) for s in (sel.get("ordered_segment_ids") or []) if s}
+    except Exception:
+        live = set()
+
+    open_tps = {
+        str(x)
+        for x in ((plan or {}).get("open_talking_point_ids") or [])
+        if x and isinstance(plan, dict)
+    }
+    open_nugs = {
+        str(x)
+        for x in (
+            (plan or {}).get("open_high_salience_nugget_ids")
+            or (plan or {}).get("open_nugget_ids")
+            or []
+        )
+        if x and isinstance(plan, dict)
+    }
+    reserved = set(seen_targets or set())
+    for ln in keep_lines:
+        tid = str(ln.get("targets_segment_id") or "").strip()
+        if tid:
+            reserved.add(tid)
+
+    shortfall = ideal_n - active
+    _kept, _pruned, sel_meta = rank_to_budget_select(
+        pool_lines,
+        need=min(need_n, shortfall),
+        ideal=shortfall,
+        live_targets=live or None,
+        already_kept_targets=reserved,
+        open_talking_point_ids=open_tps or None,
+        open_nugget_ids=open_nugs or None,
+    )
+    # rank_to_budget_select returns orientation+body from pool; we only want body adopts.
+    adopted: list[dict[str, Any]] = []
+    for ln in _kept:
+        try:
+            from interview_mux.opening_orientation import is_episode_orientation
+
+            if is_episode_orientation(ln):
+                continue
+        except Exception:
+            pass
+        tid = str(ln.get("targets_segment_id") or "").strip()
+        if tid and tid in reserved:
+            continue
+        adopted.append(ln)
+        if tid:
+            reserved.add(tid)
+        meta["adopted_line_ids"].append(str(ln.get("line_id") or ""))
+        if len(adopted) >= shortfall:
+            break
+
+    out = list(keep_lines) + adopted
+    plan_out = dict(plan) if isinstance(plan, dict) else None
+    if plan_out is not None and adopted:
+        rows = [r for r in (plan_out.get("layups") or []) if isinstance(r, dict)]
+        by_tid = {
+            str(r.get("target_segment_id") or "").strip(): r
+            for r in rows
+            if r.get("target_segment_id")
+        }
+        plan_touched = False
+        for ln in adopted:
+            tid = str(ln.get("targets_segment_id") or "").strip()
+            row = by_tid.get(tid)
+            if not isinstance(row, dict):
+                continue
+            reason = str(row.get("skip_reason_code") or "").strip()
+            if row.get("skip") and reason in PREFER_NATIVE_SKIP_CODES:
+                row["skip"] = False
+                row["text"] = str(ln.get("text") or "")
+                row["word_count"] = len(str(ln.get("text") or "").split())
+                row["line_id"] = str(ln.get("line_id") or row.get("line_id") or "")
+                row.pop("skip_reason_code", None)
+                row["compensating_path"] = "rank_to_budget_adopt"
+                meta_r = dict(row.get("_meta") or {}) if isinstance(row.get("_meta"), dict) else {}
+                meta_r["rank_to_budget_cleared_prefer_native"] = reason
+                row["_meta"] = meta_r
+                plan_touched = True
+        if plan_touched:
+            plan_out["layups"] = rows
+            meta["prefer_native_skips_cleared"] = True
+        else:
+            plan_out = plan if isinstance(plan, dict) else None
+
+    meta["active_after"] = count_active_synth_lines(out)
+    meta["select"] = sel_meta
+    return out, meta, plan_out
+
+
 def floor_identity_to_dict(identity: FloorIdentity) -> dict[str, Any]:
     return {
         "status": identity.status,

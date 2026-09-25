@@ -112,7 +112,28 @@ def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
             ok, _reason = write_permitted(ctx, rel, stage_key)
             if not ok:
                 continue
-            ctx.write_json(rel, payload, skip_handoff=True, stage_key=stage_key)
+            if rel == "segments/boundaries.json":
+                from interview_mux.shared_path_commit import commit_boundaries_doc
+
+                commit_boundaries_doc(
+                    ctx,
+                    payload,
+                    stage_key=stage_key,
+                    claim_producer=True,
+                    skip_handoff=True,
+                )
+            elif rel == "understanding/content_brief.json":
+                from interview_mux.shared_path_commit import commit_content_brief_doc
+
+                commit_content_brief_doc(
+                    ctx,
+                    payload,
+                    stage_key=stage_key,
+                    claim_producer=True,
+                    skip_handoff=True,
+                )
+            else:
+                ctx.write_json(rel, payload, skip_handoff=True, stage_key=stage_key)
             return True
         return False
 

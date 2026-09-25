@@ -2966,68 +2966,59 @@ def _scrub_foreign_before_vo_for_hollow_preserve(
     report: dict[str, Any],
     *,
     min_active: int | None = None,
+    ideal: int | None = None,
+    live_targets: set[str] | None = None,
+    open_talking_point_ids: set[str] | None = None,
+    open_nugget_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Drop foreign before-VO origins when hollow-preserving under layup authority.
+    """Rank-to-budget keep when hollow-preserving under layup authority.
 
-    Prefer scrubbing ``gap_framing_compose`` / other non-authority before lines while
-    keeping orientation + layup/operator/fill origins. If foreign before-VO still
-    remain, clear ``nugget_layup_authority`` so lint does not greenwash.
-
-    When ``min_active`` is set (G-Framing Yes floor), never finish below that
-    count — re-admit foreign before lines in original order until the floor
-    holds. Floor integrity beats origin purity under hollow preserve
-    (exec_13167: scrubbed 11 foreign → active < need → hosted_vo_floor_unmet).
+    Replaces mass foreign scrub: score contentful before-VO (including
+    ``gap_framing_compose``), keep up to ``ideal`` (at least ``min_active``),
+    adopt winners into ``nugget_layup`` origin. Durable CTA / waive rows stay out.
     """
+    from interview_mux.hosted_vo_authority import rank_to_budget_select
     from interview_mux.opening_orientation import is_episode_orientation
 
     if not isinstance(report, dict):
         return report
     lines = [ln for ln in (report.get("interviewer_lines") or []) if isinstance(ln, dict)]
-    kept: list[dict[str, Any]] = []
-    foreign_before: list[dict[str, Any]] = []
-    dropped = 0
+    need_n = int(min_active or 0)
+    ideal_n = max(need_n, int(ideal if ideal is not None else need_n))
+    if ideal_n <= 0 and need_n <= 0:
+        return report
+    kept, pruned, sel_meta = rank_to_budget_select(
+        lines,
+        need=need_n,
+        ideal=ideal_n,
+        live_targets=live_targets,
+        open_talking_point_ids=open_talking_point_ids,
+        open_nugget_ids=open_nugget_ids,
+    )
+    # Preserve any non-before authority rows ranker skipped (after/bed pins).
+    kept_ids = {str(ln.get("line_id") or "") for ln in kept if ln.get("line_id")}
     for ln in lines:
+        lid = str(ln.get("line_id") or "")
+        if lid and lid in kept_ids:
+            continue
         if is_episode_orientation(ln):
-            kept.append(ln)
             continue
-        origin = str(ln.get("origin") or "").strip()
         placement = str(ln.get("placement") or "").strip()
-        if placement == "before" and origin not in AUTHORITY_BODY_ORIGINS:
-            foreign_before.append(ln)
-            dropped += 1
+        origin = str(ln.get("origin") or "").strip()
+        if placement == "before":
             continue
-        kept.append(ln)
-    floor_retained = 0
-    need = int(min_active or 0)
-    if need > 0 and _count_active_synthetic_lines(kept) < need:
-        for ln in foreign_before:
-            if _count_active_synthetic_lines(kept) >= need:
-                break
-            kept.append(ln)
-            floor_retained += 1
-            dropped -= 1
-    if dropped == 0 and floor_retained == 0 and kept == lines:
+        if origin in AUTHORITY_BODY_ORIGINS:
+            kept.append(dict(ln))
+            if lid:
+                kept_ids.add(lid)
+    if kept == lines and not pruned:
         return report
     out = dict(report)
     out["interviewer_lines"] = kept
-    still_foreign = sorted(
-        {
-            str(ln.get("origin") or "unknown")
-            for ln in kept
-            if not is_episode_orientation(ln)
-            and str(ln.get("placement") or "") == "before"
-            and str(ln.get("origin") or "") not in AUTHORITY_BODY_ORIGINS
-        }
-    )
+    out["nugget_layup_authority"] = True
     meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
-    if still_foreign:
-        out["nugget_layup_authority"] = False
-        meta["hollow_preserve_authority_cleared"] = True
-        meta["foreign_before_origins"] = still_foreign[:8]
-    if dropped > 0:
-        meta["hollow_preserve_scrubbed_foreign_before"] = dropped
-    if floor_retained > 0:
-        meta["hollow_preserve_floor_retained_foreign"] = floor_retained
+    meta["hollow_preserve_rank_to_budget"] = sel_meta
+    meta["hollow_preserve_pruned"] = len(pruned)
     if meta:
         out["_meta"] = meta
     return out
@@ -3072,7 +3063,15 @@ def _framing_floor_topup(
             break
         if not isinstance(ln, dict) or is_episode_orientation(ln):
             continue
-        if ln.get("skipped_optional") or ln.get("omit") or ln.get("omitted"):
+        # Soft-omit wipe (exec_13196): pre-synth air-script clamp stamped
+        # skipped_optional/air_script_omit on the only floor line → topup skipped
+        # it forever → HOLLOW_ZERO. Clear omit flags when restoring for floor.
+        soft_omitted = bool(
+            ln.get("skipped_optional") or ln.get("omit") or ln.get("omitted")
+            or ln.get("air_script_omit")
+        )
+        if soft_omitted and _count_active_synthetic_lines(out) >= 1:
+            # Prefer never-omitted priors when we already have some actives.
             continue
         if str(ln.get("origin") or "").strip() not in AUTHORITY_BODY_ORIGINS:
             continue
@@ -3089,8 +3088,21 @@ def _framing_floor_topup(
         if delivery not in {"synthesize", "chatterbox", "record", "mlx_audio"}:
             continue
         keep = dict(ln)
+        if soft_omitted:
+            keep["skipped_optional"] = False
+            keep.pop("omit", None)
+            keep.pop("omitted", None)
+            keep.pop("air_script_omit", None)
+            if str(keep.get("skip_reason_code") or "") in {
+                "air_script_omit_sync",
+                "air_contract_omit",
+            }:
+                keep.pop("skip_reason_code", None)
+                keep.pop("skip_reason", None)
         meta = dict(keep.get("_meta") or {}) if isinstance(keep.get("_meta"), dict) else {}
         meta["framing_floor_preserved"] = True
+        if soft_omitted:
+            meta["framing_floor_soft_omit_cleared"] = True
         keep["_meta"] = meta
         out.append(keep)
         seen_targets.add(tid)
@@ -3251,6 +3263,10 @@ def publish_layup_plan_to_gap_report(
 
         if hosted_framing_requires_synthetic_vo(ctx):
             need = min_synthetic_vo_lines(ctx)
+            from interview_mux.hosted_vo_authority import vo_budget_bands
+
+            _need_b, ideal_n, _max_b = vo_budget_bands(ctx)
+            need = max(int(need), int(_need_b))
             active_new = _count_active_synthetic_lines(candidate_lines)
             if active_new < need:
                 prior_active = _count_active_synthetic_lines(prior_lines)
@@ -3262,12 +3278,31 @@ def publish_layup_plan_to_gap_report(
                     "compose_restart" in w for w in warnings
                 )
                 if hollow_plan and prior_active >= need:
+                    live_targets = {str(s) for s in (_ordered_ids(ctx) or []) if s}
                     preserved = _scrub_foreign_before_vo_for_hollow_preserve(
-                        existing, min_active=need
+                        existing,
+                        min_active=need,
+                        ideal=ideal_n,
+                        live_targets=live_targets or None,
+                        open_talking_point_ids={
+                            str(x) for x in (plan.get("open_talking_point_ids") or []) if x
+                        }
+                        or None,
+                        open_nugget_ids={
+                            str(x)
+                            for x in (
+                                plan.get("open_high_salience_nugget_ids")
+                                or plan.get("open_nugget_ids")
+                                or []
+                            )
+                            if x
+                        }
+                        or None,
                     )
                     ctx.log(
                         "nugget_layup: refuse hollow gap publish under G-Framing Yes "
-                        f"(active={active_new} < {need}; preserving prior {prior_active})",
+                        f"(active={active_new} < {need}; preserving prior {prior_active} "
+                        f"via rank-to-budget ideal={ideal_n})",
                         level="warning",
                         stage="nugget_layup_compose",
                     )
@@ -3305,13 +3340,46 @@ def publish_layup_plan_to_gap_report(
                         level="warning",
                         stage="nugget_layup_compose",
                     )
-                if _count_active_synthetic_lines(candidate_lines) < need:
-                    raise_hosted_vo_floor_unsatisfiable(
-                        ctx,
-                        need=need,
-                        active=_count_active_synthetic_lines(candidate_lines),
-                        eligible_nuggets=eligible_nugget_count_for_floor(ctx),
+            # Rank-to-budget underfill: adopt value-ranked framing priors up to ideal
+            # (prefer-native soft — clear matching plan skips when we adopt).
+            # Runs before floor unsatisfiable so framing adopt can meet need.
+            if _count_active_synthetic_lines(candidate_lines) < ideal_n:
+                from interview_mux.hosted_vo_authority import apply_rank_to_budget_fill
+
+                filled, fill_meta, plan_updated = apply_rank_to_budget_fill(
+                    ctx,
+                    keep_lines=candidate_lines,
+                    pool_lines=prior_lines,
+                    plan=plan,
+                    seen_targets=seen_targets,
+                )
+                if fill_meta.get("adopted_line_ids"):
+                    candidate_lines = filled
+                    for ln in filled:
+                        tid = str(ln.get("targets_segment_id") or "").strip()
+                        if tid:
+                            seen_targets.add(tid)
+                    ctx.log(
+                        "nugget_layup: rank-to-budget adopted "
+                        f"{fill_meta.get('adopted_line_ids')} "
+                        f"(active {fill_meta.get('active_before')}→"
+                        f"{fill_meta.get('active_after')}, ideal={ideal_n})",
+                        level="info",
+                        stage="nugget_layup_compose",
                     )
+                    if isinstance(plan_updated, dict):
+                        plan = plan_updated
+                        try:
+                            ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+                        except Exception:
+                            pass
+            if _count_active_synthetic_lines(candidate_lines) < need:
+                raise_hosted_vo_floor_unsatisfiable(
+                    ctx,
+                    need=need,
+                    active=_count_active_synthetic_lines(candidate_lines),
+                    eligible_nuggets=eligible_nugget_count_for_floor(ctx),
+                )
     except RuntimeError:
         raise
     except Exception as _floor_exc:

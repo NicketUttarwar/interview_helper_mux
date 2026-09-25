@@ -105,3 +105,58 @@ def test_blank_primary_impact_exclude_allowed(ctx: RunContext, monkeypatch: pyte
         if isinstance(r, dict)
     }
     assert "seg_002" in excl
+
+
+def test_enforce_framing_does_not_restore_media_ip_cta_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CTA / never-touch primaries stay excluded (exec_13198 seg_070 thrash)."""
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_framing_cta_primary", create=True)
+    init_run_meta_for_test(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_010", "seg_070"),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {"source_segment_ids": ["seg_070"]},
+                    ],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    # Stamp never-touch so restore path treats CTA as unenforceable.
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "never_touch_segment_ids": ["seg_070"],
+            "dropped_segment_ids": ["seg_070"],
+        },
+        skip_handoff=True,
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_010"],
+        "excluded_segment_ids": [
+            {
+                "segment_id": "seg_070",
+                "reason": "media_ip_cta:empty/heavily degraded transcript",
+            }
+        ],
+        "exclude_rationales": {
+            "seg_070": "media_ip_cta:empty/heavily degraded transcript",
+        },
+    }
+    issues = validate_framing_ranking(ctx, selection)
+    assert not any("never_exclude_primary_impact" in i for i in issues)
+    out = enforce_framing_ranking(ctx, selection)
+    assert "seg_070" not in [str(s) for s in (out.get("ordered_segment_ids") or [])]
+    assert "seg_010" in (out.get("ordered_segment_ids") or [])

@@ -452,6 +452,23 @@ def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
         return None
     if str(row.get("progress_token") or "") != progress_token(ctx):
         return None
+    # Incomplete multi-shard producers must not strand behind a refused memo when
+    # incompleteness still pins resume to this stage (exec_13198 layup shard 1/2).
+    # Narrow to shards_pending — generic incompleteness must still honor the memo.
+    try:
+        from interview_mux.stage_completion import (
+            parse_resume_stage_from_reason,
+            stage_artifact_incompleteness,
+        )
+
+        reason = stage_artifact_incompleteness(ctx, stage) or ""
+        if (
+            "shards_pending" in reason
+            and parse_resume_stage_from_reason(reason) == stage
+        ):
+            return None
+    except Exception:
+        pass
     return "attempt_memo", {
         "stage": stage,
         "state_token": token,
@@ -543,9 +560,53 @@ def resume_after_intervene(
                 sticky.pop("active_halt", None)
             sticky["updated_at"] = __import__("time").time()
             ctx.write_json(sticky_rel, sticky, skip_handoff=True)
+
+    # Selection bus refuse + authority-undo halt strand layup after a CTA omit
+    # patch (exec_13198 selection_commit_refused ↔ hash_oscillation).
+    refused_cleared = 0
+    try:
+        from interview_mux.air_order_boundary import clear_selection_commit_refused
+
+        for sid in sorted(wanted or {"nugget_layup_compose"}):
+            before = ctx.artifact_exists("operator/selection_commit_refused.json")
+            clear_selection_commit_refused(ctx, stage_key=sid)
+            if before:
+                refused_cleared += 1
+    except Exception:
+        refused_cleared = 0
+    undo_cleared = 0
+    if not wanted or wanted & {
+        "nugget_layup_compose",
+        "selection_order_sanitize",
+        "full_master_ranking",
+        "selection_framing_apply",
+    }:
+        undo_rel = "operator/authority_undo.json"
+        if ctx.artifact_exists(undo_rel):
+            try:
+                doc_u = ctx.read_json(undo_rel)
+            except Exception:
+                doc_u = None
+            if isinstance(doc_u, dict):
+                arts = dict(doc_u.get("artifacts") or {})
+                if "master/selection.json" in arts:
+                    arts.pop("master/selection.json", None)
+                    undo_cleared = 1
+                active_u = (
+                    doc_u.get("active_halt")
+                    if isinstance(doc_u.get("active_halt"), dict)
+                    else {}
+                )
+                if str((active_u or {}).get("artifact") or "") == "master/selection.json":
+                    doc_u.pop("active_halt", None)
+                    undo_cleared = 1
+                doc_u["artifacts"] = arts
+                ctx.write_json(undo_rel, doc_u, skip_handoff=True)
     return {
         "memo_cleared": memo_cleared,
         "sticky_cleared": sticky_cleared,
+        "refused_cleared": refused_cleared,
+        "undo_cleared": undo_cleared,
         "stages": sorted(wanted),
     }
 

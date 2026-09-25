@@ -1293,8 +1293,14 @@ def _write_boundaries(
         out = publish_boundary_contract(out, publisher_stage=fuse_writer_stage(pass_id))
     except Exception:
         pass
-    ctx.write_json(
-        "segments/boundaries.json", out, stage_key=fuse_writer_stage(pass_id)
+    from interview_mux.shared_path_commit import commit_boundaries_doc
+
+    fuse_stage = fuse_writer_stage(pass_id)
+    commit_boundaries_doc(
+        ctx,
+        out,
+        stage_key=fuse_stage,
+        claim_producer=True,
     )
 
 

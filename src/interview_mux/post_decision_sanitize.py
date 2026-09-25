@@ -19,6 +19,9 @@ SHARED_PATHS: dict[str, str] = {
     "sound_design_plan": "understanding/sound_design_plan.json",
 }
 
+# A-05 peer unmark set — intentionally narrower than ownership ALLOW.
+# Full ALLOW includes hitch/fuse/overlap/ideal_cuts; unmarking all of them on
+# every fingerprint flip would over-rewind. Keep primary analysis pairs here.
 SHARED_PATH_CO_PRODUCERS: dict[str, tuple[str, ...]] = {
     "understanding/content_brief.json": ("content_context", "content_brief_reanchor"),
     "segments/boundaries.json": ("boundary_detection", "boundary_topic_resplit"),

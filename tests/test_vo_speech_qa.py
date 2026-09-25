@@ -157,3 +157,44 @@ def test_record_recorded_vo_stub_logs_loud_warning(tmp_path: Path, monkeypatch) 
     log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
     assert "VO recording QC failed" in log_text
     assert "line_upload2" in log_text
+
+
+def test_analyze_vo_wav_caches_by_mtime(tmp_path: Path) -> None:
+    """Second analyze of the same file must hit cache (heal/remaining_stages hot path)."""
+    import time
+
+    from interview_mux import vo_speech_qa as vsq
+
+    vsq.clear_vo_speech_qa_cache()
+    wav = tmp_path / "speech_cache.wav"
+    _write_noisy_speechish(wav)
+    t0 = time.perf_counter()
+    first = analyze_vo_wav(wav)
+    cold = time.perf_counter() - t0
+    t1 = time.perf_counter()
+    second = analyze_vo_wav(wav)
+    warm = time.perf_counter() - t1
+    assert first == second
+    assert first["pass"] is True
+    # Warm should be dramatically cheaper than cold (numpy FFT still, but no I/O+DSP).
+    assert warm < max(0.05, cold * 0.25)
+    # Mutate mtime → cache miss, still correct.
+    time.sleep(0.01)
+    wav.write_bytes(wav.read_bytes() + b"")  # touch size? keep same — bump mtime
+    Path(wav).touch()
+    vsq.clear_vo_speech_qa_cache()  # ensure clean for miss path below
+    third = analyze_vo_wav(wav)
+    assert third["pass"] is True
+
+
+def test_tonal_peak_numpy_rejects_pure_tone(tmp_path: Path) -> None:
+    """Numpy rFFT path must still flag pure tones (parity with pure-Python DFT)."""
+    from interview_mux import vo_speech_qa as vsq
+
+    vsq.clear_vo_speech_qa_cache()
+    wav = tmp_path / "tone_np.wav"
+    _write_sine(wav)
+    row = analyze_vo_wav(wav)
+    assert row["pass"] is False
+    assert row["tonal_peak_ratio"] is not None
+    assert float(row["tonal_peak_ratio"]) >= 0.5

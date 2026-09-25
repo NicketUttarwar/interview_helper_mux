@@ -1528,6 +1528,24 @@ def filter_gap_lines_for_air_script(
             else:
                 lines.append(line)
             continue
+        # Unseated: process soft-omit unless pre-synth floor gate refuses.
+        if ctx is not None:
+            from interview_mux.hosted_vo_authority import may_soft_omit_hosted_line
+
+            if not may_soft_omit_hosted_line(
+                ctx,
+                line,
+                gap_report=gap_report,
+                reason_code="air_script_omit_sync",
+                peer_lines=gap_report.get("interviewer_lines") or [],
+            ):
+                from interview_mux.vo_contract import ensure_gap_line_on_air
+
+                kept = ensure_gap_line_on_air(line, gap_report=gap_report)
+                lines.append(kept)
+                if lid:
+                    seats.add(lid)
+                continue
         skipped = dict(line)
         skipped["skipped_optional"] = True
         skipped["air_script_omit"] = True

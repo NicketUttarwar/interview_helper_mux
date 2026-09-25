@@ -415,7 +415,15 @@ def _update_boundaries(
     rows.sort(key=lambda r: _as_int(r.get("start_ms")))
     out = dict(doc)
     out["boundaries"] = rows
-    ctx.write_json("segments/boundaries.json", out, skip_handoff=True, stage_key=STAGE_KEY)
+    from interview_mux.shared_path_commit import commit_boundaries_doc
+
+    commit_boundaries_doc(
+        ctx,
+        out,
+        stage_key=STAGE_KEY,
+        claim_producer=True,
+        skip_handoff=True,
+    )
 
 
 def _update_nle(

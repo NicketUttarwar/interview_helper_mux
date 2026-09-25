@@ -498,6 +498,16 @@ def commit_gap_report_doc(
                 ctx, result, stage_key="gap_report", mode=reason or "commit"
             )
             out = result.doc if result.ok and isinstance(result.doc, dict) else dict(doc)
+            # Land Honesty: shared-path gap_report needs matching producer_stage.
+            sk = str(stage_key or "").strip()
+            if sk:
+                meta = (
+                    dict(out.get("_meta") or {})
+                    if isinstance(out.get("_meta"), dict)
+                    else {}
+                )
+                meta["producer_stage"] = sk
+                out["_meta"] = meta
             # One disk write — sanitized when ok; otherwise input (still sole writer).
             _persist_gap_disk(ctx, out, skip_handoff=skip_handoff, stage_key=stage_key)
             after_hash = sanitary_content_hash(out, keys=_CONTENT_KEYS)
@@ -667,8 +677,15 @@ def run_gap_report_sanitize(ctx: Any) -> None:
             raise RuntimeError(
                 sanitize_refused_message("gap_report", result.errors)
             )
-        fs_write_json(ctx.path(REL), result.doc)
-        after_hash = sanitary_content_hash(result.doc, keys=_CONTENT_KEYS)
+        out = result.doc if isinstance(result.doc, dict) else dict(doc)
+        # Land Honesty (SHARED_PATH_PRODUCER_STAGES): fs_write_json does not
+        # fingerprint — stamp producer_stage or gap_report_sanitize stays unpaid
+        # (exec_13196 hollow_done alongside selection unpaid).
+        meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+        meta["producer_stage"] = "gap_report_sanitize"
+        out["_meta"] = meta
+        fs_write_json(ctx.path(REL), out)
+        after_hash = sanitary_content_hash(out, keys=_CONTENT_KEYS)
         try:
             from interview_mux.artifact_sanitize.invalidate import (
                 maybe_invalidate_after_sanitize,

@@ -1631,14 +1631,24 @@ def reconcile_orphan_artifacts(
         # Shared-path early writers (e.g. sound_design_palettes → plan.json) are
         # not orphans of the later consumer stage — sticky-halting on them
         # freezes Full-auto before G-Framing (forensics exec_11130).
+        # Brief/boundaries: any ALLOW co-producer claim is valid (not only the
+        # stage's own id — hitch/fuse/resplit must not orphan detection).
         try:
             if str(rel).endswith(".json"):
                 doc = ctx.read_json(rel)
                 producer = ""
                 if isinstance(doc, dict):
                     producer = str((doc.get("_meta") or {}).get("producer_stage") or "")
+                from interview_mux.shared_path_commit import (
+                    SHARED_PATH_COMMIT_RELS,
+                    producer_claim_ok,
+                )
+
+                if str(rel) in SHARED_PATH_COMMIT_RELS:
+                    if producer_claim_ok(str(rel), producer) and producer != sid:
+                        continue
                 # DETECTION_ONLY_IS_DONE: producer stamp presence (orphan filter).
-                if producer and producer != sid and ctx.is_done(producer):
+                elif producer and producer != sid and ctx.is_done(producer):
                     continue
         except Exception:
             pass
