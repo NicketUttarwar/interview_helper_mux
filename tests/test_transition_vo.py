@@ -16,7 +16,14 @@ from interview_mux.transition_vo import (
     transition_wav_path,
 )
 from interview_mux.vo_synthesis_audit import record_synthesis
-from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config, mark_done_raw
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    isolated_run_ctx,
+    mark_done_raw,
+    patch_executions_root,
+    patch_merged_config,
+    write_fixture_json,
+)
 
 
 def test_build_flow1_edl_transition_duration_from_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,36 +213,36 @@ def test_synthesize_transitions_writeback_guarded_text(tmp_path, monkeypatch) ->
         lambda *_a, **_k: True,
     )
     ctx = isolated_run_ctx(tmp_path, "transition_writeback")
+    confirm_test_pickup_speaker(ctx)
+    from interview_mux.stages.gaps import ensure_gap_fill_skipped
+
+    ensure_gap_fill_skipped(ctx, reason="test", signals={})
+    write_fixture_json(
+        ctx,
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": "Original hinge text here.",
+                    "type": "bridge",
+                }
+            ]
+        },
+        stage_key="transitions",
+    )
+    write_fixture_json(
+        ctx,
+        "segments/manifest.json",
+        {
+            "segments": [
+                {"segment_id": "seg_a", "text": "First answer about the buyer."},
+                {"segment_id": "seg_b", "text": "Second answer about the deal."},
+            ]
+        },
+    )
     tr_path = ctx.path("master", "transitions.json")
-    tr_path.parent.mkdir(parents=True, exist_ok=True)
-    tr_path.write_text(
-        _json.dumps(
-            {
-                "transitions": [
-                    {
-                        "after_segment_id": "seg_a",
-                        "before_segment_id": "seg_b",
-                        "text": "Original hinge text here.",
-                        "type": "bridge",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    man_path = ctx.path("segments", "manifest.json")
-    man_path.parent.mkdir(parents=True, exist_ok=True)
-    man_path.write_text(
-        _json.dumps(
-            {
-                "segments": [
-                    {"segment_id": "seg_a", "text": "First answer about the buyer."},
-                    {"segment_id": "seg_b", "text": "Second answer about the deal."},
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
 
     def _fake_guard(text, *, evidence=None, purpose="", seen_texts=None, ctx=None, exclude_line_id=None):
         return {
@@ -626,7 +633,7 @@ def test_transitions_write_cascades_purge_on_text_change(
                 }
             ]
         },
-        stage_key="nugget_layup_compose",
+        stage_key="transitions",
         skip_handoff=True,
     )
     assert not out.is_file()

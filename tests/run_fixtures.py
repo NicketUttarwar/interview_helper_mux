@@ -52,6 +52,455 @@ def write_fixture_vo_wav(path: Path, *, duration_sec: float = 0.6) -> None:
             samples.append(int(max(-32767, min(32767, 11000 * env * voiced))))
         wf.writeframes(struct.pack(f"<{n}h", *samples))
 
+
+def write_fixture_json(
+    ctx: RunContext,
+    rel: str,
+    data: Any,
+    *,
+    stage_key: str | None = None,
+    role: str = "ops",
+) -> Path:
+    """Plant JSON on the committed tree without going through ownership assert_write.
+
+    ``ctx.write_json`` always runs ``assert_write`` even with ``skip_handoff=True``.
+    Tests must plant via file_store or an owner ``stage_key``; this helper is the
+    file_store path. ``stage_key`` / ``role`` are accepted for call-site clarity
+    and unused by the write itself.
+    """
+    _ = (stage_key, role)
+    from interview_mux.file_store import write_json as fs_write_json
+
+    path = ctx.final_path(*_rel_parts(rel))
+    fs_write_json(path, data)
+    return path
+
+
+def write_fixture_bytes(ctx: RunContext, rel: str, data: bytes) -> Path:
+    path = ctx.final_path(*_rel_parts(rel))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def _rel_parts(rel: str) -> tuple[str, ...]:
+    return tuple(p for p in str(rel or "").replace("\\", "/").lstrip("/").split("/") if p)
+
+
+def write_fixture_theme_wav(ctx: RunContext, rel: str, *, duration_sec: float = 1.2) -> Path:
+    """Audible theme WAV (speech-free beds reject stub / digital-silence)."""
+    path = ctx.final_path(*_rel_parts(rel))
+    write_fixture_vo_wav(path, duration_sec=duration_sec)
+    return path
+
+
+def confirm_test_pickup_speaker(ctx: RunContext, speaker_id: str = "spk_host") -> None:
+    """Stamp G1 pickup confirm the way production reads it (no operator GUI)."""
+    sid = str(speaker_id or "spk_host").strip() or "spk_host"
+    topo: dict[str, Any] = {}
+    if ctx.artifact_exists("understanding/source_topology.json"):
+        try:
+            existing = ctx.read_json("understanding/source_topology.json")
+            if isinstance(existing, dict):
+                topo = dict(existing)
+        except Exception:
+            topo = {}
+    stats = list(topo.get("speaker_stats") or [])
+    known = {str(r.get("speaker_id") or "") for r in stats if isinstance(r, dict)}
+    if sid not in known:
+        stats.append({"speaker_id": sid, "role": "interviewer", "talk_time_ms": 5_000})
+        if "spk_guest" not in known and sid != "spk_guest":
+            stats.append(
+                {"speaker_id": "spk_guest", "role": "interviewee", "talk_time_ms": 90_000}
+            )
+    topo.setdefault("topology_class", "one_on_one_asymmetric")
+    topo["pickup_eligible_speaker_id"] = sid
+    topo["least_spoken_speaker_id"] = sid
+    topo["speaker_stats"] = stats
+    write_fixture_json(ctx, "understanding/source_topology.json", topo)
+
+    adapt: dict[str, Any] = {}
+    if ctx.artifact_exists("understanding/flow_adaptation.json"):
+        try:
+            existing = ctx.read_json("understanding/flow_adaptation.json")
+            if isinstance(existing, dict):
+                adapt = dict(existing)
+        except Exception:
+            adapt = {}
+    overrides = dict(adapt.get("operator_overrides") or {})
+    overrides["pickup_speaker_confirmed"] = True
+    adapt["operator_overrides"] = overrides
+    adapt["pickup_eligible_speaker_id"] = sid
+    adapt.setdefault("topology_class", topo.get("topology_class") or "one_on_one_asymmetric")
+    write_fixture_json(ctx, "understanding/flow_adaptation.json", adapt)
+
+
+def _with_producer(doc: dict[str, Any], stage_id: str) -> dict[str, Any]:
+    out = dict(doc)
+    meta = dict(out.get("_meta") or {})
+    meta["producer_stage"] = str(stage_id)
+    out["_meta"] = meta
+    return out
+
+
+def minimal_nugget_corpus(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "nuggets": [
+            {
+                "nugget_id": "nug_001",
+                "text_claim": "The guest explains the origin story.",
+                "evidence_quote": "A useful guest quote about the origin story.",
+                "in_selection": True,
+                "source_segment_ids": ["seg_001"],
+                "speaker_id": "spk_guest",
+                "source_start_ms": 0,
+                "source_end_ms": 4000,
+            }
+        ]
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_information_packages_audit(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "complete",
+        "packages": [],
+        "episode_close": {
+            "music": {
+                "required": True,
+                "role": "theme_outro",
+                "placement": "after_last_native",
+            }
+        },
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_nugget_layup_plan(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "ordered_segment_ids": ["seg_001"],
+        "layups": [{"target_segment_id": "seg_001", "skip": True, "skip_reason_code": "fixture"}],
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_vo_synthesize(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "complete",
+        "lines": [],
+        "skipped": True,
+        "reason": "fixture_no_vo_lines",
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_edl(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_001"],
+        "timeline_duration_ms": 5000,
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_001",
+                "source_start_ms": 0,
+                "source_end_ms": 5000,
+                "timeline_start_ms": 0,
+                "duration_ms": 5000,
+            }
+        ],
+    }
+    base.update(patch)
+    return base
+
+
+def minimal_mastering_plan(**patch: Any) -> dict[str, Any]:
+    from interview_mux.mastering_plan_loader import forced_sparse_plan
+
+    base = forced_sparse_plan(reason="pytest fixture seed-complete")
+    base["air_script"] = {"pass": "pass_b", "beats": []}
+    base.update(patch)
+    return base
+
+
+def minimal_transitions(**patch: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "transitions": [],
+        "selection_count": 1,
+        "empty_ok": True,
+    }
+    base.update(patch)
+    return base
+
+
+def plant_shared_delivery_lattice(ctx: RunContext) -> None:
+    """Shared selection / transitions / corpus so MUST_PRECEDE hops can land."""
+    if not ctx.artifact_exists("master/selection.json"):
+        write_fixture_json(
+            ctx,
+            "master/selection.json",
+            _with_producer(minimal_master_selection(), "selection_order_sanitize"),
+        )
+    if not ctx.artifact_exists("master/transitions.json"):
+        write_fixture_json(
+            ctx,
+            "master/transitions.json",
+            _with_producer(minimal_transitions(), "transitions"),
+        )
+    if not ctx.artifact_exists("understanding/nugget_corpus.json"):
+        write_fixture_json(ctx, "understanding/nugget_corpus.json", minimal_nugget_corpus())
+    if not ctx.artifact_exists("segments/manifest.json"):
+        write_fixture_json(ctx, "segments/manifest.json", minimal_manifest())
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        write_fixture_json(
+            ctx,
+            "understanding/gap_report.json",
+            _with_producer(seed_complete_gap_report(), "gap_framing_compose"),
+        )
+
+
+def _plant_primary_payload(ctx: RunContext, stage_id: str) -> None:
+    """Write a seed-complete-enough primary (+ extras) for ``stage_id``."""
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    sid = str(stage_id or "").strip()
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+
+    extras: dict[str, Any] = {
+        "information_package_plan": (
+            "mastering/shape/information_packages_audit.json",
+            minimal_information_packages_audit(),
+        ),
+        "nugget_corpus_mine": ("understanding/nugget_corpus.json", minimal_nugget_corpus()),
+        "nugget_layup_compose": (
+            "understanding/nugget_layup_plan.json",
+            minimal_nugget_layup_plan(),
+        ),
+        "gap_report_sanitize": (
+            "understanding/gap_report.json",
+            _with_producer(seed_complete_gap_report(), "gap_report_sanitize"),
+        ),
+        "refinement_agenda": (
+            "understanding/refinement_agenda.json",
+            {"schema_version": 1, "items": [], "status": "complete"},
+        ),
+        "gap_framing_recompose": (
+            "understanding/gap_framing_recompose.json",
+            {"skipped": True, "reason": "fixture"},
+        ),
+        "selection_framing_apply": (
+            "understanding/selection_framing_apply.json",
+            {"skipped": True, "reason": "fixture"},
+        ),
+        "air_script_seams": (
+            "mastering/mastering_plan.json",
+            _with_producer(minimal_mastering_plan(), "air_script_seams"),
+        ),
+        "air_contract_sanitize": (
+            "mastering/mastering_plan.json",
+            _with_producer(minimal_mastering_plan(), "air_contract_sanitize"),
+        ),
+        "air_script_compose": (
+            "mastering/mastering_plan.json",
+            _with_producer(minimal_mastering_plan(), "air_script_compose"),
+        ),
+        "transitions": (
+            "master/transitions.json",
+            _with_producer(minimal_transitions(), "transitions"),
+        ),
+        "vo_line_adjudicate": (
+            "understanding/vo_line_adjudication.json",
+            {"lines": []},
+        ),
+        "vo_synthesize": ("mastering/vo_synthesize.json", minimal_vo_synthesize()),
+        "sound_design_vo_finalize": (
+            "mastering/sound_design_vo_finalize.json",
+            {"skipped": True, "refused": False, "reason": "fixture"},
+        ),
+        "edl_narrative_audit": (
+            "master/edl_narrative_audit.json",
+            {
+                "verdict": "pass",
+                "blocking_issues": [],
+                "warnings": [],
+                "recommended_actions": [],
+                "reasoning_summary": "Fixture narrative audit pass.",
+            },
+        ),
+        "edl": ("master/edl.json", _with_producer(minimal_edl(), "edl")),
+        "full_master_ranking": (
+            "master/selection.json",
+            _with_producer(minimal_master_selection(), "full_master_ranking"),
+        ),
+        "selection_order_sanitize": (
+            "master/selection.json",
+            _with_producer(minimal_master_selection(), "selection_order_sanitize"),
+        ),
+        "narrative_arc_plan": ("master/narrative_plan.json", minimal_narrative_plan()),
+        "chapter_close_hitch": (
+            "mastering/chapter_close_hitch.json",
+            {"schema_version": 1, "status": "complete", "hitches": []},
+        ),
+        "connector_fuse_pass_pre_ranking": (
+            "analysis/connector_fuse_rounds_pre_ranking.json",
+            {"pass_id": "pre_ranking", "rounds": [], "status": "complete"},
+        ),
+        "listen_delight_audit": (
+            "mastering/listen_delight_audit.json",
+            {"schema_version": 1, "status": "pass", "findings": []},
+        ),
+        "music_palette_compose": (
+            "sound_design/music_palette_compose.json",
+            {"schema_version": 1, "status": "complete", "assets": []},
+        ),
+        "sfx_prompt_craft": (
+            "sound_design/sfx_prompts.json",
+            {"prompts": []},
+        ),
+        "mmaudio_sfx": (
+            "sound_design/mmaudio_qa.json",
+            {"schema_version": 1, "assets": [], "status": "complete"},
+        ),
+        "junction_snip_qa": (
+            "master/junction_snip_qa.json",
+            {"schema_version": 1, "status": "pass", "seams": []},
+        ),
+        "gap_framing_compose": ("understanding/gap_report.json", seed_complete_gap_report()),
+        "missing_framing": ("understanding/gap_evaluations.json", minimal_gap_evaluations()),
+        "source_topology_build": (
+            "understanding/source_topology.json",
+            {
+                "topology_class": "one_on_one_asymmetric",
+                "pickup_eligible_speaker_id": "spk_host",
+                "least_spoken_speaker_id": "spk_host",
+                "speaker_stats": [
+                    {"speaker_id": "spk_host", "role": "interviewer", "talk_time_ms": 5_000},
+                    {"speaker_id": "spk_guest", "role": "interviewee", "talk_time_ms": 90_000},
+                ],
+            },
+        ),
+        "audio_preclean": None,
+        "ingest": None,
+        "assembly_preview": None,
+        "mix": None,
+        "master_finalize": None,
+    }
+
+    if sid == "sound_design_plan":
+        plan = sound_design_plan_with(
+            coherence={
+                "sonic_identity": "warm dry close-mic room",
+                "primary_mood": "intimate",
+                "density": "sparse",
+            }
+        )
+        plan["_meta"] = {"producer_stage": "sound_design_plan"}
+        write_fixture_json(ctx, "understanding/sound_design_plan.json", plan)
+        if not ctx.artifact_exists("master/transitions.json"):
+            write_fixture_json(
+                ctx,
+                "master/transitions.json",
+                _with_producer(minimal_transitions(), "transitions"),
+            )
+        return
+
+    if sid == "audio_preclean":
+        write_fixture_json(
+            ctx,
+            "preclean/skip.json",
+            {"skipped": True, "reason": "fixture", "provider": "none"},
+        )
+        return
+
+    if sid in {"ingest", "mix", "assembly_preview", "master_finalize"}:
+        wav_rel = {
+            "ingest": "ingest/normalized.wav",
+            "mix": "master/assembly.wav",
+            "assembly_preview": "master/assembly_preview.wav",
+            "master_finalize": "master/master.wav",
+        }[sid]
+        write_fixture_theme_wav(ctx, wav_rel)
+        if sid == "junction_snip_qa" or sid == "mix":
+            pass
+        return
+
+    if sid == "junction_snip_qa":
+        write_fixture_json(
+            ctx,
+            "master/junction_snip_qa.json",
+            {"schema_version": 1, "status": "pass", "seams": []},
+        )
+        write_fixture_json(
+            ctx,
+            "master/seam_autopsy.json",
+            {"schema_version": 1, "status": "pass", "seams": []},
+        )
+        if not ctx.artifact_exists("master/assembly.wav"):
+            write_fixture_theme_wav(ctx, "master/assembly.wav")
+        return
+
+    spec = extras.get(sid)
+    if spec is not None:
+        path, payload = spec
+        write_fixture_json(ctx, path, payload)
+        if sid == "information_package_plan" and not ctx.artifact_exists(
+            "understanding/nugget_corpus.json"
+        ):
+            write_fixture_json(ctx, "understanding/nugget_corpus.json", minimal_nugget_corpus())
+        if sid == "edl" and not ctx.artifact_exists("master/selection.json"):
+            write_fixture_json(ctx, "master/selection.json", minimal_master_selection())
+        return
+
+    if rel:
+        if rel.endswith(".wav") or rel.endswith(".mp3") or rel.endswith(".jpg"):
+            if rel.endswith(".wav"):
+                write_fixture_theme_wav(ctx, rel)
+            else:
+                write_fixture_bytes(ctx, rel, b"\xff\xd8\xff" + b"\x00" * 64)
+            return
+        write_fixture_json(ctx, rel, {"schema_version": 1, "status": "complete", "fixture": True})
+
+
+def plant_primary_and_stamp(ctx: RunContext, stage_id: str) -> None:
+    """Write a schema-enough primary then hollow-stamp ``.stage_done``."""
+    sid = str(stage_id or "").strip()
+    if not sid:
+        return
+    plant_shared_delivery_lattice(ctx)
+    _plant_primary_payload(ctx, sid)
+    mark_done_raw(ctx, sid)
+
+
+def plant_seed_complete_through(ctx: RunContext, stage_id: str) -> None:
+    """Walk MUST_PRECEDE from ``stage_id`` back to roots and plant each hop."""
+    from interview_mux.delivery_guardrails import MUST_PRECEDE
+
+    sid = str(stage_id or "").strip()
+    if not sid:
+        return
+    plant_shared_delivery_lattice(ctx)
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _walk(cur: str) -> None:
+        if not cur or cur in seen:
+            return
+        seen.add(cur)
+        for pred in MUST_PRECEDE.get(cur, ()):
+            _walk(str(pred))
+        ordered.append(cur)
+
+    _walk(sid)
+    for hop in ordered:
+        plant_primary_and_stamp(ctx, hop)
+
+
 # Stable hash pair for reuse tests (same source audio fingerprint).
 TEST_SOURCE_AUDIO_HASH = "a" * 64
 TEST_SOURCE_AUDIO_HASH_SHORT = "a" * 12
@@ -82,6 +531,7 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.creative_delivery",
     "interview_mux.soundscape_verify",
     "interview_mux.sound_design",
+    "interview_mux.placement_qa",
 )
 
 
@@ -306,7 +756,7 @@ def init_run_meta_for_test(
         meta["source_audio_hash"] = source_audio_hash
     if source_audio_hash_short:
         meta["source_audio_hash_short"] = source_audio_hash_short
-    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    write_fixture_json(ctx, "run_meta.json", meta)
 
 def isolated_run_ctx(tmp_path: Path, run_id: str) -> RunContext:
     """Run under tmp_path only — avoids collisions with data/run_* in the repo."""
@@ -458,6 +908,13 @@ def minimal_gap_report(*lines: dict[str, Any]) -> dict[str, Any]:
         return {"interviewer_lines": []}
     return {"interviewer_lines": list(lines)}
 
+
+def seed_complete_gap_report(*lines: dict[str, Any]) -> dict[str, Any]:
+    """Gap report that does not demand an audible opening-orientation seat."""
+    doc = minimal_gap_report(*lines)
+    doc["opening_orientation"] = {"omitted": True, "required": False}
+    return doc
+
 def minimal_gap_evaluations(*evaluations: dict[str, Any]) -> dict[str, Any]:
     """Schema-valid understanding/gap_evaluations.json."""
     if not evaluations:
@@ -491,7 +948,10 @@ def minimal_speakers() -> dict[str, Any]:
     }
 
 def minimal_master_selection(**patch: Any) -> dict[str, Any]:
-    """Schema-valid master/selection.json."""
+    """Schema-valid master/selection.json with sanitary order-lock + sanitize stamp."""
+    from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+    from interview_mux.order_hash import bump_order_lock
+
     base: dict[str, Any] = {
         "ordered_segment_ids": ["seg_001"],
         "chapters": [
@@ -503,18 +963,21 @@ def minimal_master_selection(**patch: Any) -> dict[str, Any]:
         ],
     }
     base.update(patch)
-    return base
+    base = bump_order_lock(base, source="run_fixtures.minimal_master_selection")
+    return stamp_sanitize_meta(
+        base,
+        ok=True,
+        source="run_fixtures.minimal_master_selection",
+        content_keys=["ordered_segment_ids", "order_content_hash"],
+    )
 
 
 def seed_flow1_full_sound_path(ctx: RunContext) -> None:
     """Flow 1 sound path with ranking, transitions, and narrative plan stubs for cross-validate."""
     seed_flow1_sound_spend_ready(ctx)
-    ctx.write_json(
-        "master/selection.json",
-        minimal_master_selection(),
-        skip_handoff=True,
-    )
-    ctx.write_json(
+    write_fixture_json(ctx, "master/selection.json", minimal_master_selection())
+    write_fixture_json(
+        ctx,
         "master/transitions.json",
         {
             "transitions": [
@@ -527,12 +990,12 @@ def seed_flow1_full_sound_path(ctx: RunContext) -> None:
                 }
             ]
         },
-        skip_handoff=True,
     )
-    ctx.write_json(
-        "understanding/narrative_arc_plan.json",
-        {"chapters": [{"chapter_id": "ch1", "title": "Opening", "segment_ids": ["seg_001"]}]},
-        skip_handoff=True,
+    write_fixture_json(
+        ctx,
+        "master/narrative_plan.json",
+        minimal_narrative_plan(),
+        stage_key="narrative_arc_plan",
     )
 
 def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
@@ -540,96 +1003,91 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     seed_analysis_ready_artifacts(ctx, verified=True)
     if not ctx.artifact_exists("run_meta.json"):
         init_run_meta_for_test(ctx)
-    # One-writer escape so music-only fixture assets survive sanitize admission.
-    prev_raw = getattr(ctx, "_one_writer_raw", False)
-    ctx._one_writer_raw = True
-    try:
-        ctx.write_json(
-            "master/selection.json",
-            minimal_master_selection(chapters=[]),
-            skip_handoff=True,
-        )
-        # Creative / music-only delivery needs role-diverse theme assets + a bed cue.
-        assets = [
-            {
-                "asset_id": "theme_underscore_01",
-                "role": "theme_underscore",
-                "palette_id": "p1",
-                "description": "Warm sparse underscore bed",
-                "duration_seconds": 14.0,
-            },
-            {
-                "asset_id": "theme_cold_open_01",
-                "role": "theme_cold_open",
-                "palette_id": "p1",
-                "description": "Show open theme motif",
-                "duration_seconds": 12.0,
-            },
-            {
-                "asset_id": "theme_outro_01",
-                "role": "theme_outro",
-                "palette_id": "p1",
-                "description": "Episode close theme",
-                "duration_seconds": 12.0,
-            },
-            {
-                "asset_id": "theme_emphasis_01",
-                "role": "theme_emphasis",
-                "palette_id": "p1",
-                "description": "Chapter emphasis sting",
-                "duration_seconds": 8.0,
-            },
-        ]
-        ctx.write_json(
-            "understanding/sound_design_plan.json",
-            sound_design_plan_with(
-                assets=assets,
-                flow_plans={
-                    "podcast": {
-                        "cues": [
-                            {
-                                "cue_id": "c1",
-                                "asset_id": "theme_underscore_01",
-                                "role": "theme_underscore",
-                                "placement": "under_segment",
-                                "segment_id": "seg_001",
-                            }
-                        ]
-                    }
-                },
-            ),
-            skip_handoff=True,
-        )
-        ctx.write_json(
-            "sound_design/sfx_prompts.json",
-            {
-                "prompts": [
+    write_fixture_json(
+        ctx,
+        "master/selection.json",
+        minimal_master_selection(chapters=[]),
+    )
+    # Creative / music-only delivery needs role-diverse theme assets + a bed cue.
+    assets = [
+        {
+            "asset_id": "theme_underscore_01",
+            "role": "theme_underscore",
+            "palette_id": "p1",
+            "description": "Warm sparse underscore bed",
+            "duration_seconds": 14.0,
+        },
+        {
+            "asset_id": "theme_cold_open_01",
+            "role": "theme_cold_open",
+            "palette_id": "p1",
+            "description": "Show open theme motif",
+            "duration_seconds": 12.0,
+        },
+        {
+            "asset_id": "theme_outro_01",
+            "role": "theme_outro",
+            "palette_id": "p1",
+            "description": "Episode close theme",
+            "duration_seconds": 12.0,
+        },
+        {
+            "asset_id": "theme_emphasis_01",
+            "role": "theme_emphasis",
+            "palette_id": "p1",
+            "description": "Chapter emphasis sting",
+            "duration_seconds": 8.0,
+        },
+    ]
+    plan = sound_design_plan_with(
+        coherence={
+            "sonic_identity": "warm dry close-mic room",
+            "primary_mood": "intimate",
+            "density": "sparse",
+        },
+        assets=assets,
+        flow_plans={
+            "podcast": {
+                "cues": [
                     {
-                        "asset_id": a["asset_id"],
-                        "sfx_prompt": (
-                            f"instrumental non-vocal music for podcast {a['role']} "
-                            "without lyrics speech or foley"
-                        ),
-                        "duration_seconds": int(a["duration_seconds"]),
-                        "negative_prompt": "vocals lyrics speech whoosh foley",
-                        "role": a["role"],
+                        "cue_id": "c1",
+                        "asset_id": "theme_underscore_01",
+                        "role": "theme_underscore",
+                        "placement": "under_segment",
+                        "segment_id": "seg_001",
                     }
-                    for a in assets
                 ]
-            },
-            skip_handoff=True,
-        )
-    finally:
-        ctx._one_writer_raw = prev_raw
-    assets_dir = ctx.path("sound_design", "assets")
-    assets_dir.mkdir(parents=True, exist_ok=True)
+            }
+        },
+    )
+    plan["_meta"] = {"producer_stage": "sound_design_plan"}
+    write_fixture_json(ctx, "understanding/sound_design_plan.json", plan)
+    write_fixture_json(
+        ctx,
+        "sound_design/sfx_prompts.json",
+        {
+            "prompts": [
+                {
+                    "asset_id": a["asset_id"],
+                    "sfx_prompt": (
+                        f"instrumental non-vocal music for podcast {a['role']} "
+                        "without lyrics speech or foley"
+                    ),
+                    "duration_seconds": int(a["duration_seconds"]),
+                    "negative_prompt": "vocals lyrics speech whoosh foley",
+                    "role": a["role"],
+                }
+                for a in assets
+            ]
+        },
+    )
     for aid in (
         "theme_underscore_01",
         "theme_cold_open_01",
         "theme_outro_01",
         "theme_emphasis_01",
     ):
-        (assets_dir / f"{aid}.wav").write_bytes(MINIMAL_WAV_BYTES)
+        write_fixture_theme_wav(ctx, f"sound_design/assets/{aid}.wav")
 
 def seed_from_sonic_fixture(
     ctx: RunContext,
@@ -645,10 +1103,10 @@ def seed_from_sonic_fixture(
     if seed_base:
         ctx.path("understanding").mkdir(parents=True, exist_ok=True)
         if not ctx.artifact_exists("understanding/content_brief.json"):
-            ctx.write_json("understanding/content_brief.json", minimal_content_brief(), skip_handoff=True)
+            write_fixture_json(ctx, "understanding/content_brief.json", minimal_content_brief())
         if not ctx.artifact_exists("segments/manifest.json"):
-            ctx.write_json("segments/manifest.json", minimal_manifest(), skip_handoff=True)
-    ctx.write_json("understanding/sonic_context.json", doc, skip_handoff=True)
+            write_fixture_json(ctx, "segments/manifest.json", minimal_manifest())
+    write_fixture_json(ctx, "understanding/sonic_context.json", doc)
     return doc
 
 def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) -> None:
@@ -818,13 +1276,13 @@ def seed_analysis_complete(ctx: RunContext) -> None:
     from interview_mux.analysis_memory import default_analysis_state
 
     for stage in pipeline.ANALYSIS_ORDER:
-        ctx.mark_done(stage)
-    ctx.mark_done("transcript_review")
-    ctx.mark_done("vo_ingest")
+        mark_done_raw(ctx, stage)
+    mark_done_raw(ctx, "transcript_review", "vo_ingest")
     state = default_analysis_state(ctx.run_id)
     state["meta"]["operator_verified"] = True
-    ctx.write_json("understanding/analysis_state.json", state)
-    ctx.write_json(
+    write_fixture_json(ctx, "understanding/analysis_state.json", state)
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {
             "interviewer_lines": [
@@ -841,12 +1299,16 @@ def seed_analysis_complete(ctx: RunContext) -> None:
     )
     pickup = ctx.final_path("vo_pickup")
     write_fixture_vo_wav(pickup / "line_001.wav")
-    ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []})
-    meta = ctx.read_json("run_meta.json")
+    confirm_test_pickup_speaker(ctx)
+    write_fixture_json(ctx, "analysis_complete.json", {"analysis_ready": True, "blockers": []})
+    if ctx.artifact_exists("run_meta.json"):
+        meta = ctx.read_json("run_meta.json")
+    else:
+        meta = {}
     meta["handoff_ack"] = {
         "sound_design_palettes": "2026-01-01T00:00:00+00:00",
         "speaker_roles": "2026-01-01T00:00:00+00:00",
         "content_context": "2026-01-01T00:00:00+00:00",
     }
     meta["handoff_pending_writes"] = {}
-    ctx.write_json("run_meta.json", meta)
+    write_fixture_json(ctx, "run_meta.json", meta)

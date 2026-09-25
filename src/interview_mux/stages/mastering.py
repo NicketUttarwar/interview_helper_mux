@@ -273,51 +273,33 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
 def run_master_finalize(ctx: RunContext) -> Path:
     from interview_mux.air_order import assert_consumer
     from interview_mux.gates import require_g_listen_clear, require_timeline_optimizer_clear
-    from interview_mux.omit_ledger import heal_omit_ledger_air_contract
-    from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
 
     assert_consumer(ctx, "master_finalize")
-    # Layup VO in the EDL must have gap-report script authority before PMQ.
-    try:
-        from interview_mux.nugget_layup import ensure_layup_gap_authority
-
-        ensure_layup_gap_authority(ctx)
-    except Exception:
-        pass
-    # VO text/WAV may have been repaired after EDL build; refresh clip hashes first
-    # so post-master audible_script_hash_agreement judges current authority.
-    heal = heal_omit_ledger_air_contract(ctx)
-    if heal.get("healed"):
-        ctx.log(
-            "master_finalize: omit-ledger air-contract heal "
-            + "; ".join(str(n) for n in (heal.get("notes") or [])),
-            level="info",
-            stage="master_finalize",
-        )
-    sync_edl_vo_script_metadata(ctx)
+    # S4: no entry-book heals — PMQ structural checks refuse unpaid omit/hash/VO.
 
     require_timeline_optimizer_clear(ctx, stage="master_finalize")
     require_g_listen_clear(ctx, stage="master_finalize")
-    # The best optimizer take is always applied.  E2E/soft flags cannot bypass
-    # this quality decision, and a failed take-best remaster is a hard stop.
-    optimizer_applied = False
+    # S1: refuse unpaid optimizer — never take_best / nest junction here.
     try:
-        from interview_mux.timeline_optimizer.state import load_best, load_optimizer_state, save_optimizer_state
-        from interview_mux.timeline_optimizer.apply import take_best_candidate
+        from interview_mux.order_hash import ordered_segment_ids_hash
+        from interview_mux.timeline_optimizer.state import (
+            load_best,
+            load_optimizer_state,
+            save_optimizer_state,
+        )
 
         state = load_optimizer_state(ctx)
         best = load_best(ctx)
         if best and best.get("score") is not None and not state.get("finalize_applied_best"):
             sel_order = []
+            sel = None
             if ctx.artifact_exists("master/selection.json"):
                 sel = ctx.read_json("master/selection.json")
-                sel_order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+                sel_order = [
+                    str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s
+                ]
             best_order = [str(s) for s in (best.get("ordered_segment_ids") or []) if s]
-            from interview_mux.order_hash import ordered_segment_ids_hash
-
-            sel_doc = sel if ctx.artifact_exists("master/selection.json") else {}
-            if not isinstance(sel_doc, dict):
-                sel_doc = {}
+            sel_doc = sel if isinstance(sel, dict) else {}
             best_hash = str(
                 best.get("order_hash")
                 or best.get("order_content_hash")
@@ -330,7 +312,7 @@ def run_master_finalize(ctx: RunContext) -> Path:
                 or ordered_segment_ids_hash(sel_order)
                 or ""
             )
-            needs = best_order and best_order != sel_order
+            needs = bool(best_order and best_order != sel_order)
             if (
                 best_hash
                 and sel_hash
@@ -339,27 +321,41 @@ def run_master_finalize(ctx: RunContext) -> Path:
             ):
                 needs = False
             if needs or state.get("promoted_needs_remaster"):
-                take_best_candidate(ctx, remaster=True, sync_remaster=True, runner=None)
-                optimizer_applied = True
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    "Timeline optimizer best take is unpaid — apply take-best "
+                    "(or remaster) via mix/junction before master_finalize; "
+                    "finalize refuses nested remaster.",
+                    stage="master_finalize",
+                    reason="optimizer_best_unpaid",
+                    detail={
+                        "promoted_needs_remaster": bool(
+                            state.get("promoted_needs_remaster")
+                        ),
+                        "best_order_len": len(best_order),
+                        "selection_order_len": len(sel_order),
+                    },
+                )
             state = load_optimizer_state(ctx)
             state["finalize_applied_best"] = True
             save_optimizer_state(ctx, state)
     except Exception as exc:
-        from interview_mux.loud_fail import raise_loud_failure
+        from interview_mux.loud_fail import LoudStageFailure, raise_loud_failure
 
+        if isinstance(exc, LoudStageFailure):
+            raise
+        name = type(exc).__name__
+        if name == "LoudStageFailure":
+            raise
         raise_loud_failure(
             ctx,
-            f"Could not auto-apply the best timeline optimizer take: {exc}",
+            f"Could not verify timeline optimizer seating before finalize: {exc}",
             stage="master_finalize",
-            reason="optimizer_best_apply_failed",
+            reason="optimizer_best_unpaid",
             cause=exc,
         )
-    if optimizer_applied:
-        # Optimizer promotion changes final construction authority.  Re-run the
-        # complete seam commitment layer before creating the master.
-        from interview_mux.junction_snip_qa import run_junction_snip_qa
-
-        run_junction_snip_qa(ctx)
     out = master_wav(ctx, "master/assembly.wav", "master/master.wav", flow="podcast")
     from interview_mux.post_master_quality import run_post_master_quality
 

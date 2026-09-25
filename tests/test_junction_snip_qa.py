@@ -1069,22 +1069,13 @@ def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monke
         encoding="utf-8",
     )
     conf = {"music_soft_crossfade_ms": 180}
-    from interview_mux.junction_snip_qa import _detect_music_transition_findings
+    from interview_mux.junction_snip_qa import (
+        _detect_music_transition_findings,
+        _merge_placement_adjustments,
+    )
 
     first = _detect_music_transition_findings(ctx, conf)
     assert any(f.get("kind") == "music_hard_transition" for f in first)
-
-    def _patch(ctx2, asset_id, crossfade_ms):
-        plan = json.loads(sdp_path.read_text(encoding="utf-8"))
-        cue = plan["flow_plans"]["podcast"]["cues"][0]
-        cue["crossfade_ms"] = max(int(cue.get("crossfade_ms") or 0), crossfade_ms)
-        sdp_path.write_text(json.dumps(plan), encoding="utf-8")
-
-    monkeypatch.setattr(
-        "interview_mux.junction_snip_qa._patch_sdp_cue_crossfade",
-        _patch,
-    )
-    from interview_mux.junction_snip_qa import _merge_placement_adjustments
 
     _merge_placement_adjustments(
         ctx,
@@ -1098,9 +1089,10 @@ def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monke
     )
     second = _detect_music_transition_findings(ctx, conf)
     assert not any(f.get("kind") == "music_hard_transition" for f in second)
+    # S4: SDP stays hard; fade lives in placement_adjustments only.
     plan = json.loads(sdp_path.read_text(encoding="utf-8"))
     cue = plan["flow_plans"]["podcast"]["cues"][0]
-    assert int(cue.get("crossfade_ms") or 0) >= 180
+    assert int(cue.get("crossfade_ms") or 0) == 0
     assert ctx.artifact_exists("sound_design/placement_adjustments.json")
 
 

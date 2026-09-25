@@ -713,6 +713,7 @@ def admit_inject_cue_slots(
     reason: str = "theme_underscore_inject",
     persist: bool = True,
     rescore: bool = False,
+    writer_stage: str = "soundscape_policy_build",
 ) -> dict[str, Any]:
     """Fold repair inject into the SSOT writer (Partial Zero A+)."""
     base = dict(policy) if isinstance(policy, dict) else (load_policy(ctx) or {})
@@ -736,16 +737,17 @@ def admit_inject_cue_slots(
         return base
     out = build_cue_slots_ssot(ctx, base, inject_slots=inject, rescore=rescore)
     out["policy_hash"] = _policy_hash({k: v for k, v in out.items() if k != "policy_hash"})
+    stage_key = str(writer_stage or "soundscape_policy_build").strip() or "soundscape_policy_build"
     if persist:
         try:
             from interview_mux.write_staging import write_committed_json
 
             write_committed_json(
-                ctx, POLICY_PATH, out, stage_key="soundscape_policy_build"
+                ctx, POLICY_PATH, out, stage_key=stage_key
             )
         except Exception:
             try:
-                ctx.write_json(POLICY_PATH, out, stage_key="soundscape_policy_build")
+                ctx.write_json(POLICY_PATH, out, stage_key=stage_key)
             except Exception:
                 pass
     return out
@@ -1100,7 +1102,11 @@ def compact_for_volley(policy: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
+def refresh_cue_slots(
+    ctx: RunContext,
+    *,
+    writer_stage: str = "soundscape_policy_build",
+) -> dict[str, Any]:
     """Re-score cue slots using ranking selection; persist updated policy.
 
     Annotates cue slots with speaker_volley_id / hinge metadata when episode
@@ -1132,18 +1138,17 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
         ]
         policy["cue_slots"] = merge_normalized_cue_slots(normalized)
     policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
-    # Commit even when called from sound_design_plan staging — that stage only
-    # flushes SDP, so a staged policy write would be discarded on approve.
-    # Ownership ALLOW is soundscape_policy_build only; pass that stage_key so
-    # soft-freeze assert_write does not AuthorityDeny mid-SDP (exec_13167).
+    # Commit even when called under another stage's staging root — that stage may
+    # only flush its primary, so a staged policy write would be discarded on approve.
+    stage_key = str(writer_stage or "soundscape_policy_build").strip() or "soundscape_policy_build"
     try:
         from interview_mux.write_staging import write_committed_json
 
         write_committed_json(
-            ctx, POLICY_PATH, policy, stage_key="soundscape_policy_build"
+            ctx, POLICY_PATH, policy, stage_key=stage_key
         )
     except Exception:
-        ctx.write_json(POLICY_PATH, policy, stage_key="soundscape_policy_build")
+        ctx.write_json(POLICY_PATH, policy, stage_key=stage_key)
     return policy
 
 

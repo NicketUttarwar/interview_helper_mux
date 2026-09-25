@@ -22,7 +22,6 @@ outputs:
   staging: true
 - path: glob:understanding/stage_runs/gap_framing_compose/**
   staging: true
-- path: understanding/speaker_delivery_plan.json
 inputs:
   hard:
   - path: understanding/gap_evaluations.json
@@ -48,11 +47,12 @@ inputs:
   - path: understanding/talking_points.json
     producer: talking_points_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/value_features.json
   - path: understanding/reorder_bridges.json
-    producer: full_master_ranking
+    producer: selection_order_sanitize
   - path: understanding/speaker_delivery_plan.json
-    producer: full_master_ranking
+    producer: selection_order_sanitize
   - path: segments/manifest.json
     producer: segment_classification
   - path: segments/boundaries.json

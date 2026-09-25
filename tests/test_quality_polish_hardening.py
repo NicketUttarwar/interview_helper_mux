@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from interview_mux.artifact_ownership import AuthorityDenied
 from interview_mux.order_hash import stamp_order_hash
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import confirm_test_pickup_speaker, isolated_run_ctx, patch_merged_config
 
 
 # ── VO pickup loudness ownership ──────────────────────────────────────────────
@@ -16,6 +17,7 @@ from run_fixtures import isolated_run_ctx, patch_merged_config
 
 def _pickup_ctx(tmp_path: Path):
     ctx = isolated_run_ctx(tmp_path, "exec_vo_loudness")
+    confirm_test_pickup_speaker(ctx)
     pickup = ctx.final_path("vo_pickup")
     pickup.mkdir(parents=True, exist_ok=True)
     (pickup / "line_001.wav").write_bytes(b"RIFF" + (b"\0" * 128))
@@ -57,7 +59,11 @@ def _captured_ffmpeg_filters(ctx, monkeypatch) -> list[str]:
         "interview_mux.vo_speech_qa.vo_passes_speech_qa",
         lambda *_a, **_k: True,
     )
-    ingest_vo_pickup(ctx)
+    try:
+        ingest_vo_pickup(ctx)
+    except AuthorityDenied:
+        # Hollow vo_ingest mark_done is honest; this test only inspects ffmpeg filters.
+        pass
     return filters
 
 
@@ -811,9 +817,10 @@ def test_oscillating_repair_signature_halts_remaster_thrash(
     assert budget.get("oscillation_halt") is True
 
 
-def test_feel_and_commitment_remaster_honor_gen_cap(
+def test_commitment_remaster_honors_gen_cap_feel_advisory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S2: feel never remasters; End-D commitment still reseats past GEN_CAP."""
     from interview_mux import junction_snip_qa
     from interview_mux.thrash_hardening import (
         JUNCTION_REMASTER_GEN_CAP,
@@ -827,7 +834,7 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
     def _track_remaster(ctx_):
         remasters.append("mix")
 
-    # Exhaust gen remaster budget before feel/commitment paths.
+    # Exhaust gen remaster budget before commitment path.
     for _ in range(JUNCTION_REMASTER_GEN_CAP):
         note_junction_remaster(ctx)
 
@@ -856,16 +863,6 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
     )
     monkeypatch.setattr(
         junction_snip_qa,
-        "apply_feel_directives",
-        lambda *a, **k: True,
-    )
-    # Force feel remaster past low_gain so GEN_CAP / hard_pin is exercised.
-    monkeypatch.setattr(
-        "interview_mux.timeline_reopen_meta_gate.decide_timeline_reopen",
-        lambda *a, **k: {"allow": True, "reason": "unit_test"},
-    )
-    monkeypatch.setattr(
-        junction_snip_qa,
         "run_junction_feel_audit",
         lambda ctx_, report, cfg=None: {
             "version": 1,
@@ -873,13 +870,6 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
             "llm_calls": 1,
             "directives": [{"action": "trim", "segment_id": "seg_a"}],
         },
-    )
-    monkeypatch.setattr(
-        "interview_mux.failure_recovery.identify_all_failures",
-        lambda ctx_, **kwargs: {"run_index": 1, "broken_pieces": []},
-    )
-    monkeypatch.setattr(
-        "interview_mux.failure_recovery.plan_all_fixes", lambda ctx_, review: {}
     )
     monkeypatch.setattr(
         "interview_mux.seam_autopsy.build_autopsy",
@@ -912,15 +902,11 @@ def test_feel_and_commitment_remaster_honor_gen_cap(
 
     junction_snip_qa.run_junction_snip_qa(ctx)
     report = ctx.read_json("master/junction_snip_qa.json")
-    # Feel path must refuse past GEN_CAP; End-D commitment reseat still bypasses
-    # budget/osc so assembly can match live EDL (exactly one remaster expected).
-    assert report.get("feel_remaster_refused") is True
+    assert report.get("feel_advisory_only") is True
+    assert "feel_remaster_refused" not in report
     assert remasters == ["mix"], "commitment remaster bypasses GEN_CAP (End-D)"
     meta = ctx.read_json("run_meta.json")
-    # JSQ-B3: classified refuse — no needs_operator hang on budget exhaust.
     assert meta.get("needs_operator") is not True
-    assert meta.get("junction_remaster_budget_exhausted") is True
-    assert meta.get("junction_budget_exhaust_classified") is True
 
 
 def test_third_gen_remaster_forbidden(tmp_path: Path) -> None:

@@ -1,4 +1,8 @@
-"""L0 refinement agenda — eligible classes for this tape."""
+"""L0 refinement agenda — eligible classes for this tape.
+
+Production seed walk always uses ``phase="confirm"`` (see ``pipeline.py``).
+``phase="draft"`` remains for tests that compare draft vs confirm injects only.
+"""
 
 from __future__ import annotations
 
@@ -43,7 +47,14 @@ def _gap_unsanitary_block(ctx: RunContext) -> None:
     )
 
 
-def run_refinement_agenda(ctx: RunContext, *, phase: Literal["draft", "confirm"] = "draft") -> dict[str, Any]:
+def run_refinement_agenda(
+    ctx: RunContext, *, phase: Literal["draft", "confirm"] = "confirm"
+) -> dict[str, Any]:
+    """Compile Pass-2 eligible classes. Default ``confirm`` matches production.
+
+    ``draft`` is test-only (no seed-walk caller); keep it for RA-B3 draft/confirm
+    contrast — do not use in pipeline dispatch.
+    """
     _gap_unsanitary_block(ctx)
     characters = detect_tape_character(ctx)
     pack = resolve_policy_pack(ctx, characters)

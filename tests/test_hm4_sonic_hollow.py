@@ -27,6 +27,7 @@ from run_fixtures import (
     isolated_run_ctx,
     mark_done_raw,
     minimal_manifest_segment,
+    minimal_narrative_plan,
     minimal_source_acoustic_profile,
 )
 
@@ -198,7 +199,7 @@ def test_hm4_producer_write_marks(ctx: RunContext) -> None:
     )
     ctx.write_json(
         "master/narrative_plan.json",
-        {"chapters": [], "arc_summary": "test", "ordering_constraints": []},
+        minimal_narrative_plan(),
         skip_handoff=True,
     )
     ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)

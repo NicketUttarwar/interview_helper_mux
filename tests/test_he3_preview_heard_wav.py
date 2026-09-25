@@ -21,7 +21,7 @@ from interview_mux.stage_completion import (
 from interview_mux.stage_input_checks import collect_stage_input_issues
 from interview_mux.stages import assembly
 from interview_mux.thrash_hardening import heal_navigate
-from run_fixtures import isolated_run_ctx, mark_done_raw
+from run_fixtures import isolated_run_ctx, mark_done_raw, plant_seed_complete_through
 
 _PAIR = "seg_001->seg_002"
 
@@ -195,6 +195,7 @@ def test_he3_unsanitary_bind_blocks_preview_complete(ctx: RunContext) -> None:
 
 
 def test_he3_heal_pins_vo_synthesize_not_edl(ctx: RunContext) -> None:
+    plant_seed_complete_through(ctx, "vo_synthesize")
     ctx.write_json("master/edl.json", _edl(unsourced_spoken=True), skip_handoff=True)
     reason = stage_artifact_incompleteness(ctx, "assembly_preview")
     assert reason is not None

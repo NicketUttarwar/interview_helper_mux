@@ -1,11 +1,11 @@
 {
   "campaign_id": "RSTM-2026-09-09",
   "merges_wave_a": "FAILURE_CATALOG-2026-09-09",
-  "generated_at": "2026-09-18T14:28:49Z",
-  "git_head": "476965313",
-  "cell_count": 9849,
+  "generated_at": "2026-09-25T20:43:30Z",
+  "git_head": "7ce88898b",
+  "cell_count": 10246,
   "status_counts": {
-    "PASS": 9744,
+    "PASS": 10141,
     "SCOPE_CONTRACT_ONLY": 105
   },
   "confirmed_clusters": {},

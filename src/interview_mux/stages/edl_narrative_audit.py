@@ -102,36 +102,34 @@ def compact_air_script_vo_seats(ctx: RunContext) -> dict[str, Any]:
 
 
 def prepare_edl_narrative_audit_inputs(ctx: RunContext) -> dict[str, Any]:
-    """Dedupe spoken seams, then persist disk-grounded occupancy before the LLM."""
-    from interview_mux.gap_framing import dedupe_transitions_for_framing
-    from interview_mux.seam_occupancy import build_seam_occupancy
-    from interview_mux.transition_vo import persist_transitions_doc
+    """Read disk transitions + occupancy for the LLM — do not mutate seams (ENA S6).
+
+    Transition framing dedupe belongs to the transitions producer / sanitize.
+    Audit may compute occupancy in-memory for the volley packet; persist only
+    when ``master/seam_occupancy.json`` is already absent (read-through).
+    """
+    from interview_mux.seam_occupancy import SEAM_OCCUPANCY_REL, build_seam_occupancy
 
     selection = ctx.read_json("master/selection.json")
     gap_report = _optional_json(ctx, "understanding/gap_report.json")
     transitions = _optional_json(ctx, "master/transitions.json")
-    deduped = dedupe_transitions_for_framing(
-        gap_report,
-        transitions,
-        ctx=ctx,
-    )
-    if deduped != transitions:
-        deduped = persist_transitions_doc(
+    if ctx.artifact_exists(SEAM_OCCUPANCY_REL):
+        occupancy = ctx.read_json(SEAM_OCCUPANCY_REL)
+        if not isinstance(occupancy, dict):
+            occupancy = {}
+    else:
+        # Read-through compute for the packet; do not claim transitions ownership.
+        occupancy = build_seam_occupancy(
             ctx,
-            deduped,
-            stage_key="transitions",
-            skip_handoff=True,
+            selection=selection if isinstance(selection, dict) else {},
+            gap_report=gap_report,
+            transitions_doc=transitions,
+            persist=False,
+            stage_key="edl_narrative_audit",
         )
-    occupancy = build_seam_occupancy(
-        ctx,
-        selection=selection if isinstance(selection, dict) else {},
-        gap_report=gap_report,
-        transitions_doc=deduped,
-        stage_key="transitions",
-    )
     return {
         "selection": selection,
-        "transitions": deduped,
+        "transitions": transitions,
         "gap_report": gap_report,
         "seam_occupancy": occupancy,
     }

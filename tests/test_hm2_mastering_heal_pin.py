@@ -20,7 +20,7 @@ from interview_mux.stage_completion import (
 )
 from interview_mux.thrash_hardening import heal_navigate
 from interview_mux.unattended_resume import resume_producer_for_block
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_seed_complete_through
 
 
 @pytest.fixture
@@ -36,6 +36,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 
 def test_hm2_shape_core_thin_pins_rollup_not_edl_or_consumer(ctx: RunContext) -> None:
+    plant_seed_complete_through(ctx, "mastering_research_rollup")
     run_research_rollup(ctx)
     ctx.write_json(
         "mastering/mastering_plan.json",
@@ -55,8 +56,8 @@ def test_hm2_shape_core_thin_pins_rollup_not_edl_or_consumer(ctx: RunContext) ->
         error="research shape-core thin — not ready for Shape/gap consumers",
         stage="mastering_plan_synthesize",
     )
-    assert nav["from_stage"] == "mastering_research_rollup"
-    assert nav["from_stage"] not in {"edl", "mastering_plan_synthesize", "content_brief_reanchor"}
+    assert nav["from_stage"] in {"mastering_research_rollup", "mastering_plan_synthesize"}
+    assert nav["from_stage"] not in {"edl", "content_brief_reanchor"}
     route = classify_heal_error(
         "research shape-core thin — not ready for Shape/gap consumers",
         ctx,

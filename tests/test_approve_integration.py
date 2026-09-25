@@ -7,6 +7,7 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.write_staging import approve_stage_writes, enter_stage_staging, exit_stage_staging
+from run_fixtures import write_fixture_theme_wav
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -35,6 +36,8 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 def test_approve_integration_marks_done_and_commits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
+    # Operator-approved ingest: committed primary must exist before approve seals.
+    write_fixture_theme_wav(ctx, "ingest/normalized.wav")
     enter_stage_staging("ingest")
     final_rel = "ingest/checksums.json"
     staged = ctx.path(final_rel)

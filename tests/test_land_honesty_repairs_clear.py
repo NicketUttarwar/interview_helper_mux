@@ -51,7 +51,7 @@ def _stamp_alone_gap_report(
 def test_seed_missing_high_gap_clears_orphan_authority_and_stamp_alone_unpaid(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """_seed_missing_high_gap_interviewer_lines clears stamp-without-plan."""
+    """repair_gap_report clears stamp-without-plan (seed helper peeled)."""
     _stamp_alone_gap_report(ctx, monkeypatch)
 
     assert layup_authority_without_plan(ctx) is True
@@ -64,25 +64,31 @@ def test_seed_missing_high_gap_clears_orphan_authority_and_stamp_alone_unpaid(
         "nugget_layup_authority": True,
         "interviewer_lines": [],
     }
-    applied: list[dict] = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids=set(), applied=applied
-    )
+    patched, applied = repair_gap_report(ctx, out)
 
-    assert out["nugget_layup_authority"] is False
+    assert patched["nugget_layup_authority"] is False
     assert any(
         a.get("action") == "clear_orphan_nugget_layup_authority"
         and a.get("reason") == "stamp_without_plan"
         for a in applied
     )
     # Persist repair result — unpaid land reads gap_report on disk.
-    ctx.write_json("understanding/gap_report.json", out)
+    ctx.write_json("understanding/gap_report.json", patched)
 
     assert layup_authority_without_plan(ctx) is False
     after = unpaid_land_reason(ctx, "gap_framing_compose")
     assert after is None or "stamp-alone" not in after
     # Promote no longer blocked solely by stamp-alone (may still be incomplete).
     assert unpaid_land_blocks_promote(ctx, "gap_framing_compose") is False
+
+
+def test_seed_missing_high_gap_helper_is_peeled(
+    ctx: RunContext,
+) -> None:
+    with pytest.raises(RuntimeError, match="peeled"):
+        _seed_missing_high_gap_interviewer_lines(
+            ctx, {"interviewer_lines": []}, manifest_ids=set(), applied=[]
+        )
 
 
 def test_repair_gap_report_clears_orphan_layup_authority_when_plan_missing(

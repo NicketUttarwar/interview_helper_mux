@@ -106,15 +106,19 @@ def test_lines_needing_adjudication_skips_unchanged_hash(tmp_path: Path) -> None
     assert need == []
 
 
-def test_apply_adjudicate_rewrite_nukes_wavs(tmp_path: Path) -> None:
+def test_apply_adjudicate_rewrite_is_advisory_only(tmp_path: Path) -> None:
+    """S1: rewrite actions do not mutate gap body text or nuke WAVs."""
+    from run_fixtures import mark_done_raw
+
     ctx = isolated_run_ctx(tmp_path, "adj_rewrite")
     ctx.write_json("run_meta.json", {"homunculus_version": "0.1.0"}, skip_handoff=True)
     gap = _gap_with_body_line()
+    prior_text = gap["interviewer_lines"][0]["text"]
     ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
     wav = ctx.path("vo_pickup/vo_layup_seg_002.wav")
     write_fixture_vo_wav(wav)
-    ctx.mark_done("vo_synthesize")
-    ctx.mark_done("edl_narrative_audit")
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "edl_narrative_audit")
 
     updated, actions = apply_adjudicate_results(
         ctx,
@@ -128,10 +132,10 @@ def test_apply_adjudicate_rewrite_nukes_wavs(tmp_path: Path) -> None:
         ],
     )
     assert actions[0]["action"] == "rewrite"
-    assert "Rewritten bridge" in updated["interviewer_lines"][0]["text"]
-    assert not wav.is_file()
-    assert not ctx.is_done("vo_synthesize")
-    assert not ctx.is_done("edl_narrative_audit")
+    assert updated["interviewer_lines"][0]["text"] == prior_text
+    assert wav.is_file()
+    assert ctx.is_done("vo_synthesize")
+    assert ctx.is_done("edl_narrative_audit")
 
 
 def test_run_adjudicate_batches_mockable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -409,11 +413,15 @@ def test_stage_skips_for_original_brain(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "adj_skip")
     ctx.write_json("run_meta.json", {"homunculus_version": "0.0.0"}, skip_handoff=True)
     vo_line_adjudicate_stage.run_vo_line_adjudicate(ctx)
-    # Skip path refuses hollow marks when adjudication artifacts are absent.
-    assert not ctx.is_done("vo_line_adjudicate")
+    # 0.0.0 skip now persists a schema stub so synth is not seed-blocked.
+    assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    doc = ctx.read_json("understanding/vo_line_adjudication.json")
+    assert str(doc.get("skip_reason") or "") == "homunculus_features_off"
 
 
 def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path: Path) -> None:
+    from run_fixtures import mark_done_raw
+
     ctx = isolated_run_ctx(tmp_path, "adj_nuke")
     ctx.write_json(
         "understanding/gap_report.json",
@@ -422,7 +430,7 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path: Path) -> None:
     )
     write_fixture_vo_wav(ctx.path("vo_pickup/vo_layup_seg_002.wav"))
     write_fixture_vo_wav(ctx.path("vo_pickup/tr_seg_001_seg_002.wav"))
-    ctx.mark_done("vo_synthesize")
+    mark_done_raw(ctx, "vo_synthesize")
     removed = nuke_all_synth_wavs_on_adjudicate_change(ctx)
     assert removed >= 1
     assert not ctx.path("vo_pickup/vo_layup_seg_002.wav").is_file()
@@ -453,6 +461,52 @@ def test_nuke_synth_wavs_selective_line_ids(tmp_path: Path) -> None:
     assert ctx.path("vo_pickup/vo_layup_seg_009.wav").is_file()
 
 
+def test_stage_peels_intro_and_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S2/S3: stage must not mint intro or write allocation."""
+    from interview_mux.vo_line_adjudicate import run_vo_line_adjudicate_stage
+
+    ctx = isolated_run_ctx(tmp_path, "adj_peel")
+    ctx.write_json("run_meta.json", {"homunculus_version": "0.2.0"}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        _gap_with_body_line(),
+        skip_handoff=True,
+    )
+    ctx.write_json("understanding/nugget_corpus.json", _corpus(), skip_handoff=True)
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.lines_needing_adjudication",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.evaluate_nugget_air_coverage",
+        lambda *_a, **_k: {"ok": True, "errors": []},
+    )
+    intro_calls: list[str] = []
+
+    def _boom_intro(*_a, **_k):
+        intro_calls.append("called")
+        raise AssertionError("intro must not run from stage")
+
+    monkeypatch.setattr(
+        "interview_mux.vo_line_adjudicate.run_intro_compose", _boom_intro
+    )
+    run_vo_line_adjudicate_stage(ctx)
+    assert intro_calls == []
+    assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    assert not ctx.artifact_exists("understanding/nugget_allocation_plan.json")
+    assert not ctx.artifact_exists("understanding/nugget_intro_compose.json")
+    gap = ctx.read_json("understanding/gap_report.json")
+    cats = [
+        str(ln.get("line_category") or "")
+        for ln in (gap.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    ]
+    assert "episode_preface" not in cats
+    assert ctx.is_done("vo_line_adjudicate")
+
+
 def test_adjudicate_fail_open_default_true() -> None:
     """VLA-B2: product default warn+continue on coverage shortfall."""
     from interview_mux.vo_line_adjudicate import adjudicate_cfg
@@ -477,14 +531,6 @@ def test_adjudicate_coverage_fail_open_warns_not_loud(
     monkeypatch.setattr(
         "interview_mux.vo_line_adjudicate.lines_needing_adjudication",
         lambda *_a, **_k: [],
-    )
-    monkeypatch.setattr(
-        "interview_mux.vo_line_adjudicate.run_intro_compose",
-        lambda ctx, gap, **_k: (gap, []),
-    )
-    monkeypatch.setattr(
-        "interview_mux.vo_line_adjudicate.persist_allocation_plan",
-        lambda *_a, **_k: {},
     )
     monkeypatch.setattr(
         "interview_mux.vo_line_adjudicate.collect_waived_nugget_ids",
@@ -518,6 +564,7 @@ def test_adjudicate_coverage_fail_open_warns_not_loud(
     assert any("coverage below floor" in w.lower() for w in warnings)
     assert ctx.artifact_exists("understanding/vo_line_adjudication.json")
     assert ctx.is_done("vo_line_adjudicate")
+    assert not ctx.artifact_exists("understanding/nugget_allocation_plan.json")
 
 
 def test_adjudicate_incomprehensible_vo_hard_fails_even_fail_open(
@@ -541,14 +588,6 @@ def test_adjudicate_incomprehensible_vo_hard_fails_even_fail_open(
     monkeypatch.setattr(
         "interview_mux.vo_line_adjudicate.lines_needing_adjudication",
         lambda *_a, **_k: [],
-    )
-    monkeypatch.setattr(
-        "interview_mux.vo_line_adjudicate.run_intro_compose",
-        lambda ctx, gap, **_k: (gap, []),
-    )
-    monkeypatch.setattr(
-        "interview_mux.vo_line_adjudicate.persist_allocation_plan",
-        lambda *_a, **_k: {},
     )
     monkeypatch.setattr(
         "interview_mux.vo_line_adjudicate.collect_waived_nugget_ids",

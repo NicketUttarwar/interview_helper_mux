@@ -563,30 +563,11 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     except Exception:
         pass
 
-    # 7c. Constraint lattice — restore never-exclude primary impact + hard-keeps.
-    # Sanitize previously stamped ok=True while selection_sanitary_errors still
-    # reported framing:primary impact… (exec_13198 sticky incomplete_after_conductor).
-    try:
-        from interview_mux.selection_constraints import apply_selection_constraints
-
-        before_order = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-        out = apply_selection_constraints(ctx, out)
-        ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-        restored = [s for s in ordered if s not in before_order]
-        if restored or ordered != before_order:
-            actions.append(
-                {
-                    "action": "apply_selection_constraints",
-                    "restored": restored[:24],
-                    "before_count": len(before_order),
-                    "after_count": len(ordered),
-                }
-            )
-    except Exception as exc:
-        errors.append(f"selection_constraints_failed:{type(exc).__name__}")
-
-    # Fail closed on framing/hard-keep lattice criticals after restore.
-    # Air-order integrity criticals stay metrics-only (ranking repairs jumps).
+    # 7c. Constraint lattice — verify only (S1). Never grow ordered_segment_ids.
+    # Seal/restore of never-exclude primary-impact + hard-keeps belongs to
+    # full_master_ranking / seal_selection_lattice. Missing lattice → refuse +
+    # pin ranking (not self-heal restore that fought CTA drops).
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     try:
         from interview_mux.selection_constraints import (
             critical_lattice_lint_codes,
@@ -596,8 +577,8 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         for code in critical_lattice_lint_codes(lattice_lint_codes(ctx, out))[:6]:
             if code and code not in errors:
                 errors.append(code)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"selection_constraints_failed:{type(exc).__name__}")
 
     # 8. stamp lock
     try:
@@ -669,22 +650,6 @@ def selection_sanitary_hash(doc: dict[str, Any] | None) -> str:
     hc = str(doc.get("order_content_hash") or lock.get("order_content_hash") or "")
     ids = doc.get("ordered_segment_ids") or []
     return f"{hc}:{len(ids) if isinstance(ids, list) else 0}"
-
-
-def _restamp_selection_sanitize_meta(ctx: Any, doc: dict[str, Any]) -> None:
-    """Off-bus stamp refresh — only when ordered ids are unchanged."""
-    from interview_mux.write_staging import write_committed_json
-
-    out = dict(doc)
-    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
-    meta["producer_stage"] = "selection_order_sanitize"
-    out["_meta"] = meta
-    write_committed_json(
-        ctx,
-        SELECTION_REL,
-        out,
-        stage_key="selection_order_sanitize",
-    )
 
 
 def _lattice_and_integrity_errs(ctx: Any, doc: dict[str, Any]) -> list[str]:
@@ -795,7 +760,8 @@ def selection_sanitary_errors(ctx: Any) -> list[str]:
     if errs:
         return errs
     if stamp.get("ok") is True and not stamp_fresh:
-        # F1 2A: restamp when a fresh sanitize would pass; do not block on stale hash.
+        # S2: stale stamp + cosmetic-only dry sanitize → sanitary for consumers
+        # without off-bus write. Stage commit path restamps via sanitize+commit.
         disk_ids = list(ordered_s)
         result = sanitize_master_selection(ctx, doc)
         result_ids = [
@@ -807,10 +773,6 @@ def selection_sanitary_errors(ctx: Any) -> list[str]:
             if str((a or {}).get("action") or "") not in _COSMETIC_SANITIZE_ACTIONS
         ]
         if result.ok and not mutating and result_ids == disk_ids:
-            try:
-                _restamp_selection_sanitize_meta(ctx, result.doc)
-            except Exception:
-                pass
             return []
         if result.ok and mutating:
             return [
@@ -864,6 +826,20 @@ def run_selection_order_sanitize(ctx: Any) -> None:
         skip_checkpoint=False,
         write_committed=True,
     )
+    # FMR S6: first consumer after ranking owns bridges / SDP / story_health refresh / gap VO note.
+    try:
+        from interview_mux.ranking_side_artifacts import ensure_ranking_side_artifacts
+
+        ensure_ranking_side_artifacts(ctx, stage_key="selection_order_sanitize")
+    except Exception as exc:
+        try:
+            ctx.log(
+                f"ranking side artifacts skipped: {exc}",
+                level="warning",
+                stage="selection_order_sanitize",
+            )
+        except Exception:
+            pass
     from interview_mux.stage_completion import heal_or_raise
 
     heal_or_raise(ctx, "selection_order_sanitize")

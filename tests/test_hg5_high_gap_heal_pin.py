@@ -50,15 +50,51 @@ def test_hg5_no_layup_pins_compose(ctx: RunContext) -> None:
     assert resume_stage_for_error_class("high_gap_unframed") == "gap_framing_compose"
 
 
-def test_hg5_plan_on_disk_pins_layup_not_compose(ctx: RunContext) -> None:
+def test_hg5_plan_on_disk_alone_pins_framing(ctx: RunContext) -> None:
+    """S5: plan presence is not enough — framing owns until layup claimed-air miss."""
     ctx.write_json(
         "understanding/nugget_layup_plan.json",
         {"ordered_segment_ids": ["seg_001"], "layups": []},
         skip_handoff=True,
     )
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
+    assert producer_pin_for_token(_HIGH_ERR, ctx=ctx) == "gap_framing_compose"
+
+
+def test_hg5_claimed_air_missing_line_pins_layup(ctx: RunContext) -> None:
+    """S5: layup owes when plan claimed air for a high-gap still missing on gap."""
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "selected_segment_ids": ["seg_001"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        minimal_gap_evaluations(_HIGH_EVAL),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "layups": [
+                {
+                    "target_segment_id": "seg_001",
+                    "skip": False,
+                    "text": "Host setup into the high-gap beat.",
+                    "nugget_ids": ["nug_1"],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
     assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
     assert producer_pin_for_token(_HIGH_ERR, ctx=ctx) == "nugget_layup_compose"
-    assert producer_pin_for_token(_HIGH_ERR, ctx=ctx) != "gap_framing_compose"
 
 
 def test_hg5_authority_without_plan_pins_compose(ctx: RunContext) -> None:
@@ -124,14 +160,39 @@ def test_hg5_heal_navigate_and_classify_live_pin(ctx: RunContext) -> None:
     nav = heal_navigate(ctx, error=_HIGH_ERR, stage="gap_framing_compose")
     assert nav["from_stage"] == "gap_framing_compose"
     ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "selected_segment_ids": ["seg_001"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        minimal_gap_evaluations(_HIGH_EVAL),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        skip_handoff=True,
+    )
+    ctx.write_json(
         "understanding/nugget_layup_plan.json",
-        {"ordered_segment_ids": ["seg_001"], "layups": []},
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "layups": [
+                {
+                    "target_segment_id": "seg_001",
+                    "skip": False,
+                    "text": "Host setup into the high-gap beat.",
+                    "nugget_ids": ["nug_1"],
+                }
+            ],
+        },
         skip_handoff=True,
     )
     assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
     nav2 = heal_navigate(ctx, error=_HIGH_ERR, stage="gap_framing_compose")
     # Authority gate may clamp layup → information_package_plan when prereqs
-    # are red; never pin compose while a plan is on disk.
+    # are red; never pin compose while layup claimed-air miss is live.
     assert nav2["from_stage"] != "gap_framing_compose"
     assert (
         nav2["from_stage"] == "nugget_layup_compose"
@@ -205,7 +266,45 @@ def test_hg5_playbook_does_not_demote_covered_high(
     assert row.get("severity") == "high"
 
 
-def test_hg5_recovery_resumes_layup_when_plan_exists(ctx: RunContext) -> None:
+def test_hg5_recovery_resumes_layup_when_claimed_air_missing(ctx: RunContext) -> None:
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001"], "selected_segment_ids": ["seg_001"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "layups": [
+                {
+                    "target_segment_id": "seg_001",
+                    "skip": False,
+                    "text": "Host setup into the high-gap beat.",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {**minimal_gap_report(), "nugget_layup_authority": True},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        minimal_gap_evaluations(_HIGH_EVAL),
+        skip_handoff=True,
+    )
+    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    route = classify_heal_error(_HIGH_ERR, ctx, stage="gap_framing_compose")
+    assert route is not None
+    assert route.from_stage == "nugget_layup_compose"
+    assert route.family == "high_gap_unframed"
+
+
+def test_hg5_recovery_empty_plan_pins_framing(ctx: RunContext) -> None:
+    """S5: plan-on-disk with no claimed air stays framing."""
     ctx.write_json(
         "understanding/nugget_layup_plan.json",
         {"ordered_segment_ids": ["seg_001"], "layups": []},
@@ -222,11 +321,7 @@ def test_hg5_recovery_resumes_layup_when_plan_exists(ctx: RunContext) -> None:
         skip_handoff=True,
     )
     result = handle_stage_failure(ctx, "gap_framing_compose", RuntimeError(_HIGH_ERR))
-    assert result.resume_stage != "gap_framing_compose"
-    assert result.resume_stage in (
-        "nugget_layup_compose",
-        "information_package_plan",  # heal authority clamp when layup prereqs red
-    )
+    assert result.resume_stage == "gap_framing_compose"
     assert result.playbook_id == "high_gap_unframed"
 
 

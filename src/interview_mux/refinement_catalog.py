@@ -134,7 +134,9 @@ def refinement_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     defaults: dict[str, Any] = {
         "enabled": True,
         "max_second_runs_per_cfi": 1,
-        "priors": {"enabled": "soft"},
+        # Off by default — ASSETS/refinement_priors/priors.json never lands in
+        # Full-auto; opt in via analysis.refinement_passes.priors.enabled.
+        "priors": {"enabled": False},
         "shadow_score": {"enabled": True},
         "full_auto": True,
         "blacklist": {

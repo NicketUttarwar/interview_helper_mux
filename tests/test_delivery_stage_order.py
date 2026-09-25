@@ -7,31 +7,29 @@ from pathlib import Path
 from interview_mux.stages.edl_narrative_audit import run_edl_narrative_audit
 from interview_mux.stage_input_checks import collect_stage_input_issues
 from interview_mux.v2.config import DELIVERY_ORDER
-from run_fixtures import isolated_run_ctx, mark_done_raw
+from run_fixtures import isolated_run_ctx, mark_done_raw, minimal_narrative_plan, write_fixture_json
 
 
 def test_delivery_order_5c():
-    assert DELIVERY_ORDER.index("sound_design_vo_finalize") < DELIVERY_ORDER.index("vo_line_adjudicate")
-    assert DELIVERY_ORDER.index("vo_line_adjudicate") < DELIVERY_ORDER.index("vo_synthesize")
-    assert DELIVERY_ORDER.index("vo_synthesize") < DELIVERY_ORDER.index("edl_narrative_audit")
-    assert DELIVERY_ORDER.index("edl_narrative_audit") < DELIVERY_ORDER.index("edl")
+    vo = DELIVERY_ORDER.index("vo_line_adjudicate")
+    synth = DELIVERY_ORDER.index("vo_synthesize")
+    finalize = DELIVERY_ORDER.index("sound_design_vo_finalize")
+    audit = DELIVERY_ORDER.index("edl_narrative_audit")
+    edl = DELIVERY_ORDER.index("edl")
+    assert vo < synth < finalize < audit < edl < len(DELIVERY_ORDER)
 
 
 def test_edl_narrative_audit_build_input_notes_heard_wav(tmp_path: Path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "audit_heard")
-    ctx.write_json("understanding/content_brief.json", {"thesis": "test", "topics": []}, skip_handoff=True)
-    ctx.write_json(
+    write_fixture_json(ctx, "understanding/content_brief.json", {"thesis": "test", "topics": []})
+    write_fixture_json(
+        ctx,
         "master/coverage_audit.json",
         {"topics": [], "topic_mappings": [], "coverage_score": 1.0},
-        skip_handoff=True,
     )
-    ctx.write_json(
-        "master/narrative_plan.json",
-        {"chapters": [], "arc_summary": "test", "ordering_constraints": []},
-        skip_handoff=True,
-    )
-    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]}, skip_handoff=True)
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
+    write_fixture_json(ctx, "master/narrative_plan.json", minimal_narrative_plan())
+    write_fixture_json(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_001"]})
+    write_fixture_json(ctx, "understanding/gap_report.json", {"interviewer_lines": []})
 
     captured: dict = {}
 

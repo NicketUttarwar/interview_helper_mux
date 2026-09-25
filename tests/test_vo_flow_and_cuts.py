@@ -9,7 +9,7 @@ import pytest
 from interview_mux.artifact_repairs import (
     _drop_redundant_remapped_seeds,
     _enforce_min_vo_insert_ratio,
-    _seed_missing_high_gap_interviewer_lines,
+    repair_gap_report,
 )
 from interview_mux.bridge_completeness import missing_reorder_bridges
 from interview_mux.gap_framing import (
@@ -25,7 +25,7 @@ from interview_mux.gap_vo_prior_context import (
 from interview_mux.seam_glue import default_bridge_text, mint_missing_transitions
 from interview_mux.stages.assembly import _gap_lines_for_segment, build_flow1_edl
 from interview_mux import config as config_mod
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, write_fixture_json
 
 
 def test_gap_lines_for_segment_dedupes_line_id(tmp_path: Path) -> None:
@@ -212,10 +212,7 @@ def test_high_gap_seed_skips_when_real_vo_exists(tmp_path, monkeypatch) -> None:
     assert any(a.get("action") == "drop_redundant_remapped_seed" for a in applied)
     assert all(ln.get("line_id") != "vo_seed_seg_013" for ln in out["interviewer_lines"])
 
-    applied2: list[dict] = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids={"seg_013", "seg_014"}, applied=applied2
-    )
+    _patched, applied2 = repair_gap_report(ctx, out)
     assert not any(a.get("action") == "seed_high_gap_line" for a in applied2)
 
 
@@ -330,6 +327,27 @@ def test_mint_uses_passed_gap_when_disk_layup_would_suppress(tmp_path, monkeypat
     """
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "mint_gap_mismatch")
+    orig_write = ctx.write_json
+
+    def _owner_writes(rel, data, **kwargs):
+        rel_n = str(rel or "").replace("\\", "/")
+        if rel_n == "master/transitions.json":
+            kwargs["stage_key"] = "transitions"
+        elif rel_n == "understanding/gap_report.json":
+            kwargs.setdefault("stage_key", "gap_report_sanitize")
+        return orig_write(rel, data, **kwargs)
+
+    ctx.write_json = _owner_writes  # type: ignore[method-assign]
+    ctx._one_writer_raw = True  # type: ignore[attr-defined]
+
+    def _persist_transitions(c, doc, **_kwargs):
+        write_fixture_json(c, "master/transitions.json", doc)
+        return doc
+
+    monkeypatch.setattr(
+        "interview_mux.transition_vo.persist_transitions_doc",
+        _persist_transitions,
+    )
     import json
 
     disk_gap = {

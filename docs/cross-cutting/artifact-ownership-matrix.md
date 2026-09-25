@@ -16,7 +16,7 @@ matrix_version: `5c1cb0bdae461afd`
 | `boundary_topic_resplit` | `segments/boundaries.json` |
 | `chapter_close_hitch` | `mastering/chapter_close_hitch.json` |
 | `connector_fuse_pass` | `analysis/connector_fuse_audit.json` |
-| `connector_fuse_pass_pre_ranking` | `analysis/connector_fuse_rounds.json` |
+| `connector_fuse_pass_pre_ranking` | `analysis/connector_fuse_rounds_pre_ranking.json` |
 | `content_brief_reanchor` | `understanding/content_brief.json` |
 | `content_context` | `understanding/content_brief.json` |
 | `delivery_brief_build` | `understanding/delivery_brief.json` |

@@ -801,22 +801,20 @@ def validate_synthetic_plan(
 
 
 def run_synthetic_framing_plan(ctx: RunContext, *, force: bool = False) -> dict[str, Any]:
-    from interview_mux.nugget_layup import nugget_layup_cfg, nugget_layup_enabled
+    from interview_mux.nugget_layup import nugget_layup_enabled
 
     packet = build_context_packet(ctx)
-    # When Nugget Layup owns contentful before-VO, skip competing content LLM
-    # and emit an empty seam plan (seam_glue may still mint structural hinges).
-    if (
-        not force
-        and nugget_layup_enabled()
-        and nugget_layup_cfg().get("demote_synthetic_framing_content")
-    ):
+    # S3A: when Nugget Layup is on, always demote-empty — never re-LLM content
+    # (seam_glue may still mint structural hinges).
+    if not force and nugget_layup_enabled():
         empty = {
             "selection_order_content_hash": packet.get("selection_order_content_hash"),
             "strategy_summary": "nugget_layup_authority — content VO owned by layup plan",
             "synthetic_input_share_estimate": 0.0,
             "lines": [],
             "generated_at": _now(),
+            "demoted": True,
+            "demote_reason": "nugget_layup_enabled",
         }
         _commit_json(ctx, PLAN_REL, empty)
         if not ctx.is_done(STAGE_ID):

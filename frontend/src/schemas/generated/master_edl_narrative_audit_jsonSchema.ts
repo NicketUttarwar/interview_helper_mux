@@ -4,6 +4,7 @@ import { z } from "zod";
 export const master_edl_narrative_audit_jsonSchema = z.object({
   "verdict": z.enum(["pass", "warn", "fail"]),
   "blocking_issues": z.array(z.object({
+  "code": z.string().optional(),
   "issue": z.string(),
   "evidence": z.array(z.string()),
   "recommended_action": z.string(),

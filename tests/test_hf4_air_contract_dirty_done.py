@@ -52,6 +52,7 @@ def _plant_contract(ctx: RunContext) -> None:
         {
             "version": 1,
             "plan_status": "complete",
+            "_meta": {"producer_stage": "air_contract_sanitize"},
             "air_script": {
                 "beats": [{"beat_id": "b1"}],
                 "vo_seats": {"seated_line_ids": ["vo_a"], "omitted_line_ids": []},

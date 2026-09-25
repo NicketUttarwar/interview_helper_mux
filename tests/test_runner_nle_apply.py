@@ -75,9 +75,11 @@ def test_nle_apply_stages_full_refresh_mode(ctx: RunContext) -> None:
 
 
 def test_delivery_skips_master_qa_until_master_exists(ctx: RunContext) -> None:
+    from run_fixtures import plant_primary_and_stamp
+
     runner = JobRunner()
     assert runner._should_verify_master_after_delivery(ctx) is False
-    mark_done_raw(ctx, "master_finalize")
+    plant_primary_and_stamp(ctx, "master_finalize")
     assert runner._should_verify_master_after_delivery(ctx) is True
 
 

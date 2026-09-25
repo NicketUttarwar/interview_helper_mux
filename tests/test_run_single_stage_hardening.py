@@ -5,13 +5,15 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from interview_mux.pipeline import run_single_stage
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_primary_and_stamp
 
 
 def test_run_single_stage_calls_upstream_check(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_single_harden")
-    ctx.mark_done("speaker_roles")
+    plant_primary_and_stamp(ctx, "audio_preclean")
+    plant_primary_and_stamp(ctx, "audio_probe_build")
+    plant_primary_and_stamp(ctx, "speaker_roles")
     calls: list[str] = []
 
     def _fake_upstream(c, stage_key):

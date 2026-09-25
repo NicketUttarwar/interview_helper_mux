@@ -16,6 +16,7 @@ from interview_mux.homunculus.packer import default_pack_fact_ids, pack_volley
 from interview_mux.homunculus.source_card import SOURCE_CARD_REL, build_source_card
 from interview_mux.run_context import RunContext
 from mastering_quality_corpus import fixture_ids, load_fixture
+from run_fixtures import write_fixture_json
 
 
 def _ctx() -> RunContext:
@@ -125,17 +126,18 @@ def test_hosted_interview_framing_auto_resolves_yes() -> None:
 
 def test_fireside_format_is_not_treated_as_monologue() -> None:
     ctx = _ctx()
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/source_topology.json",
         {"topology_class": "one_on_one_balanced", "pickup_eligible_speaker_id": "spk_1"},
-        skip_handoff=True,
     )
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/conversation_profile.json",
         {"format_class_candidate": "fireside"},
-        skip_handoff=True,
     )
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/speakers.json",
         {
             "speakers": [
@@ -143,7 +145,6 @@ def test_fireside_format_is_not_treated_as_monologue() -> None:
                 {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
             ]
         },
-        skip_handoff=True,
     )
     card = build_source_card(ctx)
     assert "monologue" not in (card.get("circumstances") or [])

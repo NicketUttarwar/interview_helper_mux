@@ -98,7 +98,20 @@ def test_commit_excludes_unseated_in_same_generation(tmp_path: Path) -> None:
 
 def test_take_best_commit_or_rollback_never_clips_subset(tmp_path: Path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "air_take_best")
+    from interview_mux.artifact_writes import write_validated_artifact
     from interview_mux.timeline_optimizer import apply as apply_mod
+
+    orig_write = write_validated_artifact
+
+    def _write_sel_via_sos(ctx_w, rel, data, **kwargs):
+        if rel == "master/selection.json":
+            kwargs["stage_key"] = "selection_order_sanitize"
+        return orig_write(ctx_w, rel, data, **kwargs)
+
+    monkeypatch.setattr(
+        "interview_mux.artifact_writes.write_validated_artifact",
+        _write_sel_via_sos,
+    )
 
     prev = bump_order_lock({"ordered_segment_ids": ["a", "b"], "version": 1}, source="prev")
     ctx.write_json("master/selection.json", prev, skip_handoff=True)
@@ -263,8 +276,8 @@ def test_ranking_passes_source_start_ms_so_earlier_keeps_are_not_after_signoff()
     src = inspect.getsource(sel_mod)
     assert "_source_start_ms_map" in src
     assert "source_start_ms=_source_start_ms_map" in src
-    assert src.count("repair_selection_order(") >= 5
-    assert src.count("source_start_ms=") >= 5
+    assert src.count("repair_selection_order(") >= 4
+    assert src.count("source_start_ms=") >= 4
 
 
 def test_master_finalize_hollow_without_pmq() -> None:

@@ -567,6 +567,11 @@ def run_podcast_publish(ctx: RunContext) -> None:
 
     Upload is a separate sync for this execution only (GUI G-Publish sync or
     ``scripts/sync_podcast_episodes.py --execution-id``).
+
+    Refuse→assemble→stamp only: missing cover / master VTT / PMQ refuse
+    upstream — this stage does not nested-build transcript, show-fallback
+    cover, or soft-heal PMQ. ``require_g_publish_clear`` stays dead (clinic
+    B4 / HPUB); Partial G-Publish is GUI wait, not a stage body gate.
     """
     from datetime import datetime, timezone
 
@@ -585,7 +590,8 @@ def run_podcast_publish(ctx: RunContext) -> None:
             return staged
         return ctx.read_path(rel)
 
-    # Ensure cover.jpg exists (legacy cover.png → convert)
+    # Cover must already exist (episode_cover_generate). Legacy cover.png → jpg
+    # is materialize-only; never show-fallback / cover_meta unpaid land here.
     cover_rel = f"publish/{files['cover']}"
     cover = ctx.path(cover_rel)
     if not cover.is_file():
@@ -602,7 +608,15 @@ def run_podcast_publish(ctx: RunContext) -> None:
                 dest=cover,
             )
         else:
-            _copy_show_fallback(ctx, cover, reason="missing_at_publish")
+            prior = _existing_publish(cover_rel)
+            if prior.is_file() and prior.resolve() != cover.resolve():
+                cover.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(prior, cover)
+            else:
+                raise FileNotFoundError(
+                    f"{cover_rel} missing — resume episode_cover_generate "
+                    "(podcast_publish does not invent show-fallback art)"
+                )
 
     chapters_doc = build_timed_chapters(ctx)
     ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
@@ -611,14 +625,12 @@ def run_podcast_publish(ctx: RunContext) -> None:
     transcript_rel = f"publish/{transcript_name}"
     transcript_dest = ctx.path(transcript_rel)
     transcript_dest.parent.mkdir(parents=True, exist_ok=True)
-    master_vtt = None
-    if ctx.artifact_exists("master/transcript.vtt"):
-        master_vtt = ctx.read_path("master/transcript.vtt")
-    if master_vtt is None or not master_vtt.is_file():
-        from interview_mux.asset_transcripts import run_master_transcript_build
-
-        run_master_transcript_build(ctx)
-        master_vtt = ctx.read_path("master/transcript.vtt")
+    if not ctx.artifact_exists("master/transcript.vtt"):
+        raise FileNotFoundError(
+            "master/transcript.vtt missing — resume master_transcript_build "
+            "(podcast_publish does not nested-build the master VTT)"
+        )
+    master_vtt = ctx.read_path("master/transcript.vtt")
     if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
         raise FileNotFoundError("master/transcript.vtt missing — cannot package Apple transcript")
     from interview_mux.asset_transcripts import require_packagable_master_transcript

@@ -757,7 +757,7 @@ def test_repair_gap_report_restamps_air_contract_omits(
             "interviewer_lines": [
                 {
                     "line_id": "vo_layup_seg_008",
-                    "text": "Hosted layup still on air with a forward cue into the next beat.",
+                    "text": "What if I found a CTC and the doctor is saying so what?",
                     "targets_segment_id": "seg_022",
                     "placement": "before",
                     "delivery": "synthesize",
@@ -776,7 +776,7 @@ def test_repair_gap_report_restamps_air_contract_omits(
                 },
                 {
                     "line_id": "vo_layup_seg_026",
-                    "text": "Circulating tumour cells can also travel in clusters sometimes.",
+                    "text": "Why did the first assay cohort change the treatment plan?",
                     "targets_segment_id": "seg_026",
                     "placement": "before",
                     "delivery": "synthesize",

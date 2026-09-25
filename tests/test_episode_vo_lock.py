@@ -54,12 +54,38 @@ def test_episode_vo_identity_uses_clone_and_opener_shape(tmp_path: Path) -> None
 def test_chatterbox_synthesize_retries_locked_ref_only(tmp_path, monkeypatch) -> None:
     from interview_mux import chatterbox_runner
     from interview_mux.local_runtime import LocalRuntimeUnavailable
-    from run_fixtures import isolated_run_ctx
+    from run_fixtures import (
+        confirm_test_pickup_speaker,
+        isolated_run_ctx,
+        write_fixture_json,
+        write_fixture_vo_wav,
+    )
 
     ctx = isolated_run_ctx(tmp_path, "cb_lock")
+    confirm_test_pickup_speaker(ctx, speaker_id="spk_0")
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", "spk_0.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        "understanding/voice_reference/spk_0.json",
+        {
+            "speaker_id": "spk_0",
+            "approved": True,
+            "wav": "understanding/speaker_samples/spk_0.wav",
+        },
+    )
+    write_fixture_json(
+        ctx,
+        "run_meta.json",
+        {
+            "gap_framing_enabled": True,
+            "gap_vo_delivery": "chatterbox",
+            "voice_reference_approved_at": "2026-01-01T00:00:00Z",
+        },
+    )
     sample = ctx.path("understanding", "speaker_samples", "spk_0.wav")
-    sample.parent.mkdir(parents=True, exist_ok=True)
-    sample.write_bytes(b"\x00" * 100)
     alt = ctx.path("understanding", "voice_reference", "clips", "spk_0", "candidate_00.wav")
     alt.parent.mkdir(parents=True, exist_ok=True)
     alt.write_bytes(b"\x01" * 100)

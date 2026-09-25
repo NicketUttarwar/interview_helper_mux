@@ -89,6 +89,10 @@ def test_catastrophic_floors_still_hard_stop_at_ship(tmp_path, monkeypatch):
         "interview_mux.aspirational_quality.passes_catastrophic_floors",
         lambda *a, **k: (False, ["listen_delight_overall 0.1 < catastrophic 0.7"]),
     )
+    monkeypatch.setattr(
+        "interview_mux.floor_progress.catastrophic_as_advisory",
+        lambda ctx=None: False,
+    )
     _write_raw(
         ctx,
         "understanding/gap_report.json",
@@ -288,10 +292,11 @@ def test_cut_integrity_uses_hang_ratio_not_per_hit_zero(tmp_path, monkeypatch):
     assert result["dimensions"]["cut_integrity"] < 1.0
 
 
-def test_authoritative_fail_early_legacy_blocks_at_audit_stage(tmp_path, monkeypatch):
+def test_fail_early_knob_ignored_stage_stays_advisory(tmp_path, monkeypatch):
+    """S4: fail_early_at_audit_stage is deprecated — stage never loud-fails / APPLY."""
     from interview_mux.listen_delight_remutate import REMUTATE_REL
 
-    ctx = isolated_run_ctx(tmp_path, "exec_delight_remutate")
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_fail_early_ignored")
     monkeypatch.setattr(
         "interview_mux.aspirational_quality.is_aspirational_enabled",
         lambda ctx=None: False,
@@ -300,7 +305,7 @@ def test_authoritative_fail_early_legacy_blocks_at_audit_stage(tmp_path, monkeyp
         "interview_mux.listen_delight.listen_delight_cfg",
         lambda: {
             "mode": "authoritative",
-            "fail_early_at_audit_stage": True,
+            "fail_early_at_audit_stage": True,  # ignored
         },
     )
     _write_raw(
@@ -321,13 +326,11 @@ def test_authoritative_fail_early_legacy_blocks_at_audit_stage(tmp_path, monkeyp
         "mastering/mastering_plan.json",
         {"narrative_mode": "sparse_source", "plan_status": "complete"},
     )
-    with pytest.raises(LoudStageFailure, match="Listen delight floors failed"):
-        run_listen_delight_audit(ctx)
-    assert ctx.artifact_exists(REMUTATE_REL)
-    plan = ctx.read_json(REMUTATE_REL)
-    assert plan["attempt"] == 1
-    assert plan.get("failed_dimensions")
-    assert plan.get("passed") is not True
+    audit = run_listen_delight_audit(ctx)
+    assert audit["pass"] == "pre_mix"
+    assert audit["blocking"] is False
+    assert audit["advisory"] is True
+    assert not ctx.artifact_exists(REMUTATE_REL)
 
 
 def test_recommendability_clears_floor_without_gap_vo(tmp_path, monkeypatch):

@@ -281,10 +281,14 @@ def test_endf_omit_heal_then_pmq_omit_contract_passes(
     assert omit_check.get("passed") is True
 
 
-def test_endf_require_publishable_refreshes_before_reeval(
+def test_endf_require_publishable_refuses_without_soft_reeval(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S1: encode/publish refuse-only — no autopsy refresh or PMQ persist."""
+    from interview_mux.loud_fail import LoudStageFailure
+
     refreshes: list[str] = []
+    persists: list[str] = []
 
     def _refresh(_ctx):
         refreshes.append("refreshed")
@@ -307,12 +311,31 @@ def test_endf_require_publishable_refreshes_before_reeval(
     )
     monkeypatch.setattr(
         "interview_mux.post_master_quality.persist_post_master_quality",
-        lambda *_a, **_k: None,
+        lambda *_a, **_k: persists.append("persisted"),
     )
     _write_raw(
         ctx,
         QUALITY_REL,
         {"version": 1, "publish_allowed": False, "status": "fail", "failed_checks": ["x"]},
     )
+    with pytest.raises(LoudStageFailure) as ei:
+        require_publishable(ctx, stage="podcast_publish")
+    assert ei.value.reason == "publish_blocked_bad_master"
+    assert refreshes == []
+    assert persists == []
+
+
+def test_endf_require_publishable_allows_when_already_publish_allowed(
+    ctx: RunContext,
+) -> None:
+    _write_raw(
+        ctx,
+        QUALITY_REL,
+        {
+            "version": 1,
+            "publish_allowed": True,
+            "status": STATUS_PASS,
+            "failed_checks": [],
+        },
+    )
     require_publishable(ctx, stage="podcast_publish")
-    assert refreshes == ["refreshed"]

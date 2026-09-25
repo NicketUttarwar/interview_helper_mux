@@ -13,6 +13,7 @@ from interview_mux.artifact_completeness import (
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.prompt_validation import validate_artifact_write
 from interview_mux.run_context import RunContext
+from run_fixtures import mark_done_raw, plant_primary_and_stamp, write_fixture_json
 
 
 def test_compute_gaps_empty_content_brief():
@@ -159,7 +160,7 @@ def test_analysis_profile_ready_requires_complete_artifacts(tmp_path, monkeypatc
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
     ctx = isolated_run_ctx(tmp_path, "ready_gate")
-    ctx.mark_done("optimal_questions")
+    mark_done_raw(ctx, "optimal_questions")
     state = populated_analysis_state(ctx.run_id, verified=True)
     ctx.write_json("understanding/analysis_state.json", state)
     assert analysis_profile_ready_for_review(ctx) is False
@@ -183,7 +184,7 @@ def test_gap_report_empty_interviewer_lines_is_complete(tmp_path, monkeypatch):
         "understanding/gap_report.json",
         minimal_gap_report(),
         merge_from_disk=False,
-        stage_key="optimal_questions",
+        stage_key="gap_framing_compose",
     )
     assert artifact_status("understanding/gap_report.json", ctx) == "complete"
 
@@ -196,6 +197,16 @@ def test_seed_analysis_ready_with_empty_gap_report(tmp_path, monkeypatch):
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
     ctx = isolated_run_ctx(tmp_path, "seed_ready")
     seed_analysis_ready_artifacts(ctx, verified=True)
+    plant_primary_and_stamp(ctx, "gap_framing_compose")
+    mark_done_raw(ctx, "optimal_questions")
+    write_fixture_json(
+        ctx,
+        "understanding/gap_fill_skip.json",
+        {"status": "skipped", "reason": "empty_gap_fixture"},
+    )
+    script = ctx.final_path("understanding", "interviewer_script.txt")
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("skip\n", encoding="utf-8")
     assert artifact_status("understanding/gap_report.json", ctx) == "complete"
     assert analysis_profile_ready_for_review(ctx) is True
 

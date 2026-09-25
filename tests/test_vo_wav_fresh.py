@@ -14,7 +14,43 @@ from interview_mux.vo_synthesis_audit import (
     synthesis_entry_for_line,
     synthesis_entry_matches_line,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config, mark_done_raw
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    isolated_run_ctx,
+    mark_done_raw,
+    patch_merged_config,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
+
+
+def _arm_vo_path(ctx, speaker_id: str = "spk_host") -> None:
+    confirm_test_pickup_speaker(ctx, speaker_id=speaker_id)
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", f"{speaker_id}.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        f"understanding/voice_reference/{speaker_id}.json",
+        {
+            "speaker_id": speaker_id,
+            "approved": True,
+            "wav": f"understanding/speaker_samples/{speaker_id}.wav",
+        },
+    )
+    meta: dict = {}
+    if ctx.artifact_exists("run_meta.json"):
+        try:
+            existing = ctx.read_json("run_meta.json")
+            if isinstance(existing, dict):
+                meta = dict(existing)
+        except Exception:
+            meta = {}
+    meta.setdefault("gap_framing_enabled", True)
+    meta.setdefault("gap_vo_delivery", "chatterbox")
+    meta.setdefault("voice_reference_approved_at", "2026-01-01T00:00:00Z")
+    write_fixture_json(ctx, "run_meta.json", meta)
 
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 if str(_TOOLS) not in sys.path:
@@ -211,6 +247,7 @@ def test_lines_needing_adjudicate_filters_fresh_wav(tmp_path, monkeypatch) -> No
 def test_s2s_resynth_on_script_drift(tmp_path, monkeypatch) -> None:
     _patch_vo_qc_off(monkeypatch)
     ctx = isolated_run_ctx(tmp_path, "run_s2s_resynth")
+    _arm_vo_path(ctx)
     wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
     _wav(wav, duration_ms=400)
     original = _base_line()
@@ -380,11 +417,10 @@ def test_synth_writeback_matching_text_does_not_purge(tmp_path, monkeypatch) -> 
     # Simulate synth completing for rendered text, then writeback.
     record_synthesis(ctx, rendered, backend="mlx_audio", out_wav=wav)
     mark_done_raw(ctx, "vo_synthesize")
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {"interviewer_lines": [rendered]},
-        stage_key="vo_synthesize",
-        skip_handoff=True,
     )
     assert wav.is_file()
     assert synthesis_entry_for_line(ctx, "line_1") is not None

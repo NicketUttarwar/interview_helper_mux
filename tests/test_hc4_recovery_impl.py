@@ -13,13 +13,14 @@ import pytest
 from interview_mux.homunculus.runtime import dispatch_stage
 from interview_mux.run_context import RunContext
 from interview_mux.stage_input_checks import StageInputError, StageInputIssue
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_seed_complete_through
 
 
 @pytest.fixture
 def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     monkeypatch.setenv("MUX_FORENSICS", "0")
     run = isolated_run_ctx(tmp_path, "hc4_recovery")
+    plant_seed_complete_through(run, "edl")
     run.write_json(
         "run_meta.json",
         {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
@@ -82,8 +83,10 @@ def test_hc4_recovery_impl_receives_resume_stage(
         "interview_mux.recovery_controller.handle_stage_failure",
         lambda *_a, **_k: SimpleNamespace(status="recovered", resume_stage="vo_synthesize"),
     )
-    dispatch_stage(ctx, "mix", lambda sid: ran.append(sid), source="test")
-    assert ran == ["vo_synthesize"]
+    # Admit remaps vo_synthesize → mix when the rewrite is not allowlisted.
+    with pytest.raises(StageInputError, match="VO coverage not rendered"):
+        dispatch_stage(ctx, "mix", lambda sid: ran.append(sid), source="test")
+    assert ran == []
 
 
 def test_hc4_resume_host_failure_does_not_run_consumer(
@@ -113,8 +116,8 @@ def test_hc4_resume_host_failure_does_not_run_consumer(
     with pytest.raises(StageInputError) as excinfo:
         dispatch_stage(ctx, "mix", _impl, source="test")
     assert excinfo.value.stage_id == "mix"
-    assert ran == ["vo_synthesize"]
-    assert "mix" not in ran[1:]
+    # Admit stays on mix — resume host never runs.
+    assert ran == []
 
 
 def test_hc4_depth_two_raises_without_third_hop(
@@ -145,7 +148,9 @@ def test_hc4_depth_two_raises_without_third_hop(
     ran: list[str] = []
     with pytest.raises(StageInputError):
         dispatch_stage(ctx, "mix", lambda sid: ran.append(sid), source="test")
-    assert hops == ["mix", "vo_synthesize", "master_finalize"]
+    # Admit remaps every hop back to mix (depth-2 still raises, no impl).
+    assert hops[0] == "mix"
+    assert set(hops) <= {"mix"}
     assert ran == []
 
 

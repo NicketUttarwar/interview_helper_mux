@@ -37,7 +37,7 @@ def test_feel_unavailable_omitted_when_aspirational_disabled(tmp_path, monkeypat
             "version": 1,
             "generated_at": "2026-01-01T00:00:00Z",
             "phase": "post_master",
-            "commitment": {"status": "diverged", "reasons": ["claimed_repairs_missing_from_edl"]},
+            "commitment": {"status": "committed", "reasons": []},
             "scores": {
                 "continuity": 0.95,
                 "finishability": 0.95,
@@ -241,8 +241,8 @@ _GOOD_PMQ_CFG = {
 }
 
 
-def test_listen_delight_floors_block_publish_when_audit_missing(tmp_path, monkeypatch):
-    """Authoritative listen_delight without audit artifact must not silently pass."""
+def test_listen_delight_floors_not_in_pmq_ship_bar(tmp_path, monkeypatch):
+    """S2: delight floors are judged only by listen_delight at ship — not PMQ."""
     monkeypatch.setattr(
         "interview_mux.aspirational_quality.is_aspirational_enabled",
         lambda ctx=None: False,
@@ -258,8 +258,8 @@ def test_listen_delight_floors_block_publish_when_audit_missing(tmp_path, monkey
         lambda: _GOOD_PMQ_CFG,
     )
     quality = evaluate_post_master_quality(ctx)
-    assert quality["status"] == "fail"
-    assert "listen_delight_floors" in quality["failed_checks"]
+    assert "listen_delight_floors" not in [c["check_id"] for c in quality["checks"]]
+    assert "listen_delight_floors" not in quality["failed_checks"]
 
 
 def test_listen_delight_floors_pass_when_audit_clears_floors(tmp_path, monkeypatch):
@@ -328,7 +328,7 @@ def test_advisory_rubric_fail_allows_publish_with_advisories(tmp_path, monkeypat
 
     assert quality["status"] == STATUS_PASS
     assert quality["publish_allowed"] is True
-    assert "listen_delight_floors" in quality["rubric_failed_checks"]
+    assert "listen_delight_floors" not in quality["rubric_failed_checks"]
     from interview_mux.post_master_quality import build_listener_scorecard
     from interview_mux.prompt_validation import validate_listener_scorecard
 
@@ -338,8 +338,8 @@ def test_advisory_rubric_fail_allows_publish_with_advisories(tmp_path, monkeypat
     assert validate_listener_scorecard(scorecard) == []
 
 
-def test_listen_delight_advisory_mode_soft_ships_floors(tmp_path, monkeypatch):
-    """Advisory delight floors remain rubric-soft under aspirational (publish allowed)."""
+def test_listen_delight_advisory_mode_not_rescored_in_pmq(tmp_path, monkeypatch):
+    """S2: advisory delight floors are not a PMQ check (ship judge is listen_delight)."""
     ctx = isolated_run_ctx(tmp_path, "exec_pmq_delight_advisory")
     _write_good_pmq_fixture(ctx)
     monkeypatch.setattr(
@@ -355,7 +355,7 @@ def test_listen_delight_advisory_mode_soft_ships_floors(tmp_path, monkeypatch):
         },
     )
     quality = evaluate_post_master_quality(ctx)
-    assert "listen_delight_floors" in [c["check_id"] for c in quality["checks"]]
+    assert "listen_delight_floors" not in [c["check_id"] for c in quality["checks"]]
     assert quality["publish_allowed"] is True
     from interview_mux.quality_status import STATUS_PASS
 

@@ -67,7 +67,7 @@ From the high-risk report. Classify each predicate.
 
 | Predicate / error | Classification | Notes |
 |-------------------|----------------|-------|
-{{SEEDED_PREDICATES}}
+| {{SEEDED_PREDICATES}} | | |
 
 Report why-high-risk: {{WHY_HIGH_RISK}}
 
@@ -107,14 +107,38 @@ Detail beyond §0: happy / incomplete / refuse / heal / LLM ≤2 / done honesty.
 
 **Over-engineered?** _(fill)_ `yes` | `partial` | `no` — one-line why.
 
+**Scorecard verdict:** _(required)_ `PASS` | `FAIL`
+
+- `PASS` only if Over-engineered? = `no`
+- `FAIL` if Over-engineered? = `yes` or `partial`
+- One line: what would flip FAIL → PASS
+
+### 5b — Re-score after changes (MODE=fix / MODE=rescore only)
+
+| Check | Answer | Delta | Evidence now |
+|-------|--------|-------|--------------|
+| Responsibilities count | | | |
+| Dual / competing SSOTs | | | |
+| Soft-heal / thrash re-admit loops | | | |
+| Co-producer / unpaid land | | | |
+| Brittle predicates vs simple rules | | | |
+| Disproportionate shard/memo/resume | | | |
+| “Fix everything downstream” behavior | | | |
+
+**Over-engineered?**  
+**Scorecard verdict:** `PASS` | `FAIL`
+
 ---
 
 ## 6. Complexity subtraction list
 
-| id | P | unambiguous\|needs_you | Change | Acceptance hint |
-|----|---|------------------------|--------|-----------------|
-| S1 | P0 | | | |
+| id | P | unambiguous\|needs_you | Status | Change | Clears check | Acceptance hint |
+|----|---|------------------------|--------|--------|--------------|-----------------|
+| S1 | P0 | | open | | | |
 
+Status: `open` | `done` | `superseded` · Operator decisions (if any):
+
+On **rescore**: mark prior rows done/superseded; **append** new open rows for remaining FAIL fail-if hits (keep ≤5 open).
 ---
 
 ## 7. Root-cause verdict

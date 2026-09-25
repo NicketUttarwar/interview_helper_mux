@@ -1,7 +1,7 @@
 """HF-5: Pass-2 must not force-mark after re-dirtying W1 gap.
 
 Pin the Pass-2 writer, never gap_report_sanitize while W3 freeze is stamped.
-Restore layup still runs (2B); courtesy rewrite is skipped when it would dirty (3A).
+Courtesy rewrite is skipped when it would dirty (3A).
 Do not start a run. HF-1 hollow, HF-3 seams, HF-4 W3 mute, F3 skip/omit, HR-4 stay.
 """
 
@@ -85,53 +85,23 @@ def _plant_vo_synth_sidecar(ctx: RunContext) -> None:
     ctx.write_json("mastering/vo_synthesize.json", {"ok": True}, skip_handoff=True)
 
 
-def _dirty_restore(_ctx: RunContext, cleaned: dict) -> tuple[dict, list[dict]]:
-    out = dict(cleaned) if isinstance(cleaned, dict) else {"interviewer_lines": []}
-    lines = [dict(x) for x in (out.get("interviewer_lines") or []) if isinstance(x, dict)]
-    extra: dict = dict(lines[0]) if lines else minimal_gap_line(line_id="vo_restored")
-    extra["line_id"] = "vo_restored"
-    extra["origin"] = "nugget_layup"
-    extra["text"] = "Layup restored after framing dropped it."
-    lines.append(extra)
-    out["interviewer_lines"] = lines
-    # Sanitize refuses (gaps not a list) and still persists — 2B restore-then-refuse.
-    out["gaps"] = "unsanitary"
-    return out, [{"action": "restore_nugget_layup_line", "line_id": "vo_restored"}]
-
-
-def test_hf5_apply_restore_refuses_mark_and_pins_writer(
+def test_hf5_apply_unsanitary_gap_refuses_mark_and_pins_writer(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """HF-5: activate path that finishes on dirty gap refuses done and pins apply."""
     _plant_selection(ctx)
-    ctx.write_json(
-        "understanding/gap_report.json",
-        _stamp_gap(
-            [
-                minimal_gap_line(
-                    line_id="vo_a",
-                    text="Can you add context here?",
-                    targets_segment_id="seg_001",
-                    delivery="synthesize",
-                )
-            ]
-        ),
-        skip_handoff=True,
-    )
+    _plant_unsanitary_gap(ctx)
     monkeypatch.setattr(
         "interview_mux.seat_authority.gate_seat_mutation",
         lambda *a, **k: True,
     )
     monkeypatch.setattr(
-        "interview_mux.refinement_gate.decide_pass",
-        lambda *a, **k: {"status": "skip", "reason_code": "hf5"},
+        "interview_mux.refinement_passes.decide_pass",
+        lambda *a, **k: {"status": "activate", "reason_code": "hf5"},
     )
     monkeypatch.setattr(
         "interview_mux.gap_framing.ranking_exclude_segment_ids",
         lambda _ctx: set(),
-    )
-    monkeypatch.setattr(
-        "interview_mux.nugget_layup.restore_layup_lines",
-        _dirty_restore,
     )
 
     with pytest.raises(RuntimeError, match="resume selection_framing_apply"):
@@ -141,9 +111,6 @@ def test_hf5_apply_restore_refuses_mark_and_pins_writer(
     doc = ctx.read_json(APPLY_REL)
     assert doc.get("refused") is True
     assert doc.get("reason") == "gap_unsanitary"
-    gap = ctx.read_json("understanding/gap_report.json")
-    lines = [ln for ln in (gap.get("interviewer_lines") or []) if isinstance(ln, dict)]
-    assert any(ln.get("line_id") == "vo_restored" for ln in lines)
     reason = stage_artifact_incompleteness(ctx, "selection_framing_apply")
     assert reason is not None
     assert "gap_unsanitary" in reason

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from interview_mux.artifact_ownership import write_permitted
+from interview_mux.artifact_ownership import AuthorityDenied, write_permitted
 from interview_mux.artifact_sanitize.vo_synthesize import vo_sanitary_errors
 from interview_mux.delivery_guardrails import (
     G1_CONSUMERS,
@@ -47,7 +47,14 @@ from interview_mux.write_staging import (
     flush_stage_writes,
     promote_owner_vo_pickup,
 )
-from run_fixtures import isolated_run_ctx, mark_done_raw, patch_merged_config
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    isolated_run_ctx,
+    mark_done_raw,
+    patch_merged_config,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
 
 _LIDS = ("vo_layup_seg_005", "vo_layup_seg_020")
 
@@ -126,10 +133,11 @@ def _plant_seated_lines(
         _gap_line(lid, seg=f"seg_{lid.rsplit('_', 1)[-1]}", text=f"Layup cue {lid}.")
         for lid in lids
     ]
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {"interviewer_lines": lines},
-        skip_handoff=True,
+        stage_key="nugget_layup_compose",
     )
     ctx.write_json(
         "mastering/mastering_plan.json",
@@ -188,7 +196,8 @@ def test_r3a_missing_wav_refuses_mark_done(ctx: RunContext) -> None:
     assert out.get("marked") is not True
     assert out.get("refused") is True or out.get("unmarked") is True
     assert not ctx.is_done("vo_synthesize")
-    ctx.mark_done("vo_synthesize")
+    with pytest.raises(AuthorityDenied, match="mark_done:hollow"):
+        ctx.mark_done("vo_synthesize")
     assert not ctx.is_done("vo_synthesize")
     mark_done_raw(ctx, "vo_synthesize")
     assert seed_stage_complete(ctx, "vo_synthesize") is False
@@ -222,30 +231,38 @@ def test_r3b_endb_flush_discards_stale_pending_over_audited(
     ctx: RunContext,
 ) -> None:
     lid = "vo_layup_seg_020"
+    line = _gap_line(lid, seg="seg_020", text="Why does counting cells leave clinicians uncertain?")
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {"interviewer_lines": [line]},
+        stage_key="nugget_layup_compose",
+    )
     syn = ctx.run_dir / "vo_pickup" / "synthesized"
     syn.mkdir(parents=True)
     good = syn / f"{lid}.wav"
     good.write_bytes(b"RIFF" + b"\x00" * 100 + b"GOOD_AUDITED_TAKE")
     want = wav_content_sha256(good)
-    (ctx.run_dir / "vo_pickup" / "synthesis_report.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "entries": [
-                    {
-                        "line_id": lid,
-                        "script_hash": "abc",
-                        "context_hash": "def",
-                        "wav_sha256": want,
-                        "backend": "chatterbox",
-                        "qc_pass": True,
-                        "out_wav": f"vo_pickup/synthesized/{lid}.wav",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
+    record_synthesis(ctx, line, backend="chatterbox", out_wav=good, wav_just_rendered=True)
+    write_fixture_json(
+        ctx,
+        "mastering/vo_synthesize.json",
+        {"version": 1, "lines": [{"line_id": lid}]},
+        stage_key="vo_synthesize",
     )
+    write_fixture_json(
+        ctx,
+        "master/transitions.json",
+        {"version": 1, "transitions": []},
+        stage_key="transitions",
+    )
+    write_fixture_json(
+        ctx,
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_020"]},
+        stage_key="selection_order_sanitize",
+    )
+    mark_done_raw(ctx, "vo_synthesize")
     pending = (
         ctx.run_dir
         / ".pending_writes"
@@ -270,7 +287,11 @@ def test_r3b_endb_flush_discards_stale_pending_over_audited(
 
     pending.parent.mkdir(parents=True, exist_ok=True)
     pending.write_bytes(b"RIFF" + b"\x00" * 100 + b"STALE_PENDING_BYTES!!")
-    assert rel not in _commit_stage_writes(ctx, "vo_synthesize")
+    try:
+        committed = _commit_stage_writes(ctx, "vo_synthesize")
+        assert rel not in committed
+    except RuntimeError as exc:
+        assert "vo_synthesize" in str(exc)
     assert wav_content_sha256(good) == want
 
     # Foreign promote DENY (ownership cousin).
@@ -298,14 +319,15 @@ def test_r3c_hv5_unattended_stays_automation_pending(ctx: RunContext) -> None:
         )
         is False
     )
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {
             "interviewer_lines": [
                 _gap_line("vo_line_1", seg="seg_1", text="Can you expand on that?")
             ]
         },
-        skip_handoff=True,
+        stage_key="nugget_layup_compose",
     )
     full_meta = {
         "homunculus_version": "0.1.0",
@@ -370,6 +392,25 @@ def test_r3de_resync_enters_vo_synthesize_staging_under_edl(
         "interview_mux.gap_vo_gates.resolve_gap_vo_delivery",
         lambda _ctx: "chatterbox",
     )
+    confirm_test_pickup_speaker(ctx)
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", "spk_host.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        "understanding/voice_reference/spk_host.json",
+        {
+            "speaker_id": "spk_host",
+            "approved": True,
+            "wav": "understanding/speaker_samples/spk_host.wav",
+        },
+    )
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    meta["voice_reference_approved_at"] = "2026-01-01T00:00:00Z"
+    meta["gap_framing_enabled"] = True
+    meta["gap_vo_delivery"] = "chatterbox"
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
     enter_stage_staging("edl")
     try:
         notes = resync_required_synthesize_wavs(ctx, {"interviewer_lines": [line]})
@@ -433,7 +474,7 @@ def test_r3g_g1_missing_premature_edl_pins_vo_synthesize(
     assert premature_fail_class("edl") == FAIL_CLASS_PHASE_A_EDL
     # With g1 missing, hard pin must leave EDL consumers for vo_synthesize.
     pinned = premature_cap_hard_pin(ctx, "edl", message="g1_missing")
-    assert pinned in {"vo_synthesize", "vo_line_adjudicate"}
+    assert pinned in {"vo_synthesize", "vo_line_adjudicate", "nugget_layup_compose"}
     assert pinned not in G1_CONSUMERS
     pinned_vo = premature_cap_hard_pin(ctx, "vo_synthesize", message="g1_missing")
     assert pinned_vo in {"vo_synthesize", "vo_line_adjudicate", "nugget_layup_compose"}

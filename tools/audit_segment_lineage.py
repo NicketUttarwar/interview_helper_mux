@@ -22,7 +22,11 @@ def _run_fixture_audit() -> dict:
     from unittest.mock import patch
 
     from interview_mux.config import merged_config
-    from progression_chain_sanity_helpers import FULL_PROGRESSION_CHAIN, run_progression_chain_sanity
+    from progression_chain_sanity_helpers import (
+        FULL_PROGRESSION_CHAIN,
+        plant_progression_research_ready,
+        run_progression_chain_sanity,
+    )
 
     tmp = Path(tempfile.mkdtemp(prefix="lineage_audit_"))
     base = merged_config()
@@ -72,6 +76,7 @@ def _run_fixture_audit() -> dict:
     try:
         patch_merged_config(mp, cfg)  # type: ignore[arg-type]
         ctx = isolated_run_ctx(tmp, "lineage_audit_fixture")
+        plant_progression_research_ready(ctx)
         sanity = run_progression_chain_sanity(ctx, chain=list(FULL_PROGRESSION_CHAIN))
         report = audit_run(ctx)
         report["progression_sanity_ok"] = sanity.get("ok", False)

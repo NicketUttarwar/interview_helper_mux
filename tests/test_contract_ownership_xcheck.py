@@ -73,10 +73,8 @@ KNOWN_UNOWNED_OUTPUT_FAMILIES: frozenset[tuple[str, str]] = frozenset(
         ("mastering_research_waves", "mastering/research/"),
         ("mmaudio_sfx", "master/sfx/"),
         ("mmaudio_sfx", "sound_design/assets/"),
-        ("sound_design_vo_finalize", "vo_pickup/"),
         ("source_topology_build", "glob:understanding/speaker_samples/*.wav"),
         ("transcript_review_build", "glob:transcript/review_clips/*.wav"),
-        ("vo_ingest", "vo_pickup/"),
         ("vo_synthesize", "master/transitions/"),
         ("vo_synthesize", "vo_pickup/synthesized/"),
     }

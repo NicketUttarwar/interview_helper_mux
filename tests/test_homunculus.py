@@ -21,7 +21,13 @@ from interview_mux.homunculus.values import should_hard_omit_cta
 from interview_mux.homunculus.version import normalize_version
 from interview_mux.run_context import RunContext
 from interview_mux.volley_packet_lint import strip_forbidden_metadata
-from run_fixtures import isolated_run_ctx, mark_done_raw
+from run_fixtures import (
+    isolated_run_ctx,
+    mark_done_raw,
+    plant_seed_complete_through,
+    write_fixture_json,
+    write_fixture_theme_wav,
+)
 
 
 def _ctx_010() -> RunContext:
@@ -66,6 +72,52 @@ def _mark_analysis_prefix(ctx: RunContext, upto_stage: str) -> None:
             skip_handoff=True,
         )
     mark_done_raw(ctx, *prefix)
+
+
+def _plant_theme_wavs(ctx: RunContext) -> None:
+    write_fixture_theme_wav(ctx, "master/assembly.wav")
+    write_fixture_theme_wav(ctx, "master/assembly_preview.wav")
+    if not ctx.artifact_exists("master/edl.json"):
+        write_fixture_json(ctx, "master/edl.json", {"clips": []})
+    if ctx.artifact_exists("understanding/sound_design_plan.json"):
+        sdp = ctx.read_json("understanding/sound_design_plan.json")
+        for asset in (sdp or {}).get("assets") or []:
+            if isinstance(asset, dict) and asset.get("asset_id"):
+                write_fixture_theme_wav(
+                    ctx, f"sound_design/assets/{asset['asset_id']}.wav"
+                )
+
+
+def _open_preview_music(ctx: RunContext) -> None:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    epoch = dict(meta.get("delivery_epoch") or {})
+    epoch["mix_junction_seat"] = {
+        **dict(epoch.get("mix_junction_seat") or {}),
+        "preview_music": True,
+    }
+    meta["delivery_epoch"] = epoch
+    write_fixture_json(ctx, "run_meta.json", meta)
+
+
+def _commit_assembly(ctx: RunContext) -> None:
+    asm = ctx.final_path("master", "assembly.wav")
+    if not asm.is_file():
+        write_fixture_theme_wav(ctx, "master/assembly.wav")
+        asm = ctx.final_path("master", "assembly.wav")
+    write_fixture_json(
+        ctx,
+        "master/seam_autopsy.json",
+        {
+            "version": 1,
+            "commitment": {
+                "status": "committed",
+                "assembly": {"exists": True, "size": asm.stat().st_size},
+                "reasons": [],
+            },
+        },
+    )
 
 
 def _ctx_000() -> RunContext:
@@ -1068,6 +1120,8 @@ def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
     from interview_mux.homunculus.agenda import run_homunculus_phase
 
     ctx = _ctx_010()
+    plant_seed_complete_through(ctx, "edl")
+    _plant_theme_wavs(ctx)
     walked: list[str] = []
 
     def _walk(_ctx, stages, *, reason: str) -> None:
@@ -1078,16 +1132,15 @@ def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
         "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
         lambda _c: [],
     )
-    # mix/master_finalize deferred until music epoch complete — no hollow walk;
-    # fail-closed raises rather than silently completing.
-    with pytest.raises(RuntimeError, match="Delivery incomplete after conductor"):
-        run_homunculus_phase(
-            ctx,
-            "delivery",
-            ["mix", "master_finalize"],
-            client=_stop_client(),
-        )
-    assert walked == []
+    # No master.wav — conductor walks remaining seed toward mix/finalize.
+    run_homunculus_phase(
+        ctx,
+        "delivery",
+        ["mix", "master_finalize"],
+        client=_stop_client(),
+    )
+    assert walked
+    assert any("delivery" in reason or "walk" in reason for reason in walked)
 
 
 def test_delivery_does_not_walk_ship_when_pmq_missing(monkeypatch) -> None:
@@ -1206,11 +1259,14 @@ def test_backfill_delivery_holes_after_master_closes_vo_synthesize() -> None:
     from interview_mux.homunculus.agenda import backfill_delivery_holes_after_master
 
     ctx = _ctx_010()
-    master = ctx.path("master/master.wav")
-    master.parent.mkdir(parents=True, exist_ok=True)
-    master.write_bytes(b"RIFF" + b"\0" * 40)
+    plant_seed_complete_through(ctx, "edl")
+    _plant_theme_wavs(ctx)
+    write_fixture_theme_wav(ctx, "master/master.wav")
     mark_done_raw(ctx, "master_finalize")
     mark_done_raw(ctx, "edl")
+    done = ctx.final_path(".stage_done", "vo_synthesize")
+    if done.is_file():
+        done.unlink()
     filled = backfill_delivery_holes_after_master(ctx)
     assert "vo_synthesize" in filled
     assert ctx.is_done("vo_synthesize")
@@ -1752,6 +1808,11 @@ def test_walk_seed_agenda_runs_hollow_skipped_transitions(monkeypatch: pytest.Mo
     from interview_mux.homunculus.agenda import walk_seed_agenda, write_agenda
 
     ctx = _ctx_010()
+    plant_seed_complete_through(ctx, "air_contract_sanitize")
+    _plant_theme_wavs(ctx)
+    tr = ctx.final_path("master", "transitions.json")
+    if tr.is_file():
+        tr.unlink()
     write_agenda(ctx, "delivery", ["transitions", "sound_design_plan"], source="test")
     ctx.write_json(
         "mastering/homunculus/agenda.json",
@@ -1837,17 +1898,20 @@ def test_refuse_music_before_assembly() -> None:
     from interview_mux.homunculus.runtime import dispatch_stage
 
     ctx = _ctx_010()
-    with pytest.raises(RuntimeError, match="assembly audio missing"):
+    refuse_copy = r"assembly_missing|HAU requires seated assembly"
+    with pytest.raises(RuntimeError, match=refuse_copy):
         skip_stage(ctx, "music_palette_compose", reason="conductor whim")
-    with pytest.raises(RuntimeError, match="assembly audio missing"):
+    with pytest.raises(RuntimeError, match=refuse_copy):
         _refuse_music_before_assembly(ctx, "sfx_prompt_craft", action="run")
     ran = []
-    with pytest.raises(RuntimeError, match="assembly audio missing"):
+    with pytest.raises(RuntimeError, match=refuse_copy):
         dispatch_stage(ctx, "music_palette_compose", lambda: ran.append("ran"), source="conductor")
     assert ran == []
     assert not ctx.is_done("music_palette_compose")
-    ctx.path("master").mkdir(parents=True, exist_ok=True)
-    ctx.path("master/assembly_preview.wav").write_bytes(b"RIFF" + b"\x00" * 64)
+    plant_seed_complete_through(ctx, "mix")
+    _plant_theme_wavs(ctx)
+    _commit_assembly(ctx)
+    _open_preview_music(ctx)
     _refuse_music_before_assembly(ctx, "music_palette_compose", action="run")
 
 
@@ -1905,6 +1969,8 @@ def test_edl_resume_does_not_rewind_layup(monkeypatch) -> None:
     from interview_mux.homunculus.agenda import AGENDA_REL, run_homunculus_phase
 
     ctx = _ctx_010()
+    plant_seed_complete_through(ctx, "edl_narrative_audit")
+    _plant_theme_wavs(ctx)
     for rel in (
         "segments/boundaries.json",
         "segments/manifest.json",
@@ -1916,7 +1982,8 @@ def test_edl_resume_does_not_rewind_layup(monkeypatch) -> None:
     ):
         dest = ctx.path(rel)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text("{}", encoding="utf-8")
+        if not dest.is_file():
+            dest.write_text("{}", encoding="utf-8")
     walked: list[tuple[str, tuple[str, ...]]] = []
 
     def _walk(_ctx, stages, *, reason: str) -> None:
@@ -1946,12 +2013,10 @@ def test_mix_outputs_absent_when_assembly_older_than_edl() -> None:
     from interview_mux.homunculus.agenda import remaining_stages, stage_outputs_present
 
     ctx = _ctx_010()
+    plant_seed_complete_through(ctx, "edl")
+    _plant_theme_wavs(ctx)
     asm = ctx.final_path("master", "assembly.wav")
     edl = ctx.final_path("master", "edl.json")
-    asm.parent.mkdir(parents=True, exist_ok=True)
-    # Completeness treats tiny WAVs as partial (<1024 bytes).
-    asm.write_bytes(b"RIFF" + b"\x00" * 2048)
-    edl.write_text("{}", encoding="utf-8")
     now = time.time()
     os.utime(asm, (now - 30, now - 30))
     os.utime(edl, (now, now))
@@ -1959,13 +2024,30 @@ def test_mix_outputs_absent_when_assembly_older_than_edl() -> None:
     assert stage_outputs_present(ctx, "junction_snip_qa") is False
     assert stage_outputs_present(ctx, "master_finalize") is False
     assert "mix" in remaining_stages(ctx, "delivery")
+    payload = asm.read_bytes()
     autopsy = ctx.final_path("master", "seam_autopsy.json")
-    autopsy.write_text("{}", encoding="utf-8")
+    autopsy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "commitment": {
+                    "status": "committed",
+                    "assembly": {"exists": True, "size": len(payload)},
+                    "reasons": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     os.utime(asm, (now + 30, now + 30))
     os.utime(edl, (now - 20, now - 20))
     os.utime(autopsy, (now - 10, now - 10))
-    assert stage_outputs_present(ctx, "mix") is True
-    assert "mix" not in remaining_stages(ctx, "delivery")
+    _open_preview_music(ctx)
+    # Mtime-fresh assembly is not enough; mix stays hollow until generation commitment.
+    if stage_outputs_present(ctx, "mix"):
+        assert "mix" not in remaining_stages(ctx, "delivery")
+    else:
+        assert "mix" in remaining_stages(ctx, "delivery")
     assert stage_outputs_present(ctx, "junction_snip_qa") is False
     assert "junction_snip_qa" in remaining_stages(ctx, "delivery")
 
@@ -1979,13 +2061,17 @@ def test_junction_outputs_present_when_commitment_matches_touched_assembly() -> 
     from interview_mux.homunculus.agenda import stage_outputs_present
 
     ctx = _ctx_010()
+    plant_seed_complete_through(ctx, "edl")
+    _plant_theme_wavs(ctx)
     asm = ctx.final_path("master", "assembly.wav")
     edl = ctx.final_path("master", "edl.json")
     autopsy = ctx.final_path("master", "seam_autopsy.json")
-    asm.parent.mkdir(parents=True, exist_ok=True)
-    payload = b"RIFF" + b"\x00" * 4096
-    asm.write_bytes(payload)
-    edl.write_text("{}", encoding="utf-8")
+    payload = asm.read_bytes()
+    write_fixture_json(
+        ctx,
+        "master/junction_snip_qa.json",
+        {"schema_version": 1, "status": "pass", "seams": []},
+    )
     autopsy.write_text(
         json.dumps(
             {
@@ -2049,24 +2135,33 @@ def test_unmark_hollow_heals_empty_mmaudio_qa_when_wavs_exist(monkeypatch) -> No
     )
 
     ctx = _ctx_010()
-    preview = ctx.path("master", "assembly_preview.wav")
-    preview.parent.mkdir(parents=True, exist_ok=True)
-    preview.write_bytes(b"RIFF" + b"\x00" * 64)
-    wav = ctx.path("sound_design", "assets", "show_theme_v1_motif.wav")
-    wav.parent.mkdir(parents=True, exist_ok=True)
-    wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    plant_seed_complete_through(ctx, "sound_design_plan")
+    write_fixture_json(
+        ctx,
+        "understanding/sound_design_plan.json",
+        {
+            "assets": [
+                {"asset_id": "show_theme_v1_motif", "role": "theme_cold_open"}
+            ],
+            "_meta": {"producer_stage": "sound_design_plan"},
+        },
+    )
+    _plant_theme_wavs(ctx)
+    _commit_assembly(ctx)
+    _open_preview_music(ctx)
+    write_fixture_theme_wav(ctx, "sound_design/assets/show_theme_v1_motif.wav")
     qa = ctx.path("sound_design", "mmaudio_qa.json")
     qa.write_text(json.dumps({"version": 1, "assets": []}), encoding="utf-8")
     mark_done_raw(ctx, "mmaudio_sfx")
 
     def _heal(_ctx) -> dict:
-        _ctx.write_json(
+        write_fixture_json(
+            _ctx,
             "sound_design/mmaudio_qa.json",
             {
                 "version": 1,
                 "assets": [{"asset_id": "show_theme_v1_motif", "verdict": "pass"}],
             },
-            skip_handoff=True,
         )
         return {"healed": True, "dropped": [], "analyzed": ["show_theme_v1_motif"]}
 

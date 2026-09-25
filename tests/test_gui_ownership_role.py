@@ -9,7 +9,7 @@ from interview_mux.artifact_ownership import (
     assert_write,
     write_permitted,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, minimal_gap_report
 
 
 @pytest.fixture
@@ -20,13 +20,19 @@ def ctx(tmp_path, monkeypatch):
 
 def test_gui_gap_report_allow(ctx) -> None:
     ok, reason = write_permitted(
-        ctx, "understanding/gap_report.json", None, role="gui", verb="persist"
+        ctx,
+        "understanding/gap_report.json",
+        None,
+        role="gui",
+        verb="persist",
+        mutation_class="g_framing",
     )
     assert ok, reason
     ctx.write_json(
         "understanding/gap_report.json",
-        {"interviewer_lines": []},
+        minimal_gap_report(),
         role="gui",
+        mutation_class="g_framing",
         skip_handoff=True,
     )
 
@@ -43,7 +49,17 @@ def test_gui_edl_denied(ctx) -> None:
 
 def test_gui_skip_optional_not_anonymous_legacy(ctx) -> None:
     ok, reason = write_permitted(
+        ctx,
+        "understanding/gap_report.json",
+        None,
+        role="gui",
+        verb="persist",
+        mutation_class="g_framing",
+    )
+    assert ok, reason
+    assert reason != "anonymous_legacy"
+    deny_ok, deny_reason = write_permitted(
         ctx, "understanding/gap_report.json", None, role="gui", verb="persist"
     )
-    assert ok
-    assert reason != "anonymous_legacy"
+    assert not deny_ok
+    assert "pin_only" in deny_reason or "not_allow" in deny_reason

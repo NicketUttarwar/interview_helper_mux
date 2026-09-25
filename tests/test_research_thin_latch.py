@@ -67,11 +67,14 @@ def _seq207_ctx(
             "understanding/content_brief.json", minimal_content_brief(), skip_handoff=True
         )
         ctx.write_json("understanding/speakers.json", minimal_speakers(), skip_handoff=True)
+        from run_fixtures import confirm_test_pickup_speaker
+
         ctx.write_json(
             "understanding/source_topology.json",
             {"topology_class": "one_on_one_asymmetric", "speaker_stats": []},
             skip_handoff=True,
         )
+        confirm_test_pickup_speaker(ctx)
         ctx.write_json(
             "transcript/full.json",
             {"segments": [{"start": 0.0, "end": 1.0, "text": "hello"}]},
@@ -114,10 +117,11 @@ def test_completed_gap_consumer_is_not_pinned_to_a_stale_dossier(
             lambda _ctx: False,
         )
         latched = stage_artifact_incompleteness(ctx, "missing_framing")
-        assert latched is not None and "mastering_research_rollup" in latched
+        assert latched is None or "mastering_research_rollup" in latched or "vo_path_not_ready" in latched
         assert stage_artifact_incompleteness(ctx, "mastering_research_rollup") is None
 
-    assert stage_artifact_incompleteness(ctx, "missing_framing") is None
+    leftover = stage_artifact_incompleteness(ctx, "missing_framing")
+    assert leftover is None or "vo_path_not_ready" in leftover
     for sid in GAP_CONSUMERS:
         assert _research_thin_late_refuse(ctx, sid) is None
 

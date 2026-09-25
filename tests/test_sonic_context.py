@@ -11,8 +11,10 @@ from interview_mux.stages.sonic_context_stages import run_sonic_context_build
 from run_fixtures import (
     isolated_run_ctx,
     minimal_manifest_segment,
+    minimal_narrative_plan,
     minimal_source_acoustic_profile,
     seed_from_sonic_fixture,
+    write_fixture_json,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sonic_context"
@@ -23,18 +25,19 @@ def _seed_base(ctx: RunContext) -> None:
     state = default_analysis_state(ctx.run_id)
     state["style"]["format_class"] = "one_on_one"
     state["style"]["tone_class"] = "journalistic"
-    ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
-    ctx.write_json(
+    write_fixture_json(ctx, "understanding/analysis_state.json", state)
+    write_fixture_json(
+        ctx,
         "understanding/content_brief.json",
         {
             "thesis": "Interview on execution quality.",
             "topics": [{"name": "Product strategy", "summary": "Roadmap and delivery.", "segment_ids": ["seg_001"]}],
             "emotional_beats": [{"label": "measured confidence", "segment_ids": ["seg_001"]}],
         },
-        skip_handoff=True,
     )
-    ctx.write_json("understanding/source_acoustic_profile.json", minimal_source_acoustic_profile(), skip_handoff=True)
-    ctx.write_json(
+    write_fixture_json(ctx, "understanding/source_acoustic_profile.json", minimal_source_acoustic_profile())
+    write_fixture_json(
+        ctx,
         "segments/manifest.json",
         {
             "segments": [
@@ -49,15 +52,10 @@ def _seed_base(ctx: RunContext) -> None:
                 ),
             ]
         },
-        skip_handoff=True,
     )
-    ctx.write_json(
-        "master/narrative_plan.json",
-        {"chapters": [], "arc_summary": "test", "ordering_constraints": []},
-        skip_handoff=True,
-    )
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
-    ctx.write_json("understanding/value_features.json", {"profiles": {}}, skip_handoff=True)
+    write_fixture_json(ctx, "master/narrative_plan.json", minimal_narrative_plan())
+    write_fixture_json(ctx, "understanding/gap_report.json", {"interviewer_lines": []})
+    write_fixture_json(ctx, "understanding/value_features.json", {"profiles": {}})
 
 
 @pytest.mark.parametrize("fixture_name", SONIC_FIXTURE_NAMES)
@@ -105,7 +103,7 @@ def test_build_sonic_context_panel_bucket(tmp_path, monkeypatch):
             topic_tags=["ops"],
         )
     )
-    ctx.write_json("segments/manifest.json", manifest, skip_handoff=True)
+    write_fixture_json(ctx, "segments/manifest.json", manifest)
 
     doc = build_sonic_context(ctx)
     assert doc["scenario"]["atlas_bucket"] == "panel"
@@ -118,7 +116,7 @@ def test_build_sonic_context_trauma_adjacent_bucket(tmp_path, monkeypatch):
     brief = ctx.read_json("understanding/content_brief.json")
     brief["emotional_beats"] = [{"label": "grief and loss", "segment_ids": ["seg_002"]}]
     brief["topics"].append({"name": "trauma response", "summary": "coping and support", "segment_ids": ["seg_002"]})
-    ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+    write_fixture_json(ctx, "understanding/content_brief.json", brief)
 
     doc = build_sonic_context(ctx)
     assert doc["scenario"]["atlas_bucket"] == "trauma_adjacent"
@@ -132,7 +130,7 @@ def test_sonic_context_build_omits_segment_id_when_unanchored(tmp_path, monkeypa
     _seed_base(ctx)
     brief = ctx.read_json("understanding/content_brief.json")
     brief["emotional_beats"] = [{"label": "measured confidence"}]
-    ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
+    write_fixture_json(ctx, "understanding/content_brief.json", brief)
 
     run_sonic_context_build(ctx)
 
@@ -148,7 +146,7 @@ def test_build_sonic_context_dense_jargon_bucket(tmp_path, monkeypatch):
     _seed_base(ctx)
     manifest = ctx.read_json("segments/manifest.json")
     manifest["segments"][1]["topic_tags"] = ["api", "sdk", "latency", "throughput", "schema"]
-    ctx.write_json("segments/manifest.json", manifest, skip_handoff=True)
+    write_fixture_json(ctx, "segments/manifest.json", manifest)
 
     doc = build_sonic_context(ctx)
     assert doc["scenario"]["atlas_bucket"] == "dense_jargon"

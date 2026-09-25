@@ -609,7 +609,7 @@
       ],
       "has_write_validator": true
     },
-    "analysis/connector_fuse_rounds.json": {
+    "analysis/connector_fuse_rounds_pre_ranking.json": {
       "schemas_by_producer": {
         "connector_fuse_pass_pre_ranking": null
       },
@@ -627,6 +627,7 @@
     "master/selection.json": {
       "schemas_by_producer": {
         "full_master_ranking": "master_selection_artifact.schema.json",
+        "selection_framing_apply": null,
         "selection_order_sanitize": "master_selection_artifact.schema.json"
       },
       "producers": [
@@ -642,11 +643,15 @@
         "episode_structure_compose",
         "full_master_ranking",
         "gap_framing_compose",
+        "gap_framing_recompose",
+        "gap_report_sanitize",
         "ideal_cuts_materialize",
         "low_conf_island_scan",
         "mastering_plan_confirm",
         "mastering_plan_synthesize",
         "narrative_arc_plan",
+        "refinement_agenda",
+        "selection_order_sanitize",
         "source_topology_build",
         "topic_coverage_audit",
         "transitions",

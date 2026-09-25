@@ -18,7 +18,14 @@ from interview_mux.synthesis_fallback import (
     maybe_fallback_after_synthesis_failure,
 )
 from interview_mux import s2s_runner
-from run_fixtures import init_run_meta_for_test, minimal_gap_line, patch_executions_root
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    init_run_meta_for_test,
+    minimal_gap_line,
+    patch_executions_root,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
 
 
 @pytest.fixture
@@ -42,6 +49,25 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
         json.dumps({"interviewer_lines": [line]}) + "\n",
         encoding="utf-8",
     )
+    confirm_test_pickup_speaker(run)
+    write_fixture_vo_wav(
+        run.final_path("understanding", "speaker_samples", "spk_host.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        run,
+        "understanding/voice_reference/spk_host.json",
+        {
+            "speaker_id": "spk_host",
+            "approved": True,
+            "wav": "understanding/speaker_samples/spk_host.wav",
+        },
+    )
+    meta = run.read_json("run_meta.json") if run.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.setdefault("voice_reference_approved_at", "2026-01-01T00:00:00Z")
+    write_fixture_json(run, "run_meta.json", meta)
     return run
 
 

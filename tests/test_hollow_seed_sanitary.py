@@ -77,7 +77,7 @@ def test_edl_hollow_file_not_present(ctx) -> None:
 
 
 def test_grs_b2_empty_stub_incomplete_when_framing_yes(ctx, monkeypatch) -> None:
-    """GRS-B2: sanitize empty seed must not complete while framing Yes."""
+    """S4: framing Yes + missing gap_report → refuse without seeding empty stub."""
     from interview_mux.artifact_sanitize.gap_report import run_gap_report_sanitize
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
@@ -85,14 +85,14 @@ def test_grs_b2_empty_stub_incomplete_when_framing_yes(ctx, monkeypatch) -> None
         "interview_mux.gap_vo_gates.gap_framing_enabled",
         lambda _ctx: True,
     )
-    # No gap_report on disk → sanitize seeds empty stub then refuses done.
-    with pytest.raises(RuntimeError, match="empty stub|framing"):
+    with pytest.raises(RuntimeError, match="missing while framing|resume nugget_layup"):
         run_gap_report_sanitize(ctx)
     assert not ctx.is_done("gap_report_sanitize")
-    assert ctx.artifact_exists("understanding/gap_report.json")
+    assert not ctx.artifact_exists("understanding/gap_report.json")
     reason = stage_artifact_incompleteness(ctx, "gap_report_sanitize")
     assert reason is not None
-    assert "empty stub" in reason or "framing" in reason
+    assert "missing" in reason or "framing" in reason
+    assert "nugget_layup_compose" in reason
 
 
 def test_grs_b2_empty_stub_ok_when_framing_no(ctx, monkeypatch) -> None:

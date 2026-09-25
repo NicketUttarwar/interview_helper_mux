@@ -47,18 +47,12 @@ def _minimal_transcript() -> dict:
 
 
 def _write_minimal_sap(ctx: RunContext) -> None:
-    import json
+    from run_fixtures import minimal_source_acoustic_profile, write_fixture_json
 
-    path = ctx.final_path("understanding", "source_acoustic_profile.json")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "pacing": {"pace_class": "conversational", "global_wpm": 120},
-            }
-        ),
-        encoding="utf-8",
+    write_fixture_json(
+        ctx,
+        "understanding/source_acoustic_profile.json",
+        minimal_source_acoustic_profile(),
     )
 
 

@@ -153,6 +153,9 @@ def test_hosted_floor_does_not_reseat_omit_wins(
     )
     ctx = isolated_run_ctx(tmp_path, "f3_no_reseat")
     _plant_seated_skip(ctx)
+    gap = ctx.read_json("understanding/gap_report.json")
+    gap["interviewer_lines"][0]["skip_reason_code"] = "skip_omit_unseat"
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
     repair_vo_contract_drift(ctx)
     reseated = ensure_hosted_framing_vo_seats(ctx)
     assert LINE_ID not in reseated

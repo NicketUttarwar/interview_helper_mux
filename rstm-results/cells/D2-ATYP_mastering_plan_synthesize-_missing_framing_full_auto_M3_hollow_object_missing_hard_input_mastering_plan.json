@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|mastering_plan_synthesize->missing_framing|full_auto|M3_hollow_object|missing_hard_input_mastering_plan",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:mastering_plan_synthesize",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-25T20:43:02Z"
+}

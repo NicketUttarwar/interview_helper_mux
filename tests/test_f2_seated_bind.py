@@ -162,12 +162,19 @@ def test_heal_resynth_clears_seated_bind_stale(
     assert not (staging_root(ctx, "edl") / "vo_pickup").exists()
 
 
-def test_heal_omits_when_resynth_fails(
+def test_heal_refuses_when_resynth_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_vo_qc_off(monkeypatch)
-    ctx = isolated_run_ctx(tmp_path, "f2_omit")
+    ctx = isolated_run_ctx(tmp_path, "f2_refuse")
     _plant_012_mismatch(ctx)
+    # S2 path: no stem anywhere after failed resynth → refuse (not omit).
+    for wav in ctx.final_path("vo_pickup").rglob("*.wav"):
+        wav.unlink(missing_ok=True)
+    edl_pending = staging_root(ctx, "edl") / "vo_pickup"
+    if edl_pending.exists():
+        for wav in edl_pending.rglob("*.wav"):
+            wav.unlink(missing_ok=True)
     assert any("seated_bind_stale:vo_layup_seg_012" in e for e in vo_sanitary_errors(ctx))
 
     def _boom(*_a, **_k):
@@ -175,15 +182,14 @@ def test_heal_omits_when_resynth_fails(
 
     monkeypatch.setattr("interview_mux.s2s_runner.synthesize_line", _boom)
     notes = heal_seated_bind_mismatch(ctx, attempt_synth=True)
-    assert LINE_ID in (notes.get("omitted") or [])
-    assert not vo_sanitary_errors(ctx)
+    assert LINE_ID in (notes.get("refused") or [])
+    assert not (notes.get("omitted") or [])
     gap = ctx.read_json("understanding/gap_report.json")
     row = (gap.get("interviewer_lines") or [])[0]
-    assert row.get("air_script_omit") is True
+    assert not row.get("air_script_omit")
     plan = ctx.read_json("mastering/mastering_plan.json")
     seated = (plan.get("air_script") or {}).get("vo_seats") or {}
-    assert LINE_ID not in (seated.get("seated_line_ids") or [])
-    assert LINE_ID in (seated.get("omitted_line_ids") or [])
+    assert LINE_ID in (seated.get("seated_line_ids") or [])
     discarded = discard_non_owner_pending_vo_pickup(ctx)
     assert not (staging_root(ctx, "edl") / "vo_pickup").exists() or discarded is not None
 
@@ -209,5 +215,11 @@ def test_edl_stage_done_refused_while_bind_stale(
     )
     reason = stage_artifact_incompleteness(ctx, "edl")
     assert reason is not None
-    assert "seated_bind_stale" in reason or "vo_unsanitary" in reason or "stale" in reason
+    assert (
+        "seated_bind_stale" in reason
+        or "vo_unsanitary" in reason
+        or "stale" in reason
+        or "g1_open" in reason
+        or LINE_ID in reason
+    )
     assert any("seated_bind_stale:vo_layup_seg_012" in e for e in vo_sanitary_errors(ctx))

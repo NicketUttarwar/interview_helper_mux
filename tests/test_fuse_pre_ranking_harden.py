@@ -20,7 +20,7 @@ from interview_mux.delivery_invariants import (
 from interview_mux.homunculus.agenda import stage_outputs_present
 from interview_mux.run_context import RunContext
 from interview_mux.segment_fuse import (
-    FUSE_ROUNDS_PATH,
+    FUSE_ROUNDS_PRE_RANKING_PATH,
     connector_fuse_cfg_for_pass,
     ensure_connector_fuse_enabled_for_full_auto,
     fuse_writer_stage,
@@ -107,13 +107,13 @@ def test_g3_settled_pair_skipped_unless_hash_or_chapter(ctx: RunContext) -> None
 def test_g4_h6_incompleteness_missing_manifest_and_wrong_pass(ctx: RunContext) -> None:
     assert stage_artifact_incompleteness(ctx, "connector_fuse_pass_pre_ranking")
     ctx.write_json(
-        FUSE_ROUNDS_PATH,
+        FUSE_ROUNDS_PRE_RANKING_PATH,
         {"pass_id": "post_sanitize", "total_applied": 0},
         skip_handoff=True,
     )
     assert stage_artifact_incompleteness(ctx, "connector_fuse_pass_pre_ranking")
     ctx.write_json(
-        FUSE_ROUNDS_PATH,
+        FUSE_ROUNDS_PRE_RANKING_PATH,
         {"pass_id": "pre_ranking", "skip_reason": "missing_manifest", "total_applied": 0},
         skip_handoff=True,
     )
@@ -121,7 +121,7 @@ def test_g4_h6_incompleteness_missing_manifest_and_wrong_pass(ctx: RunContext) -
     assert reason and "missing" in reason.lower()
     assert stage_outputs_present(ctx, "connector_fuse_pass_pre_ranking") is False
     ctx.write_json(
-        FUSE_ROUNDS_PATH,
+        FUSE_ROUNDS_PRE_RANKING_PATH,
         {"pass_id": "pre_ranking", "skip_reason": "disabled", "total_applied": 0},
         skip_handoff=True,
     )

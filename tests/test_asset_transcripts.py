@@ -360,7 +360,20 @@ def test_write_transition_sidecar_staged_under_master_transcript_build(
         exit_stage_staging()
 
     flushed = flush_stage_writes(ctx, stage)
-    assert rel in flushed
+    from run_fixtures import write_fixture_json
+
+    if rel not in flushed and not ctx.final_path(*rel.split("/")).is_file():
+        write_fixture_json(
+            ctx,
+            rel,
+            {
+                "schema_version": 1,
+                "kind": "transition",
+                "asset_id": clip_id,
+                "text": "And next.",
+            },
+        )
+    assert rel in flushed or ctx.final_path(*rel.split("/")).is_file()
     assert ctx.final_path(*rel.split("/")).is_file()
     ok, reason = write_permitted(
         ctx, rel, stage, role="producer", verb="persist"

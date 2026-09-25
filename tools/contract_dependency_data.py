@@ -72,13 +72,17 @@ PRODUCER_OVERRIDES: dict[str, str] = {
     # Minted alongside `master/selection.json` in the ranking pass; the later
     # owners (`selection_order_sanitize`, `transitions`) re-order in place.
     "mastering/media_ip_cta.json": "full_master_ranking",
-    "understanding/reorder_bridges.json": "full_master_ranking",
-    "understanding/speaker_delivery_plan.json": "full_master_ranking",
+    "understanding/reorder_bridges.json": "selection_order_sanitize",
+    "understanding/speaker_delivery_plan.json": "selection_order_sanitize",
     # Minted by the interviewer-script volley; `gap_framing_recompose` and
     # `air_script_seams` rewrite it during refinement.
     "understanding/gap_framing_plan.json": "gap_framing_compose",
     # Minted by the air-script omit pass; `air_contract_sanitize` re-sanitises.
     "understanding/omit_ledger.json": "air_script_compose",
+    # Co-writers exist (missing_framing / hitch confirm); topology is the mint.
+    "understanding/flow_adaptation.json": "source_topology_build",
+    # Junction autopsy is the heal owner; mix/EDL only rmw.
+    "master/seam_autopsy.json": "junction_snip_qa",
 }
 
 
@@ -366,6 +370,7 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
     },
     "interview_spine_build": {
         # Both requirements live behind `if not spine_enabled(): return`.
+        # transcript/full.json is read-only; side write is diarization_repairs only (ISB S1–S4).
         "inputs": {
             "hard": [
                 {
@@ -384,7 +389,19 @@ _UNDERSTAND_A: dict[str, dict[str, Any]] = {
                 {"path": "preclean/isolated.wav", "producer": "audio_preclean"},
             ],
         },
+        "outputs": [
+            {"path": "understanding/interview_spine.json"},
+            {"path": "transcript/diarization_repairs.json"},
+        ],
         "consumers": ["speaker_roles", "content_context", "boundary_detection"],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
     "speaker_roles": {
         # Body requires transcript only; spine is optional enrichment (SR-B1).
@@ -998,6 +1015,14 @@ _UNDERSTAND_C: dict[str, dict[str, Any]] = {
             {"path": "mastering/shape/eval_rubric.json"},
             {"path": "glob:mastering/evidence_packets/*.json"},
         ],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
     "mastering_shape_candidates": {
         "inputs": {
@@ -1222,7 +1247,6 @@ _FILL_GAPS: dict[str, dict[str, Any]] = {
         "outputs": [
             {"path": "understanding/gap_framing_plan.json"},
             {"path": "understanding/gap_vo_context_audit.json"},
-            {"path": "understanding/speaker_delivery_plan.json"},
         ],
     },
     "delivery_brief_build": {
@@ -1515,14 +1539,12 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
         ],
     },
     "connector_fuse_pass_pre_ranking": {
-        # Second connector fuse (pass_id=pre_ranking). Soft-only like
-        # connector_fuse_pass (CFP-B1): missing manifest / disabled →
-        # persist_fuse_skip + heal. Do not hard-require hitch latch — body
-        # gates on manifest/enabled; hitch stays soft enrichment.
+        # S5: manifest is hard (admit refuse when missing). Hitch / islands soft.
         "inputs": {
-            "hard": [],
-            "soft": [
+            "hard": [
                 dep("segments/manifest.json", producer="segment_classification"),
+            ],
+            "soft": [
                 *deps(
                     "transcript/full.json",
                     "analysis/low_conf_islands.json",
@@ -1536,8 +1558,8 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
     },
     "full_master_ranking": {
         # FMR-B1: hard matches `_check_full_master_ranking` (narrative +
-        # manifest + gap). Bootstrap skips LLM_UPSTREAM fuse hard injection
-        # (`_SKIP_LLM_UPSTREAM_HARD`); fuse + coverage stay soft.
+        # manifest + gap). Soft trimmed (S5): no corpus/layup/transcript/transitions/
+        # golden_facts sprawl; seed cuts + gap plan + mastering_plan retained.
         "inputs": {
             "hard": deps(
                 "master/narrative_plan.json",
@@ -1546,18 +1568,13 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
             ),
             "soft": [
                 dep("master/selection.json", producer=None),
-                dep("understanding/reorder_bridges.json", producer=None),
-                dep("understanding/speaker_delivery_plan.json", producer=None),
                 *deps(
-                    "analysis/connector_fuse_rounds.json",
+                    "analysis/connector_fuse_rounds_pre_ranking.json",
                     "master/coverage_audit.json",
-                    "analysis/run_golden_facts.json",
-                    "master/transitions.json",
                     "mastering/mastering_plan.json",
                     "mastering/media_ip_cta.json",
                     "segments/boundaries.json",
                     "segments/nle_edits.json",
-                    "transcript/full.json",
                     "transcript/review_queue.json",
                     "understanding/content_brief.json",
                     "understanding/delivery_brief.json",
@@ -1565,15 +1582,12 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                     "understanding/flow_adaptation.json",
                     "understanding/gap_framing_plan.json",
                     "understanding/ideal_cuts.json",
+                    "understanding/ideal_cuts_selection_seed.json",
                     "understanding/interview_spine.json",
-                    "understanding/nugget_corpus.json",
-                    "understanding/nugget_layup_plan.json",
                     "understanding/source_acoustic_profile.json",
                     "understanding/source_topology.json",
                     "understanding/speakers.json",
                     "understanding/talking_points.json",
-                    # `build_input` boosts the ranking with the high-value speech
-                    # scan when it exists (`stages/selection.py:360`, `:367`).
                     "analysis/high_value_speech_boosts.json",
                     "analysis/high_value_speech_islands.json",
                 ),
@@ -1582,11 +1596,8 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
         "consumers": list(_SELECTION_CONSUMERS),
         "outputs": [
             {"path": "master/rank_candidates.json"},
-            {"path": "master/order_reconcile.json"},
             {"path": "master/story_health.json"},
             {"path": "mastering/media_ip_cta.json"},
-            {"path": "understanding/reorder_bridges.json"},
-            {"path": "understanding/speaker_delivery_plan.json"},
             {"path": "analysis/stt_lexicon_islands.json"},
         ],
     },
@@ -1599,12 +1610,25 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                     "segments/manifest.json",
                     "segments/nle_edits.json",
                     "understanding/ideal_cuts.json",
-                    "understanding/reorder_bridges.json",
                     "understanding/talking_points.json",
                 ),
+                dep("understanding/reorder_bridges.json", producer="selection_order_sanitize"),
             ]
         },
         "consumers": [c for c in _SELECTION_CONSUMERS if c != "selection_order_sanitize"],
+        "outputs": [
+            {"path": "understanding/reorder_bridges.json"},
+            {"path": "understanding/speaker_delivery_plan.json"},
+            {"path": "master/story_health.json"},
+        ],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
     "air_script_compose": {
         # selection + mastering_plan already hard from _EXTRA_INPUTS.
@@ -1744,6 +1768,14 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
             "edl",
             "mix",
             "master_finalize",
+        ],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
         ],
     },
     "refinement_agenda": {
@@ -1993,11 +2025,8 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
         "outputs": [
             {"path": "master/deferred_transition_pairs.json"},
             {"path": "master/transitions_pair_freeze.json"},
-            {"path": "master/order_reconcile.json"},
-            {"path": "master/rank_candidates.json"},
-            {"path": "master/story_health.json"},
             {"path": "understanding/reorder_bridges.json"},
-            {"path": "understanding/speaker_delivery_plan.json"},
+            {"path": "master/bridge_completeness.json"},
         ],
     },
 }
@@ -2068,10 +2097,9 @@ _SOUND: dict[str, dict[str, Any]] = {
                 "understanding/content_brief.json",
             ),
         },
-        # `_allocate` writes the allocation plan alongside the adjudication doc;
-        # `stamp_gap_report_omit_skips` writes the gap report back under this
-        # stage's key, which is why the gap report is already a declared output.
-        "outputs": [{"path": "understanding/nugget_allocation_plan.json"}],
+        # S1–S3: primary is adjudication.json only (advisory). Omit stamps may
+        # rewrite gap_report under stamp ALLOW; allocation / intro peeled.
+        "outputs": [],
         "consumers": ["vo_synthesize"],
     },
 }
@@ -2092,16 +2120,27 @@ _SOUND: dict[str, dict[str, Any]] = {
 _BUILD: dict[str, dict[str, Any]] = {
     "vo_synthesize": {
         # Renders seated lines; a missing gap report is a hollow synth, not a skip.
-        # `stage_completion` incompleteness also blocks done without
-        # `master/transitions.json` (pair WAVs / spoken transitions) — hard so
-        # PRESTAGE matches that honesty (VS-B2; was gap-only CODE_DOC_CONFLICT).
+        # Soft: seats / omit ledger / speech QA (S7 docs soft seats/audit/ledger).
         "inputs": {
             "hard": [
                 dep("understanding/gap_report.json", producer="gap_framing_compose"),
                 dep("master/transitions.json", producer="transitions"),
             ],
+            "soft": [
+                dep("mastering/mastering_plan.json", producer="mastering_plan_synthesize"),
+                dep("understanding/omit_ledger.json", producer="air_contract_sanitize"),
+                dep("mastering/vo_speech_qa.json", producer=None),
+            ],
         },
         "consumers": ["sound_design_vo_finalize", "edl_narrative_audit", "edl"],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
     "sound_design_vo_finalize": {
         # Measures seated WAVs after synth; skip-done without the synth artifact
@@ -2185,6 +2224,14 @@ _BUILD: dict[str, dict[str, Any]] = {
             "master_finalize",
             "master_transcript_build",
             "podcast_publish",
+        ],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
         ],
     },
     "assembly_preview": {
@@ -2300,6 +2347,14 @@ _BUILD: dict[str, dict[str, Any]] = {
             ),
         },
         "consumers": ["master_finalize"],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
     "music_palette_compose": {
         # Owns cue placement on the SDP after the EDL exists (the `sound_design_plan`
@@ -2374,11 +2429,8 @@ _SHIP: dict[str, dict[str, Any]] = {
                 {"path": "master/selection.json", "producer": "full_master_ranking"},
             ],
             "soft": [
-                # `master/seam_autopsy.json` is a declared output of this stage as
-                # well: `verify_commitment` reads the prior autopsy and
-                # `master_finalize` rewrites it. The render ledger is minted by
-                # `junction_snip_qa` upstream.
-                *rmw("master/seam_autopsy.json"),
+                # Junction is the heal owner; finalize only rereads/restamps.
+                dep("master/seam_autopsy.json", producer="junction_snip_qa"),
                 # Not correctness-marked: `render_ledger_exists` sits in
                 # `RUBRIC_PMQ_CHECKS`, i.e. advisory under the default
                 # aspirational policy, so by the project's own contract a
@@ -2482,6 +2534,14 @@ _SHIP: dict[str, dict[str, Any]] = {
             ),
         },
         "consumers": [],
+        "lifecycle_phases": [
+            "prestage",
+            "pre_call",
+            "execute",
+            "staged_validate",
+            "committed",
+            "post_commit_validate",
+        ],
     },
 }
 

@@ -11,7 +11,7 @@ from interview_mux.thrash_hardening import artifact_usable
 
 
 def test_vo_synth_lease_suppresses_spoken_cascade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from run_fixtures import isolated_run_ctx
+    from run_fixtures import isolated_run_ctx, write_fixture_json
 
     ctx = isolated_run_ctx(tmp_path, "vo5_lease")
     line0 = {
@@ -22,10 +22,10 @@ def test_vo_synth_lease_suppresses_spoken_cascade(tmp_path: Path, monkeypatch: p
         "delivery": "synthesize",
         "text": "What changed next?",
     }
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {"interviewer_lines": [line0]},
-        skip_handoff=True,
     )
     called = {"n": 0}
 
@@ -46,6 +46,7 @@ def test_vo_synth_lease_suppresses_spoken_cascade(tmp_path: Path, monkeypatch: p
             ]
         },
         skip_handoff=True,
+        stage_key="nugget_layup_compose",
     )
     assert called["n"] == 0
 
@@ -53,7 +54,7 @@ def test_vo_synth_lease_suppresses_spoken_cascade(tmp_path: Path, monkeypatch: p
 def test_spoken_cascade_fail_closed_when_consumers_done(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from run_fixtures import isolated_run_ctx
+    from run_fixtures import isolated_run_ctx, write_fixture_json
 
     ctx = isolated_run_ctx(tmp_path, "vo5_fail_closed")
     line0 = {
@@ -64,10 +65,10 @@ def test_spoken_cascade_fail_closed_when_consumers_done(
         "delivery": "synthesize",
         "text": "Before.",
     }
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {"interviewer_lines": [line0]},
-        skip_handoff=True,
     )
     # Hollow-force guard refuses mark_done(edl) without a real EDL — pin is_done.
     monkeypatch.setattr(ctx, "is_done", lambda sid: sid == "edl")
@@ -87,6 +88,8 @@ def test_spoken_cascade_fail_closed_when_consumers_done(
         ctx.write_json(
             "understanding/gap_report.json",
             {"interviewer_lines": [{**line0, "text": "After."}]},
+            skip_handoff=True,
+            stage_key="nugget_layup_compose",
         )
 
 
@@ -170,11 +173,25 @@ def test_is_halted_respects_live_cascade(tmp_path: Path, monkeypatch: pytest.Mon
         record_class_failure,
     )
 
+    from interview_mux.identical_failures import read_identical_failures
+    from run_fixtures import write_fixture_json
+
     ctx = isolated_run_ctx(tmp_path, "rc3_halt")
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setattr("interview_mux.identical_failures.forensics_mode", lambda: False)
     # Force a halted row on disk.
     for _ in range(5):
         record_class_failure(ctx, failed_stage="edl", error_class="vo_seated_coverage")
-    sig = failure_signature_by_class(failed_stage="edl", error_class="vo_seated_coverage")
+    doc = read_identical_failures(ctx)
+    sigs = doc.get("signatures") or {}
+    assert sigs
+    for row in sigs.values():
+        if isinstance(row, dict):
+            row["halt"] = True
+            row["error_class"] = "vo_seated_coverage"
+            row["failed_stage"] = "edl"
+    write_fixture_json(ctx, "operator/identical_failures.json", doc)
+    sig = next(iter(sigs))
     assert is_halted(ctx, sig) is True
     monkeypatch.setattr(
         "interview_mux.execution_contract.failure_in_active_policy_cascade",

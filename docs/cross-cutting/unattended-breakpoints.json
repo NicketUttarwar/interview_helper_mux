@@ -121,7 +121,7 @@
       "stage": "connector_fuse_pass_pre_ranking",
       "tier": "llm_full",
       "outputs": [
-        "analysis/connector_fuse_rounds.json",
+        "analysis/connector_fuse_rounds_pre_ranking.json",
         "segments/manifest.json",
         "segments/boundaries.json",
         "analysis/connector_fuse_audit.json",
@@ -249,11 +249,9 @@
         "master/selection.json",
         "master/rank_candidates.json",
         "master/story_health.json",
-        "master/order_reconcile.json",
         "mastering/media_ip_cta.json",
-        "understanding/reorder_bridges.json",
-        "understanding/speaker_delivery_plan.json",
-        "analysis/stt_lexicon_islands.json"
+        "analysis/stt_lexicon_islands.json",
+        "analysis/stt_lexicon_island_boosts.json"
       ]
     },
     {
@@ -274,8 +272,7 @@
         "understanding/gap_framing_plan.json",
         "understanding/gap_vo_context_audit.json",
         "glob:understanding/llm_calls/gap_framing_compose/**",
-        "glob:understanding/stage_runs/gap_framing_compose/**",
-        "understanding/speaker_delivery_plan.json"
+        "glob:understanding/stage_runs/gap_framing_compose/**"
       ]
     },
     {
@@ -347,7 +344,8 @@
       "stage": "interview_spine_build",
       "tier": "deterministic",
       "outputs": [
-        "understanding/interview_spine.json"
+        "understanding/interview_spine.json",
+        "transcript/diarization_repairs.json"
       ]
     },
     {
@@ -412,7 +410,8 @@
       "outputs": [
         "analysis/low_conf_islands.json",
         "analysis/low_conf_density_ranking.json",
-        "analysis/low_conf_must_keep.json"
+        "analysis/low_conf_must_keep.json",
+        "analysis/stt_lexicon_island_boosts.json"
       ]
     },
     {
@@ -424,8 +423,7 @@
         "master/master.wav",
         "master/post_master_quality.json",
         "master/listener_scorecard.json",
-        "mastering/listen_delight_audit.json",
-        "master/seam_autopsy.json"
+        "mastering/listen_delight_audit.json"
       ]
     },
     {
@@ -680,6 +678,7 @@
       "tier": "deterministic",
       "outputs": [
         "understanding/selection_framing_apply.json",
+        "master/selection.json",
         "understanding/gap_report.json"
       ]
     },
@@ -689,7 +688,10 @@
       "stage": "selection_order_sanitize",
       "tier": "process",
       "outputs": [
-        "master/selection.json"
+        "master/selection.json",
+        "understanding/reorder_bridges.json",
+        "understanding/speaker_delivery_plan.json",
+        "master/story_health.json"
       ]
     },
     {
@@ -866,11 +868,8 @@
         "understanding/synthetic_context_packet.json",
         "master/deferred_transition_pairs.json",
         "master/transitions_pair_freeze.json",
-        "master/order_reconcile.json",
-        "master/rank_candidates.json",
-        "master/story_health.json",
         "understanding/reorder_bridges.json",
-        "understanding/speaker_delivery_plan.json"
+        "master/bridge_completeness.json"
       ]
     },
     {
@@ -908,8 +907,7 @@
       "tier": "llm_full",
       "outputs": [
         "understanding/vo_line_adjudication.json",
-        "understanding/gap_report.json",
-        "understanding/nugget_allocation_plan.json"
+        "understanding/gap_report.json"
       ]
     },
     {
@@ -1209,7 +1207,7 @@
       "id": "disk_path:connector_fuse_pass_pre_ranking",
       "kind": "stage_artifact_path",
       "stage": "connector_fuse_pass_pre_ranking",
-      "path": "analysis/connector_fuse_rounds.json",
+      "path": "analysis/connector_fuse_rounds_pre_ranking.json",
       "note": "no dedicated completeness gap rule"
     },
     {

@@ -292,6 +292,12 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
 
 
 def run_selection_framing_apply(ctx: RunContext) -> None:
+    """Lattice #6: framing VO-cover excludes + stamp-only gap seat sync.
+
+    SFA-S1–S5: no orientation/layup/clone body heal; no hosted-floor persist;
+    no post-apply sanitize thrash; honor decide_pass skip; selection writes
+    only via commit_selection_mutation under producer ALLOW.
+    """
     try:
         from interview_mux.seat_authority import gate_seat_mutation
 
@@ -322,17 +328,31 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
         _heal_pass2(ctx, "selection_framing_apply")
         return
     from interview_mux.framing_coverage_guard import validate_framing_ranking
-    from interview_mux.gap_framing import ranking_exclude_segment_ids
+    from interview_mux.gap_framing import (
+        ranking_exclude_segment_ids,
+        stamp_gap_seats_to_selection,
+    )
 
     ensure_gap_report_authoritative(ctx)
     if not ctx.artifact_exists("master/selection.json"):
         persist_apply_refuse_stub(ctx, reason="missing_selection")
         return
 
-    decision = decide_pass(ctx, "selection_framing_apply")
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
         persist_apply_refuse_stub(ctx, reason="invalid_selection")
+        return
+
+    decision = decide_pass(ctx, "selection_framing_apply")
+    # S3: skip means no selection/gap mutate — sidecar only.
+    if str(decision.get("status") or "").strip() != "activate":
+        skip_reason = str(
+            decision.get("reason_code") or decision.get("gate") or "decide_pass_skip"
+        )
+        persist_pass2_skip_stub(
+            ctx, "selection_framing_apply", skip_reason=skip_reason
+        )
+        _heal_pass2(ctx, "selection_framing_apply")
         return
 
     covered = ranking_exclude_segment_ids(ctx)
@@ -361,106 +381,42 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
             if "never_exclude_primary" in str(i) or "surviving" in str(i)
         ]
         if not hard:
-            ctx.write_json("master/selection.json", sel)
+            # S2: single commit path (sanitize-inside); producer ALLOW on selection.
+            from interview_mux.air_order_boundary import commit_selection_mutation
 
-    # Keep gap VO targets on the surviving air timeline after framing exclusions.
+            commit_selection_mutation(
+                ctx,
+                sel,
+                producer="selection_framing_apply",
+                stage_key="selection_framing_apply",
+                checkpoint_mode="detect",
+            )
+            sel = (
+                ctx.read_json("master/selection.json")
+                if ctx.artifact_exists("master/selection.json")
+                else sel
+            )
+
+    # S1: stamp-only gap seat sync (retarget / omit) — no body heal chain.
     if ctx.artifact_exists("understanding/gap_report.json"):
-        from interview_mux.gap_framing import (
-            avoid_clone_voice_adjacency,
-            drop_contiguous_light_bridge_lines,
-            rebase_gap_lines_to_selection,
-        )
-
         final_ordered = [str(x) for x in (sel.get("ordered_segment_ids") or [])]
         gr = ctx.read_json("understanding/gap_report.json")
         if isinstance(gr, dict) and final_ordered:
-            rebased, notes = rebase_gap_lines_to_selection(gr, final_ordered)
-            by_id: dict[str, dict] = {}
-            if ctx.artifact_exists("segments/manifest.json"):
-                man = ctx.read_json("segments/manifest.json")
-                by_id = {
-                    str(s["segment_id"]): s
-                    for s in ((man or {}).get("segments") or [])
-                    if isinstance(s, dict) and s.get("segment_id")
-                }
-            cleaned, drop_notes = drop_contiguous_light_bridge_lines(
-                rebased if notes else gr,
-                by_id,
-                ordered_segment_ids=final_ordered,
-            )
-            corpus = (
-                ctx.read_json("understanding/nugget_corpus.json")
-                if ctx.artifact_exists("understanding/nugget_corpus.json")
-                else {}
-            )
-            from interview_mux.source_topology import pickup_eligible_speaker_id
-
-            cleaned, clone_notes = avoid_clone_voice_adjacency(
-                cleaned,
-                by_id,
-                ordered_segment_ids=final_ordered,
-                clone_speaker_id=pickup_eligible_speaker_id(ctx),
-                nugget_corpus=corpus if isinstance(corpus, dict) else {},
-            )
-            from interview_mux.opening_orientation import ensure_episode_orientation
-
-            cleaned, opening_notes = ensure_episode_orientation(
-                ctx, cleaned, final_ordered
-            )
-            from interview_mux.nugget_layup import restore_layup_lines
-
-            cleaned, layup_notes = restore_layup_lines(ctx, cleaned)
-            all_notes = (
-                list(notes)
-                + list(drop_notes)
-                + list(clone_notes)
-                + list(opening_notes)
-                + list(layup_notes)
-            )
-            if all_notes:
-                ctx.write_json("understanding/gap_report.json", cleaned)
+            stamped, notes = stamp_gap_seats_to_selection(gr, final_ordered)
+            if notes:
+                ctx.write_json(
+                    "understanding/gap_report.json",
+                    stamped,
+                    stage_key="selection_framing_apply",
+                )
                 ctx.log(
-                    f"selection_framing_apply adjusted {len(all_notes)} gap VO line(s) "
-                    f"(rebase={len(notes)}, drop_contiguous_light={len(drop_notes)})",
+                    f"selection_framing_apply stamped {len(notes)} gap VO seat(s)",
                     level="info",
                     stage="selection_framing_apply",
                 )
 
-    if decision.get("status") == "activate":
-        _record_refinement(ctx, "selection_framing_apply", "ok")
-    # Re-sanitize after framing may mutate selection (non-amplifying).
-    if ctx.artifact_exists("master/selection.json"):
-        try:
-            from interview_mux.artifact_sanitize.selection import sanitize_master_selection
-            from interview_mux.air_order_boundary import commit_selection_mutation
-            from interview_mux.artifact_sanitize.audit import write_sanitize_audit
-
-            sel_now = ctx.read_json("master/selection.json")
-            if isinstance(sel_now, dict):
-                result = sanitize_master_selection(ctx, sel_now)
-                write_sanitize_audit(
-                    ctx, result, stage_key="selection_framing_apply", mode="post_framing"
-                )
-                if result.ok and result.actions:
-                    commit_selection_mutation(
-                        ctx,
-                        result.doc,
-                        producer="artifact_sanitize.selection",
-                        stage_key="selection_framing_apply",
-                        checkpoint_mode="detect",
-                    )
-        except Exception as exc:
-            ctx.log(
-                f"selection_framing_apply sanitize skipped: {exc}",
-                level="warning",
-                stage="selection_framing_apply",
-            )
-    try:
-        from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
-
-        identify_hosted_vo_floor(ctx, persist=True)
-    except Exception:
-        pass
+    _record_refinement(ctx, "selection_framing_apply", "ok")
+    # S4: hosted VO floor identify lives on layup / framing / VO — not apply.
     ctx.write_json(
         APPLY_REL,
         {

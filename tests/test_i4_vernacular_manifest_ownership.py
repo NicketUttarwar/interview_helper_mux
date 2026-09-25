@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from interview_mux.artifact_ownership import write_permitted
+from interview_mux.artifact_ownership import row_for_path, write_permitted
 from interview_mux.run_context import RunContext
 from run_fixtures import isolated_run_ctx
 
@@ -214,16 +214,21 @@ def test_i14_nugget_and_recompose_ownership(ctx: RunContext) -> None:
     assert reason3 == "operational"
 
 
-def test_i15_selection_framing_apply_may_rebase_gap_report(ctx: RunContext) -> None:
-    """Framing apply rebases gap VO lines onto the surviving timeline — must be a producer."""
+def test_i15_selection_framing_apply_may_stamp_gap_omit_delivery(ctx: RunContext) -> None:
+    """S9: framing apply may stamp omit/delivery/targets — not body text ownership."""
     ok, reason = write_permitted(
         ctx,
         "understanding/gap_report.json",
         "selection_framing_apply",
         role="producer",
         verb="persist",
+        fields=("interviewer_lines[].targets_segment_id",),
     )
     assert ok is True, reason
+    row = row_for_path("understanding/gap_report.json")
+    assert row is not None
+    assert "selection_framing_apply" not in row.producers
+    assert row.authoritative == "nugget_layup_compose"
 
 
 def test_i16_synthetic_context_packet_allowed_for_transitions(ctx: RunContext) -> None:
@@ -247,15 +252,19 @@ def test_i16_synthetic_context_packet_allowed_for_transitions(ctx: RunContext) -
 
 
 def test_i17_vo_line_adjudicate_and_shadow_ownership(ctx: RunContext) -> None:
-    """Adjudicate rewrites gap lines; shadow scores are operational sidecars."""
+    """S9: adjudicate stamps omit/delivery; shadow scores are operational sidecars."""
     ok, reason = write_permitted(
         ctx,
         "understanding/gap_report.json",
         "vo_line_adjudicate",
         role="producer",
         verb="persist",
+        fields=("interviewer_lines[].skipped_optional",),
     )
     assert ok is True, reason
+    row = row_for_path("understanding/gap_report.json")
+    assert row is not None
+    assert "vo_line_adjudicate" not in row.producers
     ok2, reason2 = write_permitted(
         ctx,
         "understanding/refinement_shadow/gap_framing_recompose.json",

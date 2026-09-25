@@ -281,6 +281,60 @@ def assert_seated_vo_rendered(ctx: RunContext) -> None:
         )
 
 
+def vo_synthesize_render_incompleteness(ctx: RunContext) -> str | None:
+    """S4 SSOT: pairs / G1 / seated WAV / bind sanitary+stale — one readiness stack.
+
+    Does not cover gap/air sanitary preconditions or hollow-seat HV-4 (caller).
+    """
+    if not ctx.artifact_exists("master/transitions.json"):
+        return "master/transitions.json is pending"
+    try:
+        from interview_mux.transition_vo import vo_synthesize_pair_incompleteness
+
+        pair_reason = vo_synthesize_pair_incompleteness(ctx)
+    except Exception:
+        pair_reason = None
+    if pair_reason:
+        return pair_reason
+    try:
+        from interview_mux.gates import check_g1_vo
+
+        missing_g1 = check_g1_vo(ctx)
+        if missing_g1:
+            return f"G1 VO pickups missing: {', '.join(missing_g1[:4])}"
+    except Exception:
+        pass
+    try:
+        missing_seated = seated_vo_missing_ids(ctx)
+        if missing_seated:
+            return (
+                "seated synthesize VO missing WAV: "
+                + ", ".join(missing_seated[:4])
+            )
+    except Exception:
+        pass
+    try:
+        from interview_mux.artifact_sanitize.registry import vo_sanitary_errors
+
+        vo_errs = vo_sanitary_errors(ctx)
+        if vo_errs:
+            return "vo_unsanitary — resume vo_synthesize: " + "; ".join(vo_errs[:3])
+    except Exception:
+        pass
+    try:
+        from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
+
+        stale = compact_vo_coverage_stale_or_missing(ctx)
+        if stale:
+            return (
+                "seated synthesize VO script/WAV stale: "
+                + ", ".join(stale[:4])
+            )
+    except Exception:
+        pass
+    return None
+
+
 def validate_vo_contract(ctx: RunContext) -> list[str]:
     """Return human-readable contract violations (empty = pass)."""
     issues: list[str] = []

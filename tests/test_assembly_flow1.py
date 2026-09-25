@@ -9,7 +9,43 @@ import pytest
 from interview_mux.run_context import RunContext
 from interview_mux.stages import assembly
 from interview_mux.stages.assembly import build_flow1_edl, resync_required_synthesize_wavs
-from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    isolated_run_ctx,
+    minimal_manifest,
+    minimal_manifest_segment,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
+
+
+def _arm_vo_path(ctx: RunContext, speaker_id: str = "spk_host") -> None:
+    confirm_test_pickup_speaker(ctx, speaker_id=speaker_id)
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", f"{speaker_id}.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        f"understanding/voice_reference/{speaker_id}.json",
+        {
+            "speaker_id": speaker_id,
+            "approved": True,
+            "wav": f"understanding/speaker_samples/{speaker_id}.wav",
+        },
+    )
+    meta: dict = {}
+    if ctx.artifact_exists("run_meta.json"):
+        try:
+            existing = ctx.read_json("run_meta.json")
+            if isinstance(existing, dict):
+                meta = dict(existing)
+        except Exception:
+            meta = {}
+    meta.setdefault("gap_framing_enabled", True)
+    meta.setdefault("gap_vo_delivery", "chatterbox")
+    meta.setdefault("voice_reference_approved_at", "2026-01-01T00:00:00Z")
+    write_fixture_json(ctx, "run_meta.json", meta)
 
 
 def _segments() -> dict[str, dict]:
@@ -124,92 +160,18 @@ def test_edl_never_emits_a_sentence_twice_for_different_targets(tmp_path: Path) 
 def test_run_edl_applies_nle_to_selection_and_edl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S5: NLE must already be on disk selection; EDL refuses dual-copy apply."""
     monkeypatch.setattr(assembly, "check_narrative_qc", lambda *_a, **_k: None)
-    monkeypatch.setattr(assembly, "check_edl_qc", lambda *_a, **_k: None)
-    monkeypatch.setattr(assembly, "check_edl_narrative_qc", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        "interview_mux.publishability_boundary.checkpoint_publishability",
+        "interview_mux.edl_narrative_remutate.narrative_audit_blocks_edl",
+        lambda *_a, **_k: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.assert_layup_fresh_vs_selection",
         lambda *_a, **_k: None,
     )
     monkeypatch.setattr(
-        "interview_mux.synthetic_framing.synthetic_framing_cfg",
-        lambda cfg=None: {
-            "respect_native_speakers": True,
-            "allow_canned_bridge_fallback": True,
-            "duration_ratio_min": 0.4,
-            "duration_ratio_max": 2.0,
-        },
-    )
-
-    def _fake_synth_transitions(ctx, pairs=None):
-        from interview_mux.transition_vo import transition_wav_path
-        from interview_mux.vo_synthesis_audit import record_synthesis
-
-        if not ctx.artifact_exists("master/transitions.json"):
-            return []
-        doc = ctx.read_json("master/transitions.json")
-        manifest = ctx.read_json("segments/manifest.json")
-        by_id = {
-            str(row.get("segment_id")): row
-            for row in (manifest.get("segments") or [])
-            if isinstance(row, dict)
-        }
-        rows = []
-        for item in doc.get("transitions") or []:
-            if not isinstance(item, dict):
-                continue
-            after_id = str(item.get("after_segment_id") or "")
-            before_id = str(item.get("before_segment_id") or "")
-            if not after_id or not before_id:
-                continue
-            if pairs is not None and (after_id, before_id) not in pairs:
-                continue
-            out = transition_wav_path(ctx, after_id, before_id)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(_minimal_wav_bytes(duration_ms=800))
-            record_synthesis(
-                ctx,
-                {
-                    "line_id": f"tr_{after_id}_{before_id}",
-                    "text": str(item.get("text") or ""),
-                    "targets_segment_id": after_id,
-                    "placement": "after",
-                    "after_segment_id": after_id,
-                    "before_segment_id": before_id,
-                    "before_excerpt": (by_id.get(after_id) or {}).get("text"),
-                    "after_excerpt": (by_id.get(before_id) or {}).get("text"),
-                    "source_gap_ms": item.get("source_gap_ms"),
-                },
-                backend="mlx_audio",
-                out_wav=out,
-                wav_just_rendered=True,
-            )
-            rows.append(
-                {
-                    "after_segment_id": after_id,
-                    "before_segment_id": before_id,
-                    "ok": True,
-                    "path": str(out),
-                }
-            )
-        return rows
-
-    monkeypatch.setattr(
-        "interview_mux.transition_vo.synthesize_spoken_transitions",
-        _fake_synth_transitions,
-    )
-    # NLE must not soft-pass stub bridges; stub completeness for this apply-path unit test.
-    monkeypatch.setattr(
-        "interview_mux.bridge_completeness.assert_bridges_complete",
-        lambda *a, soft=False, **k: {
-            "complete": True,
-            "missing_count": 0,
-            "missing": [],
-            "stub_count": 0,
-        },
-    )
-    monkeypatch.setattr(
-        "interview_mux.assembly_ledger.assert_ledger_no_naked_seams",
+        "interview_mux.nugget_layup.assert_gap_report_layup_authority",
         lambda *_a, **_k: None,
     )
     ctx = isolated_run_ctx(tmp_path, "run_206")
@@ -233,20 +195,8 @@ def test_run_edl_applies_nle_to_selection_and_edl(
         },
     )
 
-    assembly.run_edl(ctx)
-
-    selection = ctx.read_json("master/selection.json")
-    assert selection["ordered_segment_ids"] == ["seg_c", "seg_a"]
-    assert selection.get("nle_applied") is True
-    assert any(
-        e.get("segment_id") == "seg_b" for e in selection.get("excluded_segment_ids") or []
-    )
-
-    edl = ctx.read_json("master/edl.json")
-    speech_ids = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]
-    assert "seg_b" not in speech_ids
-    assert speech_ids == ["seg_c", "seg_a"]
-    assert ctx.is_done("edl")
+    with pytest.raises(SystemExit, match="NLE operator edits not committed"):
+        assembly.run_edl(ctx)
 
 
 def test_edl_skips_non_record_delivery() -> None:
@@ -488,10 +438,13 @@ def test_cold_open_orientation_not_stacked_with_next_layup(tmp_path: Path) -> No
         resolve_vo_path=lambda _line: wav,
         vo_duration_ms=lambda _path: 2_000,
     )
-    assert any(
-        c.get("line_id") == "vo_preface_episode_orientation" for c in edl["clips"]
+    line_ids = [c.get("line_id") for c in edl["clips"] if c.get("line_id")]
+    assert "vo_preface_episode_orientation" in line_ids
+    # nugget_layup is an EDL survivor after orientation (hosted floor / exec_13183).
+    assert "vo_layup_seg_b" in line_ids
+    assert line_ids.index("vo_preface_episode_orientation") < line_ids.index(
+        "vo_layup_seg_b"
     )
-    assert not any(c.get("line_id") == "vo_layup_seg_b" for c in edl["clips"])
 
 
 def test_native_hook_precedes_music_and_orientation(tmp_path: Path) -> None:
@@ -662,6 +615,7 @@ def test_resync_required_synthesize_wavs_calls_synth_when_unresolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "run_resync_vo")
+    _arm_vo_path(ctx)
     line = {
         "line_id": "vo_preface_episode_orientation",
         "episode_orientation": True,
@@ -707,6 +661,7 @@ def test_resync_accepts_audit_match_when_resolve_returns_none(
 ) -> None:
     """Post-synth speech-QA resolve miss must not raise when audit already matches."""
     ctx = isolated_run_ctx(tmp_path, "run_resync_match_no_resolve")
+    _arm_vo_path(ctx)
     line = {
         "line_id": "vo_layup_seg_019",
         "text": "Cancer data arrive in separate silos across modalities.",
@@ -756,6 +711,7 @@ def test_resync_under_edl_staging_promotes_owner_vo(
     from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
 
     ctx = isolated_run_ctx(tmp_path, "run_resync_nested_edl")
+    _arm_vo_path(ctx)
     line = {
         "line_id": "vo_layup_seg_020",
         "text": "Why does counting cells leave clinicians uncertain?",

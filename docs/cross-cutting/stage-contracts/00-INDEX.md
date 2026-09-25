@@ -78,7 +78,7 @@ records what has to be defused before switching them on.
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
 | `chapter_close_hitch` | process | mastering/chapter_close_hitch.json, mastering/chapter_close_hitch/intent_plan.json, mastering/chapter_close_hitch/remap.json, understanding/episode_structure_compact.txt, understanding/flow_adaptation.json, segments/boundaries.json, mastering/chapter_close_hitch/hitch_keepers.json, mastering/chapter_close_hitch/pre_keepers.json, mastering/chapter_close_hitch/omit_ledger.json, mastering/chapter_close_hitch/vo_snapshot.json, master/narrative_plan.qc.json |
 | `connector_fuse_pass` | llm_full | analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, segments/manifest.json |
-| `connector_fuse_pass_pre_ranking` | llm_full | analysis/connector_fuse_rounds.json, segments/manifest.json, segments/boundaries.json, analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, analysis/connector_seam_verdicts.json |
+| `connector_fuse_pass_pre_ranking` | llm_full | analysis/connector_fuse_rounds_pre_ranking.json, segments/manifest.json, segments/boundaries.json, analysis/connector_fuse_audit.json, analysis/connector_seam_packets.json, analysis/connector_seam_verdicts.json |
 | `connector_seam_adjudicate` | meta | analysis/connector_seam_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
@@ -91,23 +91,23 @@ records what has to be defused before switching them on.
 | `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | understanding/episode_structure.json, understanding/episode_structure_compact.txt |
 | `framing_posture_decide` | llm_full | understanding/framing_posture_decision.json |
-| `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/story_health.json, master/order_reconcile.json, mastering/media_ip_cta.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, analysis/stt_lexicon_islands.json |
+| `full_master_ranking` | llm_full | master/selection.json, master/rank_candidates.json, master/story_health.json, mastering/media_ip_cta.json, analysis/stt_lexicon_islands.json, analysis/stt_lexicon_island_boosts.json |
 | `g1_vo_pickup` | gate | — |
-| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, glob:understanding/llm_calls/gap_framing_compose/**, glob:understanding/stage_runs/gap_framing_compose/**, understanding/speaker_delivery_plan.json |
+| `gap_framing_compose` | llm_full | understanding/gap_report.json, understanding/interviewer_script.txt, understanding/gap_framing_plan.json, understanding/gap_vo_context_audit.json, glob:understanding/llm_calls/gap_framing_compose/**, glob:understanding/stage_runs/gap_framing_compose/** |
 | `gap_framing_recompose` | deterministic | understanding/gap_framing_recompose.json, understanding/nugget_layup_plan.json, understanding/refinement_skip_copy.json |
 | `gap_report_sanitize` | process | understanding/gap_report.json |
 | `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json, understanding/ideal_cuts_selection_seed.json, segments/boundaries.json |
 | `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
 | `information_package_plan` | process | mastering/shape/information_packages_audit.json, mastering/shape/information_package_candidates.json, mastering/mastering_plan.json |
 | `ingest` | process | ingest/normalized.wav, ingest/checksums.json, ingest/loudness.json, ingest/waveform_peaks.json |
-| `interview_spine_build` | deterministic | understanding/interview_spine.json |
+| `interview_spine_build` | deterministic | understanding/interview_spine.json, transcript/diarization_repairs.json |
 | `island_cluster_structure_adjudicate` | meta | analysis/island_cluster_structure_verdicts.json, analysis/island_cluster_structure_packets.json |
 | `junction_feel_audit` | meta | master/junction_feel_audit.json |
 | `junction_snip_qa` | llm_full | master/junction_snip_qa.json, master/junction_thought_complete.json, master/junction_feel_audit.json, master/seam_autopsy.json, master/render_ledger.json, master/failure_review.json, master/remediation_plan.json, master/remediation_run_log.json, sound_design/placement_adjustments.json |
 | `junction_thought_complete` | meta | master/junction_thought_complete.json |
 | `listen_delight_audit` | process | mastering/listen_delight_audit.json |
-| `low_conf_island_scan` | process | analysis/low_conf_islands.json, analysis/low_conf_density_ranking.json, analysis/low_conf_must_keep.json |
-| `master_finalize` | process | master/master.wav, master/post_master_quality.json, master/listener_scorecard.json, mastering/listen_delight_audit.json, master/seam_autopsy.json |
+| `low_conf_island_scan` | process | analysis/low_conf_islands.json, analysis/low_conf_density_ranking.json, analysis/low_conf_must_keep.json, analysis/stt_lexicon_island_boosts.json |
+| `master_finalize` | process | master/master.wav, master/post_master_quality.json, master/listener_scorecard.json, mastering/listen_delight_audit.json |
 | `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt, glob:transcripts/transition/*.json, glob:transcripts/vo/*.json, glob:transcripts/speech/*.json, transcripts/index.json |
 | `mastering_plan_confirm` | process | mastering/mastering_plan.json, mastering/shadow_diff.json, glob:mastering/evidence_packets/*.json |
 | `mastering_plan_synthesize` | process | mastering/mastering_plan.json, glob:mastering/evidence_packets/*.json |
@@ -132,8 +132,8 @@ records what has to be defused before switching them on.
 | `refinement_agenda` | deterministic | understanding/refinement_agenda.json |
 | `sdp_intent_refine` | meta | — |
 | `segment_classification` | llm_full | segments/manifest.json |
-| `selection_framing_apply` | deterministic | understanding/selection_framing_apply.json, understanding/gap_report.json |
-| `selection_order_sanitize` | process | master/selection.json |
+| `selection_framing_apply` | deterministic | understanding/selection_framing_apply.json, master/selection.json, understanding/gap_report.json |
+| `selection_order_sanitize` | process | master/selection.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json, master/story_health.json |
 | `sfx_brief` | meta | REMOVED_flow2/sfx_brief.json |
 | `sfx_prompt_craft` | llm_full | sound_design/sfx_prompts.json |
 | `sfx_prompt_refine` | meta | — |
@@ -152,9 +152,9 @@ records what has to be defused before switching them on.
 | `transcribe` | process | transcript/full.json, transcript/speakers.json |
 | `transcript_review` | gate | — |
 | `transcript_review_build` | process | transcript/review_queue.json, transcript/corrections.json, glob:transcript/review_clips/*.wav |
-| `transitions` | llm_full | master/transitions.json, understanding/synthetic_framing_plan.json, understanding/synthetic_context_packet.json, master/deferred_transition_pairs.json, master/transitions_pair_freeze.json, master/order_reconcile.json, master/rank_candidates.json, master/story_health.json, understanding/reorder_bridges.json, understanding/speaker_delivery_plan.json |
+| `transitions` | llm_full | master/transitions.json, understanding/synthetic_framing_plan.json, understanding/synthetic_context_packet.json, master/deferred_transition_pairs.json, master/transitions_pair_freeze.json, understanding/reorder_bridges.json, master/bridge_completeness.json |
 | `transitions_refine` | meta | — |
 | `vernacular_segment_sanitize` | process | vernacular/resplit_report.json, segments/manifest.json, analysis/vernacular_must_keep.json, transcript/protected_zones.json |
 | `vo_ingest` | gate | vo_pickup/ |
-| `vo_line_adjudicate` | llm_full | understanding/vo_line_adjudication.json, understanding/gap_report.json, understanding/nugget_allocation_plan.json |
+| `vo_line_adjudicate` | llm_full | understanding/vo_line_adjudication.json, understanding/gap_report.json |
 | `vo_synthesize` | process | mastering/vo_synthesize.json, master/transitions/, vo_pickup/synthesized/, vo_pickup/ |

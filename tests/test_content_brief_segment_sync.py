@@ -193,8 +193,19 @@ def test_sync_content_brief_uses_staged_manifest_during_write_approval(
         )
     )
     record_pending_approval(ctx, stage_key)
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+    from run_fixtures import write_fixture_json
 
-    applied = sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_key)
+    write_fixture_json(
+        ctx,
+        "segments/manifest.json",
+        __import__("json").loads(staged_manifest.read_text()),
+    )
+    enter_stage_staging(stage_key)
+    try:
+        applied = sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_key)
+    finally:
+        exit_stage_staging()
     assert applied
 
     brief = ctx.read_json("understanding/content_brief.json")

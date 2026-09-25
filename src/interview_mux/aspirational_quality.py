@@ -18,40 +18,37 @@ from interview_mux.run_context import RunContext
 CANDIDATES_REL = "master/quality_candidates.json"
 ADVISORIES_META_KEY = "quality_advisories"
 
-# PMQ checks that remain hard even when aspirational (existing never-soft set).
-# LD6: opening_orientation + critical air_order are structural (not rubric soft).
+# PMQ checks that remain hard even when aspirational (thin ship bar — S5).
+# Live critical junction residuals still hard-block via evaluate special-case.
+# Delight ship judge is authoritative listen_delight (not a PMQ duplicate — S2).
 STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
     {
         "master_exists_nonempty",
+        "seam_commitment",
         "spoken_vo_speakable",
         "audible_script_hash_agreement",
         "omit_ledger_air_contract",
         "selection_duration_floor",
-        "opening_music_quality",
-        "opening_orientation_contract",
-        "air_order_integrity",
-        # D1 advance-past: an open ship-bar defect is never a rubric advisory.
-        "no_open_ship_bar_defects",
-        # Finding 4: a stage that succeeded on a hollow/wrong artifact.
-        "stage_output_semantics",
-        # Finding 6: unreadable contracts must refuse the ship gate, not the walk.
-        "ship_reachability_analysis",
     }
 )
 
 # Rubric gate ids that become advisory when aspirational is enabled.
 RUBRIC_GATE_IDS: frozenset[str] = frozenset(
     {
-        "listen_delight_floors",
         "scorecard_overall_floor",
         "scorecard_dimension_floors",
         "listenability_contract",
         "no_critical_junction_residuals",
         "feel_audit_available",
-        "seam_commitment",
         "planned_music_preserved",
         "episode_close_outro_present",
         "opening_music_preserved",
+        "opening_music_quality",
+        "opening_orientation_contract",
+        "air_order_integrity",
+        "no_open_ship_bar_defects",
+        "stage_output_semantics",
+        "ship_reachability_analysis",
         "verify_master_lufs",
         "homunculus_delight_reject",
     }
@@ -146,14 +143,18 @@ def is_rubric_gate(gate_id: str) -> bool:
 
 RUBRIC_PMQ_CHECKS: frozenset[str] = frozenset(
     {
-        "listen_delight_floors",
         "scorecard_overall_floor",
         "scorecard_dimension_floors",
-        "seam_commitment",
         "feel_audit_available",
         "planned_music_preserved",
         "episode_close_outro_present",
         "opening_music_preserved",
+        "opening_music_quality",
+        "opening_orientation_contract",
+        "air_order_integrity",
+        "no_open_ship_bar_defects",
+        "stage_output_semantics",
+        "ship_reachability_analysis",
         "spoken_native_intro_duplicate",
         "mastering_plan_present_when_complete",
         "render_ledger_exists",
@@ -171,23 +172,6 @@ def is_rubric_pmq_check(check_id: str) -> bool:
         return False
     if cid == "no_critical_junction_residuals":
         return True
-    # Delight mode flip: when listen_delight.mode is authoritative, floors are structural
-    # unless progress_floors treats delight (incl. catastrophic) as aspirational.
-    if cid == "listen_delight_floors":
-        try:
-            from interview_mux.floor_progress import listen_delight_aspirational
-
-            if listen_delight_aspirational(None):
-                return True
-        except Exception:
-            pass
-        try:
-            from interview_mux.listen_delight import listen_delight_cfg
-
-            if str(listen_delight_cfg().get("mode") or "").strip() == "authoritative":
-                return False
-        except Exception:
-            pass
     return cid in RUBRIC_PMQ_CHECKS or is_rubric_gate(cid)
 
 

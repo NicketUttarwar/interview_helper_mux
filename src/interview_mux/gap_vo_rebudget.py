@@ -1,7 +1,7 @@
 """Post-ranking VO density re-budget for analysis-era gap compose (R3).
 
 Compose runs before selection; hosted floor / vo_line_budget may have been
-scaled from warrant gaps. After ``full_master_ranking`` writes selection,
+scaled from warrant gaps. After selection is sealed (ranking + sanitize),
 recompute density notes so layup/compose incompleteness use air-order truth.
 """
 
@@ -15,7 +15,9 @@ from interview_mux.run_context import RunContext
 REBUDGET_REL = "understanding/gap_vo_rebudget_after_selection.json"
 
 
-def note_gap_vo_rebudget_after_selection(ctx: RunContext) -> dict[str, Any] | None:
+def note_gap_vo_rebudget_after_selection(
+    ctx: RunContext, *, stage_key: str | None = None
+) -> dict[str, Any] | None:
     """Write selection-scaled VO budget note; fail-open on errors."""
     try:
         from interview_mux.config import merged_config
@@ -25,7 +27,9 @@ def note_gap_vo_rebudget_after_selection(ctx: RunContext) -> dict[str, Any] | No
         )
         from interview_mux.gap_vo_gates import gap_framing_enabled
         from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+        from interview_mux.write_staging import active_stage_id
 
+        sk = stage_key or active_stage_id() or "selection_order_sanitize"
         if not gap_framing_enabled(ctx):
             return None
         try:
@@ -50,7 +54,7 @@ def note_gap_vo_rebudget_after_selection(ctx: RunContext) -> dict[str, Any] | No
         active = count_active_gap_vo_lines(ctx)
         doc = {
             "version": 1,
-            "source": "full_master_ranking",
+            "source": sk,
             "ordered_n": ordered_n,
             "vo_line_budget": {
                 "min": vo_min,
@@ -66,23 +70,26 @@ def note_gap_vo_rebudget_after_selection(ctx: RunContext) -> dict[str, Any] | No
             REBUDGET_REL,
             doc,
             skip_handoff=True,
-            stage_key="full_master_ranking",
+            stage_key=sk,
         )
         ctx.log(
             f"gap_vo rebudget after selection: ordered_n={ordered_n} "
             f"ideal={vo_ideal} active={active} floor={floor}",
             level="info",
-            stage="full_master_ranking",
+            stage=sk,
             action_id="gap_vo.rebudget_after_selection",
             detail=doc,
         )
         return doc
     except Exception as exc:
         try:
+            from interview_mux.write_staging import active_stage_id
+
+            sk = stage_key or active_stage_id() or "selection_order_sanitize"
             ctx.log(
                 f"gap_vo rebudget after selection skipped: {exc}",
                 level="warning",
-                stage="full_master_ranking",
+                stage=sk,
             )
         except Exception:
             pass

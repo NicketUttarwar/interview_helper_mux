@@ -22,11 +22,11 @@
       "master/transitions.json",
       "mastering/mastering_plan.json",
       "understanding/gap_report.json",
+      "understanding/reorder_bridges.json",
       "understanding/speaker_delivery_plan.json"
     ],
     "writes": [
-      "master/selection.json",
-      "master/transitions.json"
+      "master/selection.json"
     ]
   },
   "audio_preclean": {
@@ -88,7 +88,8 @@
       "understanding/talking_points.json"
     ],
     "writes": [
-      "understanding/gap_framing_plan.json"
+      "understanding/gap_framing_plan.json",
+      "understanding/gap_report.json"
     ]
   },
   "ingest": {
@@ -167,9 +168,7 @@
       "understanding/speakers.json",
       "understanding/talking_points.json"
     ],
-    "writes": [
-      "segments/boundaries.json"
-    ]
+    "writes": []
   },
   "selection": {
     "reads": [
@@ -182,7 +181,6 @@
       "mastering/mastering_plan.json",
       "segments/manifest.json",
       "understanding/content_brief.json",
-      "understanding/delivery_brief.json",
       "understanding/episode_structure.json",
       "understanding/gap_report.json",
       "understanding/reorder_bridges.json",
@@ -191,8 +189,7 @@
     "writes": [
       "master/rank_candidates.json",
       "master/story_health.json",
-      "operator/ranking_glue_pin.json",
-      "understanding/reorder_bridges.json"
+      "master/transitions.json"
     ]
   },
   "selection_membership": {

@@ -740,10 +740,8 @@ def test_reattach_vo_when_gap_report_changes_line_id(
         skip_handoff=True,
     )
     out = reattach_vo_to_gap_report(ctx, mapping)
-    assert out["copied"] >= 1 or (ctx.final_path("vo_pickup") / "line_001.wav").is_file()
-    assert (ctx.final_path("vo_pickup") / "line_001.wav").is_file() or (
-        ctx.final_path("vo_pickup") / "seg_101.wav"
-    ).is_file()
+    assert out.get("peeled") == "s3_no_gap_kitchen"
+    assert out["copied"] == 0 and out["injected"] == 0
 
 
 def test_resume_running_latch_does_not_double_recut(
@@ -1029,3 +1027,118 @@ def test_hitch_listen_restage_latches_once(tmp_path, monkeypatch: pytest.MonkeyP
     assert latch.get("listen_restage") is True
     assert arm_hitch_listen_restage(ctx) is False
     assert hitch_listen_restage_count(ctx) == 1
+
+
+def test_s1_hitch_does_not_republish_materialized_cuts(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S1: hitch remaps prior ideal_cuts_materialized; never stamps hitch cuts."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    _seed_hitch_run(ctx)
+    prior_cuts = [
+        {
+            "cut_id": "prior_001",
+            "start_ms": 0,
+            "end_ms": 1000,
+            "priority": "should_keep",
+            "speaker_id": "spk_0",
+        }
+    ]
+    ctx.write_json(
+        "understanding/ideal_cuts_materialized.json",
+        {
+            "version": 1,
+            "cuts": prior_cuts,
+            "_meta": {"producer_stage": "ideal_cuts_materialize"},
+        },
+        skip_handoff=True,
+        stage_key="ideal_cuts_materialize",
+    )
+    monkeypatch.setattr(
+        "interview_mux.chapter_close_hitch.apply_acoustic_refine",
+        lambda windows, *a, **k: windows,
+    )
+    monkeypatch.setattr(
+        "interview_mux.chapter_close_hitch.run_inner_walk", lambda *_a, **_k: []
+    )
+    run_chapter_close_hitch(ctx)
+    mat = ctx.read_json("understanding/ideal_cuts_materialized.json")
+    assert mat.get("hitch") is not True
+    assert (mat.get("cuts") or [{}])[0].get("cut_id") == "prior_001"
+    assert (mat.get("_meta") or {}).get("producer_stage") == "ideal_cuts_materialize"
+
+
+def test_s2_remap_preserves_gap_producer_stage(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.segment_id_remap import rewrite_artifact_segment_refs
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_seed_seg_001",
+                    "targets_segment_id": "seg_001",
+                    "text": "hi",
+                }
+            ],
+            "_meta": {"producer_stage": "gap_framing_compose"},
+        },
+        skip_handoff=True,
+        stage_key="gap_framing_compose",
+    )
+    updated = rewrite_artifact_segment_refs(
+        ctx, {"seg_001": "seg_101"}, stage_key=STAGE_ID
+    )
+    assert "understanding/gap_report.json" in updated
+    gap = ctx.read_json("understanding/gap_report.json")
+    assert (gap.get("_meta") or {}).get("producer_stage") == "gap_framing_compose"
+    assert gap["interviewer_lines"][0]["targets_segment_id"] == "seg_101"
+    assert gap["interviewer_lines"][0]["line_id"] == "vo_seed_seg_101"
+
+
+def test_s3_post_walk_peels_gap_kitchen(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.chapter_close_hitch import apply_post_walk_patches
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "interview_mux.chapter_close_hitch.apply_chapter_authority",
+        lambda *a, **k: {"adopted": "remapped_intent"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.chapter_close_hitch.align_episode_structure_to_narrative",
+        lambda *a, **k: {"ok": True},
+    )
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.adopt_layup_plan_to_selection",
+        lambda *a, **k: {"ok": True, "gap_publish": False},
+    )
+    patches = apply_post_walk_patches(
+        ctx, intent={}, mapping={"seg_001": "seg_101"}, new_ids={"seg_101"}
+    )
+    assert patches["vo_gap"].get("peeled") == "s3_no_gap_kitchen"
+    assert patches["omit_stamped"] == 0
+
+
+def test_s4_inner_walk_skip_when_identity_map() -> None:
+    from interview_mux.chapter_close_hitch import hitch_inner_walk_needed
+
+    assert hitch_inner_walk_needed(any_change=False, mapping={}, listen_restage=False) is False
+    assert (
+        hitch_inner_walk_needed(
+            any_change=False, mapping={"seg_001": "seg_001"}, listen_restage=False
+        )
+        is False
+    )
+    assert (
+        hitch_inner_walk_needed(
+            any_change=False, mapping={"seg_001": "seg_101"}, listen_restage=False
+        )
+        is True
+    )
+    assert hitch_inner_walk_needed(any_change=True, mapping={}, listen_restage=False) is True
+    assert hitch_inner_walk_needed(any_change=False, mapping={}, listen_restage=True) is True

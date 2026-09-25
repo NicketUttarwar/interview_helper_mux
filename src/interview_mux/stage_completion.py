@@ -129,6 +129,27 @@ def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
     return None
 
 
+def _gap_report_missing_while_framing(
+    ctx: RunContext, stage_id: str
+) -> str | None:
+    """S4: sanitize must not hollow-complete when gap_report is absent under framing Yes."""
+    if stage_id != "gap_report_sanitize":
+        return None
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        return None
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return None
+    except Exception:
+        return None
+    return (
+        "understanding/gap_report.json missing while framing enabled — "
+        "resume nugget_layup_compose"
+    )
+
+
 def _high_gap_unframed_incompleteness(
     ctx: RunContext, stage_id: str
 ) -> str | None:
@@ -136,13 +157,14 @@ def _high_gap_unframed_incompleteness(
 
     Seeds that spoken-copy-omit after write left `.stage_done` on compose while
     lint stayed dirty (exec_13157 seg_051) and driver heal thrash-locked layup.
+
+    S5: ``nugget_layup_compose`` only blocks when the plan claimed air for a
+    high-gap target that is still missing on gap_report; otherwise framing owns.
     """
     if stage_id not in {
         "gap_framing_compose",
         "optimal_questions",
         "gap_report_sanitize",
-        # Layup owns high-gap VO under hosted framing — refuse hollow done while
-        # a high gap still has no interviewer line (exec_13198 seg_014).
         "nugget_layup_compose",
     }:
         return None
@@ -150,6 +172,20 @@ def _high_gap_unframed_incompleteness(
         return None
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return None
+    if stage_id == "nugget_layup_compose":
+        try:
+            from interview_mux.nugget_layup import layup_claimed_air_missing_high_gap
+
+            claimed = layup_claimed_air_missing_high_gap(ctx)
+        except Exception:
+            claimed = []
+        if not claimed:
+            return None
+        return (
+            "high_gap_unframed — resume nugget_layup_compose: "
+            "layup claimed air but gap missing line for "
+            + ",".join(claimed[:4])
+        )
     try:
         from interview_mux.deterministic_lint import _lint_optimal_questions
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
@@ -267,12 +303,12 @@ def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
 
 
 def _missing_framing_sealed_ratio_incompleteness(ctx: RunContext) -> str | None:
-    """Refuse done when CAP seals exceed sealed_ratio_max without a rescue pass.
+    """S7: one coverage-thin gate before CAP; hard_max STOP after CAP only.
 
-    ASSETS 13159–13170 routinely sealed 20–45% after coverage_passes=2. Telemetry
-    always writes coverage_report; incompleteness only fires when framing Yes and
-    ``sealed_ratio_rescue_done`` is absent so resume can run the bounded rescue.
-    After rescue, ratios above ``sealed_ratio_hard_max`` are operator-STOP.
+    Safest collapse of soft sealed_ratio + sealed_vs_risk into a single
+    ``coverage_thin`` resume predicate while coverage budget remains. After
+    ``_coverage_rescue_exhausted``, only ``sealed_ratio_hard`` remains (operator
+    STOP) — residual sealed_vs_risk alone must not thrash past CAP.
     """
     rel = "understanding/gap_evaluations.json"
     if not ctx.artifact_exists(rel):
@@ -293,6 +329,7 @@ def _missing_framing_sealed_ratio_incompleteness(ctx: RunContext) -> str | None:
     if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
         return None
     from interview_mux.stages.gaps import (
+        _coverage_rescue_exhausted,
         _coverage_stats_from_doc,
         _gap_segment_ids,
         _sealed_ratio_hard_max,
@@ -306,39 +343,34 @@ def _missing_framing_sealed_ratio_incompleteness(ctx: RunContext) -> str | None:
     ratio = float(stats.get("sealed_ratio") or 0.0)
     max_ratio = float(stats.get("sealed_ratio_max") or 0.15)
     hard_max = float(stats.get("sealed_ratio_hard_max") or _sealed_ratio_hard_max())
-    rescue_done = bool((doc.get("_meta") or {}).get("sealed_ratio_rescue_done"))
+    exhausted = _coverage_rescue_exhausted(doc)
     risk_sealed = _sealed_vs_risk_ids(ctx, doc)
-    if risk_sealed and not rescue_done:
-        return (
-            "missing_framing sealed_vs_risk — resume missing_framing: "
-            f"{len(risk_sealed)} sealed-low id(s) contradict framing-risk authority "
-            f"(examples {risk_sealed[:6]})"
-        )
     sealed_n = int(stats.get("sealed_count") or 0)
     examples = list(stats.get("sealed_ids") or [])[:6]
-    if rescue_done:
+    if exhausted:
         if ratio > hard_max + 1e-9:
             return (
                 "missing_framing sealed_ratio_hard — operator STOP: "
-                f"after rescue still sealed {sealed_n}/{stats.get('required_count')} "
+                f"after coverage CAP still sealed {sealed_n}/{stats.get('required_count')} "
                 f"({ratio:.0%} > hard max {hard_max:.0%}); inspect "
                 "understanding/stage_runs/missing_framing/coverage_report.json "
                 f"(examples {examples})"
             )
         return None
-    if risk_sealed:
-        return (
-            "missing_framing sealed_vs_risk — resume missing_framing: "
-            f"{len(risk_sealed)} sealed-low id(s) contradict framing-risk authority "
-            f"(examples {risk_sealed[:6]})"
-        )
-    if ratio <= max_ratio + 1e-9:
+    soft_ratio = ratio > max_ratio + 1e-9
+    if not soft_ratio and not risk_sealed:
         return None
+    detail_bits = [
+        f"sealed {sealed_n}/{stats.get('required_count')} ({ratio:.0%} vs max {max_ratio:.0%})"
+    ]
+    if risk_sealed:
+        detail_bits.append(
+            f"sealed_vs_risk {len(risk_sealed)} (examples {risk_sealed[:6]})"
+        )
     return (
-        "missing_framing sealed_ratio — resume missing_framing: "
-        f"sealed {sealed_n}/{stats.get('required_count')} "
-        f"({ratio:.0%} > max {max_ratio:.0%}); run sealed_ratio rescue "
-        f"(examples {examples})"
+        "missing_framing coverage_thin — resume missing_framing: "
+        + "; ".join(detail_bits)
+        + "; spend coverage pass on sealed/risk ids"
     )
 
 
@@ -510,6 +542,11 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
     """When G-Framing Yes + evals warrant VO, refuse compose if lines < hosted floor.
 
     Cluster C: HOLLOW_ZERO never aspirational-continues; PARTIAL may.
+
+    S9 (safest): when layup authority stamp is live **with** a plan on disk,
+    floor incompleteness belongs to ``nugget_layup_compose`` — compose no-ops
+    under that stamp and must not thrash on hosted_vo_floor. Orphan stamp
+    (no plan) still evaluates floor here after clear-and-run.
     """
     try:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
@@ -534,6 +571,15 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
         return None
     if str((doc.get("_meta") or {}).get("producer") or "") == "gap_fill_skip":
         return None
+    # S9: peel floor to layup when authority + plan are live.
+    if bool(doc.get("nugget_layup_authority")):
+        try:
+            from interview_mux.nugget_layup import PLAN_REL, nugget_layup_enabled
+
+            if nugget_layup_enabled() and ctx.artifact_exists(PLAN_REL):
+                return None
+        except Exception:
+            pass
     try:
         snap = floor_snapshot(ctx, stage_id="gap_framing_compose", persist=True)
     except Exception:
@@ -919,9 +965,21 @@ def _mix_unseated_incompleteness(ctx: RunContext) -> str | None:
 def _junction_commitment_incompleteness(ctx: RunContext) -> str | None:
     """End-D: junction is hollow without commitment matching live assembly.
 
-    Remaster in flight is unpaid land even when autopsy JSON still matches the
-    pre-remaster seat (Land Honesty — do not early-complete mid-flight).
+    S6(B): junction-owned remaster is paid for ``unpaid_land_reason``, but
+    mid-flight still blocks seed-complete / orphan promote until ``clear_remaster``.
     """
+    try:
+        from interview_mux.mix_junction_seat import remaster_in_flight, remaster_owner
+
+        if remaster_in_flight(ctx):
+            owner_l = str(remaster_owner(ctx) or "").strip().lower()
+            if owner_l in {"junction", "junction_snip_qa"}:
+                return (
+                    "junction remaster in flight — resume junction_snip_qa: "
+                    "remaster_owner=junction (paid land; seat after clear_remaster)"
+                )
+    except Exception:
+        pass
     try:
         from interview_mux.done_authority import unpaid_land_reason
 
@@ -1041,26 +1099,21 @@ def _master_transcript_incompleteness(ctx: RunContext) -> str | None:
 
 
 def _pre_ranking_fuse_incompleteness(ctx: RunContext) -> str | None:
-    """G4 + H6-B: pre_ranking done only with pass_id-stamped rounds; missing_manifest incomplete."""
-    from interview_mux.segment_fuse import FUSE_ROUNDS_PATH
+    """G4 + H6-B: pre_ranking done only with its own rounds SSOT; missing_manifest incomplete."""
+    from interview_mux.segment_fuse import FUSE_ROUNDS_PRE_RANKING_PATH
 
-    if not ctx.artifact_exists(FUSE_ROUNDS_PATH):
-        return (
-            f"{FUSE_ROUNDS_PATH} is pending — resume connector_fuse_pass_pre_ranking:"
-        )
+    rel = FUSE_ROUNDS_PRE_RANKING_PATH
+    if not ctx.artifact_exists(rel):
+        return f"{rel} is pending — resume connector_fuse_pass_pre_ranking:"
     try:
-        doc = ctx.read_json(FUSE_ROUNDS_PATH)
+        doc = ctx.read_json(rel)
     except Exception as exc:
-        return (
-            f"{FUSE_ROUNDS_PATH} unreadable — resume connector_fuse_pass_pre_ranking: {exc}"
-        )
+        return f"{rel} unreadable — resume connector_fuse_pass_pre_ranking: {exc}"
     if not isinstance(doc, dict):
-        return (
-            f"{FUSE_ROUNDS_PATH} schema-hollow — resume connector_fuse_pass_pre_ranking:"
-        )
+        return f"{rel} schema-hollow — resume connector_fuse_pass_pre_ranking:"
     if str(doc.get("pass_id") or "") != "pre_ranking":
         return (
-            f"{FUSE_ROUNDS_PATH} pass_id != pre_ranking — resume connector_fuse_pass_pre_ranking:"
+            f"{rel} pass_id != pre_ranking — resume connector_fuse_pass_pre_ranking:"
         )
     skip = str(doc.get("skip_reason") or "")
     if skip == "missing_manifest":
@@ -1566,6 +1619,14 @@ def stage_artifact_incompleteness(
                 and ctx.artifact_exists("understanding/refinement_skip_copy.json")
             ):
                 continue
+            # S4: framing Yes + missing gap_report → pin layup (not generic pending).
+            if (
+                stage_id == "gap_report_sanitize"
+                and path.endswith("gap_report.json")
+            ):
+                framing_miss = _gap_report_missing_while_framing(ctx, stage_id)
+                if framing_miss:
+                    return framing_miss
             try:
                 from interview_mux.write_staging import uncommitted_pending_reason
 
@@ -1645,6 +1706,9 @@ def stage_artifact_incompleteness(
         "gap_report_sanitize",
         "nugget_layup_compose",
     }:
+        missing = _gap_report_missing_while_framing(ctx, stage_id)
+        if missing:
+            return missing
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:
             return stub
@@ -1823,6 +1887,20 @@ def stage_artifact_incompleteness(
             return "layup_unsanitary — resume nugget_layup_compose: " + "; ".join(
                 lay_errs[:3]
             )
+        # S3: compose-thin gap coverage floor — pin layup (not gap_report_sanitize).
+        try:
+            from interview_mux.artifact_sanitize.gap_report import (
+                gap_layup_coverage_errors,
+            )
+
+            cov_errs = gap_layup_coverage_errors(ctx)
+        except Exception:
+            cov_errs = []
+        if cov_errs:
+            return (
+                "layup_coverage_below_floor — resume nugget_layup_compose: "
+                + "; ".join(cov_errs[:3])
+            )
     if stage_id == "gap_report_sanitize":
         try:
             from interview_mux.artifact_sanitize.registry import gap_sanitary_errors
@@ -1867,47 +1945,69 @@ def stage_artifact_incompleteness(
             )
     if stage_id == "sound_design_plan":
         try:
+            from interview_mux.homunculus.agenda import delivery_sdp_present
+
+            mix_seat_paid = False
+            try:
+                from interview_mux.artifact_ownership import current_epoch
+
+                mix_seat_paid = delivery_sdp_present(ctx) and str(
+                    current_epoch(ctx) or ""
+                ) in {"mix_seated", "junction_committed"}
+            except Exception:
+                mix_seat_paid = False
+            if not mix_seat_paid and ctx.artifact_exists("master/assembly.wav"):
+                try:
+                    mix_seat_paid = delivery_sdp_present(ctx)
+                except Exception:
+                    mix_seat_paid = False
+        except Exception:
+            mix_seat_paid = False
+        try:
             from interview_mux.artifact_sanitize.registry import (
                 selection_sanitary_errors,
                 sdp_sanitary_errors,
                 layup_sanitary_errors,
             )
 
-            sel_errs = selection_sanitary_errors(ctx)
-            if sel_errs:
-                return (
-                    "selection_unsanitary — resume selection_order_sanitize: "
-                    + "; ".join(sel_errs[:3])
-                )
-            # After EDL, layup QC noise must not block SDP seed (exec_13159 mix rewind).
-            edl_sealed = False
-            try:
-                from interview_mux.artifact_ownership import current_epoch
-
-                edl_sealed = str(current_epoch(ctx) or "") in {
-                    "edl_sealed",
-                    "mix_seated",
-                    "junction_committed",
-                } or (
-                    ctx.is_done("edl") and ctx.artifact_exists("master/edl.json")
-                )
-            except Exception:
-                edl_sealed = False
-            if not edl_sealed:
-                lay_errs = layup_sanitary_errors(ctx)
-                if lay_errs:
+            # Mix-seat + paid delivery SDP: mark-done only — do not thrash on
+            # upstream sanitize noise (S5 peel; invent already refused).
+            if not mix_seat_paid:
+                sel_errs = selection_sanitary_errors(ctx)
+                if sel_errs:
                     return (
-                        "layup_unsanitary — resume nugget_layup_compose: "
-                        + "; ".join(lay_errs[:3])
+                        "selection_unsanitary — resume selection_order_sanitize: "
+                        + "; ".join(sel_errs[:3])
                     )
-            sdp_errs = sdp_sanitary_errors(ctx)
-            if sdp_errs and any("missing" not in e for e in sdp_errs):
-                # missing is ok before first write; stale/unsanitary is not
-                stale = [e for e in sdp_errs if "stale" in e or "needs_sanitize" in e]
-                if stale:
-                    return "sdp_unsanitary — resume sound_design_plan: " + "; ".join(
-                        stale[:3]
+                # After EDL, layup QC noise must not block SDP seed (exec_13159 mix rewind).
+                edl_sealed = False
+                try:
+                    from interview_mux.artifact_ownership import current_epoch
+
+                    edl_sealed = str(current_epoch(ctx) or "") in {
+                        "edl_sealed",
+                        "mix_seated",
+                        "junction_committed",
+                    } or (
+                        ctx.is_done("edl") and ctx.artifact_exists("master/edl.json")
                     )
+                except Exception:
+                    edl_sealed = False
+                if not edl_sealed:
+                    lay_errs = layup_sanitary_errors(ctx)
+                    if lay_errs:
+                        return (
+                            "layup_unsanitary — resume nugget_layup_compose: "
+                            + "; ".join(lay_errs[:3])
+                        )
+                sdp_errs = sdp_sanitary_errors(ctx)
+                if sdp_errs and any("missing" not in e for e in sdp_errs):
+                    # missing is ok before first write; stale/unsanitary is not
+                    stale = [e for e in sdp_errs if "stale" in e or "needs_sanitize" in e]
+                    if stale:
+                        return "sdp_unsanitary — resume sound_design_plan: " + "; ".join(
+                            stale[:3]
+                        )
         except Exception:
             pass
         if not ctx.artifact_exists("master/transitions.json"):
@@ -1963,54 +2063,15 @@ def stage_artifact_incompleteness(
                     )
         except Exception:
             pass
-        if not ctx.artifact_exists("master/transitions.json"):
-            return "master/transitions.json is pending"
+        # S4: pairs / G1 / seated / vo sanitary / stale — one helper.
         try:
-            from interview_mux.transition_vo import vo_synthesize_pair_incompleteness
+            from interview_mux.vo_contract import vo_synthesize_render_incompleteness
 
-            pair_reason = vo_synthesize_pair_incompleteness(ctx)
+            render_reason = vo_synthesize_render_incompleteness(ctx)
         except Exception:
-            pair_reason = None
-        if pair_reason:
-            return pair_reason
-        try:
-            from interview_mux.gates import check_g1_vo
-
-            missing_g1 = check_g1_vo(ctx)
-            if missing_g1:
-                return f"G1 VO pickups missing: {', '.join(missing_g1[:4])}"
-        except Exception:
-            pass
-        try:
-            from interview_mux.vo_contract import seated_vo_missing_ids
-
-            missing_seated = seated_vo_missing_ids(ctx)
-            if missing_seated:
-                return (
-                    "seated synthesize VO missing WAV: "
-                    + ", ".join(missing_seated[:4])
-                )
-        except Exception:
-            pass
-        try:
-            from interview_mux.artifact_sanitize.registry import vo_sanitary_errors
-
-            vo_errs = vo_sanitary_errors(ctx)
-            if vo_errs:
-                return "vo_unsanitary — resume vo_synthesize: " + "; ".join(vo_errs[:3])
-        except Exception:
-            pass
-        try:
-            from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
-
-            stale = compact_vo_coverage_stale_or_missing(ctx)
-            if stale:
-                return (
-                    "seated synthesize VO script/WAV stale: "
-                    + ", ".join(stale[:4])
-                )
-        except Exception:
-            pass
+            render_reason = None
+        if render_reason:
+            return render_reason
         hollow_vo = _vo_seed_hollow_seats_incompleteness(ctx)
         if hollow_vo:
             return hollow_vo
@@ -2554,6 +2615,7 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "missing_framing sealed_ratio_hard": "missing_framing",
     "missing_framing sealed_ratio": "missing_framing",
     "missing_framing sealed_vs_risk": "missing_framing",
+    "missing_framing coverage_thin": "missing_framing",
     "missing_framing stale_segment_ids": "missing_framing",
     "missing_framing needs.rerun_stage": "missing_framing",
     "missing_framing empty shard": "missing_framing",
@@ -2591,6 +2653,7 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "layup_unsanitary": "nugget_layup_compose",
     "layup_compose_qc_pending": "nugget_layup_compose",
     "layup_compose_shards_pending": "nugget_layup_compose",
+    "layup_coverage_below_floor": "nugget_layup_compose",
     "fragment_depth": "selection_order_sanitize",
     "same_family_over_budget": "selection_order_sanitize",
     "selection_needs_sanitize": "selection_order_sanitize",
@@ -2604,6 +2667,8 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "hard_keep_same_family_over_budget": "full_master_ranking",
     "hard_keep_span_collision": "full_master_ranking",
     "air_order_integrity_critical": "full_master_ranking",
+    "never_exclude_primary_impact": "full_master_ranking",
+    "framing:primary impact": "full_master_ranking",
     "sdp_unsanitary": "sound_design_plan",
     "vo_unsanitary": "vo_synthesize",
     "no_sound_design_plan": "sound_design_plan",
@@ -2963,31 +3028,37 @@ def pass2_gap_heal_resume_stage(
 
 
 def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
-    """HG-5: plan on disk → nugget_layup_compose; else analysis-era compose.
+    """S5: pin framing unless layup claimed air for a still-missing high-gap line.
 
-    Stamp alone (``nugget_layup_authority`` without ``nugget_layup_plan``) is an
-    orphan flap — layup cannot publish, and compose used to no-op. Pin compose
-    so the orphan stamp can be cleared and high gaps reframed.
+    Plan-on-disk alone is not ownership — that used to thrash layup for upstream
+    framing debt. Orphan ``nugget_layup_authority`` without a plan still pins compose.
     """
     if ctx is None:
         return "gap_framing_compose"
     try:
         from interview_mux.nugget_layup import (
             PLAN_REL,
+            layup_claimed_air_missing_high_gap,
             nugget_layup_enabled,
         )
 
         if not nugget_layup_enabled():
             return "gap_framing_compose"
         if ctx.artifact_exists(PLAN_REL):
-            return "nugget_layup_compose"
+            try:
+                if layup_claimed_air_missing_high_gap(ctx):
+                    return "nugget_layup_compose"
+            except Exception:
+                # Prefer framing when the claim probe fails — avoid layup thrash.
+                return "gap_framing_compose"
+            return "gap_framing_compose"
     except Exception as exc:
-        # Prefer layup only with on-disk plan; stamp-alone is not ownership.
         try:
             from interview_mux.nugget_layup import PLAN_REL as _PLAN_REL
 
             if ctx.artifact_exists(_PLAN_REL):
-                return "nugget_layup_compose"
+                # Plan exists but helpers failed — still prefer framing (S5).
+                return "gap_framing_compose"
         except Exception:
             pass
         raise RuntimeError(
@@ -3083,13 +3154,50 @@ _PREMATURE_NAMED_CLASSES: frozenset[str] = frozenset(
 )
 
 
+def _bare_premature_complete_pin(ctx: RunContext | None) -> str:
+    """S5: pin bare premature_complete to transitions only when transitions hollow.
+
+    When ``master/transitions.json`` is already complete, walk earliest incomplete
+    Flow-1 spine / delivery seat so delivery stalls do not sticky-count on
+    transitions (exec_13165 thrash).
+    """
+    if ctx is not None:
+        try:
+            from interview_mux.artifact_completeness import artifact_status
+
+            if artifact_status("master/transitions.json", ctx) == "complete":
+                try:
+                    from interview_mux.progression_spine import (
+                        first_incomplete_flow1_spine_stage,
+                    )
+
+                    early = first_incomplete_flow1_spine_stage(ctx)
+                    if early and early != "transitions":
+                        return early
+                except Exception:
+                    pass
+                try:
+                    from interview_mux.mix_junction_seat import next_delivery_seat
+
+                    seat = str(next_delivery_seat(ctx) or "").strip()
+                    if seat and seat != "transitions":
+                        return seat
+                except Exception:
+                    pass
+                return "edl"
+        except Exception:
+            pass
+    return "transitions"
+
+
 def premature_class_pin(
     fail_key: str, ctx: RunContext | None = None
 ) -> str | None:
     """Parse ``premature_complete:<class>`` → producer pin via canonical resume.
 
     Returns None when the token is not a premature_complete key (caller falls
-    through). Bare ``premature_complete`` alone → transitions. Named classes
+    through). Bare ``premature_complete`` alone → transitions when hollow;
+    otherwise earliest incomplete Flow-1 / delivery seat (S5). Named classes
     never substring-steal to transitions.
     """
     key = str(fail_key or "").strip().lower()
@@ -3155,7 +3263,7 @@ def premature_class_pin(
         # B3-1: unknown premature_complete:<class> is not a fake stage id.
         return "transitions"
     if key == "premature_complete" or key.endswith(":premature_complete"):
-        return "transitions"
+        return _bare_premature_complete_pin(ctx)
     # Key contains premature_complete but no named class — still transitions
     # only when no other named class substring is present.
     for named in _PREMATURE_NAMED_CLASSES:
@@ -3163,7 +3271,7 @@ def premature_class_pin(
             break
     else:
         if "premature_complete:stage:" not in key:
-            return "transitions"
+            return _bare_premature_complete_pin(ctx)
     return None
 
 
@@ -3270,6 +3378,9 @@ def producer_pin_for_token(
         or "hard_keep_same_family_over_budget" in key
         or "hard_keep_span_collision" in key
         or "air_order_integrity_critical" in key
+        or "never_exclude_primary_impact" in key
+        or "framing:primary impact" in key
+        or "primary impact segment" in key
     ):
         return "full_master_ranking"
     if "gap_unsanitary" in key:

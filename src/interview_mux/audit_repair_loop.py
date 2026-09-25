@@ -1,8 +1,9 @@
 """Audit → narrative alignment loop for story-unsafe masters.
 
-Selection is the air-order authority. When an EDL narrative audit fails because
-early-act chapters lost all selected segments, align ``narrative_plan`` down to
-the selection — never expand the selection back toward leftovers.
+Selection is the air-order authority. When an EDL narrative audit fails,
+align narrative metadata down to selection and demote disk-stale blockers —
+never expand selection, never remutate/clear markers (ENA S7), never bind
+coverage (ENA S8 — topic_coverage owns).
 """
 
 from __future__ import annotations
@@ -19,45 +20,17 @@ def _audit_fail(doc: dict[str, Any] | None) -> bool:
 
 
 def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any]) -> dict[str, Any]:
-    """If audit fails, align narrative_plan to selection once (no leftover reinclusion)."""
+    """Fail → one metadata align + demote. Refuse if still fail (no remutate)."""
     if not _audit_fail(artifacts):
         return artifacts
 
-    from interview_mux.artifact_repairs import repair_edl_audit
-
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    if isinstance(meta, dict) and meta.get("edl_narrative_audit_repair_done"):
-        # Still demote stale LLM complaints vs current disk (e.g. duplicate
-        # VO+transition after framing dedupe) — do not re-commit a hollow fail.
-        demoted, _notes = repair_edl_audit(ctx, dict(artifacts))
-        ctx.log(
-            "edl_narrative_audit still fail after prior repair — leaving for operator"
-            if _audit_fail(demoted)
-            else "edl_narrative_audit prior-repair path demoted stale blocking vs disk",
-            level="warning" if _audit_fail(demoted) else "info",
-            stage="edl_narrative_audit",
-        )
-        return demoted
-
-    if not ctx.artifact_exists("master/selection.json"):
-        demoted, _ = repair_edl_audit(ctx, dict(artifacts))
-        return demoted
-
     from interview_mux.artifact_repairs import (
         align_narrative_plan_to_selection,
-        repair_coverage_audit,
-        repair_master_selection,
+        repair_edl_audit,
     )
-    from interview_mux.artifact_writes import write_validated_artifact
 
-    sel = ctx.read_json("master/selection.json")
     notes: list[dict[str, Any]] = []
-    if isinstance(sel, dict):
-        repaired_sel, sel_notes = repair_master_selection(ctx, sel)
-        notes.extend(sel_notes)
-        # Under VO hard freeze, only junction_snip_qa may cut selection.
-        # Narrative repair aligns plan *down* to selection — never rewrite
-        # selection here (exec_13157 AuthorityDenied under hard_freeze).
+    if ctx.artifact_exists("master/selection.json"):
         skip_sel_write = False
         try:
             from interview_mux.seat_authority import hard_freeze_active
@@ -65,6 +38,7 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
             skip_sel_write = bool(hard_freeze_active(ctx))
         except Exception:
             skip_sel_write = False
+
         if skip_sel_write:
             notes.append(
                 {
@@ -77,34 +51,18 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
                 level="info",
                 stage="edl_narrative_audit",
             )
+            notes.extend(align_narrative_plan_to_selection(ctx))
         else:
-            write_validated_artifact(
-                ctx,
-                "master/selection.json",
-                repaired_sel,
-                merge_from_disk=False,
-                stage_key="selection_order_sanitize",
-            )
-    notes.extend(align_narrative_plan_to_selection(ctx))
-    if ctx.artifact_exists("master/coverage_audit.json"):
-        cov = ctx.read_json("master/coverage_audit.json")
-        if isinstance(cov, dict):
-            repaired_cov, cov_notes = repair_coverage_audit(ctx, cov)
-            notes.extend(cov_notes)
-            write_validated_artifact(
-                ctx,
-                "master/coverage_audit.json",
-                repaired_cov,
-                merge_from_disk=False,
-                stage_key="topic_coverage_audit",
+            from interview_mux.edl_narrative_remutate import (
+                apply_edl_narrative_metadata_align,
             )
 
-    def _mark(m: dict) -> None:
-        m["edl_narrative_audit_repair_done"] = True
-        # Do not force ranking redo — expanding selection undoes creative packs.
-        m.pop("edl_narrative_audit_needs_rerank", None)
-
-    ctx.mutate_run_meta(_mark)
+            meta_out = apply_edl_narrative_metadata_align(ctx)
+            for item in meta_out.get("notes") or []:
+                if isinstance(item, dict):
+                    notes.append(item)
+                else:
+                    notes.append({"action": str(item)})
 
     out = dict(artifacts)
     repaired_audit, audit_notes = repair_edl_audit(ctx, out)
@@ -112,34 +70,22 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
     out = repaired_audit
     out["repair_attempted"] = True
     out["repair_notes"] = notes[:12]
-    ctx.log(
-        f"edl_narrative_audit fail → aligned narrative to selection "
-        f"({len(notes)} notes); demoted restore-excluded false fails",
-        level="warning",
-        stage="edl_narrative_audit",
-        detail=notes[:8],
-    )
+    # ENA S7: never remutate / clear markers / repair_done re-entry.
+    out.pop("remutate", None)
+    out.pop("remutate_applied", None)
     if _audit_fail(out):
-        from interview_mux.edl_narrative_remutate import (
-            apply_edl_narrative_remutate,
-            plan_edl_narrative_remutate,
+        ctx.log(
+            "edl_narrative_audit fail after demote — leaving for operator "
+            f"({len(notes)} notes; no remutate)",
+            level="error",
+            stage="edl_narrative_audit",
+            detail=notes[:8],
         )
-
-        remutate = plan_edl_narrative_remutate(ctx, out)
-        out["remutate"] = remutate
-        if not remutate.get("exhausted"):
-            applied = apply_edl_narrative_remutate(ctx, remutate)
-            out["remutate_applied"] = applied
-            ctx.log(
-                "edl_narrative_audit still fail → typed remutate planned "
-                f"(actions={remutate.get('actions')}, from={remutate.get('from_stage')})",
-                level="warning",
-                stage="edl_narrative_audit",
-            )
-        else:
-            ctx.log(
-                "edl_narrative_audit remutate exhausted — leaving fail for operator",
-                level="error",
-                stage="edl_narrative_audit",
-            )
+    else:
+        ctx.log(
+            f"edl_narrative_audit fail → demoted/aligned ({len(notes)} notes)",
+            level="warning",
+            stage="edl_narrative_audit",
+            detail=notes[:8],
+        )
     return out

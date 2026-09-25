@@ -13,7 +13,7 @@ os.environ["MUX_FORENSICS"] = "0"
 
 import pytest
 
-from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
+from interview_mux.artifact_repairs import repair_gap_report
 from interview_mux.delivery_guardrails import (
     promote_complete_orphan_stage_done,
     seed_stage_complete,
@@ -101,16 +101,13 @@ def test_seed_missing_high_gap_clears_orphan_authority_or_unpaid(
     _enable_layup(monkeypatch)
     assert not ctx.artifact_exists(PLAN_REL)
     out: dict = {"nugget_layup_authority": True, "interviewer_lines": []}
-    applied: list[dict] = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids=set(), applied=applied
-    )
-    assert out.get("nugget_layup_authority") is False
+    patched, applied = repair_gap_report(ctx, out)
+    assert patched.get("nugget_layup_authority") is False
     assert any(
         a.get("action") == "clear_orphan_nugget_layup_authority" for a in applied
     )
     # Persist cleared authority → stamp-alone unpaid must clear for the family.
-    ctx.write_json("understanding/gap_report.json", out)
+    ctx.write_json("understanding/gap_report.json", patched)
     assert layup_authority_without_plan(ctx) is False
     assert unpaid_land_reason(ctx, "gap_framing_compose") is None
 

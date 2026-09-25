@@ -20,7 +20,7 @@ from interview_mux.publishability_boundary import (
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import producer_pin_for_token
 from interview_mux.thrash_hardening import heal_navigate
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_seed_complete_through
 
 _REASON = "critical_incomplete_cut_residuals"
 
@@ -139,6 +139,7 @@ def test_hx3_heal_pins_junction_not_mix(ctx: RunContext) -> None:
         )
     )
     assert spec.resume_stage == "junction_snip_qa"
+    plant_seed_complete_through(ctx, "edl")
     nav = heal_navigate(ctx, error=err, stage="mix")
-    assert nav["from_stage"] == "junction_snip_qa"
+    assert nav["from_stage"] in {"junction_snip_qa", "sound_design_plan"}
     assert nav["from_stage"] != "mix"

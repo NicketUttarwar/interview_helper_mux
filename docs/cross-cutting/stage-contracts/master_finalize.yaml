@@ -18,8 +18,6 @@ outputs:
   staging: true
 - path: mastering/listen_delight_audit.json
   staging: true
-- path: master/seam_autopsy.json
-  staging: true
 inputs:
   hard:
   - path: master/assembly.wav
@@ -32,6 +30,7 @@ inputs:
     producer: edl
   soft:
   - path: master/seam_autopsy.json
+    producer: junction_snip_qa
   - path: master/render_ledger.json
     producer: junction_snip_qa
   - path: master/transitions.json

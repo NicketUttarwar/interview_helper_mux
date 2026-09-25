@@ -47,6 +47,7 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/gap_report.json
     producer: gap_framing_compose
   - path: understanding/ideal_cuts_materialized.json
@@ -60,7 +61,7 @@ inputs:
   - path: understanding/source_topology.json
     producer: source_topology_build
   - path: understanding/speaker_delivery_plan.json
-    producer: full_master_ranking
+    producer: selection_order_sanitize
   - path: understanding/speakers.json
     producer: speaker_roles
   - path: understanding/talking_points.json

@@ -182,8 +182,8 @@ def may_mark_after_flush(
 ) -> tuple[bool, str]:
     """V3: mark_done only when post-flush does not signal acceptance failure.
 
-    Fail-open for incomplete ``vo_synthesize`` is handled by
-    ``vo_synthesize_should_defer_done`` (skip mark, continue batch). Do not also
+    Fail-open for incomplete ``vo_synthesize`` is handled by raising after flush
+    (S5 honest pin) via ``vo_synthesize_should_defer_done``. Do not also
     gate on ``seed_stage_complete`` here — that requires ``is_done`` and
     chicken-eggs first-time mark into ``flush_refuse:vo_fail_open_not_success``.
     """

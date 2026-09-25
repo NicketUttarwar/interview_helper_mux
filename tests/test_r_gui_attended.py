@@ -44,10 +44,30 @@ def test_r_gui_edl_denied(ctx) -> None:
 
 
 def test_r_gui_g0_g1_catalog_write_permitted(ctx) -> None:
+    mutations = {
+        "transcript/review_queue.json": "g0_edit",
+        "transcript/full.json": "g0_edit",
+        "understanding/gap_report.json": "g_framing",
+        "understanding/gap_fill_skip.json": "g1_consent",
+    }
     for path in _G0_G1_GUI_PATHS:
-        ok, reason = write_permitted(ctx, path, None, role="gui", verb="persist")
+        ok, reason = write_permitted(
+            ctx,
+            path,
+            None,
+            role="gui",
+            verb="persist",
+            mutation_class=mutations[path],
+        )
         assert ok, f"{path}: {reason}"
         assert reason != "anonymous_legacy"
+        deny_ok, deny_reason = write_permitted(
+            ctx, path, None, role="gui", verb="persist"
+        )
+        if deny_ok:
+            assert deny_reason in {"operational", "allow", "ops"}
+        else:
+            assert "pin_only" in deny_reason or "not_allow" in deny_reason
 
 
 def test_r_gui_edl_write_permitted_denied(ctx) -> None:

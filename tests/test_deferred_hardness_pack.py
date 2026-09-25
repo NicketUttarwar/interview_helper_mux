@@ -20,6 +20,10 @@ def test_creative_density_preflight_flags_thin_coverage(tmp_path: Path, monkeypa
         "interview_mux.creative_delivery.min_density_cfg",
         lambda *_a, **_k: {"min_bed_coverage_ratio": 0.9},
     )
+    monkeypatch.setattr(
+        "interview_mux.floor_progress.soundscape_density_aspirational",
+        lambda *_a, **_k: False,
+    )
     fs_write_json(
         ctx.path("master/selection.json"),
         {
@@ -99,7 +103,8 @@ def test_listen_delight_floors_not_rubric_when_authoritative(monkeypatch) -> Non
         "interview_mux.listen_delight.listen_delight_cfg",
         lambda: {"mode": "advisory"},
     )
-    assert is_rubric_pmq_check("listen_delight_floors") is True
+    # Floors are structural/authoritative, never a rubric PMQ check.
+    assert is_rubric_pmq_check("listen_delight_floors") is False
 
 
 def test_junction_gen_cap_is_three() -> None:

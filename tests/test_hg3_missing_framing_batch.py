@@ -568,7 +568,7 @@ def test_hg3_empty_shard_envelope_detection() -> None:
 
 
 def test_hg3_sealed_ratio_incompleteness_without_rescue(ctx: RunContext) -> None:
-    """ASSETS shape: ~40% sealed without rescue_done refuses done."""
+    """High sealed_ratio with coverage budget remaining refuses done."""
     from interview_mux.stage_completion import (
         _missing_framing_sealed_ratio_incompleteness,
     )
@@ -587,13 +587,14 @@ def test_hg3_sealed_ratio_incompleteness_without_rescue(ctx: RunContext) -> None
     evals = [_llm_row(sid) for sid in ids[:3]] + [_sealed_row(sid) for sid in ids[3:]]
     ctx.write_json(
         _REL,
-        {"evaluations": evals, "_meta": {"coverage_passes": 2}},
+        {"evaluations": evals, "_meta": {"coverage_passes": 1}},
         skip_handoff=True,
     )
     reason = _missing_framing_sealed_ratio_incompleteness(ctx)
     assert reason is not None
-    assert "sealed_ratio" in reason
-    assert "sealed_ratio" in (stage_artifact_incompleteness(ctx, _STAGE) or "")
+    assert "coverage_thin" in reason
+    assert "sealed_ratio_hard" not in reason
+    assert "coverage_thin" in (stage_artifact_incompleteness(ctx, _STAGE) or "")
 
 
 def test_hg3_sealed_ratio_rescue_done_allows_complete(ctx: RunContext) -> None:
@@ -612,19 +613,43 @@ def test_hg3_sealed_ratio_rescue_done_allows_complete(ctx: RunContext) -> None:
     )
     ids = [f"seg_{i:03d}" for i in range(1, 6)]
     ctx.write_json("segments/manifest.json", _manifest_segments(ids), skip_handoff=True)
-    # 1/5 sealed = 20% — under hard_max 0.35 after rescue → complete
+    # 1/5 sealed = 20% — under hard_max 0.35 after coverage CAP → complete
     evals = [_llm_row(sid) for sid in ids[:4]] + [_sealed_row(sid) for sid in ids[4:]]
     ctx.write_json(
         _REL,
         {
             "evaluations": evals,
-            "_meta": {"coverage_passes": 2, "sealed_ratio_rescue_done": True},
+            "_meta": {"coverage_passes": 2},
         },
         skip_handoff=True,
     )
     assert _missing_framing_sealed_ratio_incompleteness(ctx) is None
     reason = stage_artifact_incompleteness(ctx, _STAGE)
     assert reason is None or "sealed_ratio" not in reason
+
+
+def test_hg3_pick_rescue_ids_prefers_framing_risk(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.stages.gaps import _pick_sealed_ratio_rescue_ids
+
+    monkeypatch.setattr(
+        "interview_mux.stages.gaps.resolve_framing_risk_segment_ids",
+        lambda _c, **_k: {
+            "ids": {"seg_003"},
+            "ordered_ids": ["seg_003"],
+            "sources": {"seg_003": "specialist"},
+            "specialist_count": 1,
+            "proxy_count": 0,
+            "mode": "specialist",
+        },
+    )
+    picked = _pick_sealed_ratio_rescue_ids(
+        ctx, ["seg_001", "seg_002", "seg_003"], max_ids=2
+    )
+    assert picked[0] == "seg_003"
+    assert set(picked) <= {"seg_001", "seg_002", "seg_003"}
+    assert len(picked) == 2
 
 
 def test_hg3_sealed_ratio_hard_after_rescue(ctx: RunContext) -> None:
@@ -656,6 +681,118 @@ def test_hg3_sealed_ratio_hard_after_rescue(ctx: RunContext) -> None:
     reason = _missing_framing_sealed_ratio_incompleteness(ctx)
     assert reason is not None
     assert "sealed_ratio_hard" in reason
+
+
+def test_s8_admit_seals_legacy_batch_fill(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S8: run_missing_framing promotes unscored fills to CAP seals on admit."""
+    from interview_mux.stages.gaps import run_missing_framing
+
+    monkeypatch.setattr(
+        "interview_mux.boundary_enrich.restamp_run_span_speakers",
+        lambda _c: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stages.gaps.maybe_run_pre_stage_specialists",
+        lambda *_a, **_k: None,
+    )
+
+    def _boom(*_a, **_k):
+        raise AssertionError("LLM must not run when only legacy fills remain")
+
+    monkeypatch.setattr("interview_mux.llm_simple.run_llm_stage_simple", _boom)
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "homunculus_version": "0.1.0",
+            "gap_framing_enabled": False,
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "S8", "topics": [{"name": "t", "summary": "s", "segment_ids": ["seg_001"]}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest_segments(["seg_001"]),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        _REL,
+        {
+            "evaluations": [_filled_row("seg_001")],
+            "_meta": {"coverage_passes": 1},
+        },
+        skip_handoff=True,
+    )
+    run_missing_framing(ctx)
+    assert ctx.is_done(_STAGE)
+    row = (ctx.read_json(_REL).get("evaluations") or [])[0]
+    assert (row.get("_meta") or {}).get("filled_by") == "coverage_exhausted_accept"
+    assert "batch_fill" not in str(stage_artifact_incompleteness(ctx, _STAGE) or "")
+
+
+def test_s6_does_not_reopen_keep_scored_for_specialist_risk(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S6: low scored keep on specialist risk id stays keep — no leftover re-volley."""
+    from interview_mux.stages.gaps import run_missing_framing
+
+    monkeypatch.setattr(
+        "interview_mux.boundary_enrich.restamp_run_span_speakers",
+        lambda _c: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stages.gaps.maybe_run_pre_stage_specialists",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stages.gaps.resolve_framing_risk_segment_ids",
+        lambda _ctx, **_k: {
+            "ids": {"seg_001"},
+            "ordered_ids": ["seg_001"],
+            "sources": {"seg_001": "specialist"},
+            "specialist_count": 1,
+            "proxy_count": 0,
+            "mode": "specialist",
+        },
+    )
+
+    def _boom(*_a, **_k):
+        raise AssertionError("LLM must not re-open keep-scored rows (S6)")
+
+    monkeypatch.setattr("interview_mux.llm_simple.run_llm_stage_simple", _boom)
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "gap_framing_enabled": False},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "S6", "topics": [{"name": "t", "summary": "s", "segment_ids": ["seg_001"]}]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest_segments(["seg_001"]),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        _REL,
+        {
+            "evaluations": [_llm_row("seg_001")],
+            "_meta": {"coverage_passes": 1},
+        },
+        skip_handoff=True,
+    )
+    run_missing_framing(ctx)
+    assert ctx.is_done(_STAGE)
+    row = (ctx.read_json(_REL).get("evaluations") or [])[0]
+    assert (row.get("_meta") or {}).get("risk_revisit_done") is not True
+    assert (row.get("_meta") or {}).get("filled_by") in (None, "")
 
 
 def test_hg3_coverage_report_writer(ctx: RunContext) -> None:
@@ -691,7 +828,7 @@ def test_hg3_coverage_report_writer(ctx: RunContext) -> None:
     assert disk["producer_stage"] == "missing_framing"
 
 
-def test_hg3_skip_report_stamps_missing_framing_producer(
+def test_hg3_skip_report_stamps_compose_producer(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from interview_mux.stages.gaps import ensure_gap_fill_skipped
@@ -721,7 +858,9 @@ def test_hg3_skip_report_stamps_missing_framing_producer(
     report = ctx.read_json("understanding/gap_report.json")
     meta = report.get("_meta") or {}
     assert meta.get("producer") == "gap_fill_skip"
-    assert meta.get("producer_stage") == "missing_framing"
+    assert meta.get("producer_stage") == "gap_framing_compose"
+    evals = ctx.read_json(_REL)
+    assert (evals.get("_meta") or {}).get("producer_stage") == "missing_framing"
 
 
 def test_hg3_proactive_empty_shard_raises(
@@ -871,13 +1010,14 @@ def test_hg3_needs_rerun_blocks_cap_seal(
         _manifest_segments(["seg_001", "seg_002"]),
         skip_handoff=True,
     )
-    # One scored keep + one leftover at CAP-1 → coverage pass returns need → refuse seal
+    # One scored keep + one *missing* leftover at CAP-1 → coverage pass returns need → refuse seal.
+    # (Do not use batch_fill leftover — S8 seals fills on admit before coverage.)
     from interview_mux.stages.gaps import MISSING_FRAMING_COVERAGE_CAP
 
     ctx.write_json(
         _REL,
         {
-            "evaluations": [_llm_row("seg_001"), _filled_row("seg_002")],
+            "evaluations": [_llm_row("seg_001")],
             "_meta": {"coverage_passes": MISSING_FRAMING_COVERAGE_CAP - 1},
         },
         skip_handoff=True,
@@ -932,7 +1072,7 @@ def test_hg3_needs_rerun_soft_when_shard_scores(
     ctx.write_json(
         _REL,
         {
-            "evaluations": [_llm_row("seg_001"), _filled_row("seg_002")],
+            "evaluations": [_llm_row("seg_001")],
             "_meta": {"coverage_passes": MISSING_FRAMING_COVERAGE_CAP - 1},
         },
         skip_handoff=True,
@@ -1008,12 +1148,14 @@ def test_hg3_sealed_vs_risk_incompleteness(ctx: RunContext, monkeypatch: pytest.
     evals = [_llm_row(sid) for sid in ids[:3]] + [_sealed_row(sid) for sid in ids[3:]]
     ctx.write_json(
         _REL,
-        {"evaluations": evals, "_meta": {"coverage_passes": 2}},
+        {"evaluations": evals, "_meta": {"coverage_passes": 1}},
         skip_handoff=True,
     )
     reason = _missing_framing_sealed_ratio_incompleteness(ctx)
     assert reason is not None
+    assert "coverage_thin" in reason
     assert "sealed_vs_risk" in reason
+    assert "sealed_ratio_hard" not in reason
 
 
 def test_i5_sealed_vs_risk_prefers_scored_duplicate(
@@ -1257,10 +1399,10 @@ def test_hg3_framing_risk_unions_specialist_and_proxy(
     assert risk["sources"]["seg_010"].startswith("proxy_")
 
 
-def test_hitch_confirm_pickup_writes_as_hitch_owner(
+def test_hitch_does_not_auto_confirm_pickup_s5(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Hitch auto-confirm must own the write — not spoof missing_framing."""
+    """S5: hitch must not write flow_adaptation / auto-confirm pickup."""
     from interview_mux.artifact_ownership import assert_write
     from interview_mux.chapter_close_hitch import _ensure_inner_walk_gates
     from interview_mux.source_topology import pickup_speaker_confirmed
@@ -1291,13 +1433,12 @@ def test_hitch_confirm_pickup_writes_as_hitch_owner(
         },
         skip_handoff=True,
     )
-    # Ownership constitution: hitch is an ALLOW co-owner.
+    # Ownership ALLOW remains (legacy co-owner row) but hitch must not exercise it.
     assert_write(ctx, "understanding/flow_adaptation.json", "chapter_close_hitch")
     assert not pickup_speaker_confirmed(ctx)
     _ensure_inner_walk_gates(ctx)
-    assert pickup_speaker_confirmed(ctx)
+    assert not pickup_speaker_confirmed(ctx)
     adapt = ctx.read_json("understanding/flow_adaptation.json")
     meta = adapt.get("_meta") or {}
-    assert meta.get("writer") == "chapter_close_hitch"
-    assert meta.get("hitch_auto_confirm") is True
-    assert meta.get("confirm_reason") == "inner_walk_gate_auto_confirm"
+    assert meta.get("hitch_auto_confirm") is not True
+    assert meta.get("writer") != "chapter_close_hitch"

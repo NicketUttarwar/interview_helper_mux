@@ -12,7 +12,21 @@ import interview_mux.refinement_catalog as refinement_catalog
 from interview_mux.config import merged_config
 from interview_mux.refinement_gate import decide_pass
 from interview_mux.run_context import RunContext
-from run_fixtures import isolated_run_ctx, patch_executions_root, mark_done_raw
+from interview_mux.refinement_gate import compute_input_hash
+from run_fixtures import isolated_run_ctx, patch_executions_root, mark_done_raw, write_fixture_json
+
+
+def _plant_snapshot(ctx: RunContext, pass_id: str, rel_paths: list[str]) -> str:
+    digest = compute_input_hash(ctx, rel_paths)
+    write_fixture_json(
+        ctx,
+        f"understanding/refinement_snapshots/{pass_id}/meta.json",
+        {
+            "paths": [{"rel": rel, "present": ctx.artifact_exists(rel)} for rel in rel_paths],
+            "input_hash": digest,
+        },
+    )
+    return digest
 
 
 @pytest.fixture
@@ -193,8 +207,6 @@ def test_input_hash_skips_when_no_new_evidence_since_prior_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pass already done with an unchanged input snapshot must skip as no_new_evidence."""
-    from interview_mux.refinement_gate import freeze_inputs
-
     _patch_refinement_cfg(
         monkeypatch,
         {
@@ -206,8 +218,13 @@ def test_input_hash_skips_when_no_new_evidence_since_prior_snapshot(
     req = ["master/narrative_plan.json", "master/selection.json"]
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
-    freeze_inputs(ctx, "narrative_arc_refine", req)
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        stage_key="gap_framing_compose",
+    )
+    _plant_snapshot(ctx, "narrative_arc_refine", req)
     mark_done_raw(ctx, "narrative_arc_refine")
 
     decision = decide_pass(ctx, "narrative_arc_refine")
@@ -222,8 +239,6 @@ def test_input_hash_activates_again_when_inputs_change_after_prior_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Changed required artifacts since the last snapshot must re-activate the pass."""
-    from interview_mux.refinement_gate import freeze_inputs
-
     _patch_refinement_cfg(
         monkeypatch,
         {
@@ -235,8 +250,13 @@ def test_input_hash_activates_again_when_inputs_change_after_prior_snapshot(
     req = ["master/narrative_plan.json", "master/selection.json"]
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
-    freeze_inputs(ctx, "narrative_arc_refine", req)
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        stage_key="gap_framing_compose",
+    )
+    _plant_snapshot(ctx, "narrative_arc_refine", req)
     mark_done_raw(ctx, "narrative_arc_refine")
 
     # New evidence: selection changed since the frozen snapshot.

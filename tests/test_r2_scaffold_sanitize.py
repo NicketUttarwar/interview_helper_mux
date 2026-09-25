@@ -1,4 +1,4 @@
-"""R2: gap_report scaffolding uses live hard codes; required lines rewrite-not-omit."""
+"""R2: gap_report scaffolding uses live hard codes; required lines refuse-not-rewrite (S2)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import pytest
 from interview_mux.artifact_sanitize.gap_report import (
     _scaffolding_codes,
     _strip_scaffolding,
+    sanitize_gap_report,
 )
 from interview_mux.spoken_meta_lint import (
     is_hard_structure_violation,
@@ -31,6 +32,7 @@ def test_strip_scaffolding_catches_spoken_show_scaffold() -> None:
 
 
 def test_required_orientation_not_omitted_on_scaffold() -> None:
+    """S2: required scaffolding is left untouched (no body rewrite / no omit)."""
     row = {
         "line_id": "vo_preface_episode_orientation",
         "required": True,
@@ -39,11 +41,40 @@ def test_required_orientation_not_omitted_on_scaffold() -> None:
         "text": "Welcome back — in today's episode we unpack the trial design.",
     }
     fixed, changed = _strip_scaffolding(row)
-    assert changed is True
+    assert changed is False
+    assert fixed is row or fixed.get("text") == row["text"]
     assert not fixed.get("omit")
     assert not fixed.get("skipped_optional")
     # Still active → sanitize refuse path can see scaffolding_active.
     assert _scaffolding_codes(str(fixed.get("text") or ""))
+
+
+def test_required_scaffold_sanitize_refuses_without_rewrite(ctx) -> None:
+    """S2: sanitize refuses scaffolding_active; does not rewrite text."""
+    text = "Welcome back — in today's episode we unpack the trial design."
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "required": True,
+                "episode_orientation": True,
+                "line_category": "episode_preface",
+                "text": text,
+                "targets_segment_id": "seg_001",
+                "placement": "before",
+                "delivery": "synthesize",
+                "gap_type": "orientation",
+            }
+        ],
+        "gaps": [],
+    }
+    result = sanitize_gap_report(ctx, gap)
+    assert not result.ok
+    assert any("scaffolding_active" in e for e in result.errors)
+    assert not any(a.get("action") == "rewrite_scaffolding" for a in result.actions)
+    kept = (result.doc.get("interviewer_lines") or [None])[0]
+    assert isinstance(kept, dict)
+    assert kept.get("text") == text
 
 
 def test_optional_line_may_omit_on_scaffold() -> None:

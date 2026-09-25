@@ -409,9 +409,10 @@ def test_i26_junction_does_not_rewrite_sealed_sdp(
     assert doc["flow_plans"]["podcast"]["cues"][0]["crossfade_ms"] == 0, doc
 
 
-def test_i26_junction_patches_sdp_when_permitted(
+def test_i26_junction_never_patches_sdp_even_when_permitted(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S4: placement_adjustments only — SDP crossfade patch is a permanent no-op."""
     from interview_mux.junction_snip_qa import _patch_sdp_cue_crossfade
 
     ctx.write_json(
@@ -425,4 +426,4 @@ def test_i26_junction_patches_sdp_when_permitted(
 
     _patch_sdp_cue_crossfade(ctx, "theme_a", 180)
     doc = ctx.read_json("understanding/sound_design_plan.json")
-    assert doc["flow_plans"]["podcast"]["cues"][0]["crossfade_ms"] == 180, doc
+    assert doc["flow_plans"]["podcast"]["cues"][0]["crossfade_ms"] == 0, doc

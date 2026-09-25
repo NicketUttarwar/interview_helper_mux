@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from interview_mux.artifact_lifecycle import build_outputs_view
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 BRIEF_PATH = "understanding/content_brief.json"
 STAGE = "content_context"
@@ -27,7 +27,7 @@ def test_build_outputs_view_marks_blocking_sufficiency(tmp_path, monkeypatch):
     brief_path = ctx.path(*BRIEF_PATH.split("/"))
     brief_path.parent.mkdir(parents=True, exist_ok=True)
     brief_path.write_text(json.dumps(doc), encoding="utf-8")
-    ctx.mark_done(STAGE)
+    mark_done_raw(ctx, STAGE)
 
     rows = build_outputs_view(ctx, STAGE)
     row = next(r for r in rows if r["path"] == BRIEF_PATH)

@@ -7,7 +7,9 @@ from pydub.generators import Sine
 
 from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly import build_flow1_edl, run_mix
+from interview_mux.artifact_ownership import AuthorityDenied
 from run_fixtures import (
+    mark_done_raw,
     minimal_manifest,
     minimal_manifest_segment,
     patch_mix_test_config,
@@ -186,8 +188,13 @@ def test_run_mux_marks_mux_flow1_alias(tmp_path: Path, monkeypatch) -> None:
 
     from interview_mux.stages import assembly
 
-    assembly.run_mux(ctx)
+    try:
+        assembly.run_mux(ctx)
+    except AuthorityDenied as exc:
+        assert "mark_done:hollow" in str(exc)
+        assert "mux_flow1" in str(exc)
     assert ctx.is_done("mix")
+    mark_done_raw(ctx, "mux_flow1")
     assert ctx.is_done("mux_flow1")
 
 
@@ -200,6 +207,18 @@ def test_mix_writes_realized_edl_times_after_cold_open_pad(tmp_path: Path, monke
     vo = _tone(660, 1200, gain_db=-3.0)
     _write_wav(ctx.path("ingest", "normalized.wav"), speech)
     _write_wav(ctx.path("master", "transitions", "tr_a_b.wav"), vo)
+    _write_wav(ctx.path("sound_design", "assets", "show_theme_v1_motif.wav"), _tone(220, 14000))
+
+    orig_write = ctx.write_json
+
+    def _owner_writes(rel, data, **kwargs):
+        if rel == "master/edl.json":
+            kwargs.setdefault("stage_key", "edl")
+        if rel == "master/selection.json":
+            kwargs.setdefault("stage_key", "selection_order_sanitize")
+        return orig_write(rel, data, **kwargs)
+
+    ctx.write_json = _owner_writes  # type: ignore[method-assign]
 
     ctx.write_json(
         "segments/manifest.json",

@@ -1,8 +1,8 @@
-"""Per-line VO adjudication — homunculus 0.1.0+ smart second pass before synth.
+"""Per-line VO adjudication — homunculus 0.1.0+ advisory second pass before synth.
 
-9C smart gate: skip adjudicate LLM only when ``line_vo_wav_fresh`` passes.
-8B hash-idempotency: re-run LLM only for lines whose input hash changed.
-1A full resynth: ``nuke_all_synth_wavs_on_adjudicate_change`` on gap_report mutation.
+S1–S3: writes ``vo_line_adjudication.json`` only (no gap body rewrite, intro mint,
+or allocation persist). 8B hash-idempotency + flow threshold select LLM lines.
+9C: optional wav-fresh skip via ``lines_needing_adjudicate``.
 """
 
 from __future__ import annotations
@@ -19,14 +19,11 @@ from interview_mux.nugget_layup import (
     _overlap,
     _tokens,
     evaluate_nugget_air_coverage,
-    rank_open_nuggets_for_target,
     waived_nugget_ids_from_sources,
 )
 from interview_mux.operator_trace import log_step, logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.spoken_copy_guard import script_hash
 from interview_mux.vo_synthesis_audit import (
-    line_vo_wav_fresh,
     nuke_all_synth_wavs_on_adjudicate_change,
     should_skip_adjudicate_for_line,
 )
@@ -242,23 +239,6 @@ def synthesize_vo_comprehensibility_errors(
     return errors
 
 
-def lines_needing_adjudicate(
-    ctx: RunContext,
-    gap_report: dict[str, Any],
-    *,
-    skip_fresh_wav: bool = True,
-) -> list[dict[str, Any]]:
-    """Body synthesize lines that still need adjudicate LLM (9C-aware)."""
-    out: list[dict[str, Any]] = []
-    for line in _body_synthesize_lines(gap_report):
-        if skip_fresh_wav:
-            skip, _reason = should_skip_adjudicate_for_line(ctx, line)
-            if skip:
-                continue
-        out.append(line)
-    return out
-
-
 def lines_needing_adjudication(
     ctx: RunContext,
     gap_report: dict[str, Any],
@@ -266,8 +246,12 @@ def lines_needing_adjudication(
     *,
     threshold: float | None = None,
     prior: dict[str, Any] | None = None,
+    skip_fresh_wav: bool = False,
 ) -> list[str]:
-    """Line ids needing adjudicate LLM — flow pre-score + 8B hash-idempotency."""
+    """Line ids needing adjudicate LLM — flow pre-score + 8B hash-idempotency.
+
+    S5: single need rule (hash skip + flow threshold). Optional 9C wav skip.
+    """
     cfg = adjudicate_cfg()
     flow_threshold = float(threshold if threshold is not None else cfg["adjudicate_flow_threshold"])
     plan = layup_plan if isinstance(layup_plan, dict) else _load_layup_plan(ctx)
@@ -278,20 +262,16 @@ def lines_needing_adjudication(
         for row in (prior_doc.get("lines") or [])
         if isinstance(row, dict) and row.get("line_id")
     }
-    corpus = (
-        ctx.read_json("understanding/nugget_corpus.json")
-        if ctx.artifact_exists("understanding/nugget_corpus.json")
-        else {}
-    )
-    nuggets = [
-        n for n in ((corpus or {}).get("nuggets") or []) if isinstance(n, dict)
-    ]
 
     need: list[str] = []
     for line in _body_synthesize_lines(gap_report):
         lid = str(line.get("line_id") or "")
         if not lid:
             continue
+        if skip_fresh_wav:
+            skip, _reason = should_skip_adjudicate_for_line(ctx, line)
+            if skip:
+                continue
         layup_row = _layup_row_for_line(plan, lid) or {}
         target_id = str(line.get("targets_segment_id") or "")
         target_text = _target_text(ctx, target_id)
@@ -300,25 +280,34 @@ def lines_needing_adjudication(
         if prior_row.get("input_hash") == input_hash:
             continue
         flow = score_layup_flow_fit(line, target_text, masks, layup_row=layup_row)
-
-        move_candidate = False
         if flow < flow_threshold:
-            ranked_here = rank_open_nuggets_for_target(
-                target_text,
-                nuggets,
-                exclude_ids=set(line.get("nugget_ids") or []),
-                limit=3,
-                slim=True,
-            )
-            line_nugs = {str(x) for x in (line.get("nugget_ids") or []) if x}
-            if line_nugs and ranked_here:
-                top = ranked_here[0]
-                if top.get("nugget_id") not in line_nugs and float(top.get("relevance_to_target") or 0) > 0.35:
-                    move_candidate = True
-
-        if flow < flow_threshold or move_candidate:
             need.append(lid)
     return need
+
+
+def lines_needing_adjudicate(
+    ctx: RunContext,
+    gap_report: dict[str, Any],
+    *,
+    skip_fresh_wav: bool = True,
+    layup_plan: dict[str, Any] | None = None,
+    threshold: float | None = None,
+) -> list[dict[str, Any]]:
+    """Body synthesize lines needing adjudicate — thin wrapper over ``lines_needing_adjudication``."""
+    need_ids = set(
+        lines_needing_adjudication(
+            ctx,
+            gap_report,
+            layup_plan,
+            threshold=threshold,
+            skip_fresh_wav=skip_fresh_wav,
+        )
+    )
+    return [
+        line
+        for line in _body_synthesize_lines(gap_report)
+        if str(line.get("line_id") or "") in need_ids
+    ]
 
 
 def _intro_nugget_ids(gap_report: dict[str, Any]) -> list[str]:
@@ -443,12 +432,13 @@ def apply_adjudicate_results(
     *,
     layup_plan: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Mutate gap_report from adjudicate volley rows; return trace actions."""
+    """S1 advisory: trace actions only — never mutate gap_report body or nuke WAVs.
+
+    Decisions live in ``vo_line_adjudication.json`` (sealed by batches). Layup owns
+    ``interviewer_lines[].text`` post-authority (S9).
+    """
     plan = layup_plan if isinstance(layup_plan, dict) else _load_layup_plan(ctx)
     actions: list[dict[str, Any]] = []
-    mutated = False
-    mutated_line_ids: list[str] = []
-    deferred_nuggets: set[str] = set()
 
     for row in results:
         if not isinstance(row, dict):
@@ -460,90 +450,18 @@ def apply_adjudicate_results(
             continue
         layup_row = _layup_row_for_line(plan, lid) or {}
         input_hash = line_adjudication_input_hash(line, layup_row)
-
-        if action == "air":
-            log_step(
-                f"adjudicate air unchanged: {lid}",
-                ctx=ctx,
-                stage=STAGE_ID,
-                detail={"line_id": lid, "action": "air", "input_hash": input_hash[:12]},
-            )
-            actions.append({"line_id": lid, "action": "air", "input_hash": input_hash})
-            continue
-
-        if action == "rewrite":
-            new_text = str(row.get("final_text") or row.get("text") or "").strip()
-            if new_text:
-                from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
-
-                new_text = scrub_spoken_edit_structure(new_text)
-            if new_text and new_text != str(line.get("text") or ""):
-                line["text"] = new_text
-                line["origin"] = "vo_line_adjudicate"
-                mutated = True
-                if lid:
-                    mutated_line_ids.append(lid)
-                log_step(
-                    f"adjudicate rewrite: {lid}",
-                    ctx=ctx,
-                    stage=STAGE_ID,
-                    detail={"line_id": lid, "action": "rewrite", "script_hash": script_hash(new_text)[:12]},
-                )
-                actions.append({"line_id": lid, "action": "rewrite", "input_hash": input_hash})
-
-        elif action == "move_nugget":
-            nugget_ids = [str(x) for x in (row.get("nugget_ids") or []) if x]
-            if nugget_ids:
-                line["nugget_ids"] = nugget_ids
-                line["origin"] = "vo_line_adjudicate"
-                mutated = True
-                if lid:
-                    mutated_line_ids.append(lid)
-                log_step(
-                    f"adjudicate move_nugget: {lid}",
-                    ctx=ctx,
-                    stage=STAGE_ID,
-                    detail={"line_id": lid, "action": "move_nugget", "nugget_ids": nugget_ids[:6]},
-                )
-                actions.append({"line_id": lid, "action": "move_nugget", "nugget_ids": nugget_ids})
-
-        elif action == "defer_to_intro":
-            for nid in line.get("nugget_ids") or []:
-                if nid:
-                    deferred_nuggets.add(str(nid))
-            line["nugget_ids"] = []
-            if row.get("final_text"):
-                line["text"] = str(row.get("final_text"))
-            line["origin"] = "vo_line_adjudicate"
-            mutated = True
-            if lid:
-                mutated_line_ids.append(lid)
-            log_step(
-                f"adjudicate defer_to_intro: {lid}",
-                ctx=ctx,
-                stage=STAGE_ID,
-                detail={"line_id": lid, "action": "defer_to_intro"},
-            )
-            actions.append({"line_id": lid, "action": "defer_to_intro", "input_hash": input_hash})
-
-        target_seg = row.get("target_segment_id")
-        if target_seg and str(target_seg) != str(line.get("targets_segment_id") or ""):
-            line["targets_segment_id"] = str(target_seg)
-            mutated = True
-            if lid and lid not in mutated_line_ids:
-                mutated_line_ids.append(lid)
-
-    if deferred_nuggets:
-        gap_report.setdefault("_adjudicate_deferred_nuggets", [])
-        existing = {str(x) for x in (gap_report.get("_adjudicate_deferred_nuggets") or []) if x}
-        gap_report["_adjudicate_deferred_nuggets"] = sorted(existing | deferred_nuggets)
-
-    if mutated and adjudicate_cfg().get("full_resynth_on_adjudicate_change", True):
-        # Only purge lines whose spoken copy / seating actually changed — never
-        # wipe transition bridges or untouched layup WAVs (exec_11130).
-        nuke_all_synth_wavs_on_adjudicate_change(
-            ctx, line_ids=mutated_line_ids or None
+        log_step(
+            f"adjudicate advisory {action}: {lid}",
+            ctx=ctx,
+            stage=STAGE_ID,
+            detail={
+                "line_id": lid,
+                "action": action,
+                "input_hash": input_hash[:12],
+                "advisory_only": True,
+            },
         )
+        actions.append({"line_id": lid, "action": action, "input_hash": input_hash})
 
     return gap_report, actions
 
@@ -858,6 +776,24 @@ def run_intro_compose(
 def _persist_adjudicate_gap(
     ctx: RunContext, gap_report: dict[str, Any], *, reason: str = STAGE_ID
 ) -> None:
+    # S9: layup is sole post-authority body writer — keep prior spoken text on disk.
+    try:
+        if ctx.artifact_exists(GAP_REL):
+            prior = ctx.read_json(GAP_REL)
+            if isinstance(prior, dict) and prior.get("nugget_layup_authority"):
+                prior_texts = {
+                    str(ln.get("line_id") or "").strip(): ln.get("text")
+                    for ln in (prior.get("interviewer_lines") or [])
+                    if isinstance(ln, dict) and str(ln.get("line_id") or "").strip()
+                }
+                for ln in gap_report.get("interviewer_lines") or []:
+                    if not isinstance(ln, dict):
+                        continue
+                    lid = str(ln.get("line_id") or "").strip()
+                    if lid in prior_texts:
+                        ln["text"] = prior_texts[lid]
+    except Exception:
+        pass
     try:
         from interview_mux.seat_authority import persist_frozen_seat_doc
 
@@ -888,7 +824,11 @@ def _persist_adjudicate_gap(
 
 
 def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
-    """Full stage: Part A body adjudicate + Part B intro compose."""
+    """Adjudicate log only: batched LLM → ``vo_line_adjudication.json`` (S1–S3 peel).
+
+    Does not mutate gap_report body text, mint intro, or write allocation.
+    Stamp-only omit skips remain ALLOW. Speakable gate is read-only on disk gap.
+    """
     if not ctx.artifact_exists(GAP_REL):
         ctx.log("vo_line_adjudicate: no gap_report — skip", level="info", stage=STAGE_ID)
         persist_adjudication_skip_stub(ctx, skip_reason="no_gap_report")
@@ -921,8 +861,6 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
 
     body_lines = _body_synthesize_lines(gap_report)
     plan = _load_layup_plan(ctx)
-    adjudication_rows: list[dict[str, Any]] = []
-    intro_nugget_ids: list[str] = []
     skip_reason: str | None = None
     settled_ids: list[str] = []
 
@@ -930,8 +868,8 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
         need_ids = lines_needing_adjudication(ctx, gap_report, plan)
         if need_ids:
             adjudication_rows = run_adjudicate_batches(ctx, need_ids, gap_report)
-            gap_report, _actions = apply_adjudicate_results(ctx, gap_report, adjudication_rows, layup_plan=plan)
-            _persist_adjudicate_gap(ctx, gap_report)
+            # S1: advisory trace only — do not land body text / nuke WAVs.
+            apply_adjudicate_results(ctx, gap_report, adjudication_rows, layup_plan=plan)
         else:
             skip_reason = "unchanged_or_flow_ok"
             settled_ids = [
@@ -951,17 +889,13 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
             stage=STAGE_ID,
         )
 
-    gap_report, intro_nugget_ids = run_intro_compose(ctx, gap_report)
-    if intro_nugget_ids:
-        _persist_adjudicate_gap(ctx, gap_report)
+    # S2/S3: intro mint + allocation persist peeled (layup owns body / catalog).
 
-    allocation = persist_allocation_plan(
-        ctx,
-        gap_report,
-        adjudication_rows=adjudication_rows,
-        intro_nugget_ids=intro_nugget_ids,
-        layup_plan=plan,
-    )
+    # Re-read disk gap so speakable gate never judges an unpaid in-memory mint (S4).
+    if ctx.artifact_exists(GAP_REL):
+        disk_gap = ctx.read_json(GAP_REL)
+        if isinstance(disk_gap, dict):
+            gap_report = disk_gap
 
     corpus = (
         ctx.read_json("understanding/nugget_corpus.json")
@@ -971,21 +905,17 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
     waived = collect_waived_nugget_ids(ctx, gap_report=gap_report, layup_plan=plan)
     cov = evaluate_nugget_air_coverage(
         body_plan_from_gap_report(gap_report, plan),
-        intro_nugget_ids or _intro_nugget_ids(gap_report),
+        _intro_nugget_ids(gap_report),
         waived,
         corpus if isinstance(corpus, dict) else {},
         hard=True,
     )
-    # Workstream B: goal miss under aspirational is advisory (compose may have
-    # already accepted). Structural refuse only when coverage errors remain
-    # (catastrophic floor / aspirational off) — do not hard-rewind solely for
-    # under-goal coverage when compose accepted the advisory path.
     if not cov.get("ok"):
-        msg = "Nugget air coverage below floor after adjudicate+intro: " + "; ".join(
+        msg = "Nugget air coverage below floor after adjudicate: " + "; ".join(
             str(e) for e in (cov.get("errors") or [])[:4]
         )
         if adjudicate_cfg().get("adjudicate_fail_open"):
-            ctx.log(msg, level="warning", stage=STAGE_ID, detail={"allocation": allocation})
+            ctx.log(msg, level="warning", stage=STAGE_ID)
         else:
             from interview_mux.loud_fail import raise_loud_failure
 
@@ -997,41 +927,22 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
             )
     elif cov.get("warnings") and cov.get("air_coverage_aspirational"):
         ctx.log(
-            "Nugget air coverage under aspirational goal after adjudicate+intro "
+            "Nugget air coverage under aspirational goal after adjudicate "
             f"(coverage={cov.get('nugget_air_coverage')}; "
             f"goal={cov.get('min_nugget_air_coverage')}) — advisory only",
             level="warning",
             stage=STAGE_ID,
-            detail={"allocation": allocation, "warnings": cov.get("warnings")},
+            detail={"warnings": cov.get("warnings")},
         )
 
-    # Q1A+: coverage may fail-open, but seated synthesize VO must stay comprehensible.
-    # Scrub edit-structure nouns left by adjudicate LLM before the hard gate.
-    from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure
-
-    scrubbed_any = False
-    for line in gap_report.get("interviewer_lines") or []:
-        if not isinstance(line, dict):
-            continue
-        if str(line.get("delivery") or "").lower() != "synthesize":
-            continue
-        if line.get("skipped_optional") or line.get("air_script_omit"):
-            continue
-        text = str(line.get("text") or "")
-        cleaned = scrub_spoken_edit_structure(text)
-        if cleaned and cleaned != text:
-            line["text"] = cleaned
-            scrubbed_any = True
-    if scrubbed_any:
-        _persist_adjudicate_gap(ctx, gap_report)
-
+    # Q1A+: read-only speakable gate on disk gap (no scrub land — S1/S4).
     vo_errs = synthesize_vo_comprehensibility_errors(gap_report)
     if vo_errs:
         from interview_mux.loud_fail import raise_loud_failure
 
         raise_loud_failure(
             ctx,
-            "Synthesize VO transcript not comprehensible after adjudicate+intro: "
+            "Synthesize VO transcript not comprehensible after adjudicate: "
             + "; ".join(vo_errs[:6]),
             stage=STAGE_ID,
             reason="synthesize_vo_incomprehensible",

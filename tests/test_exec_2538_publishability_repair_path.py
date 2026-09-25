@@ -57,9 +57,7 @@ def _seed_exec_2538_vo(ctx) -> None:
             "vo_preface_episode_orientation.wav",
         )
     )
-    write_fixture_vo_wav(
-        ctx.final_path("vo_pickup", "synthesized", "vo_layup_seg_003a.wav")
-    )
+    # Do not plant a layup WAV — WAV-backed lines are protected from omit strip.
 
 
 def test_non_cta_keep_gets_punch_path_not_zero_ms(tmp_path: Path) -> None:

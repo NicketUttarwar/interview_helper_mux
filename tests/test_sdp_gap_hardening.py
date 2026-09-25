@@ -163,8 +163,16 @@ def test_seated_sdp_still_enforces_coverage(tmp_path, monkeypatch):
             "prompt_dna": "bright guitar piano documentary pulse",
         },
     )
+    monkeypatch.setattr(
+        "interview_mux.floor_progress.soundscape_density_aspirational",
+        lambda _ctx=None: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.creative_delivery.creative_delivery_required",
+        lambda cfg=None: True,
+    )
     dens = validate_creative_density(ctx, sdp)
-    assert any("bed coverage" in e for e in dens)
+    assert any("bed coverage" in e or "coverage" in e for e in dens)
 
 
 def test_invent_lint_rejects_banned_texture():

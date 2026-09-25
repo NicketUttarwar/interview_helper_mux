@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from interview_mux.artifact_ownership import AuthorityDenied
 from interview_mux.homunculus.agenda import unmark_hollow_prepare_stages
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, STAGE_ARTIFACT_SCHEMAS
 from interview_mux.run_context import RunContext
@@ -70,7 +71,8 @@ def test_wave5_missing_primary_is_incomplete(ctx: RunContext, stage_id: str) -> 
     out = heal_or_refuse_mark(ctx, stage_id)
     assert out.get("unmarked") is True or not ctx.is_done(stage_id)
     if stage_id in FORCE_DONE_GUARDED:
-        ctx.mark_done(stage_id)
+        with pytest.raises(AuthorityDenied, match="mark_done:hollow"):
+            ctx.mark_done(stage_id)
         assert not ctx.is_done(stage_id)
 
 

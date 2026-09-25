@@ -134,6 +134,22 @@ class RunContext:
             from interview_mux.write_staging import active_stage_id
 
             sk = stage_key or active_stage_id()
+            # S2: layup compose must not attempt foreign packet writes (manifest /
+            # content_brief). Skip instead of AuthorityDenied thrash.
+            rel_norm = str(rel or "").replace("\\", "/").lstrip("/")
+            if sk == "nugget_layup_compose" and rel_norm in {
+                "segments/manifest.json",
+                "understanding/content_brief.json",
+            }:
+                try:
+                    self.log(
+                        f"nugget_layup_compose: skip foreign write {rel_norm} (S2 read-only packet)",
+                        level="warning",
+                        stage="nugget_layup_compose",
+                    )
+                except Exception:
+                    pass
+                return self.path(*rel_norm.split("/"))
             role_s = str(role or "").strip()
             if not role_s:
                 role_s = "producer" if sk else "ops"
@@ -153,6 +169,22 @@ class RunContext:
                     prior_gap = self.read_json(rel)
             except Exception:
                 prior_gap = None
+            try:
+                from interview_mux.artifact_ownership import (
+                    assert_gap_report_body_sole_writer,
+                )
+                from interview_mux.write_staging import active_stage_id
+
+                assert_gap_report_body_sole_writer(
+                    self,
+                    stage_key=stage_key or active_stage_id(),
+                    prior=prior_gap,
+                    new=data,
+                    mutation_class=mutation_class,
+                    role=str(role or "").strip() or None,
+                )
+            except ImportError:
+                pass
         if rel == "master/transitions.json" and isinstance(data, dict):
             try:
                 if self.artifact_exists(rel):

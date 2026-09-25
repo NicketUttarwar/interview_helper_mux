@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -24,7 +24,12 @@ inputs:
     producer: gap_framing_compose
   - path: master/transitions.json
     producer: transitions
-  soft: []
+  soft:
+  - path: mastering/mastering_plan.json
+    producer: mastering_plan_synthesize
+  - path: understanding/omit_ledger.json
+    producer: air_contract_sanitize
+  - path: mastering/vo_speech_qa.json
 sufficiency: []
 propagation:
   invalidates_stages:

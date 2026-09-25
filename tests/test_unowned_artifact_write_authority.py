@@ -157,16 +157,22 @@ def test_retract_refuses_when_the_catalog_refuses(tmp_path: Path, monkeypatch: p
 def test_the_interviewer_script_has_an_ownership_row():
     row = ownership.row_for_path(INTERVIEWER_SCRIPT_REL)
     assert row is not None, "no catalog row — write_permitted answers unknown_path"
-    assert row.producers == ("missing_framing", "optimal_questions", "gap_framing_compose")
+    assert row.producers == ("optimal_questions", "gap_framing_compose")
     assert row.authoritative == "gap_framing_compose"
 
 
 @pytest.mark.parametrize(
-    "stage", ["missing_framing", "optimal_questions", "gap_framing_compose"]
+    "stage", ["optimal_questions", "gap_framing_compose"]
 )
 def test_every_real_writer_of_the_script_is_permitted(stage: str):
     ok, reason = ownership.write_permitted(None, INTERVIEWER_SCRIPT_REL, stage)
     assert (ok, reason) == (True, "owner_rerun"), stage
+
+
+def test_missing_framing_may_not_write_the_script():
+    ok, reason = ownership.write_permitted(None, INTERVIEWER_SCRIPT_REL, "missing_framing")
+    assert ok is False
+    assert "not_allow" in reason
 
 
 def test_a_foreign_stage_may_not_write_the_script():

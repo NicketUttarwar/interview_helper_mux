@@ -13,7 +13,7 @@ export const master_narrative_plan_jsonSchema = z.object({
   "act_title": z.string().nullable().optional(),
   "tension_level": z.number().nullable().optional(),
   "is_moat_chapter": z.boolean().nullable().optional(),
-})).max(12),
+})).min(1).max(12),
   "strategic_moat_concept": z.string().nullable().optional(),
   "five_act_coverage": z.object({
   "act_1": z.number().optional(),

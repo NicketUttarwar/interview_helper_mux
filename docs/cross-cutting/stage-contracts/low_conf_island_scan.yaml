@@ -16,6 +16,8 @@ outputs:
   staging: true
 - path: analysis/low_conf_must_keep.json
   staging: true
+- path: analysis/stt_lexicon_island_boosts.json
+  staging: true
 inputs:
   hard:
   - path: vernacular/resplit_report.json

@@ -1090,7 +1090,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |
-| `mastering.listen_delight.fail_early_at_audit_stage` | `false` | Hard-stop inside `listen_delight_audit` (pre-mix) when floors fail | `true` restores legacy early block; authoritative ship gate always re-runs at `master_finalize` |
+| `mastering.listen_delight.fail_early_at_audit_stage` | `false` | **Deprecated/ignored** — pre-mix is always advisory | Ship gate remains `master_finalize` post_master re-score; remutate APPLY via recovery playbook |
 | `mastering.homunculus.default_version` | `latest` | Start-tab / create-run default brain. `latest` = highest registered (currently `0.2.0`). Pin `0.0.0` for the original walk. | Unknown versions refuse to start |
 | `mastering.homunculus.mode` | `authoritative` | Homunculus gate-mode flag (`advisory` debug) | Unused on 0.0.0 |
 | `mastering.homunculus.conductor_model` | `gpt-4o` | OpenAI model for nested homunculus LLM gateway calls | Nested stage LLMs still use the model registry |

@@ -95,7 +95,7 @@ CONVERGENCE_INPUTS: dict[str, tuple[str, ...]] = {
     "edl_narrative_audit": ("operator/narrative_audit_cycle.json",),
     # fuse rounds are the pre-ranking convergence metric.
     "connector_fuse_pass": ("analysis/connector_fuse_rounds.json",),
-    "connector_fuse_pass_pre_ranking": ("analysis/connector_fuse_rounds.json",),
+    "connector_fuse_pass_pre_ranking": ("analysis/connector_fuse_rounds_pre_ranking.json",),
 }
 
 

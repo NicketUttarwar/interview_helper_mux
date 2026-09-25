@@ -13,7 +13,20 @@ from run_fixtures import (
     minimal_gap_report,
     minimal_manifest,
     minimal_manifest_segment,
+    write_fixture_json,
 )
+
+
+def _remap_nle_writes(ctx: RunContext) -> None:
+    """Overlap repair persists nle_edits only with mutation_class=segment_id_remap."""
+    orig = ctx.write_json
+
+    def _wrapped(rel, data, **kwargs):
+        if rel == "segments/nle_edits.json":
+            kwargs.setdefault("mutation_class", "segment_id_remap")
+        return orig(rel, data, **kwargs)
+
+    ctx.write_json = _wrapped  # type: ignore[method-assign]
 
 
 def _segments() -> dict[str, dict]:
@@ -34,7 +47,12 @@ def _write_manifest(ctx: RunContext) -> None:
 
 
 def _write_gap_report(ctx: RunContext, *, lines: list[dict] | None = None) -> None:
-    ctx.write_json("understanding/gap_report.json", minimal_gap_report(*(lines or [])))
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        minimal_gap_report(*(lines or [])),
+        stage_key="gap_framing_compose",
+    )
 
 
 def test_validate_flow1_edl_passes_built_edl(tmp_path) -> None:
@@ -459,6 +477,7 @@ def test_repair_overlapping_source_merges_into_survivor(tmp_path) -> None:
     from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
 
     ctx = isolated_run_ctx(tmp_path, "run_edl_overlap_merge")
+    _remap_nle_writes(ctx)
     ctx.write_json(
         "segments/manifest.json",
         minimal_manifest(
@@ -500,12 +519,19 @@ def test_repair_overlapping_source_merges_into_survivor(tmp_path) -> None:
                 "seg_003d": {"parent_id": "seg_003", "start_ms": 71_000, "end_ms": 74_810},
             },
         },
+        mutation_class="segment_id_remap",
     )
     ctx.write_json(
         "master/selection.json",
         {"ordered_segment_ids": ["seg_003c", "seg_003d", "seg_004"]},
+        stage_key="selection_order_sanitize",
     )
-    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        stage_key="gap_framing_compose",
+    )
     edl = _overlapping_child_edl()
     assert any("Overlapping source range" in e for e in validate_flow1_edl(ctx, edl))
     result = repair_overlapping_source_ranges(ctx, edl)
@@ -537,6 +563,7 @@ def test_repair_overlapping_source_merges_into_survivor(tmp_path) -> None:
 
 def test_check_edl_qc_repairs_overlapping_source_instead_of_raising(tmp_path) -> None:
     ctx = isolated_run_ctx(tmp_path, "run_edl_qc_overlap_gate")
+    _remap_nle_writes(ctx)
     ctx.write_json(
         "segments/manifest.json",
         minimal_manifest(
@@ -557,10 +584,16 @@ def test_check_edl_qc_repairs_overlapping_source_instead_of_raising(tmp_path) ->
             minimal_manifest_segment("seg_004", start_ms=80_000, end_ms=90_000, speaker_id="spk_0"),
         ),
     )
-    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        minimal_gap_report(),
+        stage_key="gap_framing_compose",
+    )
     ctx.write_json(
         "master/selection.json",
         {"ordered_segment_ids": ["seg_003c", "seg_003d", "seg_004"]},
+        stage_key="selection_order_sanitize",
     )
     edl = _overlapping_child_edl()
     check_edl_qc(ctx, stage="edl", edl=edl, strict=True)

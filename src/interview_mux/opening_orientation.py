@@ -973,7 +973,9 @@ def ensure_episode_orientation_body(
     return out, actions
 
 
-def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
+def retarget_orientation_to_open(
+    ctx: RunContext, *, stage_key: str | None = None
+) -> list[str]:
     """Point episode orientation at the current selection open; sync EDL + pickups."""
     written: list[str] = []
     if not ctx.artifact_exists("understanding/gap_report.json"):
@@ -1007,7 +1009,7 @@ def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
         from interview_mux.artifact_ownership import write_permitted
         from interview_mux.write_staging import active_stage_id
 
-        stage_now = str(active_stage_id() or "")
+        stage_now = str(stage_key or active_stage_id() or "").strip()
         allowed, deny_reason = write_permitted(
             ctx,
             "understanding/gap_report.json",
@@ -1016,7 +1018,7 @@ def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
             verb="persist",
         )
     except Exception:
-        allowed, deny_reason, stage_now = True, "", ""
+        allowed, deny_reason, stage_now = True, "", str(stage_key or "").strip()
     if not allowed:
         ctx.log(
             "orientation retarget: gap_report frozen — skipping rewrite "
@@ -1025,7 +1027,10 @@ def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
             stage=stage_now or None,
         )
         return written
-    ctx.write_json("understanding/gap_report.json", updated)
+    write_kw: dict[str, Any] = {}
+    if stage_now:
+        write_kw["stage_key"] = stage_now
+    ctx.write_json("understanding/gap_report.json", updated, **write_kw)
     written.append("understanding/gap_report.json")
 
     if ctx.artifact_exists("vo_pickup/synthesis_report.json"):

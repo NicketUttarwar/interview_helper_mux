@@ -16,7 +16,7 @@ os.environ["MUX_FORENSICS"] = "0"
 
 import pytest
 
-from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
+from interview_mux.artifact_repairs import repair_gap_report
 from interview_mux.delivery_guardrails import (
     MUST_PRECEDE,
     promote_complete_orphan_stage_done,
@@ -134,9 +134,10 @@ def test_music_epoch_owner_blocks_mix_promote_despite_mtime_and_seated(
     assert not ctx.is_done("mix")
 
 
-def test_junction_owner_blocks_mix_and_junction_snip_qa(
+def test_junction_owner_paid_for_junction_mix_still_unpaid(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S6(B): junction remaster owner is paid land for junction_snip_qa."""
     begin_remaster(ctx, owner="junction")
     _write_assembly(ctx)
     _mock_mix_seated(monkeypatch)
@@ -144,7 +145,7 @@ def test_junction_owner_blocks_mix_and_junction_snip_qa(
         _write_raw_json(ctx, rel, {"version": 1, "generated_at": "t"})
 
     assert unpaid_land_reason(ctx, "mix") is not None
-    assert unpaid_land_reason(ctx, "junction_snip_qa") is not None
+    assert unpaid_land_reason(ctx, "junction_snip_qa") is None
     assert promote_complete_orphan_stage_done(ctx, ("mix", "junction_snip_qa")) == []
 
 
@@ -296,11 +297,8 @@ def test_seed_missing_high_gap_clears_orphan_layup_authority(
     )
     assert not ctx.artifact_exists(PLAN_REL)
     out: dict = {"nugget_layup_authority": True, "interviewer_lines": []}
-    applied: list[dict] = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids=set(), applied=applied
-    )
-    assert out["nugget_layup_authority"] is False
+    patched, applied = repair_gap_report(ctx, out)
+    assert patched["nugget_layup_authority"] is False
     assert any(
         a.get("action") == "clear_orphan_nugget_layup_authority" for a in applied
     )
@@ -317,13 +315,70 @@ def test_gap_report_sanitize_shared_path_mismatch(ctx: RunContext) -> None:
         "understanding/gap_report.json",
         {
             "interviewer_lines": [],
-            "_meta": {"producer_stage": "gap_framing_compose"},
+            "_meta": {"producer_stage": "edl"},
         },
     )
     reason = unpaid_land_reason(ctx, "gap_report_sanitize")
     assert reason is not None
     assert "shared-path" in reason
     assert unpaid_land_blocks_promote(ctx, "gap_report_sanitize") is True
+
+
+def test_gap_report_sanitize_framing_producer_is_paid(ctx: RunContext) -> None:
+    """S1 co-producers (framing/layup) remain paid land for GRS promote."""
+    _write_raw_json(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [],
+            "_meta": {"producer_stage": "gap_framing_compose"},
+        },
+    )
+    assert unpaid_land_reason(ctx, "gap_report_sanitize") is None
+    assert unpaid_land_blocks_promote(ctx, "gap_report_sanitize") is False
+
+
+def test_gap_report_sanitize_unsanitary_blocks_orphan_promote(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Paid producer is not enough — unsanitary gap still refuses orphan promote."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    _write_raw_json(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_dup",
+                    "text": "hello there",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "gap_type": "missing_setup",
+                },
+                {
+                    "line_id": "vo_dup2",
+                    "text": "hello there",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "gap_type": "missing_setup",
+                },
+            ],
+            "_meta": {"producer_stage": "gap_framing_compose"},
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.stage_outputs_present",
+        lambda _c, _s: True,
+    )
+    assert unpaid_land_reason(ctx, "gap_report_sanitize") is None
+    inc = stage_artifact_incompleteness(ctx, "gap_report_sanitize")
+    assert inc is not None
+    assert "unsanitary" in inc or "sanitize" in inc
+    assert promote_complete_orphan_stage_done(ctx, ("gap_report_sanitize",)) == []
+    assert not ctx.is_done("gap_report_sanitize")
 
 
 def test_air_contract_sanitize_shared_path_mismatch(ctx: RunContext) -> None:
@@ -592,7 +647,7 @@ _SHARED_PATH_FIXTURES: list[tuple[str, str, str, dict]] = [
     (
         "gap_report_sanitize",
         "understanding/gap_report.json",
-        "gap_framing_compose",
+        "edl",
         {"interviewer_lines": []},
     ),
     (

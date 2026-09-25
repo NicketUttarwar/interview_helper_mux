@@ -9,13 +9,14 @@ import pytest
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import read_log
 from interview_mux.write_staging import run_wrapped_stage
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_merged_config, plant_primary_and_stamp
 
 
 def test_run_wrapped_stage_logs_stage_error(tmp_path, monkeypatch) -> None:
     patch_merged_config(monkeypatch, {"journey_ui": {"require_write_approval_per_stage": False}})
     ctx = isolated_run_ctx(tmp_path, "run_stage_err")
     ctx.write_json("run_meta.json", {"execution_id": ctx.run_id}, skip_handoff=True)
+    plant_primary_and_stamp(ctx, "audio_preclean")
 
     with pytest.raises(RuntimeError, match="stage boom"):
         run_wrapped_stage(ctx, "ingest", lambda: (_ for _ in ()).throw(RuntimeError("stage boom")))
@@ -32,6 +33,7 @@ def test_run_wrapped_stage_success_logs_finish(tmp_path, monkeypatch) -> None:
     patch_merged_config(monkeypatch, {"journey_ui": {"require_write_approval_per_stage": False}})
     ctx = isolated_run_ctx(tmp_path, "run_stage_ok")
     ctx.write_json("run_meta.json", {"execution_id": ctx.run_id}, skip_handoff=True)
+    plant_primary_and_stamp(ctx, "audio_preclean")
 
     run_wrapped_stage(ctx, "ingest", lambda: None)
 

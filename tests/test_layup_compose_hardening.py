@@ -183,14 +183,13 @@ def test_hosted_vo_floor_unsatisfiable_heal_pin_empty(monkeypatch):
 
 
 def test_hosted_vo_floor_aspirational_no_loud_fail():
-    """Default progress floors: shortage is advisory, not LoudStageFailure."""
+    """HOLLOW_ZERO (active=0) still loud-fails; aspirational only waives PARTIAL."""
     ctx = RunContext("exec_layup_floor_asp", create=True)
     _seed(ctx, ["seg_001"])
     ctx.write_json(PLAN_REL, {"ordered_segment_ids": ["seg_001"], "layups": []})
-    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
-    from interview_mux.floor_progress import has_floor_advisories
-
-    assert has_floor_advisories(ctx)
+    with pytest.raises(LoudStageFailure) as ei:
+        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
+    assert ei.value.reason == "hosted_vo_floor_unsatisfiable"
 
 
 def test_invalidate_vo_after_layup_rewrite_drops_wav(tmp_path: Path, monkeypatch):

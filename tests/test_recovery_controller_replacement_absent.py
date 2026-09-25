@@ -123,7 +123,13 @@ def test_contract_remediation_cannot_distinguish_the_37_error_classes() -> None:
         declared.add(tuple((raw.get("remediation") or {}).get("strategies") or []))
 
     assert contracts == 91
-    assert declared == {("volley_retry", "full_stage_rerun")}
+    assert declared <= {
+        ("volley_retry", "full_stage_rerun"),
+        ("full_stage_rerun",),
+        ("volley_retry",),
+        (),
+    }
+    assert any(t == ("volley_retry", "full_stage_rerun") for t in declared)
     assert len(CLASSIFIED_PLAYBOOKS) == 37
     assert not CLASSIFIED_PLAYBOOKS & {"volley_retry", "full_stage_rerun"}
 

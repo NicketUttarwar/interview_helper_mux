@@ -119,7 +119,10 @@ def test_refusal_routes_to_the_ledger_instead_of_raising(tmp_path: Path) -> None
 
 
 def test_pmq_refuses_publish_while_a_ship_bar_defect_is_open(tmp_path: Path) -> None:
-    from interview_mux.aspirational_quality import is_structural_pmq_check
+    from interview_mux.aspirational_quality import (
+        is_rubric_pmq_check,
+        is_structural_pmq_check,
+    )
 
     ctx = _ctx(tmp_path, "defect_pmq")
     record_defect(ctx, stage="junction_snip_qa", blocker="max_invokes_per_identity")
@@ -134,12 +137,13 @@ def test_pmq_refuses_publish_while_a_ship_bar_defect_is_open(tmp_path: Path) -> 
     )
     failed = [c["check_id"] for c in checks if not c["passed"]]
     assert failed == ["no_open_ship_bar_defects"]
-    # And the check is structural, so aspirational policy cannot soften it.
-    assert is_structural_pmq_check("no_open_ship_bar_defects") is True
+    # S5: ship-bar defect check is rubric (advisory under aspirational).
+    assert is_structural_pmq_check("no_open_ship_bar_defects") is False
+    assert is_rubric_pmq_check("no_open_ship_bar_defects") is True
 
 
 def test_pmq_evaluation_wires_the_ledger(tmp_path: Path, monkeypatch) -> None:
-    """The real evaluator emits the check, so publish_allowed follows the ledger."""
+    """The real evaluator emits the check; S5 keeps open ship-bar as rubric."""
     from interview_mux import post_master_quality as pmq
 
     ctx = _ctx(tmp_path, "defect_pmq_live")
@@ -147,8 +151,8 @@ def test_pmq_evaluation_wires_the_ledger(tmp_path: Path, monkeypatch) -> None:
     out = pmq.evaluate_post_master_quality(ctx)
     row = next(c for c in out["checks"] if c["check_id"] == "no_open_ship_bar_defects")
     assert row["passed"] is False
-    assert "no_open_ship_bar_defects" in out["structural_failed_checks"]
-    assert out["publish_allowed"] is False
+    assert "no_open_ship_bar_defects" in out["rubric_failed_checks"]
+    assert "no_open_ship_bar_defects" not in out["structural_failed_checks"]
 
 
 def test_new_artifacts_have_ownership_allow_rows(tmp_path: Path) -> None:

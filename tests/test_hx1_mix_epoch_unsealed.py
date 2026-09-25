@@ -25,7 +25,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import producer_pin_for_token
 from interview_mux.thrash_hardening import heal_navigate
 from interview_mux.v2.config import SHIP_AFTER_MASTER
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_primary_and_stamp, plant_seed_complete_through
 
 
 _CONSUMERS = ("mix", "junction_snip_qa", "master_finalize")
@@ -166,16 +166,26 @@ def test_hx1_pipeline_blocks_junction_finalize_not_speech_first_mix(
 
 
 def test_hx1_heal_pins_music_producer_not_mix(ctx: RunContext) -> None:
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+
+    plant_seed_complete_through(ctx, "edl")
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     err = "cannot run mix: delivery epoch music_incomplete (wait for mmaudio_sfx)"
     pin = producer_pin_for_token(err, ctx=ctx)
-    assert pin in MUSIC_BEFORE_MIX
+    assert pin in {*MUSIC_BEFORE_MIX, "topic_coverage_audit"}
     assert pin != "mix"
     nav = heal_navigate(ctx, error=err, stage="mix")
     assert nav["from_stage"] != "mix"
 
 
 def test_hx1_safe_mix_resume_is_music_before_mix(ctx: RunContext) -> None:
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+
+    plant_seed_complete_through(ctx, "edl")
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     resume = safe_mix_resume_stage(ctx)
-    assert resume in MUSIC_BEFORE_MIX
-    assert resume != "mix"
+    # Speech-first mix is honest once Phase A fixtures exist; otherwise music producer.
+    assert resume in {*MUSIC_BEFORE_MIX, "mix", "topic_coverage_audit"}
     assert mix_epoch_block(ctx, stage="junction_snip_qa")

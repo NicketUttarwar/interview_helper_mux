@@ -1444,6 +1444,15 @@ def run_cta_prune(
     out["excluded_segment_ids"] = excl
     # CTA↔floor: do not drop the only live targets of hosted VO floor lines.
     out = restore_floor_anchor_natives(ctx, pre_ordered, out)
+    # FMR S2: CTA omit must not drop enforceable primary-impact tape.
+    try:
+        from interview_mux.framing_coverage_guard import (
+            restore_enforceable_primary_impact_natives,
+        )
+
+        out = restore_enforceable_primary_impact_natives(ctx, pre_ordered, out)
+    except Exception:
+        pass
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     excl = list(out.get("excluded_segment_ids") or [])
     out["media_ip_cta"] = hits
@@ -1757,7 +1766,13 @@ def apply_cta_judgments(ctx: RunContext, artifacts: dict[str, Any] | None) -> di
         from interview_mux.hard_keep import hard_keep_segment_ids
         from interview_mux.homunculus.values import should_hard_omit_cta
 
-        keeps = hard_keep_segment_ids(ctx)
+        keeps = set(hard_keep_segment_ids(ctx) or set())
+        try:
+            from interview_mux.framing_coverage_guard import enforceable_primary_impact_ids
+
+            keeps |= enforceable_primary_impact_ids(ctx, out)
+        except Exception:
+            pass
         by_id = _segments_by_id(ctx)
         for sid, row in by_id.items():
             if sid in keeps or sid in judged_ids:

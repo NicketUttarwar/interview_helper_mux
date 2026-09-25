@@ -402,15 +402,39 @@ def write_stage_producer_artifact(
         write_committed_json(ctx, rel, doc, stage_key=stage_id)
         return rel
     elif stage_id == "sound_design_vo_finalize":
-        rel = "understanding/sound_design_plan.json"
-        return rel if ctx.artifact_exists(rel) else None
+        from run_fixtures import write_fixture_json
+
+        rel = "mastering/sound_design_vo_finalize.json"
+        write_fixture_json(
+            ctx,
+            rel,
+            {
+                "schema_version": 1,
+                "status": "complete",
+                "skipped": True,
+                "refused": False,
+                "errors": [],
+                "reason": "progression_fixture",
+                "adjusted": 0,
+                "skipped_cues": 0,
+                "missing": [],
+            },
+        )
+        mark_done_raw(ctx, "sound_design_vo_finalize")
+        return rel
     elif stage_id in ("vo_line_adjudicate", "vo_synthesize", "edl_narrative_audit"):
         rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
         if not rel:
             return None
         doc = fixtures.get(stage_id)
+        if not isinstance(doc, dict) and stage_id == "vo_synthesize":
+            from run_fixtures import minimal_vo_synthesize
+
+            doc = minimal_vo_synthesize()
         if isinstance(doc, dict):
             write_committed_json(ctx, rel, doc, stage_key=stage_id)
+            if stage_id == "vo_synthesize":
+                mark_done_raw(ctx, "vo_synthesize")
             return rel
         return rel if ctx.artifact_exists(rel) else None
     elif stage_id == "edl":
@@ -425,6 +449,7 @@ def write_stage_producer_artifact(
             for s in (manifest.get("segments") or [])
             if isinstance(s, dict) and s.get("segment_id")
         }
+        _omit_opening_orientation_for_progression(ctx)
         gap_report = (
             ctx.read_json("understanding/gap_report.json")
             if ctx.artifact_exists("understanding/gap_report.json")
@@ -456,11 +481,13 @@ def write_stage_producer_artifact(
         write_committed_json(ctx, rel, edl, stage_key=stage_id)
         return rel
     elif stage_id == "transitions":
-        doc = dict(fixtures.get("transitions") or {})
-        for tr in doc.get("transitions") or []:
-            if isinstance(tr, dict):
-                tr["before_segment_id"] = "seg_001"
-                tr["after_segment_id"] = "seg_001"
+        # Single-segment walk: empty junctions are complete (selection_count < 2).
+        doc = {
+            "transitions": [],
+            "empty_ok": True,
+            "selection_count": 1,
+            "_meta": {"empty_allowlist": "selection_lt_2"},
+        }
     elif stage_id in fixtures:
         doc = fixtures[stage_id]
     else:
@@ -566,6 +593,23 @@ def ensure_reanchored_content_brief(ctx: RunContext) -> None:
     mark_done_raw(ctx, "content_brief_reanchor")
 
 
+def _omit_opening_orientation_for_progression(ctx: RunContext) -> None:
+    """Single-segment walk: waive opening orientation so EDL is not pinned to VO."""
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return
+    from run_fixtures import write_fixture_json
+
+    gap = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(gap, dict):
+        return
+    gap["opening_orientation"] = {
+        "omitted": True,
+        "required": False,
+        "reason": "progression_fixture",
+    }
+    write_fixture_json(ctx, "understanding/gap_report.json", gap)
+
+
 def seed_vo_from_gap_report(ctx: RunContext) -> None:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return
@@ -659,10 +703,60 @@ def seed_progression_walk_gates(ctx: RunContext) -> None:
             "gap_vo_delivery": "chatterbox",
             "gap_fill_mode": "active",
             "voice_reference_approved_at": approved_at,
+            "voice_clone_consent": {
+                "speaker_id": host_id,
+                "granted": True,
+                "granted_by": "pytest",
+                "granted_at": approved_at,
+                "scopes": ["cold_open", "bridges", "outro"],
+                "reference_path": f"understanding/voice_reference/{host_id}.json",
+                "reference_approved": True,
+                "disclosure": "none",
+                "revoked_at": None,
+            },
         }
     )
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
     mark_done_raw(ctx, "source_topology_build")
+
+
+def plant_progression_research_ready(ctx: RunContext) -> None:
+    """Fat W1–3 dossier so Shape/gap consumers are not pinned to a thin rollup."""
+    from interview_mux.mastering_research import (
+        DOSSIER_REL,
+        ROLLUP_REL,
+        SHAPE_CORE_WAVES,
+        WAVE_FIELDS,
+    )
+    from run_fixtures import write_fixture_json
+
+    fields: dict[str, Any] = {}
+    for wave, fids in WAVE_FIELDS.items():
+        status = "complete" if wave in SHAPE_CORE_WAVES else "skipped_or_thin"
+        for fid in fids:
+            fields[fid] = {
+                "version": 1,
+                "field_id": fid,
+                "wave": wave,
+                "status": status,
+                "evidence_refs": [],
+            }
+    complete = [fid for fid, row in fields.items() if row["status"] == "complete"]
+    thin = [fid for fid, row in fields.items() if row["status"] != "complete"]
+    doc = {
+        "version": 1,
+        "fields": fields,
+        "complete_fields": complete,
+        "thin_fields": thin,
+        "field_reports": [],
+        "salience_map": {},
+        "generated_at": "1970-01-01T00:00:00+00:00",
+    }
+    write_fixture_json(ctx, DOSSIER_REL, doc)
+    write_fixture_json(ctx, ROLLUP_REL, doc)
+    mark_done_raw(ctx, "mastering_research_routing")
+    mark_done_raw(ctx, "mastering_research_waves")
+    mark_done_raw(ctx, "mastering_research_rollup")
 
 
 def prepare_flow_chain_gates(ctx: RunContext) -> None:
@@ -808,6 +902,7 @@ def run_progression_chain_sanity(
 
         if stage_id in ("gap_framing_compose", "optimal_questions"):
             seed_vo_from_gap_report(ctx)
+            _omit_opening_orientation_for_progression(ctx)
 
         idx = chain.index(stage_id)
         if idx + 1 < len(chain):

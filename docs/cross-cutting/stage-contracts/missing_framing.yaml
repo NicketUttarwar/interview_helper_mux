@@ -39,11 +39,12 @@ inputs:
   - path: understanding/talking_points.json
     producer: talking_points_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/value_features.json
   - path: understanding/gap_report.json
     producer: gap_framing_compose
   - path: understanding/speaker_delivery_plan.json
-    producer: full_master_ranking
+    producer: selection_order_sanitize
   - path: master/selection.json
     producer: full_master_ranking
   - path: master/narrative_plan.json

@@ -456,6 +456,54 @@ def _apply_cues(sdp: dict[str, Any], cues: list[dict[str, Any]]) -> dict[str, An
     return out
 
 
+def _inject_bed_cue_slots_for_composed_cues(ctx: RunContext, sdp: dict[str, Any]) -> list[str]:
+    """Align soundscape cue_slots with seated under_segment beds (compose-owned)."""
+    from interview_mux.soundscape_policy import (
+        admit_inject_cue_slots,
+        load_policy,
+        soundscape_enabled,
+    )
+
+    if not soundscape_enabled():
+        return []
+    flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    cues = [c for c in (podcast.get("cues") or []) if isinstance(c, dict)]
+    bed_segs: list[str] = []
+    seen: set[str] = set()
+    for cue in cues:
+        if str(cue.get("placement") or "") != "under_segment":
+            continue
+        sid = str(
+            cue.get("under_segment_id") or cue.get("segment_id") or ""
+        ).strip()
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        bed_segs.append(sid)
+    if not bed_segs:
+        return []
+    try:
+        policy = load_policy(ctx) or {}
+        admit_inject_cue_slots(
+            ctx,
+            policy,
+            segment_ids=bed_segs,
+            reason="theme_underscore_music_palette_compose",
+            persist=True,
+            rescore=False,
+            writer_stage="music_palette_compose",
+        )
+        return bed_segs
+    except Exception as exc:
+        ctx.log(
+            f"music_palette_compose: bed cue_slot inject skipped: {exc}",
+            level="warning",
+            stage="music_palette_compose",
+        )
+        return []
+
+
 def run_music_palette_compose(ctx: RunContext) -> None:
     """Place existing palette WAVs into the master shape — no new stems."""
 
@@ -634,6 +682,16 @@ def run_music_palette_compose(ctx: RunContext) -> None:
             )
             sdp = _apply_cues(
                 sdp, fallback
+            )
+
+        # S1-C: compose owns bed cue_slot inject (honest writer_stage).
+        injected = _inject_bed_cue_slots_for_composed_cues(c, sdp)
+        if injected:
+            c.log(
+                f"music_palette_compose: injected {len(injected)} bed cue_slot(s)",
+                level="info",
+                stage="music_palette_compose",
+                detail={"segment_ids": injected[:12]},
             )
 
         # R2-A: compose is the sole density/slots authority after deferred clears.

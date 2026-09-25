@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -61,9 +62,13 @@ def test_chatterbox_from_pretrained_device_only(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(sys, "stdin", MagicMock(read=lambda: json.dumps(payload)))
     printed: list[str] = []
     monkeypatch.setattr("builtins.print", lambda *a, **k: printed.append(a[0] if a else ""))
+    # CLI hard-exits after a successful write to skip MPS teardown. Stub it so
+    # the in-process unit test does not kill the pytest runner.
+    monkeypatch.setattr(os, "_exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
 
-    rc = mod.main()
-    assert rc == 0, printed
+    with pytest.raises(SystemExit) as exited:
+        mod.main()
+    assert exited.value.code == 0, printed
     fake_tts.from_pretrained.assert_called_once_with("cpu")
     args = fake_tts.from_pretrained.call_args.args
     assert args == ("cpu",)

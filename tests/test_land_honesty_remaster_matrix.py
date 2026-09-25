@@ -284,9 +284,10 @@ def test_ensure_speech_first_remaster_stamps_owner_before_land_payable(
 
 
 @pytest.mark.parametrize("owner", ["junction", "music_epoch"])
-def test_begin_remaster_both_owners_unpaid(
+def test_begin_remaster_owners_unpaid_matrix(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch, owner: str
 ) -> None:
+    """Mix always unpaid in flight; junction unpaid only for non-junction owners (S6(B))."""
     begin_remaster(ctx, owner=owner)
     _write_assembly(ctx)
     _mock_seated_and_present(monkeypatch)
@@ -296,8 +297,11 @@ def test_begin_remaster_both_owners_unpaid(
     mix_reason = unpaid_land_reason(ctx, "mix")
     jsq_reason = unpaid_land_reason(ctx, "junction_snip_qa")
     assert mix_reason is not None
-    assert jsq_reason is not None
     assert "remaster owed" in mix_reason
     assert owner in mix_reason
-    assert owner in jsq_reason
+    if owner == "junction":
+        assert jsq_reason is None
+    else:
+        assert jsq_reason is not None
+        assert owner in jsq_reason
     assert promote_complete_orphan_stage_done(ctx, ("mix",)) == []

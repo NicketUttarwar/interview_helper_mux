@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -12,6 +12,7 @@ outputs:
 - path: understanding/interview_spine.json
   schema: null
   staging: false
+- path: transcript/diarization_repairs.json
 inputs:
   hard:
   - path: transcript/full.json

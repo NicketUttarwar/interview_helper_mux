@@ -21,7 +21,7 @@ from interview_mux.write_staging import (
     has_pending_writes,
     staging_root,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_primary_and_stamp
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def _plant_staged_queue(ctx: RunContext) -> None:
             },
         )
         ctx.write_json("transcript/corrections.json", {"corrections": {}})
-        ctx.mark_done("transcript_review_build")
+        # Keep G0 pending: do not mark_done while queue writes are still staged.
     finally:
         exit_stage_staging()
     assert has_pending_writes(ctx, "transcript_review_build")
@@ -77,6 +77,9 @@ def test_i1_staged_queue_keeps_g0_pending(ctx: RunContext) -> None:
 
 
 def test_i1_g0_systemexit_flushes_pending_queue(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    plant_primary_and_stamp(ctx, "audio_preclean")
+    plant_primary_and_stamp(ctx, "ingest")
+    plant_primary_and_stamp(ctx, "transcribe")
     monkeypatch.setattr(
         "interview_mux.stage_input_checks.require_stage_inputs",
         lambda _ctx, _name: None,
@@ -97,10 +100,25 @@ def test_i1_g0_systemexit_flushes_pending_queue(ctx: RunContext, monkeypatch: py
         (clips / "tr_0001.wav").write_bytes(b"RIFF" + b"\0" * 40)
         ctx.write_json(
             "transcript/review_queue.json",
-            {"version": 1, "chunks": []},
+            {
+                "version": 1,
+                "chunks": [
+                    {
+                        "chunk_id": "tr_0001",
+                        "rank": 1,
+                        "start_ms": 0,
+                        "end_ms": 500,
+                        "text": "hello",
+                        "speaker_id": "spk_0",
+                        "confidence": 0.4,
+                        "clip_path": "transcript/review_clips/tr_0001.wav",
+                        "reviewed": False,
+                    }
+                ],
+            },
         )
         ctx.write_json("transcript/corrections.json", {"corrections": {}})
-        ctx.mark_done("transcript_review_build")
+        # Flush happens in execute_stage before the G0 SystemExit — do not mark_done here.
 
     monkeypatch.setattr(
         pipeline,

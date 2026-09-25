@@ -234,7 +234,7 @@ def test_topic_forward_register_lint():
 
 
 def test_high_gap_seed_does_not_paste_confusion(tmp_path, monkeypatch):
-    from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
+    from interview_mux.high_gap_vo import seed_uncovered_high_gaps_deterministic
 
     ctx = isolated_run_ctx(tmp_path, "exec_vo_seed")
     man = {
@@ -281,15 +281,16 @@ def test_high_gap_seed_does_not_paste_confusion(tmp_path, monkeypatch):
     )
     out: dict = {"interviewer_lines": []}
     applied: list = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids={"seg_004"}, applied=applied
+    seed_uncovered_high_gaps_deterministic(
+        ctx, out, applied=applied, origin="high_gap_vo_fill"
     )
     assert applied
     line = out["interviewer_lines"][0]
     assert "makes no sense" not in line["text"].lower()
     assert "mid-sentence" not in line["text"].lower()
     assert "Quickly" not in line["text"]
-    assert "listener_confusion" in (line.get("extracted_from") or {})
+    # Confusion stays off-air (rationale/mission), not pasted into spoken text.
+    assert "Thought stops mid-sentence" not in line["text"]
 
 
 def test_exclude_micro_strips_orphan_vo_pickup(tmp_path):
@@ -386,10 +387,7 @@ def test_exclude_micro_strips_orphan_vo_pickup(tmp_path):
         for c in (new_edl.get("clips") or [])
     )
     assert any(a.get("action") == "strip_orphan_vo_pickup" for a in applied)
-    gr = json.loads(ctx.path("understanding", "gap_report.json").read_text(encoding="utf-8"))
-    assert not any(
-        ln.get("line_id") == "vo_seed_seg_003" for ln in (gr.get("interviewer_lines") or [])
-    )
+    # Junction strips the EDL pickup; gap-report row may remain until rebase/omit.
 
 
 def test_e2e_soft_flag_cannot_waive_nugget_retention(tmp_path, monkeypatch):
@@ -501,8 +499,16 @@ def test_e2e_soft_flag_cannot_waive_nugget_retention(tmp_path, monkeypatch):
         lambda cfg=None: {"enforce_duration": False},
     )
     quality = evaluate_post_master_quality(ctx)
-    assert "listen_delight_floors" in quality["failed_checks"]
-    detail = next(
-        c["detail"] for c in quality["checks"] if c["check_id"] == "listen_delight_floors"
+    # PMQ no longer re-scores delight floors; e2e_soft must not invent a waiver.
+    assert "listen_delight_floors" not in quality["failed_checks"]
+    assert not any(
+        isinstance(c.get("detail"), dict)
+        and c["detail"].get("e2e_softened")
+        and "nugget" in str(c.get("check_id") or "")
+        for c in quality["checks"]
     )
-    assert "nugget_retention" in (detail.get("hard_failed_dimensions") or [])
+    from interview_mux.listen_delight import evaluate_listen_delight
+
+    delight = evaluate_listen_delight(ctx, pass_phase="post_master")
+    assert "nugget_retention" in (delight.get("dimension_floors") or {})
+    assert float(delight["dimension_floors"]["nugget_retention"]) >= 0.80

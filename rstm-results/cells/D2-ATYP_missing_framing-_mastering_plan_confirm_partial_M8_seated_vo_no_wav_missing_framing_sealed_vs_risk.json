@@ -1,0 +1,10 @@
+{
+  "cell_id": "D2-ATYP|missing_framing->mastering_plan_confirm|partial|M8_seated_vo_no_wav|missing_framing sealed_vs_risk",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:missing_framing"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-25T20:43:02Z"
+}

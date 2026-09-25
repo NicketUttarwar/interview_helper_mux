@@ -1,4 +1,4 @@
-"""F1 selection lattice: drop CTA/orphan from air; restamp stale; specialist write-through.
+"""F1 selection lattice: drop CTA/orphan from air; stale stamp probe; specialist write-through.
 
 Fixture shape from exec_11165 (CTA parent + ghost seg_069 keep, specialist cache
 lost on ranking abort). Does not resume that run.
@@ -74,8 +74,9 @@ def test_seal_drops_cta_and_orphan_without_raising(tmp_path) -> None:
     assert "seg_069" not in ordered
 
 
-def test_stale_stamp_restamps_when_fresh_sanitize_would_pass(tmp_path) -> None:
-    ctx = isolated_run_ctx(tmp_path, "f1_stamp_restamp")
+def test_stale_stamp_cosmetic_ok_without_off_bus_write(tmp_path) -> None:
+    """S2: stale stamp + cosmetic-only dry sanitize → sanitary; no disk write."""
+    ctx = isolated_run_ctx(tmp_path, "f1_stamp_no_write")
     ctx.write_json(
         "segments/manifest.json",
         json.loads((_FIX / "segments.json").read_text(encoding="utf-8")),
@@ -97,12 +98,16 @@ def test_stale_stamp_restamps_when_fresh_sanitize_would_pass(tmp_path) -> None:
     }
     ctx._one_writer_raw = True
     ctx.write_json("master/selection.json", doc, skip_handoff=True)
+    before = ctx.read_json("master/selection.json")
     assert selection_sanitary_errors(ctx) == []
-    disk = ctx.read_json("master/selection.json")
-    assert stamp_matches(
-        disk, content_keys=["ordered_segment_ids", "order_content_hash"]
+    after = ctx.read_json("master/selection.json")
+    # Probe must not restamp off-bus; stage commit owns stamp refresh.
+    assert (after.get("_meta") or {}).get("sanitize") == (
+        (before.get("_meta") or {}).get("sanitize")
     )
-    assert "selection_sanitize_stamp_stale" not in json.dumps(disk)
+    assert not stamp_matches(
+        after, content_keys=["ordered_segment_ids", "order_content_hash"]
+    )
 
 
 def test_specialist_write_through_survives_pending_discard(tmp_path) -> None:

@@ -49,7 +49,7 @@ def test_a04_telemetry_waiver_not_music_delight_ok(ctx: RunContext) -> None:
     """SYN-DELIGHT-01: waived_unattended alone is not quality clearance."""
     from interview_mux.delivery_guardrails import (
         LISTEN_DELIGHT_WAIVER_REL,
-        _listen_delight_quality_cleared,
+        listen_delight_cleared_for_progress,
         listen_delight_waived_unattended,
     )
 
@@ -59,7 +59,7 @@ def test_a04_telemetry_waiver_not_music_delight_ok(ctx: RunContext) -> None:
         skip_handoff=True,
     )
     assert listen_delight_waived_unattended(ctx) is True
-    assert _listen_delight_quality_cleared(ctx) is False
+    assert listen_delight_cleared_for_progress(ctx) is False
 
 
 def test_e01_conductor_llm_view_strips_denylist(ctx: RunContext) -> None:

@@ -55,6 +55,9 @@ def test_forensics_layup_defer_helper_in_driver_source() -> None:
     idle_marker = "cleared needs_operator hosted_vo_floor"
     idle_idx = after.find(idle_marker)
     assert idle_idx > 0
-    window = after[idle_idx : idle_idx + 500]
-    assert "resume via seed-front defer" in window
+    window = after[idle_idx : idle_idx + 2500]
+    assert (
+        "resume via seed-front defer" in window
+        or "PARTIAL progress_floors advisory continue" in window
+    )
     assert '"from_stage": "nugget_layup_compose"' not in window

@@ -1,4 +1,8 @@
-"""Soft anonymized priors biasing L0 eligible classes (default ON soft)."""
+"""Optional anonymized priors biasing L0 eligible classes (default OFF).
+
+Full-auto does not ship ``ASSETS/refinement_priors/priors.json``. Opt in via
+``analysis.refinement_passes.priors.enabled`` (``true`` / ``soft`` / ``on``).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from interview_mux.refinement_catalog import ELIGIBLE_CLASS_VOCAB, refinement_cf
 
 
 def priors_enabled() -> bool:
-    raw = (refinement_cfg().get("priors") or {}).get("enabled", "soft")
+    raw = (refinement_cfg().get("priors") or {}).get("enabled", False)
     if raw is True or str(raw).lower() in ("1", "true", "soft", "on", "highest"):
         return True
     return False

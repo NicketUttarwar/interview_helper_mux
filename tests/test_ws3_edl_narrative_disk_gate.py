@@ -58,20 +58,24 @@ def _plant_duplicate_spoken_seam(ctx: RunContext) -> None:
     )
 
 
-def test_pre_llm_persists_disk_grounded_occupancy(ctx: RunContext) -> None:
+def test_pre_llm_reads_occupancy_without_mutating_transitions(ctx: RunContext) -> None:
+    """ENA S6: prepare must not steal transitions framing dedupe."""
     from interview_mux.stages.edl_narrative_audit import (
         prepare_edl_narrative_audit_inputs,
     )
 
     _plant_duplicate_spoken_seam(ctx)
+    before_tr = ctx.read_json("master/transitions.json")
     payload = prepare_edl_narrative_audit_inputs(ctx)
 
-    assert payload["transitions"]["transitions"] == []
+    assert payload["transitions"] == before_tr
+    after_tr = ctx.read_json("master/transitions.json")
+    assert after_tr == before_tr
     occupancy = payload["seam_occupancy"]
-    assert occupancy["clean"] is True
     assert occupancy["seams"][0]["kind"] == "layup"
     assert occupancy["seams"][0]["line_id"] == "vo_layup_seg_002"
-    assert ctx.read_json("master/seam_occupancy.json") == occupancy
+    # Occupancy may be in-memory only — do not require disk persist from audit.
+    assert not ctx.artifact_exists("master/seam_occupancy.json")
 
 
 @pytest.mark.parametrize("epoch", ["soft_freeze", "hard_freeze"])

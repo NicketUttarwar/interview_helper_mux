@@ -325,7 +325,9 @@ def test_decline_runs_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         },
     )
     fs_write_json(prior.path("ingest/loudness.json"), {"integrated_lufs": -16.0})
-    prior.mark_done("ingest")
+    from run_fixtures import mark_done_raw
+
+    mark_done_raw(prior, "ingest")
 
     record_reuse_decision(current, "ingest", action="decline")
     assert resolve_before_stage_run(current, "ingest") == "run"
@@ -347,7 +349,9 @@ def test_resolve_raises_when_offer_needed(tmp_path: Path, monkeypatch: pytest.Mo
         },
     )
     fs_write_json(prior.path("ingest/loudness.json"), {"integrated_lufs": -16.0})
-    prior.mark_done("ingest")
+    from run_fixtures import mark_done_raw
+
+    mark_done_raw(prior, "ingest")
 
     with pytest.raises(StageReuseOfferPending) as exc:
         resolve_before_stage_run(current, "ingest")

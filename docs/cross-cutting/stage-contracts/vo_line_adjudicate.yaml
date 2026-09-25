@@ -14,7 +14,6 @@ outputs:
   staging: true
 - path: understanding/gap_report.json
   staging: true
-- path: understanding/nugget_allocation_plan.json
 inputs:
   hard:
   - path: understanding/nugget_layup_plan.json

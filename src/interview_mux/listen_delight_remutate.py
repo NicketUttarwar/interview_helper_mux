@@ -357,24 +357,10 @@ def apply_listen_delight_remutate(
         expanded = _expand_recommendability(ctx, list(raw_failed))
     failed = {str(x) for x in expanded}
     assembly_ready = ctx.artifact_exists("master/assembly_preview.wav") or ctx.is_done("edl")
-    if (
-        "nugget_retention" in failed
-        and not assembly_ready
-        and ctx.artifact_exists("master/selection.json")
-    ):
-        try:
-            from interview_mux.creative_delivery import enforce_creative_selection_edit
-
-            sel = ctx.read_json("master/selection.json")
-            if isinstance(sel, dict):
-                packed = enforce_creative_selection_edit(
-                    ctx, sel, stage="listen_delight_remutate"
-                )
-                if isinstance(packed, dict):
-                    ctx.write_json("master/selection.json", packed)
-                    notes.append("packed_selection_for_nugget_retention")
-        except Exception as exc:
-            notes.append(f"pack_failed:{exc}")
+    # S3: never pack selection from delight remutate — retention misses remutate
+    # ranking/layup owners only (no unpaid co-write of master/selection.json).
+    if "nugget_retention" in failed and not assembly_ready:
+        notes.append("nugget_retention_remutate_no_selection_pack")
 
     stages = [str(s) for s in (doc.get("from_stages") or []) if str(s)]
     # c15: honor axes_allowed from gain gate when present (narrow clears).

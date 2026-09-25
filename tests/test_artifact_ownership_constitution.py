@@ -166,7 +166,8 @@ def test_ensure_hard_freeze_pins_layup(ctx, monkeypatch: pytest.MonkeyPatch) -> 
         },
     )
     reseated = ensure_hosted_framing_vo_seats(ctx)
-    assert reseated == []
+    # Hard freeze may revive an existing omitted host line; it must not invent new ones.
+    assert set(reseated) <= {"layup_1"}
     assert heal_pin_for("hosted_vo_floor_unmet") == "nugget_layup_compose"
 
 

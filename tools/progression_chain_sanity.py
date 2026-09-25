@@ -17,6 +17,7 @@ from progression_chain_sanity_helpers import (  # noqa: E402
     FULL_PROGRESSION_CHAIN,
     PROGRESSION_ANALYSIS_STAGES,
     PROGRESSION_FLOW_STAGES,
+    plant_progression_research_ready,
     run_progression_chain_sanity,
 )
 from run_fixtures import isolated_run_ctx, patch_merged_config  # noqa: E402
@@ -92,6 +93,7 @@ def main() -> int:
         patch_merged_config(mp, cfg)  # type: ignore[arg-type]
 
         ctx = isolated_run_ctx(tmp, "progression_sanity_cli")
+        plant_progression_research_ready(ctx)
         chain = (
             list(PROGRESSION_ANALYSIS_STAGES)
             if args.scope == "analysis"

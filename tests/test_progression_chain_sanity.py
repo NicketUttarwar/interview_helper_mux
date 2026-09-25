@@ -43,7 +43,19 @@ def sanity_ctx(tmp_path, monkeypatch):
         "interview_mux.interview_spine.config.spine_enabled",
         lambda *_a, **_k: False,
     )
-    return isolated_run_ctx(tmp_path, "progression_sanity")
+    from progression_chain_sanity_helpers import (
+        PROGRESSION_WALK_HOST_SPEAKER_ID,
+        plant_progression_research_ready,
+        seed_progression_walk_gates,
+    )
+    from run_fixtures import confirm_test_pickup_speaker, plant_seed_complete_through
+
+    ctx = isolated_run_ctx(tmp_path, "progression_sanity")
+    plant_seed_complete_through(ctx, "audio_probe_build")
+    confirm_test_pickup_speaker(ctx, PROGRESSION_WALK_HOST_SPEAKER_ID)
+    seed_progression_walk_gates(ctx)
+    plant_progression_research_ready(ctx)
+    return ctx
 
 
 def test_progression_start_is_content_context():

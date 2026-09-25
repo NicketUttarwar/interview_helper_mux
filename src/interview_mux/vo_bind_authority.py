@@ -19,9 +19,11 @@ def heal_seated_bind_mismatch(
     *,
     attempt_synth: bool = True,
 ) -> dict[str, list[str]]:
-    """Restore seated bind: promote, accept WAV, resynth, else omit last.
+    """Restore seated bind: promote, accept WAV, resynth; else refuse incomplete.
 
     Returns ``{resynthesized, omitted, refused}`` line ids.
+    S2: never omit seated synth fail as success — leave refused for incompleteness.
+    Process omit helper remains for catastrophe call sites only.
     """
     from interview_mux.write_staging import (
         discard_non_owner_pending_vo_pickup,
@@ -76,10 +78,8 @@ def heal_seated_bind_mismatch(
         if _line_wav_present(ctx, row):
             out["resynthesized"].append(lid)
             continue
-        if _omit_bind_failed_line(ctx, lid, row):
-            out["omitted"].append(lid)
-        else:
-            out["refused"].append(lid)
+        # S2: seated synth fail → refuse incomplete (no omit-as-success / plan unseat).
+        out["refused"].append(lid)
     discard_non_owner_pending_vo_pickup(ctx)
     return out
 

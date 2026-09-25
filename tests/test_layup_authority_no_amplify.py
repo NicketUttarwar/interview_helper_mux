@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
+from interview_mux.artifact_repairs import repair_gap_report
 from run_fixtures import isolated_run_ctx, patch_executions_root
 
 
@@ -15,7 +15,6 @@ def test_seed_skipped_under_layup_authority(tmp_path: Path, monkeypatch) -> None
         "nugget_layup_authority": True,
         "interviewer_lines": [],
     }
-    applied: list[dict] = []
     called = {"fill": False}
 
     def _boom(*_a, **_k):  # noqa: ANN001
@@ -26,14 +25,10 @@ def test_seed_skipped_under_layup_authority(tmp_path: Path, monkeypatch) -> None
         "interview_mux.high_gap_vo.fill_uncovered_high_gaps",
         _boom,
     )
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids=set(), applied=applied
-    )
+    patched, applied = repair_gap_report(ctx, out)
     assert called["fill"] is False
-    assert any(
-        a.get("action") == "skip_high_gap_seed_under_layup_authority" for a in applied
-    )
-    assert out["interviewer_lines"] == []
+    assert not any(str(a.get("action") or "").startswith("seed_") for a in applied)
+    assert patched["interviewer_lines"] == []
 
 
 def test_density_skipped_under_layup_authority(tmp_path: Path, monkeypatch) -> None:

@@ -18,7 +18,7 @@ from interview_mux.stages.assembly import (
     _persist_selection_for_edl,
     _selection_write_permitted,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, write_fixture_json
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def _seed_selection(ctx: RunContext) -> dict:
         "ordered_segment_ids": ["seg_001", "seg_002"],
         "excluded_segment_ids": [],
     }
-    ctx.write_json("master/selection.json", doc, stage_key="selection_order_sanitize")
+    write_fixture_json(ctx, "master/selection.json", doc)
     return doc
 
 
@@ -62,7 +62,7 @@ def test_i18_permitted_selection_write_still_lands(ctx: RunContext) -> None:
     doc = ctx.read_json("master/selection.json")
     doc["ordered_segment_ids"] = ["seg_001"]
     # Owner-permitted path: write through the sanctioned owner stage.
-    ctx.write_json("master/selection.json", doc, stage_key="selection_order_sanitize")
+    write_fixture_json(ctx, "master/selection.json", doc)
     assert ctx.read_json("master/selection.json")["ordered_segment_ids"] == ["seg_001"]
 
 
@@ -79,7 +79,7 @@ def test_i19_frozen_gap_report_is_not_rewritten_by_edl(
     from interview_mux.stages.assembly import _commit_edl_gap_report
 
     doc = {"version": 1, "interviewer_lines": [{"segment_id": "seg_001", "text": "a"}]}
-    ctx.write_json("understanding/gap_report.json", doc, stage_key="gap_report_sanitize")
+    write_fixture_json(ctx, "understanding/gap_report.json", doc)
 
     calls: list[str] = []
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_i20_orientation_retarget_skips_frozen_gap_report(
             {"line_id": "l1", "segment_id": "seg_001", "text": "hello", "kind": "bridge"}
         ],
     }
-    ctx.write_json("understanding/gap_report.json", gap, stage_key="gap_report_sanitize")
+    write_fixture_json(ctx, "understanding/gap_report.json", gap)
     ctx.write_json(
         "master/selection.json",
         {"version": 1, "ordered_segment_ids": ["seg_001"], "excluded_segment_ids": []},

@@ -86,7 +86,7 @@ def test_hv3_settled_lines_no_invented_action(
             "interviewer_lines": [
                 {
                     "line_id": _LINE,
-                    "text": "Already settled copy.",
+                    "text": "Already settled spoken copy about the buyer reaction.",
                     "delivery": "synthesize",
                     "targets_segment_id": "seg_001",
                 }

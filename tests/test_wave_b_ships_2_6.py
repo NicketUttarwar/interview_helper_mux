@@ -13,6 +13,7 @@ from interview_mux.opening_adjacency_repair import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.stage_input_checks import collect_stage_input_issues
+from run_fixtures import write_fixture_json
 
 
 def _dump_raw(ctx: RunContext, rel: str, doc: dict) -> None:
@@ -112,7 +113,18 @@ def test_first_layup_compose_not_blocked_by_missing_plan() -> None:
 
 def test_opening_adjacency_uses_commit_not_fs_write(tmp_path: Path, monkeypatch) -> None:
     ctx = RunContext(create=True)
-    _dump_raw(
+    orig_write = ctx.write_json
+
+    def _owner_writes(rel, data, **kwargs):
+        rel_n = str(rel or "").replace("\\", "/")
+        if rel_n == "master/selection.json":
+            kwargs["stage_key"] = "selection_order_sanitize"
+        elif rel_n == "understanding/gap_report.json":
+            kwargs.setdefault("stage_key", "gap_report_sanitize")
+        return orig_write(rel, data, **kwargs)
+
+    ctx.write_json = _owner_writes  # type: ignore[method-assign]
+    write_fixture_json(
         ctx,
         "master/selection.json",
         {
@@ -141,16 +153,16 @@ def test_opening_adjacency_uses_commit_not_fs_write(tmp_path: Path, monkeypatch)
         "gaps": [],
         "opening_orientation": {"required": True, "line_id": "vo_orient"},
     }
-    _dump_raw(ctx, "understanding/gap_report.json", gap)
+    write_fixture_json(ctx, "understanding/gap_report.json", gap)
 
     calls: list[str] = []
 
-    def _track_commit(c, doc, *, reason=""):
+    def _track_commit(c, doc, *, reason="", **_kwargs):
         calls.append(reason or "commit")
         from interview_mux.artifact_sanitize.gap_report import sanitize_gap_report
 
         result = sanitize_gap_report(c, dict(doc))
-        _dump_raw(c, "understanding/gap_report.json", result.doc)
+        write_fixture_json(c, "understanding/gap_report.json", result.doc)
         return result
 
     monkeypatch.setattr(

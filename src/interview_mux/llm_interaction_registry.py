@@ -51,6 +51,8 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "master_transcript_build": "OF-MT",
     "junction_feel_audit": "OH-J1",
     "junction_thought_complete": "OH-J2",
+    "junction_snip_qa": "OH-J3",
+    "sound_design_vo_finalize": "OF-05c",
     # A-03 Shape/research LLM cutover (flag-gated; OH-01 research_router id stays dropped)
     "mastering_research_routing": "OH-R1",
     "mastering_shape_agenda": "OH-S0",

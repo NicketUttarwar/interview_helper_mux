@@ -14,7 +14,9 @@ from interview_mux.run_context import RunContext
 from interview_mux.web.server import create_app, mark_preview_listened
 from run_fixtures import (
     MINIMAL_WAV_BYTES,
+    confirm_test_pickup_speaker,
     init_run_meta_for_test,
+    mark_done_raw,
     minimal_content_brief,
     minimal_gap_line,
     minimal_gap_report,
@@ -22,6 +24,8 @@ from run_fixtures import (
     patch_executions_root,
     populated_analysis_state,
     seed_flow1_sound_spend_ready,
+    write_fixture_json,
+    write_fixture_theme_wav,
 )
 
 _FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "tbiy" / "one_on_one_asymmetric"
@@ -38,15 +42,16 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
 
     topo = _load_fixture("topology.json")
     adapt = _load_fixture("flow_adaptation.json")
-    ctx.write_json("understanding/source_topology.json", topo, skip_handoff=True)
-    ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+    write_fixture_json(ctx, "understanding/source_topology.json", topo)
+    write_fixture_json(ctx, "understanding/flow_adaptation.json", adapt)
+    confirm_test_pickup_speaker(ctx, speaker_id=str(adapt.get("pickup_eligible_speaker_id") or "spk_1"))
 
     brief = minimal_content_brief(
         strategic_moat_concept="Network effects from two-sided marketplace density",
         era_tags=[{"era": "1990s", "geography": "US"}],
     )
-    ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
-    ctx.write_json("segments/manifest.json", minimal_manifest("seg_001", "seg_002"), skip_handoff=True)
+    write_fixture_json(ctx, "understanding/content_brief.json", brief)
+    write_fixture_json(ctx, "segments/manifest.json", minimal_manifest("seg_001", "seg_002"))
 
     state = populated_analysis_state(ctx.run_id, verified=False)
     state.setdefault("meta", {})["production_style"] = TBIY_STYLE
@@ -55,7 +60,7 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
         "thesis": "How a category leader built defensible scale.",
         "strategic_moat_concept": brief["strategic_moat_concept"],
     }
-    ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
+    write_fixture_json(ctx, "understanding/analysis_state.json", state)
 
     gap = minimal_gap_report(
         minimal_gap_line(
@@ -78,7 +83,7 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
 
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     meta["production_style"] = TBIY_STYLE
-    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    write_fixture_json(ctx, "run_meta.json", meta)
 
     seed_flow1_sound_spend_ready(ctx)
     from interview_mux.source_topology import pickup_eligible_speaker_id
@@ -87,9 +92,9 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
     for ln in gap.get("interviewer_lines") or []:
         if isinstance(ln, dict):
             ln["voice_speaker_id"] = eligible
-    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
-    (ctx.path("master") / "assembly_preview.wav").write_bytes(MINIMAL_WAV_BYTES)
-    ctx.mark_done("assembly_preview")
+    write_fixture_json(ctx, "understanding/gap_report.json", gap)
+    write_fixture_theme_wav(ctx, "master/assembly_preview.wav")
+    mark_done_raw(ctx, "assembly_preview")
 
 def _client_with_tbiy_run(tmp_path: Path, monkeypatch) -> tuple[TestClient, RunContext]:
     patch_executions_root(monkeypatch, tmp_path)
@@ -184,6 +189,17 @@ def test_tbiy_g1_5_stage_action_required(tmp_path: Path, monkeypatch) -> None:
     }
 
 def test_tbiy_gap_report_studio_crud(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux import artifact_writes as aw
+
+    real_write = aw.write_validated_artifact
+
+    def _write(ctx, rel, data, **kwargs):
+        if rel == "understanding/gap_report.json":
+            kwargs["stage_key"] = "gap_framing_compose"
+        return real_write(ctx, rel, data, **kwargs)
+
+    monkeypatch.setattr(aw, "write_validated_artifact", _write)
+    monkeypatch.setattr("interview_mux.gap_report_api.write_validated_artifact", _write)
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
     run_id = ctx.run_id
 

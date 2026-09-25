@@ -278,10 +278,18 @@ def finalize_selection_order(
 
 
 
+
+
+
 def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
     """Commit ranking artifacts without re-running the LLM."""
     if not ranking_artifacts_persistable(artifacts):
         raise ValueError("ranking artifacts missing ordered_segment_ids")
+    from interview_mux.framing_coverage_guard import inject_ranking_lattice_keeps
+
+    artifacts = inject_ranking_lattice_keeps(
+        ctx, artifacts, stage="full_master_ranking"
+    )
     artifacts = finalize_selection_order(
         ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
     )
@@ -301,12 +309,7 @@ def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
         merge_from_disk=True,
         skip_checkpoint=True,
     )
-    try:
-        from interview_mux.nugget_layup import adopt_layup_plan_to_selection
-
-        adopt_layup_plan_to_selection(ctx, persist=True, stage="full_master_ranking")
-    except Exception:
-        pass
+    # FMR S6: bridges / SDP / gap VO rebudget land on selection_order_sanitize.
 
 
 def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
@@ -375,10 +378,13 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
         payload = attach_framing_to_ranking_payload(c, payload)
         try:
-            from interview_mux.segment_fuse import FUSE_AUDIT_PATH, FUSE_ROUNDS_PATH
+            from interview_mux.segment_fuse import (
+                FUSE_AUDIT_PATH,
+                FUSE_ROUNDS_PRE_RANKING_PATH,
+            )
 
-            if c.artifact_exists(FUSE_ROUNDS_PATH):
-                rounds = c.read_json(FUSE_ROUNDS_PATH)
+            if c.artifact_exists(FUSE_ROUNDS_PRE_RANKING_PATH):
+                rounds = c.read_json(FUSE_ROUNDS_PRE_RANKING_PATH)
                 if isinstance(rounds, dict) and str(rounds.get("pass_id") or "") == "pre_ranking":
                     applied_rows: list[dict] = []
                     if c.artifact_exists(FUSE_AUDIT_PATH):
@@ -459,7 +465,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
-        # App-base topo repair BEFORE NLE overlay (NLE is overlay-only).
+        # Membership-only path (FMR S1–S4): repair → bind → keeps → finalize CTA →
+        # cover → one seal → commit. Side artifacts run fail-open after commit.
         plan = (
             c.read_json("master/narrative_plan.json")
             if c.artifact_exists("master/narrative_plan.json")
@@ -480,13 +487,11 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             )
 
         nle = load_nle(c)
-        nle_overlay = False
         if nle_has_operator_edits(nle):
             by_id = segments_by_id_with_nle(c)
             artifacts = apply_nle_to_selection(
                 artifacts, nle, segments_by_id=by_id
             )
-            nle_overlay = True
             _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
         from interview_mux.creative_delivery import enforce_creative_selection_edit
         from interview_mux.selection_auto_pack import auto_pack_selection_to_brief
@@ -503,45 +508,31 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             )
         except Exception:
             pass
-        from interview_mux.selection_constraints import seal_selection_lattice
-        from interview_mux.hard_keep import enforce_hard_keeps
-
-        artifacts = seal_selection_lattice(c, artifacts, fail_closed=True)
+        # S1: no mid-pipeline seal — only seal once immediately before commit.
         artifacts = enforce_stt_island_selection_guards(c, artifacts, stage="full_master_ranking")
 
-        from interview_mux.story_health import evaluate_story_health
-        from interview_mux.reorder_bridges import build_reorder_bridges
-        from interview_mux.bridge_voice_policy import annotate_reorder_bridges
-        from interview_mux.speaker_delivery_plan import write_speaker_delivery_plan
-        from interview_mux.rank_candidates import chapter_order_from_plan, pick_best_order
         from interview_mux.shape_order_bind import resolve_air_order
         from interview_mux.listen_quality import ensure_hook_early
-        from interview_mux.split_plan import clear_split_rerank_cascade
+        from interview_mux.open_shape_repair import (
+            preserve_ranking_membership,
+            repair_open_shape_selection,
+        )
+        from interview_mux.framing_coverage_guard import inject_ranking_lattice_keeps
 
-        by_id = segments_by_id_with_nle(c) if nle_overlay else {}
-        if not by_id and c.artifact_exists("segments/manifest.json"):
+        by_id: dict[str, Any] = {}
+        if c.artifact_exists("segments/manifest.json"):
             man = c.read_json("segments/manifest.json")
             by_id = {
                 str(s["segment_id"]): s
                 for s in (man.get("segments") or [])
                 if isinstance(s, dict) and s.get("segment_id")
             }
+            if nle_has_operator_edits(nle):
+                by_id = segments_by_id_with_nle(c) or by_id
 
         ranking_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-        candidates: list[dict] = [
-            {"source": "ranking", "ordered_segment_ids": ranking_ordered},
-        ]
-        chapter_cand = chapter_order_from_plan(plan if isinstance(plan, dict) else None)
-        if chapter_cand and chapter_cand != ranking_ordered:
-            # Reorder ranking by chapter head — never shrink membership to chapter-only.
-            kept = set(ranking_ordered) if ranking_ordered else set(chapter_cand)
-            head = [s for s in chapter_cand if s in kept]
-            if ranking_ordered:
-                tail = [s for s in ranking_ordered if s not in set(head)]
-                filtered_ch = head + tail
-            else:
-                filtered_ch = head or chapter_cand
-            candidates.append({"source": "narrative_chapters", "ordered_segment_ids": filtered_ch})
+        membership_prior = list(ranking_ordered)
+        manifest_ids = set(by_id.keys()) if by_id else None
 
         mp = None
         if c.artifact_exists("mastering/mastering_plan.json"):
@@ -549,12 +540,77 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 mp = c.read_json("mastering/mastering_plan.json")
             except Exception:
                 mp = None
-        if isinstance(mp, dict):
-            shape_ids = [str(s) for s in (mp.get("ordered_segment_ids") or []) if s]
-            if shape_ids:
-                kept = set(ranking_ordered) if ranking_ordered else set(shape_ids)
-                filtered_sh = [s for s in shape_ids if s in kept] or shape_ids
-                candidates.append({"source": "shape", "ordered_segment_ids": filtered_sh})
+
+        # S3: one order bind — ideal_cuts seed XOR Shape head; never pick_best_order.
+        from interview_mux.ideal_cuts import (
+            SELECTION_SEED_REL,
+            bind_ranking_enabled,
+            ideal_cuts_cfg,
+            resolve_ideal_cuts_air_order,
+        )
+
+        icfg = ideal_cuts_cfg()
+        bound = False
+        if bind_ranking_enabled(icfg) and icfg.get("prefer_seed_over_ranking", True):
+            if c.artifact_exists(SELECTION_SEED_REL):
+                seed = c.read_json(SELECTION_SEED_REL)
+                seed_bind = resolve_ideal_cuts_air_order(
+                    seed=seed if isinstance(seed, dict) else None,
+                    selection_ordered=list(ranking_ordered),
+                )
+                if seed_bind.get("order_authority") == "ideal_cuts":
+                    artifacts["ordered_segment_ids"] = preserve_ranking_membership(
+                        membership_prior,
+                        list(seed_bind.get("ordered_segment_ids") or []),
+                        manifest_ids=manifest_ids,
+                    )
+                    artifacts["order_authority"] = "ideal_cuts"
+                    artifacts["order_bind_reason"] = seed_bind.get("bind_reason")
+                    bound = True
+                    c.log(
+                        f"ideal_cuts seed bind: {seed_bind.get('bind_reason')}",
+                        level="info",
+                        stage="full_master_ranking",
+                    )
+        if not bound:
+            bind = resolve_air_order(
+                mastering_plan=mp if isinstance(mp, dict) else None,
+                selection_ordered=list(artifacts.get("ordered_segment_ids") or ranking_ordered),
+                narrative_plan=plan if isinstance(plan, dict) else None,
+                prefer_shape=True,
+            )
+            if bind.get("order_authority") == "shape" and bind.get("ordered_segment_ids"):
+                artifacts["ordered_segment_ids"] = preserve_ranking_membership(
+                    membership_prior,
+                    list(bind["ordered_segment_ids"]),
+                    manifest_ids=manifest_ids,
+                )
+                artifacts["order_authority"] = "shape"
+                artifacts["order_bind_reason"] = bind.get("bind_reason")
+                c.log(
+                    f"hybrid Shape bind: using plan order ({bind.get('bind_reason')})",
+                    level="info",
+                    stage="full_master_ranking",
+                )
+            else:
+                artifacts["order_authority"] = bind.get("order_authority") or "ranking"
+                artifacts["order_bind_reason"] = bind.get("bind_reason") or "llm_ranking"
+
+        # Metrics-only candidate ledger (does not edit membership).
+        try:
+            c.write_json(
+                "master/rank_candidates.json",
+                {
+                    "winner": artifacts.get("order_authority") or "ranking",
+                    "ordered_segment_ids": list(
+                        artifacts.get("ordered_segment_ids") or ranking_ordered
+                    ),
+                    "sources": [artifacts.get("order_authority") or "ranking"],
+                    "bind_reason": artifacts.get("order_bind_reason"),
+                },
+            )
+        except Exception:
+            pass
 
         hook_id = None
         if c.artifact_exists("understanding/episode_structure.json"):
@@ -572,133 +628,6 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             cold = mp.get("cold_open") if isinstance(mp.get("cold_open"), dict) else {}
             hook_id = cold.get("segment_id") or cold.get("hook_segment_id")
 
-        gap = (
-            c.read_json("understanding/gap_report.json")
-            if c.artifact_exists("understanding/gap_report.json")
-            else None
-        )
-        tr = (
-            c.read_json("master/transitions.json")
-            if c.artifact_exists("master/transitions.json")
-            else None
-        )
-        brief_min = None
-        brief_ideal = None
-        if c.artifact_exists("understanding/delivery_brief.json"):
-            try:
-                from interview_mux.delivery_brief import load_delivery_brief
-
-                brief = load_delivery_brief(c)
-                band = (brief or {}).get("target_duration_sec") or {}
-                if isinstance(band, dict):
-                    if band.get("min") is not None:
-                        brief_min = float(band["min"])
-                    if band.get("ideal") is not None:
-                        brief_ideal = float(band["ideal"])
-            except Exception:
-                brief_min = None
-                brief_ideal = None
-        pick = pick_best_order(
-            candidates,
-            narrative_plan=plan if isinstance(plan, dict) else None,
-            segments_by_id=by_id,
-            gap_report=gap if isinstance(gap, dict) else None,
-            transitions=tr if isinstance(tr, dict) else None,
-            hook_segment_id=str(hook_id) if hook_id else None,
-            brief_min_sec=brief_min,
-            brief_ideal_sec=brief_ideal,
-            ctx=c,
-        )
-        c.write_json("master/rank_candidates.json", pick)
-        dual_ordered = [str(s) for s in (pick.get("ordered_segment_ids") or ranking_ordered) if s]
-        if dual_ordered:
-            from interview_mux.open_shape_repair import preserve_ranking_membership
-
-            dual_ordered = preserve_ranking_membership(
-                ranking_ordered,
-                dual_ordered,
-                manifest_ids=set(by_id.keys()) if by_id else None,
-            )
-            prior = set(ranking_ordered)
-            dropped = [s for s in prior if s not in set(dual_ordered)]
-            artifacts["ordered_segment_ids"] = dual_ordered
-            artifacts["rank_candidate_winner"] = pick.get("winner")
-            if dropped:
-                excl = list(artifacts.get("excluded_segment_ids") or [])
-                have = {
-                    (e if isinstance(e, str) else str((e or {}).get("segment_id") or ""))
-                    for e in excl
-                }
-                for sid in dropped:
-                    if sid not in have:
-                        excl.append({"segment_id": sid, "reason": "pick_best_order_drop"})
-                artifacts["excluded_segment_ids"] = excl
-            artifacts = enforce_hard_keeps(c, artifacts)
-
-        membership_prior = [
-            str(s) for s in (artifacts.get("ordered_segment_ids") or ranking_ordered) if s
-        ]
-
-        # Hybrid Shape bind (per-run; global consumers_bind stays false)
-        bind = resolve_air_order(
-            mastering_plan=mp if isinstance(mp, dict) else None,
-            selection_ordered=list(artifacts.get("ordered_segment_ids") or []),
-            narrative_plan=plan if isinstance(plan, dict) else None,
-            prefer_shape=True,
-        )
-        if bind.get("order_authority") == "shape" and bind.get("ordered_segment_ids"):
-            from interview_mux.open_shape_repair import preserve_ranking_membership
-
-            artifacts["ordered_segment_ids"] = preserve_ranking_membership(
-                membership_prior,
-                list(bind["ordered_segment_ids"]),
-                manifest_ids=set(by_id.keys()) if by_id else None,
-            )
-            c.log(
-                f"hybrid Shape bind: using plan order ({bind.get('bind_reason')})",
-                level="info",
-                stage="full_master_ranking",
-            )
-        artifacts["order_authority"] = bind.get("order_authority") or "ranking"
-        artifacts["order_bind_reason"] = bind.get("bind_reason")
-
-        # Talking-points-first seed bind (after Shape unless prefer_seed_over_shape).
-        from interview_mux.ideal_cuts import (
-            SELECTION_SEED_REL,
-            bind_ranking_enabled,
-            ideal_cuts_cfg,
-            resolve_ideal_cuts_air_order,
-        )
-
-        icfg = ideal_cuts_cfg()
-        if bind_ranking_enabled(icfg) and icfg.get("prefer_seed_over_ranking", True):
-            shape_won = artifacts.get("order_authority") == "shape"
-            if shape_won and not icfg.get("prefer_seed_over_shape", False):
-                pass
-            elif c.artifact_exists(SELECTION_SEED_REL):
-                seed = c.read_json(SELECTION_SEED_REL)
-                seed_bind = resolve_ideal_cuts_air_order(
-                    seed=seed if isinstance(seed, dict) else None,
-                    selection_ordered=list(artifacts.get("ordered_segment_ids") or []),
-                )
-                if seed_bind.get("order_authority") == "ideal_cuts":
-                    from interview_mux.open_shape_repair import preserve_ranking_membership
-
-                    artifacts["ordered_segment_ids"] = preserve_ranking_membership(
-                        membership_prior,
-                        list(seed_bind.get("ordered_segment_ids") or []),
-                        manifest_ids=set(by_id.keys()) if by_id else None,
-                    )
-                    artifacts["order_authority"] = "ideal_cuts"
-                    artifacts["order_bind_reason"] = seed_bind.get("bind_reason")
-                    c.log(
-                        f"ideal_cuts seed bind: {seed_bind.get('bind_reason')}",
-                        level="info",
-                        stage="full_master_ranking",
-                    )
-                artifacts = enforce_hard_keeps(c, artifacts)
-
-        # Guarantee hook in first 30–60s window (first three slots)
         ordered, hook_moved = ensure_hook_early(
             [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s],
             str(hook_id) if hook_id else None,
@@ -711,146 +640,18 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 stage="full_master_ranking",
             )
 
-        # Deterministic open-shape repair (repair-then-commit; never refuse here).
-        from interview_mux.open_shape_repair import repair_open_shape_selection
-
         artifacts, _open_actions = repair_open_shape_selection(
             c,
             artifacts,
             hook_segment_id=str(hook_id) if hook_id else None,
             stage="full_master_ranking",
         )
-        ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
 
-        chapter_ends: set[str] = set()
-        if isinstance(plan, dict):
-            for ch in plan.get("chapters") or []:
-                if isinstance(ch, dict):
-                    ids = [str(x) for x in (ch.get("segment_ids") or []) if x]
-                    if ids:
-                        chapter_ends.add(ids[-1])
-        narrative_mode = None
-        if isinstance(mp, dict) and mp.get("narrative_mode"):
-            narrative_mode = str(mp.get("narrative_mode"))
-        elif isinstance(plan, dict) and plan.get("narrative_mode"):
-            narrative_mode = str(plan.get("narrative_mode"))
-        vo_shape = None
-        try:
-            from interview_mux.speaker_delivery_plan import episode_vo_identity
-
-            vo_shape = str((episode_vo_identity(c) or {}).get("vo_shape") or "") or None
-        except Exception:
-            vo_shape = None
-        bridges = annotate_reorder_bridges(
-            build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
-            narrative_mode=narrative_mode,
-            episode_vo_shape=vo_shape,
+        # S2: lattice keeps before CTA/finalize so omit cannot re-break membership.
+        artifacts = inject_ranking_lattice_keeps(
+            c, artifacts, stage="full_master_ranking"
         )
-        try:
-            from interview_mux.bridge_completeness import mint_needs_spoken_glue_placeholders
 
-            bridges = mint_needs_spoken_glue_placeholders(c, bridges, ordered=ordered)
-        except Exception:
-            pass
-        c.write_json("understanding/reorder_bridges.json", bridges)
-
-        cov = (
-            c.read_json("master/coverage_audit.json")
-            if c.artifact_exists("master/coverage_audit.json")
-            else None
-        )
-        health = evaluate_story_health(
-            ordered=ordered,
-            narrative_plan=plan if isinstance(plan, dict) else None,
-            coverage_audit=cov if isinstance(cov, dict) else None,
-            reorder_bridges=bridges,
-            gap_report=gap if isinstance(gap, dict) else None,
-            transitions=tr if isinstance(tr, dict) else None,
-            nle_overlay_applied=nle_overlay,
-            hook_segment_id=str(hook_id) if hook_id else None,
-        )
-        c.write_json("master/story_health.json", health)
-        if health.get("verdict") == "fail":
-            # Bounded app-base re-topo then re-score once
-            from interview_mux.selection_order_repair import repair_selection_order
-
-            repaired, notes = repair_selection_order(
-                artifacts, plan if isinstance(plan, dict) else None,
-                source_start_ms=_source_start_ms_map(c) or None,
-            )
-            if notes:
-                artifacts = enforce_hard_keeps(c, repaired)
-                ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-                bridges = annotate_reorder_bridges(
-                    build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
-                    narrative_mode=narrative_mode,
-                    episode_vo_shape=vo_shape,
-                )
-                c.write_json("understanding/reorder_bridges.json", bridges)
-                health = evaluate_story_health(
-                    ordered=ordered,
-                    narrative_plan=plan if isinstance(plan, dict) else None,
-                    coverage_audit=cov if isinstance(cov, dict) else None,
-                    reorder_bridges=bridges,
-                    gap_report=gap if isinstance(gap, dict) else None,
-                    transitions=tr if isinstance(tr, dict) else None,
-                    nle_overlay_applied=nle_overlay,
-                    hook_segment_id=str(hook_id) if hook_id else None,
-                )
-                c.write_json("master/story_health.json", health)
-                c.log(
-                    f"story_health fail → topo re-pass ({len(notes)} notes); "
-                    f"verdict now {health.get('verdict')}",
-                    level="warning",
-                    stage="full_master_ranking",
-                )
-            if health.get("verdict") == "fail":
-                c.log(
-                    f"story_health fail ({health.get('error_count')} issues) — "
-                    "selection still commits; pin transitions/seam for glue",
-                    level="warning",
-                    stage="full_master_ranking",
-                    detail=health.get("issues", [])[:6],
-                )
-                try:
-                    c.write_json(
-                        "operator/ranking_glue_pin.json",
-                        {
-                            "version": 1,
-                            "from_stage": "full_master_ranking",
-                            "pin_stages": ["transitions", "edl"],
-                            "reason": "story_health_fail_after_repair",
-                            "error_count": health.get("error_count"),
-                            "issues": (health.get("issues") or [])[:8],
-                        },
-                        stage_key="full_master_ranking",
-                    )
-                except Exception:
-                    pass
-        elif health.get("verdict") == "warn":
-            c.log(
-                f"story_health warn — shipping with issues "
-                f"(nle_overlay={nle_overlay})",
-                level="warning",
-                stage="full_master_ranking",
-                detail=health.get("issues", [])[:6],
-            )
-
-        try:
-            write_speaker_delivery_plan(c)
-        except Exception as exc:
-            c.log(
-                f"speaker_delivery_plan skipped: {exc}",
-                level="warning",
-                stage="full_master_ranking",
-            )
-
-        try:
-            clear_split_rerank_cascade(c)
-        except Exception:
-            pass
-
-        # Final topo + integrity finalize after Shape/hook/story_health drift.
         final_ordered = [
             str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s
         ]
@@ -870,6 +671,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.air_order_boundary import commit_selection_mutation
 
         artifacts = cover_ranking_manifest_membership(c, artifacts)
+        # S1: single seal immediately before commit.
         artifacts = seal_selection_lattice(c, artifacts, fail_closed=True)
         commit_selection_mutation(
             c,
@@ -880,38 +682,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             merge_from_disk=True,
             skip_checkpoint=True,
         )
-        try:
-            from interview_mux.nugget_layup import adopt_layup_plan_to_selection
-
-            adopt_layup_plan_to_selection(c, persist=True, stage="full_master_ranking")
-        except Exception:
-            pass
-        # Unify narrative constraints with selection air-order (flagship reconcile on conflict).
-        try:
-            from interview_mux.order_reconcile import reconcile_selection_and_narrative
-
-            reconcile_selection_and_narrative(
-                c, allow_llm=True, label="full_master_ranking/order_reconcile"
-            )
-            try:
-                from interview_mux.nugget_layup import adopt_layup_plan_to_selection
-
-                adopt_layup_plan_to_selection(c, persist=True, stage="full_master_ranking")
-            except Exception:
-                pass
-        except Exception as exc:
-            c.log(
-                f"order_reconcile after ranking failed (fail-open): {exc}",
-                level="warning",
-                stage="full_master_ranking",
-            )
-        # R3: selection exists — recompute VO density note for compose/layup floors.
-        try:
-            from interview_mux.gap_vo_rebudget import note_gap_vo_rebudget_after_selection
-
-            note_gap_vo_rebudget_after_selection(c)
-        except Exception:
-            pass
+        # FMR S6: bridges / SDP / gap VO rebudget land on selection_order_sanitize.
 
     with logged_step("full_master_ranking/stt_lexicon_scan", ctx=ctx, stage="full_master_ranking"):
         try:
@@ -957,50 +728,37 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
 
 def run_transitions(ctx: RunContext) -> None:
-    # Repair air-order integrity before transitions freeze bad adjacencies.
+    # S1: detect-only — never mutate selection; dirty air-order pins sanitize.
     if ctx.artifact_exists("master/selection.json"):
-        from interview_mux.air_order_integrity import audit_and_report, on_selection_order_changed
-        from interview_mux.opening_adjacency_repair import (
-            drop_late_intro_reset_from_selection,
-            drop_post_coda_reverse_jump_from_selection,
-        )
-
-        previous = ctx.read_json("master/selection.json")
-        drop_late_intro_reset_from_selection(ctx)
-        drop_post_coda_reverse_jump_from_selection(ctx)
-        audit_and_report(ctx, stage="transitions", repair=True)
-        if isinstance(previous, dict) and ctx.artifact_exists("master/selection.json"):
-            current = ctx.read_json("master/selection.json")
-            if isinstance(current, dict):
-                on_selection_order_changed(
-                    ctx, source="transitions:prerepair", previous=previous, current=current
-                )
+        from interview_mux.air_order_integrity import audit_and_report
         from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+        from interview_mux.loud_fail import raise_loud_failure
 
+        report = audit_and_report(ctx, stage="transitions", repair=False)
         sel = ctx.read_json("master/selection.json")
+        exclude_drift = False
         if isinstance(sel, dict):
             repaired = reconcile_ordered_vs_excluded(sel)
-            if (
+            exclude_drift = (
                 repaired.get("exclude_rationales") != sel.get("exclude_rationales")
                 or repaired.get("ordered_segment_ids") != sel.get("ordered_segment_ids")
                 or repaired.get("excluded_segment_ids") != sel.get("excluded_segment_ids")
-            ):
-                from interview_mux.air_order_boundary import commit_selection_mutation
+            )
+        critical_count = int((report or {}).get("critical_count") or 0)
+        if critical_count > 0 or exclude_drift:
+            raise_loud_failure(
+                ctx,
+                "transitions: selection air-order dirty — resume selection_order_sanitize",
+                stage="transitions",
+                reason="selection_air_order_dirty",
+                detail={
+                    "critical_count": critical_count,
+                    "exclude_drift": exclude_drift,
+                    "resume": "selection_order_sanitize",
+                },
+            )
 
-                commit_selection_mutation(
-                    ctx,
-                    repaired,
-                    producer="transitions",
-                    stage_key="transitions",
-                    checkpoint_mode="repair",
-                    skip_handoff=True,
-                )
-                ctx.log(
-                    "transitions: reconciled selection so exclude_rationales match air order",
-                    level="warning",
-                    stage="transitions",
-                )
-
+    # S3A: under layup, demote-empty only — never re-LLM synthetic content.
     from interview_mux.synthetic_framing import run_synthetic_framing_plan
 
     synthetic_plan = run_synthetic_framing_plan(ctx)
@@ -1184,6 +942,63 @@ def run_transitions(ctx: RunContext) -> None:
             build_input,
             persist_with_framing_dedupe,
         )
+    # S4: seam glue + air-script filter land here; VO WAV mint stays on vo_synthesize.
+    try:
+        from interview_mux.air_script import filter_transitions_for_air_script
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.nle_state import segments_by_id_with_nle
+        from interview_mux.seam_glue import ensure_seam_glue
+
+        sel = (
+            ctx.read_json("master/selection.json")
+            if ctx.artifact_exists("master/selection.json")
+            else {}
+        )
+        ordered = [
+            str(s)
+            for s in ((sel.get("ordered_segment_ids") if isinstance(sel, dict) else None) or [])
+            if s
+        ]
+        gap_report = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        transitions_doc = (
+            ctx.read_json("master/transitions.json")
+            if ctx.artifact_exists("master/transitions.json")
+            else {"transitions": []}
+        )
+        _bridges, transitions_doc, completeness = ensure_seam_glue(
+            ctx,
+            ordered=ordered,
+            segments_by_id=segments_by_id_with_nle(ctx),
+            gap_report=gap_report if isinstance(gap_report, dict) else None,
+            transitions=transitions_doc if isinstance(transitions_doc, dict) else None,
+            soft=False,
+        )
+        filtered = filter_transitions_for_air_script(
+            transitions_doc if isinstance(transitions_doc, dict) else None,
+            load_plan_raw(ctx),
+        )
+        if isinstance(filtered, dict):
+            transitions_doc = filtered
+            ctx.write_json(
+                "master/transitions.json",
+                transitions_doc,
+                stage_key="transitions",
+            )
+        # S4: incomplete glue is refuse — never soft-warn mark_done.
+        if not completeness.get("complete"):
+            raise SystemExit(
+                "transitions: bridge_completeness incomplete after glue mint: "
+                f"missing={completeness.get('missing_count')} "
+                f"detail={completeness.get('missing', [])[:6]}"
+            )
+    except SystemExit:
+        raise
+    except Exception as glue_exc:
+        raise SystemExit(f"transitions: seam glue incomplete: {glue_exc}") from glue_exc
     try:
         from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
         from interview_mux.transition_vo import stamp_transitions_pair_freeze

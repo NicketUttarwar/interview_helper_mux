@@ -16,7 +16,12 @@ def _excluded_blank_ids(selection: dict[str, Any]) -> set[str]:
 
 
 def _impact_source_is_unenforceable(
-    ctx: RunContext, sid: str, *, blank_excl: set[str], selection: dict[str, Any]
+    ctx: RunContext,
+    sid: str,
+    *,
+    blank_excl: set[str],
+    selection: dict[str, Any],
+    ignore_selection_editorial: bool = False,
 ) -> bool:
     """Blank/unusable / CTA tape cannot be forced on-air as primary impact.
 
@@ -25,6 +30,10 @@ def _impact_source_is_unenforceable(
 
     Media-IP / never-touch CTA scraps also cannot be forced back by framing
     restore (exec_13198 seg_070 garbled post-CTA thrash).
+
+    When ``ignore_selection_editorial`` is True (CTA restore / inject), do not
+    treat the current exclude-reason stamp as permanent — that stamp is what
+    we may be healing (FMR S2).
     """
     key = str(sid or "").strip()
     if not key:
@@ -37,23 +46,38 @@ def _impact_source_is_unenforceable(
 
         if key in never_touch_segment_ids(ctx):
             return True
-        rats = (
-            selection.get("exclude_rationales")
-            if isinstance(selection.get("exclude_rationales"), dict)
-            else {}
-        )
-        if is_editorial_exclude_reason(str((rats or {}).get(key) or "")):
-            return True
-        for row in selection.get("excluded_segment_ids") or []:
-            if isinstance(row, dict):
-                if str(row.get("segment_id") or "") != key:
-                    continue
-                if is_editorial_exclude_reason(str(row.get("reason") or "")):
-                    return True
-            elif str(row or "") == key and is_editorial_exclude_reason(
-                str((rats or {}).get(key) or "")
-            ):
+        if not ignore_selection_editorial:
+            rats = (
+                selection.get("exclude_rationales")
+                if isinstance(selection.get("exclude_rationales"), dict)
+                else {}
+            )
+            if is_editorial_exclude_reason(str((rats or {}).get(key) or "")):
                 return True
+            for row in selection.get("excluded_segment_ids") or []:
+                if isinstance(row, dict):
+                    if str(row.get("segment_id") or "") != key:
+                        continue
+                    if is_editorial_exclude_reason(str(row.get("reason") or "")):
+                        return True
+                elif str(row or "") == key and is_editorial_exclude_reason(
+                    str((rats or {}).get(key) or "")
+                ):
+                    return True
+    except Exception:
+        pass
+    try:
+        from interview_mux.homunculus.values import should_hard_omit_cta
+
+        text = ""
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+                if isinstance(row, dict) and str(row.get("segment_id") or "") == key:
+                    text = str(row.get("text") or "")
+                    break
+        if text and should_hard_omit_cta(text):
+            return True
     except Exception:
         pass
     try:
@@ -178,21 +202,173 @@ def _merge_restored_in_tape_order(
     return result
 
 
+def primary_impact_segment_ids(ctx: RunContext) -> set[str]:
+    """All source_segment_ids named on gap_framing_plan impact_blocks."""
+    plan = load_gap_framing_plan(ctx)
+    if not plan:
+        return set()
+    out: set[str] = set()
+    for act in plan.get("acts") or []:
+        if not isinstance(act, dict):
+            continue
+        for block in act.get("impact_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            out.update(str(s) for s in (block.get("source_segment_ids") or []) if s)
+    return out
+
+
+def enforceable_primary_impact_ids(
+    ctx: RunContext,
+    selection: dict[str, Any] | None = None,
+    *,
+    for_restore: bool = False,
+) -> set[str]:
+    """Playable non-CTA primary-impact ids that must stay on-air (S2).
+
+    ``for_restore=True`` ignores selection editorial exclude stamps so CTA/omit
+    debt can be healed; never_touch / blank / hard-omit tape still skip.
+    """
+    cfg = gap_framing_cfg()
+    if not cfg.get("never_exclude_primary_impact", True):
+        return set()
+    sel = selection if isinstance(selection, dict) else {}
+    blank_excl = _excluded_blank_ids(sel)
+    keep: set[str] = set()
+    for sid in primary_impact_segment_ids(ctx):
+        if _impact_source_is_unenforceable(
+            ctx,
+            sid,
+            blank_excl=blank_excl,
+            selection=sel,
+            ignore_selection_editorial=for_restore,
+        ):
+            continue
+        keep.add(sid)
+    return keep
+
+
+def inject_ranking_lattice_keeps(
+    ctx: RunContext,
+    selection: dict[str, Any],
+    *,
+    stage: str = "full_master_ranking",
+) -> dict[str, Any]:
+    """Put enforceable primary-impact + hard_keeps into ordered before CTA/finalize.
+
+    FMR S2: membership floor before omit passes so lattice debt is not reintroduced.
+    """
+    out = dict(selection)
+    need: list[str] = []
+    need.extend(sorted(enforceable_primary_impact_ids(ctx, out, for_restore=True)))
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        need.extend(sorted(str(s) for s in hard_keep_segment_ids(ctx) if s))
+    except Exception:
+        pass
+    # De-dupe preserving order.
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for sid in need:
+        if sid and sid not in seen:
+            seen.add(sid)
+            uniq.append(sid)
+    if not uniq:
+        return out
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    missing = [s for s in uniq if s not in set(ordered)]
+    if missing:
+        out["ordered_segment_ids"] = _merge_restored_in_tape_order(ctx, ordered, missing)
+        excl_raw = list(out.get("excluded_segment_ids") or [])
+        kept_excl: list[Any] = []
+        miss_set = set(missing)
+        for row in excl_raw:
+            sid = ""
+            if isinstance(row, dict):
+                sid = str(row.get("segment_id") or "")
+            elif isinstance(row, str):
+                sid = row
+            if sid and sid in miss_set:
+                continue
+            kept_excl.append(row)
+        out["excluded_segment_ids"] = kept_excl
+        rats = out.get("exclude_rationales")
+        if isinstance(rats, dict):
+            for sid in missing:
+                rats.pop(sid, None)
+            out["exclude_rationales"] = rats
+        try:
+            ctx.log(
+                "ranking_lattice_keeps: injected "
+                f"{', '.join(missing[:8])}",
+                level="info",
+                stage=stage,
+            )
+        except Exception:
+            pass
+    try:
+        from interview_mux.hard_keep import enforce_hard_keeps
+
+        out = enforce_hard_keeps(ctx, out)
+    except Exception:
+        pass
+    return out
+
+
+def restore_enforceable_primary_impact_natives(
+    ctx: RunContext,
+    before_ordered: list[str],
+    after: dict[str, Any],
+) -> dict[str, Any]:
+    """Re-admit enforceable primary-impact ids CTA prune removed (S2)."""
+    out = dict(after) if isinstance(after, dict) else {}
+    keep = enforceable_primary_impact_ids(ctx, out, for_restore=True)
+    before_set = {str(s) for s in before_ordered if s}
+    keep &= before_set
+    if not keep:
+        return out
+    after_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    if keep <= set(after_ids):
+        return out
+    restored = [sid for sid in before_ordered if sid in keep or sid in set(after_ids)]
+    have = set(restored)
+    for sid in after_ids:
+        if sid not in have:
+            restored.append(sid)
+            have.add(sid)
+    out["ordered_segment_ids"] = restored
+    keep_excl: list[Any] = []
+    for row in out.get("excluded_segment_ids") or []:
+        sid = str(row.get("segment_id") if isinstance(row, dict) else row or "").strip()
+        if sid and sid in keep:
+            continue
+        keep_excl.append(row)
+    out["excluded_segment_ids"] = keep_excl
+    rationales = out.get("exclude_rationales")
+    if isinstance(rationales, dict):
+        for sid in keep:
+            rationales.pop(sid, None)
+        out["exclude_rationales"] = rationales
+    try:
+        ctx.log(
+            "cta_omit_refused_primary_impact: kept "
+            f"{sorted(keep)[:12]} (never_exclude_primary_impact)",
+            level="warning",
+            stage="full_master_ranking",
+            detail={"kept": sorted(keep)[:24]},
+        )
+    except Exception:
+        pass
+    return out
+
+
 def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
     """Apply deterministic guards; auto-heal primary-impact exclusions when possible."""
     out = dict(selection)
     cfg = gap_framing_cfg()
     if cfg.get("never_exclude_primary_impact", True):
-        plan = load_gap_framing_plan(ctx)
-        primary_ids: set[str] = set()
-        if plan:
-            for act in plan.get("acts") or []:
-                if not isinstance(act, dict):
-                    continue
-                for block in act.get("impact_blocks") or []:
-                    if not isinstance(block, dict):
-                        continue
-                    primary_ids.update(str(s) for s in (block.get("source_segment_ids") or []) if s)
+        primary_ids = primary_impact_segment_ids(ctx)
         blank_excl = _excluded_blank_ids(out)
         if primary_ids:
             excluded_raw = list(out.get("excluded_segment_ids") or [])
@@ -208,7 +384,11 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
                     sid
                     and sid in primary_ids
                     and not _impact_source_is_unenforceable(
-                        ctx, sid, blank_excl=blank_excl, selection=out
+                        ctx,
+                        sid,
+                        blank_excl=blank_excl,
+                        selection=out,
+                        ignore_selection_editorial=True,
                     )
                 ):
                     restored.append(sid)

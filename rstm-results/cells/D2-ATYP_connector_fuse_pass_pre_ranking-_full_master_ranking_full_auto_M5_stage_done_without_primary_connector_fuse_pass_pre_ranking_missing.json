@@ -3,9 +3,9 @@
   "status": "PASS",
   "tier": "D2-ATYP",
   "notes": [
-    "incompleteness_ok:analysis/connector_fuse_rounds.json is pending",
+    "incompleteness_ok:analysis/connector_fuse_rounds_pre_ranking.json is pending \u2014 resume connector_fu",
     "seed_block_other:topic_coverage_audit"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-18T14:28:17Z"
+  "executed_at": "2026-09-25T20:42:57Z"
 }

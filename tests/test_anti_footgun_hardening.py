@@ -143,34 +143,17 @@ def test_junction_budget_exhaust_is_classified_not_operator_gate():
 
 
 def test_avoidance_is_not_true_waste():
-    assert wasted_work_is_true_waste("avoided_musicgen") is False
-    assert wasted_work_is_true_waste("orphan") is True
     from interview_mux.thrash_hardening import wasted_work_counts_toward_sticky_halt
 
-    assert wasted_work_counts_toward_sticky_halt(
-        "music_deferred", {"reason": "assembly_missing"}
-    ) is False
-    assert wasted_work_counts_toward_sticky_halt(
-        "music_deferred", {"reason": "phase_a_unsealed"}
-    ) is False
-    assert wasted_work_counts_toward_sticky_halt("music_deferred", {"reason": "beds_stuck"}) is True
-    assert wasted_work_counts_toward_sticky_halt("orphan") is True
-    assert wasted_work_counts_toward_sticky_halt(
-        "orphan_artifact", {"stages": ["sound_design_plan"], "promoted": [], "demoted": []}
-    ) is False
-    assert wasted_work_counts_toward_sticky_halt(
-        "orphan_artifact", {"stages": [], "demoted": ["edl"]}
-    ) is True
+    with pytest.raises(NotImplementedError, match="p3-subtract"):
+        wasted_work_is_true_waste("avoided_musicgen")
+    with pytest.raises(NotImplementedError, match="p3-subtract"):
+        wasted_work_counts_toward_sticky_halt("orphan")
 
 
 def test_gate_wait_escalates(ctx):
-    from interview_mux.thrash_hardening import GATE_WAIT_ESCALATE_TICKS
-
-    last = {}
-    for _ in range(GATE_WAIT_ESCALATE_TICKS):
-        last = gate_wait_tick(ctx, "voice_reference_pending")
-    assert last.get("escalate") is True
-    assert "gate_wait_escalate" in last.get("halt_signature", "")
+    with pytest.raises(NotImplementedError, match="p3-subtract"):
+        gate_wait_tick(ctx, "voice_reference_pending")
 
 
 def test_no_auto_s3_on_advisories(ctx, monkeypatch):

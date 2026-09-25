@@ -106,10 +106,12 @@ def test_build_classification_payload_reads_staged_boundary(tmp_path, monkeypatc
             "segments/boundaries.json",
             data=_boundaries_doc(),
         )
+        from run_fixtures import write_fixture_json
+
+        write_fixture_json(ctx, "segments/boundaries.json", _boundaries_doc())
+        payload = build_classification_payload(ctx)
     finally:
         exit_stage_staging()
-
-    payload = build_classification_payload(ctx)
     assert payload["boundaries"]["boundaries"]
     assert payload["_segmentation_source_paths"]["boundaries"]["staged"] is True
 

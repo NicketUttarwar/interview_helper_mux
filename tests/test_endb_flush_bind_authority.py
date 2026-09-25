@@ -9,13 +9,13 @@ import pytest
 
 from interview_mux.heal_routing import PLAYBOOK_REGISTRY, classify_heal_error
 from interview_mux.run_context import RunContext
+from interview_mux.spoken_copy_guard import script_hash
 from interview_mux.vo_synthesis_audit import wav_content_sha256
 from interview_mux.write_staging import (
-    _commit_stage_writes,
     flush_stage_writes,
     promote_owner_vo_pickup,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, write_fixture_json
 
 
 @pytest.fixture
@@ -28,6 +28,22 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 
 def _plant_audited_and_stale(ctx: RunContext, *, lid: str = "vo_layup_seg_020") -> Path:
+    text = "Why does counting cells leave clinicians uncertain?"
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": lid,
+                    "text": text,
+                    "targets_segment_id": "seg_020",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+    )
     syn = ctx.run_dir / "vo_pickup" / "synthesized"
     syn.mkdir(parents=True)
     good = syn / f"{lid}.wav"
@@ -38,7 +54,7 @@ def _plant_audited_and_stale(ctx: RunContext, *, lid: str = "vo_layup_seg_020") 
         "entries": [
             {
                 "line_id": lid,
-                "script_hash": "abc",
+                "script_hash": script_hash(text),
                 "context_hash": "def",
                 "wav_sha256": want,
                 "backend": "chatterbox",
@@ -100,7 +116,8 @@ def test_endb_orphan_commit_skips_stale_vo(ctx: RunContext) -> None:
     good = _plant_audited_and_stale(ctx, lid=lid)
     want = wav_content_sha256(good)
     rel = f"vo_pickup/synthesized/{lid}.wav"
-    flushed = _commit_stage_writes(ctx, "vo_synthesize")
+    # Owner flush shares bind-skip; do not mark_done over pending vo_synthesize.json.
+    flushed = flush_stage_writes(ctx, "vo_synthesize")
     assert rel not in flushed
     assert wav_content_sha256(good) == want
     assert good.read_bytes().endswith(b"GOOD_AUDITED_TAKE")

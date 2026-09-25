@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from interview_mux.analysis_memory import load_analysis_state, update_completion_from_analysis
 from interview_mux.llm_specialists import (
@@ -17,6 +18,17 @@ from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
 from interview_mux.stage_completion import heal_or_raise, heal_or_refuse_mark
+
+
+ComposeAuthorityAction = Literal["run_llm", "noop_publish", "clear_orphan_and_run"]
+
+
+@dataclass(frozen=True)
+class ComposeAuthorityGate:
+    """S2: single early table for layup / freeze / orphan sovereignty."""
+
+    action: ComposeAuthorityAction
+    why: str = ""
 
 
 def _compact_segments_payload(
@@ -404,11 +416,10 @@ def _sealed_vs_risk_ids(ctx: RunContext, doc: dict[str, Any]) -> list[str]:
 def _wrong_keep_revisit_ids(
     ctx: RunContext, rows: list[Any], required_ids: list[str]
 ) -> list[str]:
-    """Wrong-but-scored keep rows: low severity on *specialist* risk ids.
+    """Deprecated (S6): MF no longer re-opens keep-scored rows.
 
-    Proxy structural anchors (chapters / talking points) must not force revisit of
-    honest low ``ok_with_light_bridge`` scores — that blew leftover sets and made
-    coverage passes look proactive-empty. Proxies still feed sealed_vs_risk.
+    Kept as a pure helper for forensics / tests. Coverage_loop spends CAP on
+    sealed_vs_risk seals only — specialist low keeps are not leftovered.
     """
     risk = resolve_framing_risk_segment_ids(ctx, required_ids=required_ids)
     specialist_ids = {
@@ -437,6 +448,35 @@ def _wrong_keep_revisit_ids(
         if str(row.get("severity") or "").lower() == "low":
             out.append(sid)
     return out
+
+
+def _legacy_batch_fill_ids(doc: dict[str, Any], required_ids: list[str]) -> list[str]:
+    """Segment ids whose last-wins row is still an unscored batch/repair fill."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in doc.get("evaluations") or []:
+        if isinstance(row, dict) and row.get("segment_id"):
+            by_id[str(row["segment_id"])] = row
+    out: list[str] = []
+    for sid in required_ids:
+        row = by_id.get(sid)
+        if row is None:
+            continue
+        producer = str((row.get("_meta") or {}).get("producer") or "")
+        if producer == "gap_fill_skip":
+            continue
+        if _gap_eval_is_unscored_fill(row):
+            out.append(sid)
+    return out
+
+
+def _promote_legacy_batch_fills_to_seals(
+    doc: dict[str, Any], required_ids: list[str]
+) -> tuple[dict[str, Any], list[str]]:
+    """S8: on admit, convert unscored fills to keep-eligible CAP seals."""
+    ids = _legacy_batch_fill_ids(doc, required_ids)
+    if not ids:
+        return doc, []
+    return _seal_coverage_exhausted_leftovers(doc, ids), ids
 
 
 
@@ -587,35 +627,28 @@ def _coverage_stats_from_doc(
     }
 
 
-def _selection_critical_ids(ctx: RunContext, candidate_ids: list[str]) -> list[str]:
-    """Prefer sealed ids that sit on the current selection order, else candidates as-is."""
-    want = {str(s) for s in candidate_ids if s}
-    if not want:
-        return []
-    ordered: list[str] = []
-    if ctx.artifact_exists("master/selection.json"):
-        try:
-            sel = ctx.read_json("master/selection.json")
-            if isinstance(sel, dict):
-                for sid in sel.get("ordered_segment_ids") or []:
-                    s = str(sid or "")
-                    if s in want and s not in ordered:
-                        ordered.append(s)
-        except Exception:
-            pass
-    if ordered:
-        return ordered
-    return [str(s) for s in candidate_ids if s]
-
-
 def _pick_sealed_ratio_rescue_ids(
     ctx: RunContext, sealed_ids: list[str], *, max_ids: int | None = None
 ) -> list[str]:
+    """Prefer framing-risk ids, then remaining sealed ids (no selection soft-dep)."""
     cap = max_ids if max_ids is not None else _sealed_ratio_rescue_max_ids()
-    critical = _selection_critical_ids(ctx, sealed_ids)
-    if not critical:
-        critical = list(sealed_ids)
-    return critical[: max(1, int(cap))]
+    want = {str(s) for s in sealed_ids if s}
+    if not want:
+        return []
+    risk = resolve_framing_risk_segment_ids(ctx)
+    risk_first = [
+        str(s) for s in (risk.get("ordered_ids") or []) if str(s) in want
+    ]
+    rest = [str(s) for s in sealed_ids if str(s) in want and str(s) not in set(risk_first)]
+    return list(dict.fromkeys(risk_first + rest))[: max(1, int(cap))]
+
+
+def _coverage_rescue_exhausted(doc: dict[str, Any]) -> bool:
+    """True when coverage_pass budget is spent (legacy rescue_done stamp still honored)."""
+    meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+    if bool(meta.get("sealed_ratio_rescue_done")):
+        return True
+    return _coverage_pass_count(doc) >= MISSING_FRAMING_COVERAGE_CAP
 
 
 def write_missing_framing_coverage_report(
@@ -853,19 +886,41 @@ def _stamp_coverage_passes(merged: dict[str, Any], count: int) -> dict[str, Any]
     return out
 
 
-def _fill_missing_evaluations(
-    merged: dict[str, Any],
-    missing: list[str],
-) -> dict[str, Any]:
-    filled = [r for r in (merged.get("evaluations") or []) if isinstance(r, dict)]
-    present = {str(r.get("segment_id") or "") for r in filled}
-    for sid in missing:
-        if sid and sid not in present:
-            filled.append(_missing_framing_fill_row(sid))
-            present.add(sid)
-    out = dict(merged)
-    out["evaluations"] = filled
-    return out
+def ensure_gap_report_skipped(
+    ctx: RunContext,
+    *,
+    reason: str,
+    signals: dict[str, Any] | None = None,
+) -> None:
+    """Compose-owned gap_report + interviewer_script stub when gap-fill is skipped."""
+    from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.gap_framing import commit_interviewer_script
+
+    report_doc = {
+        "interviewer_lines": [],
+        "gaps": [],
+        "skipped": True,
+        "empty_ok": True,
+        "_meta": {
+            "producer": "gap_fill_skip",
+            "producer_stage": "gap_framing_compose",
+            "empty_allowlist": True,
+            "skip_reason": reason,
+            "skip_signals": dict(signals or {}),
+        },
+    }
+    write_validated_artifact(
+        ctx,
+        "understanding/gap_report.json",
+        report_doc,
+        merge_from_disk=False,
+        stage_key="gap_framing_compose",
+    )
+    commit_interviewer_script(
+        ctx,
+        "# Interviewer script — gap-fill skipped (no pickup lines required)\n",
+        stage_key="gap_framing_compose",
+    )
 
 
 def ensure_gap_fill_skipped(
@@ -961,17 +1016,6 @@ def ensure_gap_fill_skipped(
         "evaluations": evaluations,
         "_meta": {"producer": "gap_fill_skip", "producer_stage": "missing_framing"},
     }
-    report_doc = {
-        "interviewer_lines": [],
-        "gaps": [],
-        "skipped": True,
-        "empty_ok": True,
-        "_meta": {
-            "producer": "gap_fill_skip",
-            "producer_stage": "missing_framing",
-            "empty_allowlist": True,
-        },
-    }
 
     write_validated_artifact(
         ctx,
@@ -980,24 +1024,8 @@ def ensure_gap_fill_skipped(
         merge_from_disk=False,
         stage_key="missing_framing",
     )
-    # Persist skip outputs on the running stage. Using optimal_questions as
-    # stage_key discarded gap_report.json when missing_framing's wrap finished.
-    write_validated_artifact(
-        ctx,
-        "understanding/gap_report.json",
-        report_doc,
-        merge_from_disk=False,
-        stage_key="missing_framing",
-    )
-    # Do not double-write via bare write_json — that oscillates authority
-    # action_class missing_framing↔write_json and trips authority_undo_thrash.
-    from interview_mux.gap_framing import commit_interviewer_script
-
-    commit_interviewer_script(
-        ctx,
-        "# Interviewer script — gap-fill skipped (no pickup lines required)\n",
-        stage_key="missing_framing",
-    )
+    # gap_report + interviewer_script are compose-owned (S3); MF only stamps evals.
+    ensure_gap_report_skipped(ctx, reason=reason, signals=signals)
 
     sync_gaps_to_state(ctx, eval_doc)
     update_completion_from_analysis(ctx)
@@ -1110,15 +1138,36 @@ def run_missing_framing(ctx: RunContext) -> None:
     required_ids = _gap_segment_ids(ctx)
     batch_size = _gap_pass_batch_size()
     existing = _existing_gap_evaluations(ctx)
-    revisit_ids = _wrong_keep_revisit_ids(
-        ctx,
-        list(existing.get("evaluations") or []) if existing else [],
-        required_ids,
-    )
+    # S8: promote legacy unscored fills → CAP seals before keep/leftover split.
+    promoted_fill_ids: list[str] = []
+    if existing:
+        existing, promoted_fill_ids = _promote_legacy_batch_fills_to_seals(
+            existing, required_ids
+        )
+        if promoted_fill_ids:
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            write_validated_artifact(
+                ctx,
+                "understanding/gap_evaluations.json",
+                existing,
+                merge_from_disk=False,
+                stage_key="missing_framing",
+            )
+            ctx.log(
+                f"missing_framing: sealed {len(promoted_fill_ids)} legacy batch_fill "
+                "row(s) on admit (S8)",
+                level="warning",
+                stage="missing_framing",
+                action_id="missing_framing.legacy_batch_fill_seal",
+                detail={"examples": promoted_fill_ids[:8]},
+            )
+    # S6: never re-open keep-scored rows via wrong-keep revisit — coverage_loop
+    # already spends CAP on sealed_vs_risk seals.
     keep_rows, leftover_ids = _split_keep_and_leftover(
         required_ids,
         list(existing.get("evaluations") or []) if existing else [],
-        revisit_ids=revisit_ids,
+        revisit_ids=None,
     )
     prev_passes = _coverage_pass_count(existing)
     leftover_reentry = bool(keep_rows) and bool(leftover_ids)
@@ -1303,12 +1352,10 @@ def run_missing_framing(ctx: RunContext) -> None:
                 if not _shard_envelope_has_evaluations(arts):
                     shard_empty_count += 1
                     if coverage_pass:
-                        # Coverage passes exist for sparse LLM output — leave ids
-                        # unscored so CAP seal / batch_fill honesty can finish.
-                        # Do not append an empty envelope (would look like progress).
+                        # Leave ids unscored so the CAP seal path can finish honestly.
                         ctx.log(
                             f"missing_framing coverage shard {bi + 1}/{len(batches)} "
-                            "still empty after retry — defer to CAP/batch_fill",
+                            "still empty after retry — defer to CAP seal",
                             level="warning",
                             stage="missing_framing",
                             action_id="missing_framing.shard_empty_coverage_defer",
@@ -1319,7 +1366,7 @@ def run_missing_framing(ctx: RunContext) -> None:
                         "missing_framing empty shard after retry — "
                         f"shard {bi + 1}/{len(batches)} returned no evaluations "
                         f"(segment_ids={list(batch_ids)[:12]}). "
-                        "Refuse silent batch_fill of an empty proactive LLM response."
+                        "Refuse silent fill of an empty proactive LLM response."
                     )
             parts.append(arts)
 
@@ -1330,8 +1377,6 @@ def run_missing_framing(ctx: RunContext) -> None:
         rescue_attempted: bool = False,
         rescue_ids: list[str] | None = None,
     ) -> None:
-        if revisit_ids:
-            merged = _stamp_risk_revisit_done(merged, revisit_ids)
         write_missing_framing_coverage_report(
             ctx,
             merged,
@@ -1340,6 +1385,11 @@ def run_missing_framing(ctx: RunContext) -> None:
             shard_empty_retries=shard_empty_retries,
             rescue_attempted=rescue_attempted,
             rescue_ids=rescue_ids,
+            extra=(
+                {"legacy_batch_fill_sealed": promoted_fill_ids[:24]}
+                if promoted_fill_ids
+                else None
+            ),
         )
         if force_write_no_merge:
             from interview_mux.artifact_writes import write_validated_artifact
@@ -1357,47 +1407,47 @@ def run_missing_framing(ctx: RunContext) -> None:
         heal_or_raise(ctx, "missing_framing", force=True)
         _assert_gap_evaluations_complete(ctx)
 
-    def _maybe_run_sealed_ratio_rescue(
-        merged: dict[str, Any],
-        *,
-        parts: list[dict[str, Any]],
-    ) -> tuple[dict[str, Any], bool, list[str]]:
-        """One bounded micro-volley when CAP seals exceed sealed_ratio_max.
-
-        ASSETS 13159–13170 sealed 20–45% after CAP=2. Completing without a
-        focused rescue ships thin VO downstream. Rescue once, re-seal only
-        leftovers that stay unscored, stamp sealed_ratio_rescue_done so
-        incompleteness does not thrash.
-        """
-        stats = _coverage_stats_from_doc(merged, required_ids)
-        max_ratio = float(stats["sealed_ratio_max"])
-        if stats.get("sealed_ratio_rescue_done"):
-            return merged, False, []
+    def _framing_enabled() -> bool:
         try:
             from interview_mux.gap_vo_gates import gap_framing_enabled
 
-            if not gap_framing_enabled(ctx):
-                return merged, False, []
+            return bool(gap_framing_enabled(ctx))
         except Exception:
-            pass
+            return False
+
+    def _sealed_ratio_needs_pass(merged: dict[str, Any]) -> tuple[bool, list[str]]:
+        """Whether a coverage pass should re-volley sealed/risk ids (S2/S4)."""
+        if not _framing_enabled():
+            return False, []
+        if _coverage_rescue_exhausted(merged):
+            return False, []
+        stats = _coverage_stats_from_doc(merged, required_ids)
+        max_ratio = float(stats["sealed_ratio_max"])
         sealed_ids = list(stats["sealed_ids"])
         risk_sealed = _sealed_vs_risk_ids(ctx, merged)
         if float(stats["sealed_ratio"]) <= max_ratio + 1e-9 and not risk_sealed:
-            return merged, False, []
+            return False, []
         pool = list(dict.fromkeys(list(risk_sealed) + sealed_ids))
-        rescue_ids = _pick_sealed_ratio_rescue_ids(ctx, pool)
-        if not rescue_ids:
-            merged = _stamp_sealed_ratio_rescue_done(merged)
-            return merged, False, []
+        return True, _pick_sealed_ratio_rescue_ids(ctx, pool)
+
+    def _run_sealed_ratio_coverage_pass(
+        merged: dict[str, Any],
+        rescue_ids: list[str],
+        *,
+        pass_n: int,
+    ) -> dict[str, Any]:
+        """One coverage_pass volley on sealed/risk ids — same CAP ledger as scoring."""
+        stats = _coverage_stats_from_doc(merged, required_ids)
         ctx.log(
-            f"missing_framing sealed_ratio rescue: {stats['sealed_ratio']:.2%} sealed "
-            f"> max {max_ratio:.2%} — re-volley {len(rescue_ids)} selection-critical id(s)",
+            f"missing_framing sealed_ratio coverage pass {pass_n}/"
+            f"{MISSING_FRAMING_COVERAGE_CAP}: {stats['sealed_ratio']:.2%} sealed "
+            f"— re-volley {len(rescue_ids)} framing-risk-preferring id(s)",
             level="warning",
             stage="missing_framing",
-            action_id="missing_framing.sealed_ratio_rescue",
+            action_id="missing_framing.coverage_pass",
             detail={
                 "sealed_ratio": stats["sealed_ratio"],
-                "sealed_ratio_max": max_ratio,
+                "sealed_ratio_max": stats["sealed_ratio_max"],
                 "rescue_count": len(rescue_ids),
                 "rescue_ids": rescue_ids[:12],
             },
@@ -1445,18 +1495,79 @@ def run_missing_framing(ctx: RunContext) -> None:
                 final_rows.append(row)
         working = dict(working)
         working["evaluations"] = final_rows
-        working = _stamp_coverage_passes(
-            working, max(prev_passes, _coverage_pass_count(merged))
+        return _stamp_coverage_passes(working, pass_n)
+
+    def _coverage_loop(
+        merged: dict[str, Any],
+        *,
+        parts: list[dict[str, Any]],
+        extra_used: int,
+    ) -> tuple[dict[str, Any], int, bool, list[str]]:
+        """Spend coverage passes on unscored rows then sealed_ratio (one ledger)."""
+        rescued = False
+        last_rescue_ids: list[str] = []
+        while extra_used < MISSING_FRAMING_COVERAGE_CAP:
+            still = _still_unscored(merged)
+            need_ratio, rescue_ids = _sealed_ratio_needs_pass(merged)
+            if not still and not need_ratio:
+                break
+            if blocking_rerun_stage:
+                break
+            extra_used += 1
+            if still:
+                ctx.log(
+                    f"missing_framing coverage pass {extra_used}/"
+                    f"{MISSING_FRAMING_COVERAGE_CAP} for {len(still)} unscored segment(s)",
+                    level="warning",
+                    stage="missing_framing",
+                    action_id="missing_framing.coverage_pass",
+                )
+                _run_id_shards(still, coverage_pass=True, parts=parts)
+                merged = _merge_gap_evaluations(parts, required_ids)
+                merged = _stamp_coverage_passes(merged, extra_used)
+                continue
+            if not rescue_ids:
+                merged = _stamp_coverage_passes(merged, extra_used)
+                break
+            merged = _run_sealed_ratio_coverage_pass(
+                merged, rescue_ids, pass_n=extra_used
+            )
+            rescued = True
+            last_rescue_ids = list(rescue_ids)
+            parts.clear()
+            parts.append({"evaluations": list(merged.get("evaluations") or [])})
+        return merged, extra_used, rescued, last_rescue_ids
+
+    def _terminal_seal_unscored(
+        merged: dict[str, Any], *, extra_used: int
+    ) -> dict[str, Any]:
+        """S1: after CAP, seal leftovers — never write batch_fill rows."""
+        still = _still_unscored(merged)
+        if not still:
+            return _stamp_coverage_passes(merged, extra_used)
+        if extra_used < MISSING_FRAMING_COVERAGE_CAP:
+            raise RuntimeError(
+                "missing_framing incomplete — refuse silent batch_fill: "
+                f"{len(still)} unscored segment(s) with coverage_passes="
+                f"{extra_used} < CAP={MISSING_FRAMING_COVERAGE_CAP} "
+                f"(examples {still[:8]})"
+            )
+        merged = _seal_coverage_exhausted_leftovers(merged, still)
+        ctx.log(
+            f"missing_framing: sealed {len(still)} leftover(s) after "
+            f"{MISSING_FRAMING_COVERAGE_CAP} coverage passes",
+            level="warning",
+            stage="missing_framing",
+            action_id="missing_framing.coverage_exhausted_seal",
+            detail={"leftover_count": len(still), "examples": still[:8]},
         )
-        working = _stamp_sealed_ratio_rescue_done(working)
-        return working, True, rescue_ids
+        return _stamp_coverage_passes(merged, extra_used)
 
     if leftover_ids and prev_passes >= MISSING_FRAMING_COVERAGE_CAP:
         merged = _merge_gap_evaluations(
             [{"evaluations": keep_rows}, existing],
             required_ids,
         )
-        merged = _fill_missing_evaluations(merged, leftover_ids)
         merged = _seal_coverage_exhausted_leftovers(merged, leftover_ids)
         merged = _stamp_coverage_passes(merged, prev_passes)
         ctx.log(
@@ -1467,17 +1578,7 @@ def run_missing_framing(ctx: RunContext) -> None:
             action_id="missing_framing.coverage_exhausted_seal",
             detail={"leftover_count": len(leftover_ids), "examples": leftover_ids[:8]},
         )
-        with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
-            parts: list[dict[str, Any]] = []
-            merged, rescued, rescue_ids = _maybe_run_sealed_ratio_rescue(
-                merged, parts=parts
-            )
-        _finalize_and_heal(
-            merged,
-            force_write_no_merge=True,
-            rescue_attempted=rescued,
-            rescue_ids=rescue_ids,
-        )
+        _finalize_and_heal(merged, force_write_no_merge=True)
         return
 
     if keep_rows and not leftover_ids:
@@ -1485,21 +1586,16 @@ def run_missing_framing(ctx: RunContext) -> None:
             _merge_gap_evaluations([{"evaluations": keep_rows}], required_ids),
             prev_passes,
         )
-        stats = _coverage_stats_from_doc(merged, required_ids)
-        risk_sealed = _sealed_vs_risk_ids(ctx, merged)
-        needs_rescue = (
-            not stats.get("sealed_ratio_rescue_done")
-            and (
-                float(stats["sealed_ratio"]) > float(stats["sealed_ratio_max"]) + 1e-9
-                or bool(risk_sealed)
-            )
-        )
-        if needs_rescue:
+        need_ratio, _ = _sealed_ratio_needs_pass(merged)
+        if need_ratio and prev_passes < MISSING_FRAMING_COVERAGE_CAP:
             with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
-                parts = []
-                merged, rescued, rescue_ids = _maybe_run_sealed_ratio_rescue(
-                    merged, parts=parts
+                parts: list[dict[str, Any]] = [
+                    {"evaluations": list(merged.get("evaluations") or [])}
+                ]
+                merged, extra_used, rescued, rescue_ids = _coverage_loop(
+                    merged, parts=parts, extra_used=int(prev_passes)
                 )
+            merged = _terminal_seal_unscored(merged, extra_used=extra_used)
             _finalize_and_heal(
                 merged,
                 force_write_no_merge=True,
@@ -1516,7 +1612,7 @@ def run_missing_framing(ctx: RunContext) -> None:
             maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
     with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
-        parts: list[dict[str, Any]] = []
+        parts = []
         if keep_rows:
             parts.append({"evaluations": keep_rows})
 
@@ -1526,62 +1622,23 @@ def run_missing_framing(ctx: RunContext) -> None:
 
         _run_id_shards(list(target_ids), coverage_pass=leftover_reentry, parts=parts)
         merged = _merge_gap_evaluations(parts, required_ids)
-        still = _still_unscored(merged)
-        while still and extra_used < MISSING_FRAMING_COVERAGE_CAP:
-            extra_used += 1
-            ctx.log(
-                f"missing_framing coverage pass {extra_used}/{MISSING_FRAMING_COVERAGE_CAP} "
-                f"for {len(still)} unscored segment(s)",
-                level="warning",
-                stage="missing_framing",
-                action_id="missing_framing.coverage_pass",
-            )
-            _run_id_shards(still, coverage_pass=True, parts=parts)
-            merged = _merge_gap_evaluations(parts, required_ids)
-            still = _still_unscored(merged)
+        merged = _stamp_coverage_passes(merged, extra_used)
+        merged, extra_used, rescued, rescue_ids = _coverage_loop(
+            merged, parts=parts, extra_used=extra_used
+        )
         if blocking_rerun_stage:
             raise RuntimeError(
                 "missing_framing needs.rerun_stage — resume "
                 f"{blocking_rerun_stage}: LLM shard refused scoring until upstream "
                 f"is fixed (do not CAP-seal over blocking needs)"
             )
-        if still and extra_used >= MISSING_FRAMING_COVERAGE_CAP:
-            # Same-invoke seal after honest leftover volleys hit CAP (exec_11630 #3).
-            merged = _seal_coverage_exhausted_leftovers(merged, still)
-            ctx.log(
-                f"missing_framing: sealed {len(still)} leftover(s) after "
-                f"{MISSING_FRAMING_COVERAGE_CAP} in-invoke coverage passes",
-                level="warning",
-                stage="missing_framing",
-                action_id="missing_framing.coverage_exhausted_seal",
-                detail={"leftover_count": len(still), "examples": still[:8]},
-            )
-            merged = _stamp_coverage_passes(merged, extra_used)
-            merged, rescued, rescue_ids = _maybe_run_sealed_ratio_rescue(
-                merged, parts=parts
-            )
-            _finalize_and_heal(
-                merged,
-                force_write_no_merge=True,
-                rescue_attempted=rescued,
-                rescue_ids=rescue_ids,
-            )
-        elif still:
-            # Deterministic fill — LLM sparsely samples even with sharded ids.
-            # Fills stay on disk and refuse done (HG-3); leftover re-volley scores them.
-            merged = _fill_missing_evaluations(merged, still)
-            ctx.log(
-                f"missing_framing: filled {len(still)} uncovered segment(s) with defaults",
-                level="warning",
-                stage="missing_framing",
-                action_id="missing_framing.batch_fill",
-                detail={"filled_count": len(still), "examples": still[:8]},
-            )
-            merged = _stamp_coverage_passes(merged, extra_used)
-            _finalize_and_heal(merged, force_write_no_merge=False)
-        else:
-            merged = _stamp_coverage_passes(merged, extra_used)
-            _finalize_and_heal(merged, force_write_no_merge=False)
+        merged = _terminal_seal_unscored(merged, extra_used=extra_used)
+        _finalize_and_heal(
+            merged,
+            force_write_no_merge=True,
+            rescue_attempted=rescued,
+            rescue_ids=rescue_ids,
+        )
         ctx.log(
             f"missing_framing batched complete ({len(merged.get('evaluations') or [])} evaluations)",
             level="success",
@@ -1605,43 +1662,14 @@ def _assert_gap_evaluations_complete(ctx: RunContext) -> None:
             return
     except Exception:
         pass
-    # Default unscored LLM stubs before measuring completeness.
-    if ctx.artifact_exists("understanding/gap_evaluations.json"):
-        try:
-            from interview_mux.artifact_repairs import repair_gap_evaluations
-            from interview_mux.artifact_writes import write_validated_artifact
-
-            doc = ctx.read_json("understanding/gap_evaluations.json")
-            if isinstance(doc, dict):
-                repaired, notes = repair_gap_evaluations(ctx, doc)
-                if notes:
-                    write_validated_artifact(
-                        ctx,
-                        "understanding/gap_evaluations.json",
-                        repaired,
-                        merge_from_disk=False,
-                        stage_key="missing_framing",
-                    )
-                    from interview_mux.stage_completion import (
-                        stage_artifact_incompleteness as _inc,
-                    )
-
-                    tagged = _inc(ctx, "missing_framing")
-                    if tagged and "batch_fill" in str(tagged):
-                        raise RuntimeError(tagged)
-        except Exception as exc:
-            ctx.log(
-                f"gap_evaluations repair before completeness assert failed: {exc}",
-                level="warning",
-                stage="missing_framing",
-            )
+    # S5: assert must not mutate SSOT — repair belongs on heal routes only.
     ratio = gap_eval_scored_ratio(ctx)
     floor = float(listenability_guards_cfg().get("gap_eval_scored_min_ratio") or 0.95)
     if ratio + 0.001 >= floor:
         return
     raise RuntimeError(
         f"gap_evaluations incomplete: scored_ratio={ratio:.3f} < min={floor:.3f}. "
-        "Re-run missing_framing / fill-artifact-gaps until selection segments have severity+gap_type."
+        "Re-run missing_framing until selection segments have severity+gap_type."
     )
 
 
@@ -1717,11 +1745,219 @@ def _heal_gap_framing_compose_if_complete(ctx: RunContext) -> None:
 
     Never early-return on bare ``is_done`` — hollow stamps must go through
     heal_or_raise so incompleteness can unmark (Land Honesty).
+
+    S4: flush gap_report (and other stage pending) before heal so consumers
+    never see ``pending_only`` after compose returns.
     """
     _refresh_hosted_vo_after_gap_compose(ctx)
-    from interview_mux.stage_completion import heal_or_raise
+    try:
+        from interview_mux.v2.config import v2_auto_commit
+        from interview_mux.write_staging import (
+            flush_stage_writes,
+            has_pending_writes,
+            write_approval_enabled,
+        )
 
+        if (
+            v2_auto_commit()
+            and not write_approval_enabled()
+            and has_pending_writes(ctx, "gap_framing_compose")
+        ):
+            try:
+                flush_stage_writes(ctx, "gap_framing_compose")
+            except Exception as flush_exc:
+                raise RuntimeError(
+                    f"flush_failed:understanding/gap_report.json:{flush_exc}"
+                ) from flush_exc
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        ctx.log(
+            f"gap_framing_compose: pre-heal flush skipped: {exc}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
     heal_or_raise(ctx, "gap_framing_compose")
+
+
+def compose_authority_gate(ctx: RunContext) -> ComposeAuthorityGate:
+    """S2: collapse layup / freeze / orphan / orientation-only into one table."""
+    from interview_mux.artifact_ownership import freeze_write_allowed
+    from interview_mux.config import merged_config
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        gap_report_has_layup_authority,
+        nugget_layup_enabled,
+    )
+
+    gap: dict[str, Any] = {}
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            raw = ctx.read_json("understanding/gap_report.json")
+            if isinstance(raw, dict):
+                gap = raw
+        except Exception:
+            gap = {}
+
+    if (
+        nugget_layup_enabled()
+        and bool(gap.get("nugget_layup_authority"))
+        and not ctx.artifact_exists(PLAN_REL)
+    ):
+        return ComposeAuthorityGate("clear_orphan_and_run", "orphan_layup_stamp")
+
+    plan_contentful = False
+    if ctx.artifact_exists(PLAN_REL):
+        try:
+            plan_doc = ctx.read_json(PLAN_REL)
+            plan_contentful = bool(
+                isinstance(plan_doc, dict)
+                and (
+                    plan_doc.get("lines")
+                    or plan_doc.get("nuggets")
+                    or plan_doc.get("placements")
+                    or plan_doc.get("interviewer_lines")
+                )
+            )
+        except Exception:
+            plan_contentful = False
+
+    layup_owns = bool(
+        nugget_layup_enabled()
+        and (
+            gap_report_has_layup_authority(gap)
+            or plan_contentful
+        )
+    )
+    flap = bool(
+        nugget_layup_enabled()
+        and plan_contentful
+        and not bool(gap.get("nugget_layup_authority"))
+    )
+    frozen = not freeze_write_allowed(ctx, "gap_framing_compose", "compose_copy")
+
+    # Fold former orientation-only stub into noop when layup plan/corpus ready.
+    nl = ((merged_config().get("analysis") or {}).get("nugget_layup") or {})
+    orientation_ready = bool(
+        nugget_layup_enabled()
+        and bool(nl.get("compose_orientation_only_when_plan_ready"))
+        and (
+            ctx.artifact_exists(PLAN_REL)
+            or ctx.artifact_exists("understanding/nugget_corpus.json")
+        )
+    )
+
+    if layup_owns or frozen or flap or orientation_ready:
+        if flap and not layup_owns:
+            why = "layup_authority_flap"
+        elif orientation_ready and not (layup_owns or frozen or flap):
+            why = "orientation_folded_noop"
+        elif layup_owns:
+            why = "layup_authority"
+        else:
+            why = "seat_freeze"
+        return ComposeAuthorityGate("noop_publish", why)
+    return ComposeAuthorityGate("run_llm", "analysis_era")
+
+
+def _clear_orphan_layup_authority(ctx: RunContext) -> None:
+    """Clear stamp-without-plan so analysis-era compose can run (S2)."""
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return
+    if not isinstance(gap, dict) or not gap.get("nugget_layup_authority"):
+        return
+    cleared = dict(gap)
+    cleared["nugget_layup_authority"] = False
+    meta = cleared.get("_meta") if isinstance(cleared.get("_meta"), dict) else {}
+    repairs = list(meta.get("repairs") or [])
+    repairs.append(
+        {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "action": "clear_orphan_nugget_layup_authority",
+            "reason": "stamp_without_plan",
+        }
+    )
+    cleared["_meta"] = {**meta, "repairs": repairs}
+    ctx.write_json(
+        "understanding/gap_report.json",
+        cleared,
+        skip_handoff=True,
+    )
+    ctx.log(
+        "gap_framing_compose: cleared orphan layup authority stamp "
+        "(no nugget_layup_plan) — falling through to analysis-era compose",
+        level="warning",
+        stage="gap_framing_compose",
+        action_id="gap_framing_compose.clear_orphan_layup_authority",
+    )
+
+
+def _noop_compose_under_authority(ctx: RunContext, why: str) -> None:
+    """Publish layup→gap_report when possible; mark done only if land-honest."""
+    try:
+        from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
+
+        if ctx.artifact_exists(PLAN_REL):
+            publish_layup_plan_to_gap_report(ctx)
+    except Exception as pub_exc:
+        ctx.log(
+            f"gap_framing_compose: {why} no-op publish skipped: {pub_exc}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
+    ctx.log(
+        f"gap_framing_compose: no-op under {why}",
+        level="info",
+        stage="gap_framing_compose",
+    )
+    from interview_mux.delivery_guardrails import seed_stage_complete
+
+    if not seed_stage_complete(ctx, "gap_framing_compose"):
+        try:
+            from interview_mux.done_authority import unpaid_land_reason
+            from interview_mux.stage_completion import (
+                heal_or_refuse_mark,
+                stage_artifact_incompleteness,
+            )
+
+            if (
+                unpaid_land_reason(ctx, "gap_framing_compose") is None
+                and stage_artifact_incompleteness(ctx, "gap_framing_compose") is None
+            ):
+                heal_or_refuse_mark(ctx, "gap_framing_compose", force=True)
+        except Exception:
+            pass
+
+
+def _finalize_high_gap_seats(
+    c: RunContext, repaired: dict[str, Any], *, warrants: bool
+) -> None:
+    """After cover: resolve_seats once, or hold highs under framing Yes (honesty)."""
+    from interview_mux.high_gap_vo import resolve_seats
+
+    still_uncovered = _uncovered_high_segment_ids(c, repaired)
+    if still_uncovered and warrants:
+        # Honesty: do not demote-to-green under framing Yes — incompleteness owns.
+        c.log(
+            "gap_framing_compose: refusing demote of "
+            f"{len(still_uncovered)} uncovered high gap(s) under framing Yes — "
+            "heal_or_raise will mark incomplete",
+            level="warning",
+            stage="gap_framing_compose",
+            detail={"uncovered": still_uncovered[:12]},
+        )
+        return
+    resolution = resolve_seats(c, intent="compose_persist", gap_report=repaired)
+    if resolution.demoted:
+        c.log(
+            f"gap_framing_compose: demoted {resolution.demoted} uncovered high gap(s) after cover",
+            level="warning",
+            stage="gap_framing_compose",
+        )
 
 
 def _merge_gap_report_parts(parts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1994,30 +2230,20 @@ def _gap_framing_compose_payload(
             "plan_authoritative": False,
             "bind_mode": "advisory",
         }
-    # Address labels for name/group-aware VO (never invent names)
+    # Address labels for name/group-aware VO (never invent names).
+    # S5: read-only — ranking/ops own speaker_delivery_plan writes.
     try:
-        from interview_mux.speaker_delivery_plan import (
-            build_speaker_delivery_plan,
-            write_speaker_delivery_plan,
-        )
-
         if c.artifact_exists("understanding/speaker_delivery_plan.json"):
             sdp = c.read_json("understanding/speaker_delivery_plan.json")
-        else:
-            sdp = build_speaker_delivery_plan(c)
-            try:
-                write_speaker_delivery_plan(c)
-            except Exception:
-                pass
-        if isinstance(sdp, dict):
-            payload["address_labels"] = sdp.get("address_labels") or {}
-            payload["speaker_delivery_plan"] = {
-                "clone_speaker_id": sdp.get("clone_speaker_id"),
-                "insert_strategy": sdp.get("insert_strategy"),
-                "address_mode": sdp.get("address_mode"),
-                "group_label": sdp.get("group_label"),
-                "speaker_count": sdp.get("speaker_count"),
-            }
+            if isinstance(sdp, dict):
+                payload["address_labels"] = sdp.get("address_labels") or {}
+                payload["speaker_delivery_plan"] = {
+                    "clone_speaker_id": sdp.get("clone_speaker_id"),
+                    "insert_strategy": sdp.get("insert_strategy"),
+                    "address_mode": sdp.get("address_mode"),
+                    "group_label": sdp.get("group_label"),
+                    "speaker_count": sdp.get("speaker_count"),
+                }
     except Exception:
         pass
     if c.artifact_exists("understanding/reorder_bridges.json"):
@@ -2095,147 +2321,13 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
     """Compose full gap framing script (questions, summaries, prefaces, bridges)."""
     from interview_mux.llm_simple import run_llm_stage_simple
 
-    # Nugget Layup owns contentful before-VO. Re-running the interviewer-script
-    # LLM under layup authority (or after seat freeze) rewrites gap_report,
-    # invalidates WAVs, and thrash-rewinds past EDL (forensics exec_11136).
+    # S2: single authority gate — layup / freeze / orphan / orientation-folded noop.
     try:
-        from interview_mux.nugget_layup import (
-            PLAN_REL,
-            gap_report_has_layup_authority,
-            nugget_layup_enabled,
-            publish_layup_plan_to_gap_report,
-        )
-        from interview_mux.artifact_ownership import freeze_write_allowed
-        # heal_or_refuse_mark: module import from stage_completion (not write_staging).
-
-        gap = (
-            ctx.read_json("understanding/gap_report.json")
-            if ctx.artifact_exists("understanding/gap_report.json")
-            else {}
-        )
-        # Orphan stamp (authority without plan): clear stamp and fall through to
-        # analysis-era compose. Silent no-op here hollow-Finishes and thrash-pins
-        # gap_framing_compose forever (high_gap_unframed never flips).
-        if (
-            nugget_layup_enabled()
-            and isinstance(gap, dict)
-            and bool(gap.get("nugget_layup_authority"))
-            and not ctx.artifact_exists(PLAN_REL)
-        ):
-            cleared = dict(gap)
-            cleared["nugget_layup_authority"] = False
-            meta = cleared.get("_meta") if isinstance(cleared.get("_meta"), dict) else {}
-            repairs = list(meta.get("repairs") or [])
-            repairs.append(
-                {
-                    "at": datetime.now(timezone.utc).isoformat(),
-                    "action": "clear_orphan_nugget_layup_authority",
-                    "reason": "stamp_without_plan",
-                }
-            )
-            cleared["_meta"] = {**meta, "repairs": repairs}
-            ctx.write_json(
-                "understanding/gap_report.json",
-                cleared,
-                skip_handoff=True,
-            )
-            gap = cleared
-            ctx.log(
-                "gap_framing_compose: cleared orphan layup authority stamp "
-                "(no nugget_layup_plan) — falling through to analysis-era compose",
-                level="warning",
-                stage="gap_framing_compose",
-                action_id="gap_framing_compose.clear_orphan_layup_authority",
-            )
-        plan_contentful = False
-        if ctx.artifact_exists(PLAN_REL):
-            try:
-                plan_doc = ctx.read_json(PLAN_REL)
-                plan_contentful = bool(
-                    isinstance(plan_doc, dict)
-                    and (
-                        plan_doc.get("lines")
-                        or plan_doc.get("nuggets")
-                        or plan_doc.get("placements")
-                        or plan_doc.get("interviewer_lines")
-                    )
-                )
-            except Exception:
-                plan_contentful = False
-        layup_owns = bool(
-            nugget_layup_enabled()
-            and (
-                gap_report_has_layup_authority(gap if isinstance(gap, dict) else None)
-                or plan_contentful
-            )
-        )
-        # Authority flap: contentful plan on disk without stamp → refuse LLM.
-        # Empty/thin plan file is not ownership (Land Honesty stamp registry).
-        # Stamp-without-plan is healed above (clear + fall through), not no-op'd.
-        flap = False
-        if nugget_layup_enabled() and isinstance(gap, dict):
-            stamped = bool(gap.get("nugget_layup_authority"))
-            if plan_contentful and not stamped:
-                flap = True
-                ctx.log(
-                    "gap_framing_compose: layup plan on disk without authority stamp — "
-                    "fail-closed no-op (authority flap)",
-                    level="warning",
-                    stage="gap_framing_compose",
-                    action_id="gap_framing_compose.layup_authority_flap",
-                )
-        frozen = not freeze_write_allowed(
-            ctx,
-            "gap_framing_compose",
-            "compose_copy",
-        )
-        if layup_owns or frozen or flap:
-            why = (
-                "layup_authority_flap"
-                if flap and not layup_owns
-                else ("layup_authority" if layup_owns else "seat_freeze")
-            )
-            try:
-                if ctx.artifact_exists(PLAN_REL):
-                    publish_layup_plan_to_gap_report(ctx)
-            except Exception as pub_exc:
-                ctx.log(
-                    f"gap_framing_compose: {why} no-op publish skipped: {pub_exc}",
-                    level="warning",
-                    stage="gap_framing_compose",
-                )
-            ctx.log(
-                f"gap_framing_compose: no-op under {why}",
-                level="info",
-                stage="gap_framing_compose",
-            )
-            from interview_mux.delivery_guardrails import seed_stage_complete
-
-            if not seed_stage_complete(ctx, "gap_framing_compose"):
-                try:
-                    # Land Honesty: never force-stamp when incompleteness / unpaid land open
-                    # (flap / freeze no-op must not greenwash stamp-alone or thin gap).
-                    from interview_mux.done_authority import unpaid_land_reason
-                    from interview_mux.stage_completion import (
-                        heal_or_refuse_mark,
-                        stage_artifact_incompleteness,
-                    )
-
-                    if (
-                        unpaid_land_reason(ctx, "gap_framing_compose") is None
-                        and stage_artifact_incompleteness(ctx, "gap_framing_compose")
-                        is None
-                    ):
-                        heal_or_refuse_mark(ctx, "gap_framing_compose", force=True)
-                except Exception:
-                    pass
-            return
+        gate = compose_authority_gate(ctx)
     except ImportError:
-        # Wrong-module imports must not fall through into LLM rewrite under freeze.
         raise
     except Exception as exc:
         # Fail-closed when layup/freeze evidence exists; never fall through into LLM.
-        # If neither armed and authority unknown, raise loud (no hollow done, no rewrite).
         plan_exists = False
         freeze_hint = False
         try:
@@ -2260,100 +2352,15 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             level="warning",
             stage="gap_framing_compose",
         )
-        try:
-            from interview_mux.nugget_layup import (
-                PLAN_REL as _PLAN_REL2,
-                publish_layup_plan_to_gap_report as _pub,
-            )
-
-            if ctx.artifact_exists(_PLAN_REL2):
-                _pub(ctx)
-        except Exception as pub_exc:
-            ctx.log(
-                f"gap_framing_compose: fail-closed publish skipped: {pub_exc}",
-                level="warning",
-                stage="gap_framing_compose",
-            )
-        from interview_mux.delivery_guardrails import seed_stage_complete
-
-        if not seed_stage_complete(ctx, "gap_framing_compose"):
-            try:
-                from interview_mux.done_authority import unpaid_land_reason
-                from interview_mux.stage_completion import stage_artifact_incompleteness
-
-                if (
-                    unpaid_land_reason(ctx, "gap_framing_compose") is None
-                    and stage_artifact_incompleteness(ctx, "gap_framing_compose")
-                    is None
-                ):
-                    heal_or_refuse_mark(ctx, "gap_framing_compose", force=True)
-            except Exception:
-                pass
+        _noop_compose_under_authority(ctx, "guard_exception")
         return
 
-    # R2 opt-in: when layup will own body and corpus/plan is ready, seed
-    # orientation + high-gap deterministic cover only — skip full compose LLM.
-    try:
-        from interview_mux.config import merged_config
-        from interview_mux.nugget_layup import PLAN_REL as _LAYUP_PLAN, nugget_layup_enabled
-
-        nl = ((merged_config().get("analysis") or {}).get("nugget_layup") or {})
-        if (
-            nugget_layup_enabled()
-            and bool(nl.get("compose_orientation_only_when_plan_ready"))
-            and (
-                ctx.artifact_exists(_LAYUP_PLAN)
-                or ctx.artifact_exists("understanding/nugget_corpus.json")
-            )
-        ):
-            from interview_mux.high_gap_vo import (
-                fill_uncovered_high_gaps,
-                seed_uncovered_high_gaps_deterministic,
-            )
-            from interview_mux.artifact_writes import write_validated_artifact
-            from interview_mux.gap_framing import persist_gap_framing_companion_artifacts
-
-            seed: dict[str, Any] = (
-                ctx.read_json("understanding/gap_report.json")
-                if ctx.artifact_exists("understanding/gap_report.json")
-                else {"interviewer_lines": []}
-            )
-            if not isinstance(seed.get("interviewer_lines"), list):
-                seed["interviewer_lines"] = []
-            applied: list[dict[str, Any]] = []
-            fill_uncovered_high_gaps(
-                ctx, seed, applied=applied, origin="compose_orientation_only_fill"
-            )
-            seed_uncovered_high_gaps_deterministic(
-                ctx, seed, applied=applied, origin="compose_orientation_only_seed"
-            )
-            seed["_meta"] = {
-                **(seed.get("_meta") if isinstance(seed.get("_meta"), dict) else {}),
-                "producer": "gap_framing_compose",
-                "compose_mode": "orientation_only_layup_ready",
-            }
-            persist_gap_framing_companion_artifacts(ctx, seed)
-            write_validated_artifact(
-                ctx,
-                "understanding/gap_report.json",
-                seed,
-                merge_from_disk=True,
-                stage_key="gap_framing_compose",
-            )
-            ctx.log(
-                "gap_framing_compose: orientation-only stub (layup plan/corpus ready)",
-                level="info",
-                stage="gap_framing_compose",
-                action_id="gap_framing_compose.orientation_only",
-            )
-            _heal_gap_framing_compose_if_complete(ctx)
-            return
-    except Exception as stub_exc:
-        ctx.log(
-            f"gap_framing_compose: orientation-only stub skipped: {stub_exc}",
-            level="warning",
-            stage="gap_framing_compose",
-        )
+    if gate.action == "clear_orphan_and_run":
+        _clear_orphan_layup_authority(ctx)
+        gate = ComposeAuthorityGate("run_llm", "orphan_cleared")
+    if gate.action == "noop_publish":
+        _noop_compose_under_authority(ctx, gate.why or "authority_noop")
+        return
 
     required_ids = _gap_segment_ids(ctx)
     batch_size = _gap_pass_batch_size()
@@ -2372,51 +2379,10 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         )
 
         plan = artifacts.pop("gap_framing_plan", None)
+        # S7+S8: one repair (includes high-gap seed inside repair); no persist
+        # cover generator and no repair→cover→repair loop. HG-5 playbook still seeds.
         repaired, _ = repair_gap_report(c, artifacts)
-        from interview_mux.high_gap_vo import fill_uncovered_high_gaps, resolve_seats
-
-        fill_applied: list[dict[str, Any]] = []
-        filled = 0
         warrants = _compose_framing_warrants_vo(c)
-        try:
-            filled = fill_uncovered_high_gaps(
-                c, repaired, applied=fill_applied, origin="high_gap_vo_fill"
-            )
-        except Exception as exc:
-            uncovered = _uncovered_high_segment_ids(c, repaired)
-            c.log(
-                f"gap_framing_compose: high-gap fill failed: {exc}",
-                level="warning",
-                stage="gap_framing_compose",
-            )
-            if warrants and uncovered:
-                raise RuntimeError(
-                    "gap_framing_compose: high-gap fill failed while framing Yes "
-                    f"leaves uncovered high gaps {uncovered[:8]} — refusing silent skip ({exc})"
-                ) from exc
-        # One fill retry when still uncovered under warrant (demote honesty).
-        if warrants and _uncovered_high_segment_ids(c, repaired):
-            try:
-                filled += fill_uncovered_high_gaps(
-                    c,
-                    repaired,
-                    applied=fill_applied,
-                    origin="high_gap_vo_fill_retry",
-                )
-            except Exception as retry_exc:
-                c.log(
-                    f"gap_framing_compose: high-gap fill retry failed: {retry_exc}",
-                    level="warning",
-                    stage="gap_framing_compose",
-                )
-        if filled:
-            c.log(
-                f"gap_framing_compose: filled {filled} uncovered high gap(s)",
-                level="info",
-                stage="gap_framing_compose",
-            )
-        # Spoken-copy omit can drop seed/fill lines that still "target" a high gap.
-        repaired, _ = repair_gap_report(c, repaired)
         lines = repaired.get("interviewer_lines")
         if isinstance(lines, list):
             repaired["interviewer_lines"] = stamp_lines_prior_provenance(c, lines)
@@ -2428,26 +2394,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 plan,
                 stage_key="gap_framing_compose",
             )
-        still_uncovered = _uncovered_high_segment_ids(c, repaired)
-        # Do not demote-to-green when framing Yes still warrants VO + uncovered highs.
-        if still_uncovered and warrants:
-            c.log(
-                "gap_framing_compose: refusing demote of "
-                f"{len(still_uncovered)} uncovered high gap(s) under framing Yes — "
-                "heal_or_raise will mark incomplete",
-                level="warning",
-                stage="gap_framing_compose",
-                detail={"uncovered": still_uncovered[:12]},
-            )
-        else:
-            resolution = resolve_seats(c, intent="compose_persist", gap_report=repaired)
-            if resolution.demoted:
-                c.log(
-                    "gap_framing_compose: demoted "
-                    f"{resolution.demoted} uncovered high gap(s) after fill",
-                    level="warning",
-                    stage="gap_framing_compose",
-                )
+        _finalize_high_gap_seats(c, repaired, warrants=warrants)
         write_validated_artifact(
             c,
             "understanding/gap_report.json",
@@ -2470,19 +2417,17 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             except Exception as exc:
                 _log_gap_compose_needs(ctx, exc)
                 ctx.log(
-                    f"gap_framing_compose flagship failed — high-gap fill: {exc}",
+                    f"gap_framing_compose flagship failed — high-gap cover: {exc}",
                     level="warning",
                     stage="gap_framing_compose",
                 )
-                from interview_mux.high_gap_vo import fill_uncovered_high_gaps
-
-                seed = (
+                seed: dict[str, Any] = (
                     ctx.read_json("understanding/gap_report.json")
                     if ctx.artifact_exists("understanding/gap_report.json")
                     else {"interviewer_lines": []}
                 )
-                applied: list[dict[str, Any]] = []
-                fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
+                if not isinstance(seed, dict):
+                    seed = {"interviewer_lines": []}
                 persist(ctx, seed)
             # CSP-05 / GFC-B1: assert completeness before done (zero lines under Yes → incomplete).
             _heal_gap_framing_compose_if_complete(ctx)
@@ -2579,19 +2524,16 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         all_shards_empty = not parts or line_count == 0
         if all_shards_empty:
             ctx.log(
-                "gap_framing_compose shards returned no lines — filling uncovered high gaps",
+                "gap_framing_compose shards returned no lines — cover via seed/fill in persist",
                 level="warning",
                 stage="gap_framing_compose",
             )
-            from interview_mux.high_gap_vo import fill_uncovered_high_gaps
-
-            seed: dict[str, Any] = {"interviewer_lines": []}
+            seed_merged: dict[str, Any] = {"interviewer_lines": []}
             if isinstance(merged, dict):
-                seed.update({k: v for k, v in merged.items() if k != "interviewer_lines"})
-                seed["interviewer_lines"] = []
-            applied: list[dict[str, Any]] = []
-            fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
-            merged = seed
+                seed_merged.update(
+                    {k: v for k, v in merged.items() if k != "interviewer_lines"}
+                )
+            merged = seed_merged
         persist(ctx, merged)
         # Same completeness bar as single-batch — never soft-green after empty shards.
         _heal_gap_framing_compose_if_complete(ctx)
@@ -2615,6 +2557,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 stage="gap_framing_compose",
                 action_id="gap_framing_compose.proactive_batch_complete",
             )
+
 
 
 def run_optimal_questions(ctx: RunContext) -> None:

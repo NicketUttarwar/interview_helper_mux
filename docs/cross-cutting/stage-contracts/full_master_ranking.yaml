@@ -16,15 +16,11 @@ outputs:
   staging: true
 - path: master/story_health.json
   staging: true
-- path: master/order_reconcile.json
-  staging: true
 - path: mastering/media_ip_cta.json
   staging: true
-- path: understanding/reorder_bridges.json
-  staging: true
-- path: understanding/speaker_delivery_plan.json
-  staging: true
 - path: analysis/stt_lexicon_islands.json
+  staging: true
+- path: analysis/stt_lexicon_island_boosts.json
   staging: true
 inputs:
   hard:
@@ -36,16 +32,10 @@ inputs:
     producer: gap_framing_compose
   soft:
   - path: master/selection.json
-  - path: understanding/reorder_bridges.json
-  - path: understanding/speaker_delivery_plan.json
-  - path: analysis/connector_fuse_rounds.json
+  - path: analysis/connector_fuse_rounds_pre_ranking.json
     producer: connector_fuse_pass_pre_ranking
   - path: master/coverage_audit.json
     producer: topic_coverage_audit
-  - path: analysis/run_golden_facts.json
-    producer: audio_probe_build
-  - path: master/transitions.json
-    producer: transitions
   - path: mastering/mastering_plan.json
     producer: mastering_plan_synthesize
   - path: mastering/media_ip_cta.json
@@ -53,8 +43,6 @@ inputs:
   - path: segments/boundaries.json
     producer: boundary_detection
   - path: segments/nle_edits.json
-  - path: transcript/full.json
-    producer: transcribe
   - path: transcript/review_queue.json
     producer: transcript_review_build
   - path: understanding/content_brief.json
@@ -64,16 +52,15 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/gap_framing_plan.json
     producer: gap_framing_compose
   - path: understanding/ideal_cuts.json
     producer: ideal_cuts_propose
+  - path: understanding/ideal_cuts_selection_seed.json
+    producer: full_master_ranking
   - path: understanding/interview_spine.json
     producer: interview_spine_build
-  - path: understanding/nugget_corpus.json
-    producer: nugget_corpus_mine
-  - path: understanding/nugget_layup_plan.json
-    producer: nugget_layup_compose
   - path: understanding/source_acoustic_profile.json
     producer: source_acoustic_profile
   - path: understanding/source_topology.json

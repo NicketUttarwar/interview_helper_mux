@@ -144,15 +144,29 @@ def resolve_gap_vo_delivery(ctx: RunContext) -> GapVoDelivery:
     return "chatterbox" if default == "chatterbox" else "record"
 
 
-def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
+def rewrite_full_auto_record_lines_to_synth(
+    ctx: RunContext,
+    *,
+    stage_key: str | None = None,
+) -> list[str]:
     """Full-auto owns formerly record-required gap lines via synthesize (VS-B3 / Q3B).
 
     Persists ``delivery: synthesize`` on open record lines so G1 does not stall
     for a human take and ``vo_synthesize`` / ensure_g1 can close the WAVs.
     Requires an approved voice reference (clone path). No-op outside Full-auto;
     partial-auto keeps HV-5 record hard_block.
+
+    ``stage_key`` defaults to the active stage (caller), then ``vo_synthesize``.
+    Never hardcode a foreign writer when invoked from ``vo_line_adjudicate``.
     """
     from interview_mux.automation_run import is_full_auto_run
+
+    try:
+        from interview_mux.write_staging import active_stage_id
+
+        writer = str(stage_key or active_stage_id() or "").strip() or "vo_synthesize"
+    except Exception:
+        writer = str(stage_key or "").strip() or "vo_synthesize"
 
     meta = _run_meta(ctx)
     if not is_full_auto_run(meta):
@@ -164,21 +178,21 @@ def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
         ctx.log(
             f"Full-auto record→synth skipped — vo_path not ready ({reason})",
             level="info",
-            stage="vo_synthesize",
+            stage=writer,
         )
         return []
     if resolve_gap_vo_delivery(ctx) != "chatterbox":
         ctx.log(
             "Full-auto record→synth skipped — delivery is not chatterbox",
             level="info",
-            stage="vo_synthesize",
+            stage=writer,
         )
         return []
     if not voice_reference_approved(ctx):
         ctx.log(
             "Full-auto record→synth skipped — voice reference not approved yet",
             level="info",
-            stage="vo_synthesize",
+            stage=writer,
         )
         return []
     if not ctx.artifact_exists("understanding/gap_report.json"):
@@ -216,13 +230,13 @@ def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
         ctx.write_json(
             "understanding/gap_report.json",
             gap,
-            stage_key="vo_synthesize",
+            stage_key=writer,
         )
     except Exception as exc:
         ctx.log(
             f"full-auto record→synth rewrite persist failed: {exc}",
             level="warning",
-            stage="vo_synthesize",
+            stage=writer,
         )
         return []
     try:
@@ -235,8 +249,8 @@ def rewrite_full_auto_record_lines_to_synth(ctx: RunContext) -> list[str]:
         "Full-auto rewrote record-required VO lines to synthesize: "
         + ", ".join(rewritten[:12]),
         level="warning",
-        stage="vo_synthesize",
-        detail={"rewritten_line_ids": rewritten},
+        stage=writer,
+        detail={"rewritten_line_ids": rewritten, "stage_key": writer},
     )
     return rewritten
 

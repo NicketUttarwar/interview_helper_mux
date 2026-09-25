@@ -493,5 +493,16 @@
         "fuse_side": "left"
       }
     ]
+  },
+  "junction_snip_qa": {
+    "version": 1,
+    "generated_at": "2026-01-01T00:00:00+00:00",
+    "skipped": true,
+    "reason": "fixture"
+  },
+  "sound_design_vo_finalize": {
+    "skipped": true,
+    "refused": false,
+    "reason": "fixture"
   }
 }

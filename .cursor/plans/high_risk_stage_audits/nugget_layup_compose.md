@@ -2,8 +2,8 @@
 
 tier: T0 | seed: #45 | runs_hit: 9/9  
 status: `complete`  
-mode: investigate  
-updated: 2026-09-25T16:15:00Z
+mode: fix  
+updated: 2026-09-25T17:05:00Z
 
 **Report:** `.cursor/plans/high_risk_error_stages_report.md`  
 **Write this file** for the investigation. When complete, update **only this stage’s row** in the report’s `## Audit findings` table.
@@ -127,15 +127,17 @@ Classification values: `root_here` | `downstream_of_X` | `seed_order_noise` | `a
 
 **Refuse:** loud QC fail; stale plan vs selection; selection_commit_refused; VO contract drift after rewrite.
 
-**Heal loops:** CTA omit → one in-invoke LLM retry (avoid budget thrash); aspirational pick-best candidates; thrash oscillation hook `try_pick_best_layup_on_oscillation`.
+**Heal loops (post S1–S5):** pre-LLM CTA prune only (no in-envelope omit+retry); persist still materialize → recover → park → spine → deterministic floor; publish floor-topup + rank-to-budget; oscillation pick-best disabled; candidates ≤2.
 
 **LLM ≤2:** stage invoke cap; degraded regenerate is an extra StageError that consumes an attempt budget inside the same stage run.
 
-**Done honesty:** incomplete reasons block hollow `.stage_done`; after EDL seal, layup incompleteness suppressed so mix is not rewound.
+**Done honesty:** incomplete reasons block hollow `.stage_done`; after EDL seal, layup incompleteness suppressed so mix is not rewound. S5: high_gap incompleteness on this stage only when plan claimed air for a still-missing high-gap line.
 
 ---
 
 ## 5. Over-engineering scorecard
+
+### 5a — Baseline (pre S1–S5)
 
 | Check | Answer | Evidence |
 |-------|--------|----------|
@@ -147,25 +149,55 @@ Classification values: `root_here` | `downstream_of_X` | `seed_order_noise` | `a
 | Disproportionate shard/memo/resume | **yes** | Shard pending meta, candidate archive (12), attempt memos, escalations, air advisories |
 | “Fix everything downstream” behavior | **yes** | Publish path tries to hold floor by restoring priors / rank-to-budget rather than failing fast to upstream framing |
 
-**Over-engineered?** `yes` — one stage owns plan compose **and** hosted-VO gap authority **and** CTA selection surgery **and** multi-layer QC/thrash recovery (~5.5k LOC helper + fat persist closure).
+**Over-engineered?** `yes`
+
+### 5b — Re-score after S1–S5 (MODE=rescore 2026-09-25T16:50Z)
+
+Hard fail-if (skill): responsibilities ≥3 · dual SSOT=yes · soft-heal=yes · co-producer unpaid=yes · brittle=yes · shard/memo=yes · fix-downstream=yes.  
+`partial` on brittle / shard / fix-downstream does **not** trip fail-if.
+
+| Check | Answer | Fail-if? | Evidence on HEAD |
+|-------|--------|----------|------------------|
+| Responsibilities count | **5** | **yes** (≥3) | (1) LLM compose plan (2) pre-LLM CTA selection mutate via `commit_layup_cta_selection` (3) gap publish + hosted floor in `commit_layup_gap_authority` → `publish_layup_plan_to_gap_report` (4) persist heal ladder: materialize/recover/park/spine/deterministic floor (5) VO contract sync after publish. S1 guarded mid-shard only — publish not peeled. `nugget_layup.py` ~5607 LOC / 121 defs |
+| Dual / competing SSOTs | **yes** | **yes** | Plan rows vs gap_report `interviewer_lines` under `nugget_layup_authority`; selection still co-written for CTA |
+| Soft-heal / thrash re-admit loops | **yes** | **yes** | S3 removed mid-LLM CTA omit+retry; S4 disabled oscillation pick-best. Persist heal chain + publish `_framing_floor_topup` / `apply_rank_to_budget_fill` still present |
+| Co-producer / unpaid land | **yes** | **yes** | gap_report ALLOW multi-writer (`gap_framing_compose`, layup, `selection_framing_apply`, `vo_line_adjudicate`, sanitize, `vo_synthesize`) |
+| Brittle predicates vs simple rules | **partial** | no | S5 claimed-air high_gap pin; shard/QC/floor/sanitary incompleteness remain |
+| Disproportionate shard/memo/resume | **partial** | no | Candidates[-2:]; oscillation no-op. Shard pending + QC pending + escalations remain |
+| “Fix everything downstream” behavior | **partial** | no | S5 framing owns high_gap by default. Publish still holds floor via topup / rank-to-budget |
+
+**Fail-if hits:** 4 (responsibilities, dual SSOT, soft-heal, co-producer)  
+**Over-engineered?** `yes`  
+**Scorecard verdict: FAIL**
+
+What would flip to PASS: ship open §6 rows S6–S9 (peel publish, drop CTA mutate, collapse heals, single gap land writer).
 
 ---
 
 ## 6. Complexity subtraction list
 
-| id | P | unambiguous\|needs_you | Change | Acceptance hint |
-|----|---|------------------------|--------|-----------------|
-| S1 | P0 | unambiguous | Split **gap publish + hosted floor** out of compose into a thin `layup_gap_publish` (or harden that publish is the only floor owner and compose never stamps gap mid-shard) | Compose can QC-complete plan without write-locking gap; floor incompleteness only on publish stage |
-| S2 | P0 | unambiguous | Stop compose from attempting any persist of `segments/manifest.json` / content_brief (read-only packet) | Zero AuthorityDenied on those paths from this stage in forensics |
-| S3 | P1 | unambiguous | CTA omit: only host prune **before** LLM; remove in-envelope omit+retry branch once ranking/sanitize never re-admit never_touch | No `selection_cta_omit` / transcript_excerpt demote path during layup invoke |
-| S4 | P1 | needs_you | Collapse aspirational candidate archive + pick-best into single “best of ≤2 attempts” without oscillation thrash hook | Floor/coverage still met; fewer `layup_candidates` archive writes |
-| S5 | P2 | needs_you | Move high_gap line obligation fully upstream (`gap_framing_compose`); layup only refuses hollow if **its** published body drops a high-gap it claimed | `high_gap_unframed` resume pin returns `gap_framing_compose` when layup did not strip the line |
+| id | P | unambiguous\|needs_you | Status | Change | Clears check | Acceptance hint |
+|----|---|------------------------|--------|--------|--------------|-----------------|
+| S1 | P0 | unambiguous | **done (partial)** | `done:` mid-shard gap-publish refuse via `commit_layup_gap_authority` / `_compose_shards_block_gap_publish` — **not** a separate stage | responsibilities / dual SSOT (partial) | Compose can QC plan without mid-shard gap stamp |
+| S2 | P0 | unambiguous | **done** | `done:` layup `write_json` skips manifest/content_brief; hydrate uses `segment_classification` | authority friction (not a scorecard row) | Zero AuthorityDenied on those paths from this stage |
+| S3 | P1 | unambiguous | **done** | `done:` removed in-envelope CTA omit+retry; demote needs only; pre-LLM prune retained | soft-heal (partial) | No selection mutate inside LLM incomplete loop |
+| S4 | P1 | decided: simplify | **done** | `done:` candidates[-2:]; `try_pick_best_layup_on_oscillation` no-ops | shard/memo (partial) | Oscillation does not restore archive |
+| S5 | P2 | decided: pin framing | **done** | `done:` `layup_claimed_air_missing_high_gap` + heal pin defaults framing | fix-downstream (partial) | Empty plan → `gap_framing_compose` |
+| S6 | P0 | needs_you | **open** | **Peel** gap publish + hosted floor into thin `layup_gap_publish` seed (or compose plan-only; floor incompleteness only on publish stage) | responsibilities, dual SSOT | Compose `.stage_done` without write-locking gap; floor assert lives only on publish stage |
+| S7 | P0 | unambiguous | **done** | `done:` removed pre-compose CTA selection mutate; layup dropped from `master/selection.json` producers; End-A CTA maps ranking/sanitize | responsibilities, soft-heal | Layup never writes `master/selection.json` |
+| S8 | P1 | unambiguous | **done** | `done:` persist heal = single `ensure_deterministic_floor_before_refuse` then refuse (no materialize↔recover↔park↔spine ladder) | soft-heal, responsibilities | ≤1 heal helper call before `assert_layup_qc_or_raise` |
+| S9 | P1 | decided: sole writer | **done** | `done:` gap_report producers = framing+layup only; stamp AllowRows; `assert_gap_report_body_sole_writer` post-authority text guard | co-producer unpaid land | Foreign full-body republish refused; unpaid land tests green |
+| S10 | P2 | unambiguous | **done** | `done:` publish floor miss → `raise_hosted_vo_floor_unsatisfiable` only (no `_framing_floor_topup` / in-publish `apply_rank_to_budget_fill`; hollow preserve kept) | fix-downstream | No prior-line restore inside `publish_layup_plan_to_gap_report` |
+
+**Open cap:** S6 (1). Prefer peel publish next `MODE=fix` after operator decide.
+
+**Operator decisions (2026-09-25):** S4 simplify · S5 pin framing · S9 sole body writer · S1–S5 + S7–S10 shipped (S1 partial; S6 open).
 
 ---
 
 ## 7. Root-cause verdict
 
-`nugget_layup_compose` is the **true T0 choke**: product-correct job (plan → authoritative before-VO) is overloaded with thrash-era compensations (CTA host omit, floor topup, rank-to-budget, candidate pick-best, shard honesty, high_gap done block). Errors in the report are mostly **still live** and correctly pinned here for hosted VO / gap land, but many fires are **amplified** by dual SSOT (plan↔gap_report) and by fixing upstream thin framing / CTA re-admit **inside** this stage instead of failing closed to the owner. AuthorityDenied on manifest is pure friction (compose should never write it). Simplifying publish/floor ownership and narrowing CTA/selection side effects is the highest leverage; do not add more heal layers.
+T0 choke narrowed: CTA mutate, heal ladder, multi-writer body land, and in-publish floor topup are shipped (S7–S10). Remaining overload is **publish+floor still inside compose** (S6 peel — needs_you). Scorecard may still FAIL on responsibilities/dual SSOT until S6.
 
 ---
 
@@ -173,12 +205,12 @@ Classification values: `root_here` | `downstream_of_X` | `seed_order_noise` | `a
 
 `simplify`
 
-(Primary: peel gap publish + floor into a narrower surface / forbid non-owned writes; secondary: CTA only pre-LLM. Not `fix_now` without that structural cut — more heals would worsen thrash.)
+Next: **S6** peel gap publish / hosted floor into thin publish seed (operator decide), then `MODE=rescore`.
 
 ---
 
 ## 9. Scope fence
 
-Upstream poison owner (if any): `gap_framing_compose` / `missing_framing` (thin or high_gap lines); `full_master_ranking` + `selection_order_sanitize` (CTA re-admit / membership thrash)  
+Upstream poison owner (if any): `gap_framing_compose` / `missing_framing` (thin or high_gap lines); `full_master_ranking` + `selection_order_sanitize` (CTA omit)  
 Downstream victims (names only): `refinement_agenda`, `selection_framing_apply`, `gap_report_sanitize`, `vo_line_adjudicate`, `vo_synthesize`, `edl_narrative_audit`, `edl`, `sound_design_plan`  
 Did **not** redesign other stages.

@@ -282,8 +282,13 @@ def log_decision(
                 detail=detail,
             )
             act_l = str(action or "").lower()
+            # Expected ship-bar ops (S3 advisory refuse-remote, stack teardown) —
+            # keep decision/minor_fix telemetry, but do not count as stage errors
+            # under podcast_publish (HPUB S4 forensics noise peel).
+            if act_l in {"s3_sync", "stack_shutdown"}:
+                pass
             # Also capture decision events that look like failures / stalls / gates.
-            if act_l in {
+            elif act_l in {
                 "forensics_escalate",
                 "forensics_stall",
                 "pause",
@@ -4791,14 +4796,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 bump_identical(
                     "connector_fuse_pass_pre_ranking:incomplete",
                     stage="connector_fuse_pass_pre_ranking",
-                    producer="analysis/connector_fuse_rounds.json",
+                    producer="analysis/connector_fuse_rounds_pre_ranking.json",
                     reason="pre_ranking_rounds_missing",
                     resume="connector_fuse_pass_pre_ranking",
                 )
                 if identical_should_stop(
                     "connector_fuse_pass_pre_ranking:incomplete",
                     stage="connector_fuse_pass_pre_ranking",
-                    producer="analysis/connector_fuse_rounds.json",
+                    producer="analysis/connector_fuse_rounds_pre_ranking.json",
                     reason="pre_ranking_rounds_missing",
                     resume="connector_fuse_pass_pre_ranking",
                 ):
@@ -4808,7 +4813,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     )
                     return pause_needs_operator(
                         "connector_fuse_pass_pre_ranking",
-                        "pre_ranking fuse looping: analysis/connector_fuse_rounds.json missing",
+                        "pre_ranking fuse looping: analysis/connector_fuse_rounds_pre_ranking.json missing",
                     )
                 log(
                     "prerequisite connector_fuse_pass_pre_ranking — "
@@ -7266,14 +7271,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 bump_identical(
                     "connector_fuse_pass_pre_ranking:incomplete",
                     stage="connector_fuse_pass_pre_ranking",
-                    producer="analysis/connector_fuse_rounds.json",
+                    producer="analysis/connector_fuse_rounds_pre_ranking.json",
                     reason="pre_ranking_rounds_missing",
                     resume="connector_fuse_pass_pre_ranking",
                 )
                 if identical_should_stop(
                     "connector_fuse_pass_pre_ranking:incomplete",
                     stage="connector_fuse_pass_pre_ranking",
-                    producer="analysis/connector_fuse_rounds.json",
+                    producer="analysis/connector_fuse_rounds_pre_ranking.json",
                     reason="pre_ranking_rounds_missing",
                     resume="connector_fuse_pass_pre_ranking",
                 ):
@@ -7283,7 +7288,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     )
                     return pause_needs_operator(
                         "connector_fuse_pass_pre_ranking",
-                        "pre_ranking fuse looping: analysis/connector_fuse_rounds.json missing",
+                        "pre_ranking fuse looping: analysis/connector_fuse_rounds_pre_ranking.json missing",
                     )
                 log(
                     "prerequisite connector_fuse_pass_pre_ranking — "

@@ -123,11 +123,12 @@ def test_hg5_heal_pin_does_not_bypass_unpaid_mix_land(
         {"ordered_segment_ids": ["seg_001"], "layups": []},
         skip_handoff=True,
     )
-    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    # S5: empty plan does not pin layup for framing debt.
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
 
     begin_remaster(ctx, owner="music_epoch")
     assert unpaid_land_blocks_promote(ctx, "mix") is True
     # Heal pin API must not pay remaster land.
-    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
     assert remaster_in_flight(ctx) is True
     assert unpaid_land_reason(ctx, "mix") is not None

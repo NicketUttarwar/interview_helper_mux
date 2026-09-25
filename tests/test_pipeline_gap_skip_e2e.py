@@ -18,10 +18,34 @@ from interview_mux.session_log import read_log
 from run_fixtures import isolated_run_ctx, minimal_manifest
 
 
+def _clear_gap_admit_gates(monkeypatch: pytest.MonkeyPatch, ctx: RunContext) -> None:
+    """Admit past framing/pickup gates so eligibility / skip paths are under test."""
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.require_gap_framing_decision_clear",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.require_gap_path_clear",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_gates.gap_framing_enabled",
+        lambda _ctx: True,
+    )
+    # Hard input before eligibility — seed a hollow plan so skip/ineligible paths run.
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        ctx.write_json(
+            "mastering/mastering_plan.json",
+            {"narrative_mode": "documentary", "_meta": {"fixture": True}},
+            skip_handoff=True,
+        )
+
+
 def test_missing_framing_auto_skips_when_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "gap_e2e")
+    _clear_gap_admit_gates(monkeypatch, ctx)
     # Local import inside _run_missing_framing_stage — patch the source module.
     monkeypatch.setattr(
         "interview_mux.gap_fill_eligibility.gap_fill_auto_skip_enabled",
@@ -60,12 +84,15 @@ def test_missing_framing_auto_skips_when_enabled(
     assert not llm_called["missing"]
     assert not llm_called["optimal"]
     assert ctx.artifact_exists("understanding/gap_report.json")
+    report = ctx.read_json("understanding/gap_report.json")
+    assert (report.get("_meta") or {}).get("producer_stage") == "gap_framing_compose"
 
 
 def test_missing_framing_hard_stops_when_ineligible_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "gap_hard")
+    _clear_gap_admit_gates(monkeypatch, ctx)
     monkeypatch.setattr(
         "interview_mux.gap_fill_eligibility.gap_fill_auto_skip_enabled",
         lambda cfg=None: False,
@@ -107,6 +134,7 @@ def test_missing_framing_full_auto_does_not_skip_hosted_ineligible_signals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "gap_full_auto")
+    _clear_gap_admit_gates(monkeypatch, ctx)
     ctx.write_json(
         "run_meta.json",
         {"run_mode": "full-auto", "full_auto": True, "homunculus_version": "0.1.0"},
@@ -147,6 +175,7 @@ def test_missing_framing_full_auto_skips_true_monologue(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "gap_full_auto_mono")
+    _clear_gap_admit_gates(monkeypatch, ctx)
     ctx.write_json(
         "run_meta.json",
         {"run_mode": "full-auto", "full_auto": True, "homunculus_version": "0.1.0"},

@@ -215,14 +215,14 @@ def vo_clip_wav_resolvable(ctx: RunContext, clip: dict) -> bool:
 
 
 def restamp_edl_vo_pickup_source_paths(ctx: RunContext) -> list[str]:
-    """Bind EDL ``vo_pickup`` clips to rendered WAVs (producer-side, post-synth).
+    """Bind EDL ``vo_pickup`` clips to rendered WAVs (``edl`` owns live EDL).
 
     ``heal_vo_pickup_clip_source`` only ever ran inside ``run_preview``, but the
     assembly_preview *input check* refuses on exactly the unsourced clips that heal
     would fix. VO rendered after the EDL was built therefore never bound: preview
     could not start, nothing else re-bound, and mix silenced every host line
     (exec_11871 — vo_layup_seg_004/047/055 → "missing VO pickup WAV — inserted
-    silence"). vo_synthesize owns those bytes, so it binds them here.
+    silence"). ``run_edl`` restamps after write (vo_synthesize S1 peel).
     """
     if not ctx.artifact_exists("master/edl.json"):
         return []
@@ -1308,6 +1308,12 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
 
 
 def run_edl(ctx: RunContext) -> None:
+    """Build ``master/edl.json`` from disk selection + seated VO/transitions.
+
+    S1–S5 peel: no nested VO mint, no spoofed foreign writers, no orientation
+    ensure/revive, no seam-glue mint, no selection blank/chapter dual-copy.
+    Missing audio / incomplete glue → refuse to the upstream owner.
+    """
     from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
 
     if narrative_audit_blocks_edl(ctx):
@@ -1325,10 +1331,7 @@ def run_edl(ctx: RunContext) -> None:
             heal_nle_unplayable_keep_overrides(ctx)
         except Exception:
             pass
-        # An overlap/fuse union absorbs a consumed id into a survivor and marks it
-        # excluded in the NLE. Retire it from selection before the rebuild or the
-        # EDL is permanently one clip short of selection (exec_11871 seg_073 →
-        # `selection_edl_order_drift` on every dispatch).
+        # Overlap-union owner retires absorbed ids (not an EDL selection rewrite).
         try:
             from interview_mux.edl_overlap_repair import (
                 retire_consumed_ids_from_selection,
@@ -1341,150 +1344,49 @@ def run_edl(ctx: RunContext) -> None:
                 level="warning",
                 stage="edl",
             )
-        selection = ctx.read_json("master/selection.json")
-        from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
-
-        selection = reconcile_ordered_vs_excluded(
-            selection if isinstance(selection, dict) else {}
-        )
-        _persist_selection_for_edl(ctx, selection, note="ordered/excluded reconcile")
+        # S5: disk selection is SSOT. NLE operator edits may reshape the in-memory
+        # cut list for this build only — never blank/chapter/air-script dual-copy.
+        disk_selection = ctx.read_json("master/selection.json")
+        if not isinstance(disk_selection, dict):
+            raise SystemExit("edl: master/selection.json missing or invalid")
+        selection = dict(disk_selection)
         nle = load_nle(ctx)
         by_id = _segment_by_id(ctx)
         if nle_has_operator_edits(nle):
-            selection = apply_nle_to_selection(
-                selection, nle, segments_by_id=by_id
+            # S5: EDL is not a selection producer. NLE must already be committed
+            # onto disk selection (GUI / owner) — applying here would create
+            # selection_edl_order_drift at write_live_edl.
+            preview = apply_nle_to_selection(
+                dict(disk_selection), nle, segments_by_id=by_id
             )
-            _persist_selection_for_edl(ctx, selection, note="NLE operator edits")
-            ordered = selection.get("ordered_segment_ids") or []
-            excluded = selection.get("excluded_segment_ids") or []
+            disk_order = [
+                str(s) for s in (disk_selection.get("ordered_segment_ids") or []) if s
+            ]
+            nle_order = [
+                str(s) for s in (preview.get("ordered_segment_ids") or []) if s
+            ]
+            if nle_order != disk_order or not disk_selection.get("nle_applied"):
+                raise SystemExit(
+                    "edl: NLE operator edits not committed on disk selection — "
+                    "land NLE via selection owner before edl "
+                    f"(disk={disk_order[:8]} nle={nle_order[:8]})"
+                )
+            selection = preview
             ctx.log(
-                f"EDL: applied NLE edits — {len(ordered)} segments, "
-                f"{len(excluded)} excluded.",
+                f"EDL: NLE already on disk selection — {len(nle_order)} segments.",
                 level="info",
                 stage="edl",
             )
-        try:
-            from interview_mux.air_script import enforce_air_script_omits
-            from interview_mux.mastering_plan_loader import load_plan_raw
-
-            if load_plan_raw(ctx):
-                selection = enforce_air_script_omits(ctx, selection)
-                _persist_selection_for_edl(ctx, selection, note="air-script omit bind")
-        except Exception as exc:
-            ctx.log(f"edl: air_script omit bind skipped: {exc}", level="warning", stage="edl")
         gap_report = (
             ctx.read_json("understanding/gap_report.json")
             if ctx.artifact_exists("understanding/gap_report.json")
             else None
         )
-        if isinstance(gap_report, dict):
-            try:
-                from interview_mux.artifact_repairs import repair_gap_report
-
-                repaired, notes = repair_gap_report(ctx, gap_report)
-                if notes:
-                    _commit_edl_gap_report(ctx, repaired)
-                    ctx.log(
-                        f"edl: repaired gap_report before build ({len(notes)} note(s))",
-                        level="info",
-                        stage="edl",
-                    )
-                gap_report = repaired
-            except Exception as exc:
-                ctx.log(f"edl: gap_report repair skipped: {exc}", level="warning", stage="edl")
-            from interview_mux.opening_orientation import ensure_episode_orientation
-
-            current_order = [
-                str(x) for x in (selection.get("ordered_segment_ids") or []) if x
-            ]
-            gap_report, opening_actions = ensure_episode_orientation(
-                ctx, gap_report, current_order
-            )
-            if opening_actions:
-                _commit_edl_gap_report(ctx, gap_report)
-                ctx.log(
-                    f"edl: opening orientation guard applied {len(opening_actions)} action(s)",
-                    level="info",
-                    stage="edl",
-                    detail=opening_actions,
-                )
-            from interview_mux.opening_orientation import retarget_orientation_to_open
-
-            synced = retarget_orientation_to_open(ctx)
-            if synced:
-                if ctx.artifact_exists("understanding/gap_report.json"):
-                    gap_report = ctx.read_json("understanding/gap_report.json")
-                ctx.log(
-                    f"edl: orientation targets synced {synced}",
-                    level="info",
-                    stage="edl",
-                )
-            try:
-                from interview_mux.omit_ledger import revive_required_opening_orientation
-
-                revive_required_opening_orientation(ctx)
-            except Exception:
-                pass
-            try:
-                from interview_mux.air_script import (
-                    filter_gap_lines_for_air_script,
-                    persist_air_script_omits_on_gap_report,
-                )
-                from interview_mux.mastering_plan_loader import load_plan_raw
-
-                omitted = persist_air_script_omits_on_gap_report(ctx)
-                if omitted:
-                    ctx.log(
-                        f"edl: persisted {omitted} air_script VO omit(s) on gap_report",
-                        level="info",
-                        stage="edl",
-                    )
-                filtered = filter_gap_lines_for_air_script(
-                    gap_report if isinstance(gap_report, dict) else None,
-                    load_plan_raw(ctx),
-                )
-                if isinstance(filtered, dict):
-                    gap_report = filtered
-            except Exception as exc:
-                ctx.log(f"edl: air_script VO filter skipped: {exc}", level="warning", stage="edl")
-            try:
-                from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
-
-                discard_non_owner_pending_vo_pickup(ctx)
-            except Exception:
-                pass
         from interview_mux.nugget_layup import (
-            adopt_layup_plan_to_selection,
             assert_gap_report_layup_authority,
             assert_layup_fresh_vs_selection,
-            dedupe_gap_report_nugget_claims,
         )
 
-        # Air copy is about to be cut — refuse a lay-up plan built for a
-        # different order, or a body another writer rewrote.
-        if isinstance(gap_report, dict):
-            gap_report, dedupe_notes = dedupe_gap_report_nugget_claims(gap_report)
-            if dedupe_notes:
-                _commit_edl_gap_report(ctx, gap_report)
-                ctx.log(
-                    f"edl: deduped {len(dedupe_notes)} overlapping nugget claim(s)",
-                    level="warning",
-                    stage="edl",
-                )
-        selection = _prepare_locked_selection(ctx, selection)
-        _persist_selection_for_edl(ctx, selection, note="locked-selection prep")
-        try:
-            from interview_mux.nugget_layup import PLAN_REL
-
-            if ctx.artifact_exists(PLAN_REL):
-                # Ownership allows nugget_layup_compose / gap_framing_recompose only —
-                # stage="edl" silently AuthorityDenied and left stale ordered_segment_ids
-                # (exec_13159: plan 35 vs selection 34 → mix seed-order rewind under seal).
-                adopt_layup_plan_to_selection(
-                    ctx, persist=True, stage="nugget_layup_compose"
-                )
-        except Exception:
-            pass
         assert_layup_fresh_vs_selection(ctx, stage="edl")
         assert_gap_report_layup_authority(
             ctx, gap_report if isinstance(gap_report, dict) else None, stage="edl"
@@ -1494,141 +1396,55 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("master/transitions.json")
             else {"transitions": []}
         )
-        from interview_mux.order_hash import bump_order_lock
-        from interview_mux.seam_glue import ensure_seam_glue
-
-        ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
-        selection = bump_order_lock(selection, source="edl")
-        _persist_selection_for_edl(ctx, selection, note="order-lock bump")
-
-        # F4: never soft-complete reorder glue. Hitch/skip cover omit spoken
-        # rows; empty ungrounded seams fail closed.
-        _bridges, transitions, completeness = ensure_seam_glue(
-            ctx,
-            ordered=ordered,
-            segments_by_id=by_id,
-            gap_report=gap_report if isinstance(gap_report, dict) else None,
-            transitions=transitions if isinstance(transitions, dict) else None,
-            soft=False,
-        )
+        # S4: glue mint lives on `transitions`; EDL only refuses incomplete bridges.
         try:
-            from interview_mux.air_script import filter_transitions_for_air_script
-            from interview_mux.mastering_plan_loader import load_plan_raw
+            from interview_mux.bridge_completeness import (
+                assert_bridges_complete,
+                missing_reorder_bridges,
+            )
 
-            transitions = filter_transitions_for_air_script(
-                transitions if isinstance(transitions, dict) else None,
-                load_plan_raw(ctx),
-            ) or transitions
-            if isinstance(transitions, dict):
-                ctx.write_json(
-                    "master/transitions.json",
-                    transitions,
-                    stage_key="transitions",
+            bridges = (
+                ctx.read_json("understanding/reorder_bridges.json")
+                if ctx.artifact_exists("understanding/reorder_bridges.json")
+                else {"pairs": []}
+            )
+            missing = missing_reorder_bridges(
+                bridges if isinstance(bridges, dict) else {"pairs": []},
+                gap_report=gap_report if isinstance(gap_report, dict) else None,
+                transitions=transitions if isinstance(transitions, dict) else None,
+            )
+            if missing:
+                raise SystemExit(
+                    "edl: bridge_completeness incomplete — resume transitions "
+                    f"(missing={missing[:6]})"
                 )
-        except Exception as trans_exc:
-            ctx.log(f"edl: air_script transition filter skipped: {trans_exc}", level="warning", stage="edl")
-        if not completeness.get("complete"):
+            assert_bridges_complete(
+                bridges if isinstance(bridges, dict) else {"pairs": []},
+                gap_report=gap_report if isinstance(gap_report, dict) else None,
+                transitions=transitions if isinstance(transitions, dict) else None,
+                soft=False,
+            )
+        except SystemExit:
+            raise
+        except Exception as glue_exc:
             ctx.log(
-                f"bridge_completeness incomplete after mint: "
-                f"{completeness.get('missing_count')} missing",
+                f"edl: bridge completeness preflight skipped: {glue_exc}",
                 level="warning",
                 stage="edl",
-                detail=completeness.get("missing", [])[:6],
             )
 
     from interview_mux.air_order_integrity import audit_and_report
 
     audit_and_report(ctx, stage="edl", repair=False)
 
-    # Final VO seat AFTER all gap text mutations (repair/dedupe/filter). Resync
-    # before dedupe left audited WAVs stale when layup text changed (exec_11630).
-    if isinstance(gap_report, dict):
-        resynced: list[str] = []
-        try:
-            from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
-
-            discard_non_owner_pending_vo_pickup(ctx)
-        except Exception:
-            pass
-        try:
-            _commit_edl_gap_report(ctx, gap_report)
-        except Exception as exc:
-            ctx.log(f"edl: pre-resync gap commit: {exc}", level="warning", stage="edl")
-        try:
-            resynced = resync_required_synthesize_wavs(ctx, gap_report)
-        except Exception as exc:
-            ctx.log(
-                f"edl: VO resync incomplete: {exc}",
-                level="warning",
-                stage="edl",
-            )
-        try:
-            from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
-            from interview_mux.write_staging import discard_non_owner_pending_vo_pickup
-
-            heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
-            discard_non_owner_pending_vo_pickup(ctx)
-            if heal.get("omitted") or heal.get("resynthesized"):
-                ctx.log(
-                    "edl: seated bind heal "
-                    f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
-                    level="info",
-                    stage="edl",
-                )
-        except Exception as exc:
-            ctx.log(f"edl: seated bind heal skipped: {exc}", level="warning", stage="edl")
-        if resynced:
-            ctx.log(
-                f"edl: re-synthesized stale required VO {resynced}",
-                level="info",
-                stage="edl",
-            )
-
-    with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
-        from interview_mux.transition_vo import (
-            assert_required_bridge_synth_ok,
-            assert_spoken_transitions_audible,
-            resolve_transition_wav,
-            resync_spoken_transitions,
-            synthesize_spoken_transitions,
-        )
-
-        try:
-            tr_notes = resync_spoken_transitions(ctx, fail_closed=False)
-            if tr_notes:
-                ctx.log(
-                    f"edl: re-synthesized stale transitions {tr_notes[:6]}",
-                    level="info",
-                    stage="edl",
-                )
-        except RuntimeError:
-            ctx.log("edl: resync raised; continuing with dangling-path lint", level="warning", stage="edl")
-        synth_rows = synthesize_spoken_transitions(ctx)
-        if synth_rows:
-            failed = [r for r in synth_rows if r.get("ok") is False]
-            if failed:
-                ctx.log(
-                    f"EDL: {len(failed)} transition synth failure(s)",
-                    level="warning",
-                    stage="edl",
-                    detail={"failed": failed[:6]},
-                )
-            assert_required_bridge_synth_ok(ctx, synth_rows)
-
-        # Synth stamps voice_speaker_id on disk; build must see that voice so
-        # clone-adjacency suppress can hitch-replace instead of shipping a
-        # clone-next-to-native transition clip (edl_narrative_qc thrash).
-        if ctx.artifact_exists("master/transitions.json"):
-            refreshed = ctx.read_json("master/transitions.json")
-            if isinstance(refreshed, dict):
-                transitions = refreshed
+    from interview_mux.transition_vo import (
+        assert_spoken_transitions_audible,
+        resolve_transition_wav,
+    )
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         from interview_mux.order_hash import copy_order_lock, stamp_order_hash
         from interview_mux.ideal_cuts import load_air_bound_inputs
-
-        selection = _prepare_locked_selection(ctx, selection)
-        _persist_selection_for_edl(ctx, selection, note="build-time locked selection")
 
         ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
         wav_path = None
@@ -1761,6 +1577,25 @@ def run_edl(ctx: RunContext) -> None:
         from interview_mux.air_order import write_live_edl
 
         write_live_edl(ctx, edl, source="edl")
+        # S1 (vo_synthesize peel): EDL owns live source_path bind after WAVs exist.
+        try:
+            from interview_mux.transition_vo import restamp_edl_transition_source_paths
+
+            restamp_edl_transition_source_paths(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"edl: transition source restamp incomplete: {exc}",
+                level="warning",
+                stage="edl",
+            )
+        try:
+            restamp_edl_vo_pickup_source_paths(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"edl: VO pickup source restamp incomplete: {exc}",
+                level="warning",
+                stage="edl",
+            )
         try:
             from interview_mux.gap_vo_gates import gap_framing_enabled
             from interview_mux.opening_orientation import (
@@ -1851,7 +1686,12 @@ def run_edl(ctx: RunContext) -> None:
     except SystemExit:
         raise
     except Exception:
-        ctx.mark_done("edl")
+        ctx.log(
+            "edl: mark_done path failed — refusing hollow done",
+            level="error",
+            stage="edl",
+        )
+        raise
     try:
         from interview_mux.delivery_guardrails import freeze_air_order
 
@@ -1941,56 +1781,35 @@ def run_mix(ctx: RunContext) -> Path:
 
     check_edl_qc(ctx, stage="mix", strict=False)
 
+    # S4: refuse missing transition WAVs — do not commit/synth at mix.
     try:
-        from interview_mux.transition_vo import (
-            commit_current_transition_wavs,
-            current_transition_pairs_missing,
-            restamp_edl_transition_source_paths,
-        )
+        from interview_mux.transition_vo import current_transition_pairs_missing
 
         pre_missing = current_transition_pairs_missing(ctx)
-        if pre_missing:
-            ctx.log(
-                "mix: current transition pairs missing WAV — resync before render: "
-                + ", ".join(pre_missing[:8]),
-                level="warning",
-                stage="mix",
-            )
-            commit_current_transition_wavs(ctx)
-            restamp_edl_transition_source_paths(ctx)
-            still_pre = current_transition_pairs_missing(ctx)
-            if still_pre:
-                raise RuntimeError(
-                    "mix: current transition pairs missing WAV: "
-                    + ", ".join(still_pre[:8])
-                )
-    except RuntimeError:
-        raise
     except Exception as exc:
-        ctx.log(f"mix: VO pair resync skipped: {exc}", level="warning", stage="mix")
+        ctx.log(f"mix: transition pair preflight skipped: {exc}", level="warning", stage="mix")
+        pre_missing = []
+    if pre_missing:
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "mix: transition pairs missing WAV — resume vo_synthesize: "
+            + ", ".join(pre_missing[:8]),
+            stage="mix",
+            reason="missing_transition_wav",
+            detail={"missing_pairs": pre_missing[:12], "resume": "vo_synthesize"},
+        )
 
     with logged_step("mix/render", ctx=ctx, stage="mix"):
         out = mix(ctx)
-    try:
-        from interview_mux.transition_vo import current_transition_pairs_missing, persist_vo_pair_gap
+    # S5: seat assert only — HAU remaster clear / speech-first stamp at boundary.
+    _seat_after_mix(ctx)
+    return out
 
-        still = current_transition_pairs_missing(ctx)
-        persist_vo_pair_gap(ctx, still, source="mix")
-        if still:
-            ctx.log(
-                "mix: current transition pairs still missing WAV after last-chance: "
-                + ", ".join(still[:8]),
-                level="error",
-                stage="mix",
-            )
-    except Exception:
-        pass
-    try:
-        from interview_mux.listen_delight import rerun_listen_delight_after_mix
 
-        rerun_listen_delight_after_mix(ctx)
-    except Exception as exc:
-        ctx.log(f"mix: post-mix listen delight skipped: {exc}", level="warning", stage="mix")
+def _seat_after_mix(ctx: RunContext) -> None:
+    """S5: seating bookkeeping after render — not craft heal."""
     try:
         from interview_mux.air_order import mix_outputs_seated
         from interview_mux.mix_junction_seat import (
@@ -2000,7 +1819,6 @@ def run_mix(ctx: RunContext) -> Path:
 
         if mix_outputs_seated(ctx):
             clear_remaster(ctx)
-            # Remaster stamp trigger: every successful speech-first seat path.
             try:
                 from interview_mux.delivery_guardrails import music_epoch_complete
 
@@ -2010,7 +1828,6 @@ def run_mix(ctx: RunContext) -> Path:
                 note_speech_first_mix(ctx)
     except Exception:
         pass
-    return out
 
 
 def run_mux(ctx: RunContext) -> Path:

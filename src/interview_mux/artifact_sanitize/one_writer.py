@@ -137,6 +137,7 @@ def _admit_impl(
             skip_handoff=skip_handoff,
             skip_checkpoint=False,
             checkpoint_mode="detect",
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*SELECTION_REL.split("/"))
 
@@ -149,6 +150,7 @@ def _admit_impl(
             reason=reason,
             skip_handoff=skip_handoff,
             stage_key=stage_key,
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*GAP_REL.split("/"))
 

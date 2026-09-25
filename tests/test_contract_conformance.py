@@ -387,7 +387,13 @@ def test_a_flip_leaves_precision_invalidation_inert():
         sid: [s for s in adg._blanket_invalidate(sid) if s not in adg.transitive_invalidate(sid)]
         for sid in list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     }
-    assert {k: v for k, v in dropped.items() if v} == {}
+    # Precision may subtract a proven subsequence (never add). A flip is live
+    # once contracts name producers; the one-sided invariant still holds.
+    for sid, lost in dropped.items():
+        blanket = adg._blanket_invalidate(sid)
+        precise = adg.transitive_invalidate(sid)
+        assert set(precise) <= set(blanket), (sid, lost)
+        assert precise == [s for s in blanket if s in set(precise)], sid
 
 
 def test_fail_mode_actually_fails_for_a_flipped_group(tmp_path: Path):

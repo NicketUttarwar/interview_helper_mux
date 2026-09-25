@@ -34,6 +34,8 @@ SEAM_PACKETS_PATH = "analysis/connector_seam_packets.json"
 SEAM_VERDICTS_PATH = "analysis/connector_seam_verdicts.json"
 FUSE_AUDIT_PATH = "analysis/connector_fuse_audit.json"
 FUSE_ROUNDS_PATH = "analysis/connector_fuse_rounds.json"
+# S1: pre_ranking owns a dedicated rounds SSOT (not shared with analysis).
+FUSE_ROUNDS_PRE_RANKING_PATH = "analysis/connector_fuse_rounds_pre_ranking.json"
 
 
 def fuse_writer_stage(pass_id: str) -> str:
@@ -46,6 +48,13 @@ def fuse_writer_stage(pass_id: str) -> str:
     if blob == "pre_ranking" or blob.startswith("pre_ranking:") or blob.startswith("pre_ranking"):
         return "connector_fuse_pass_pre_ranking"
     return "connector_fuse_pass"
+
+
+def fuse_rounds_path(pass_id: str) -> str:
+    """Rounds artifact for this pass (analysis vs pre_ranking SSOTs)."""
+    if is_pre_ranking_pass(pass_id):
+        return FUSE_ROUNDS_PRE_RANKING_PATH
+    return FUSE_ROUNDS_PATH
 
 
 def persist_fuse_skip(
@@ -68,7 +77,7 @@ def persist_fuse_skip(
     doc.setdefault("total_applied", 0)
     doc.setdefault("fixed_point", True)
     doc["skip_reason"] = skip_reason
-    ctx.write_json(FUSE_ROUNDS_PATH, doc)
+    ctx.write_json(fuse_rounds_path(pass_id), doc)
     # Analysis contract is the audit. Pre-ranking skip must not mint
     # connector_fuse_audit.json (that would look like the analysis pass ran).
     if fuse_writer_stage(pass_id) == "connector_fuse_pass":
@@ -2050,9 +2059,11 @@ def run_connector_fuse_pass(
     cfg: dict[str, Any] | None = None,
     force_readjudicate: bool = False,
 ) -> dict[str, Any]:
-    """High-value cluster fuse, then enumerate → adjudicate → apply until fixed point."""
+    """Enumerate → adjudicate → apply until fixed point (analysis may prepend HV/diar)."""
     conf = connector_fuse_cfg_for_pass(pass_id, cfg)
     writer = fuse_writer_stage(pass_id)
+    pre = is_pre_ranking_pass(pass_id)
+    rounds_rel = fuse_rounds_path(pass_id)
     rounds_doc: dict[str, Any] = {
         "version": 1,
         "pass_id": pass_id,
@@ -2080,25 +2091,37 @@ def run_connector_fuse_pass(
             ctx, pass_id=pass_id, skip_reason="missing_manifest", rounds_doc=rounds_doc
         )
 
-    hv_rounds = run_high_value_cluster_fuse_rounds(ctx, pass_id=pass_id, cfg=conf)
-    hv_applied = int(hv_rounds.get("total_applied") or 0)
-    rounds_doc["high_value_cluster_fuse"] = hv_rounds
-
+    # S2: HV cluster + diarization forced fuse stay analysis-only.
     max_rounds, cap = resolve_fuse_round_caps(conf)
-
-    from interview_mux.diarization_suspicion import forced_diarization_fuse_verdicts
-
-    diar_verdicts = forced_diarization_fuse_verdicts(ctx)
+    hv_applied = 0
     diar_applied = 0
-    if diar_verdicts:
-        diar_result = apply_connector_fuses(
-            ctx, diar_verdicts, max_fuses=cap, pass_id=pass_id, cfg=conf
-        )
-        diar_applied = int(diar_result.get("applied") or 0)
-        rounds_doc["diarization_forced_fuse"] = {
-            "pairs": len(diar_verdicts),
-            "applied": diar_applied,
+    if pre:
+        rounds_doc["high_value_cluster_fuse"] = {
+            "skipped": "pre_ranking_peel",
+            "total_applied": 0,
         }
+        rounds_doc["diarization_forced_fuse"] = {
+            "skipped": "pre_ranking_peel",
+            "pairs": 0,
+            "applied": 0,
+        }
+    else:
+        hv_rounds = run_high_value_cluster_fuse_rounds(ctx, pass_id=pass_id, cfg=conf)
+        hv_applied = int(hv_rounds.get("total_applied") or 0)
+        rounds_doc["high_value_cluster_fuse"] = hv_rounds
+
+        from interview_mux.diarization_suspicion import forced_diarization_fuse_verdicts
+
+        diar_verdicts = forced_diarization_fuse_verdicts(ctx)
+        if diar_verdicts:
+            diar_result = apply_connector_fuses(
+                ctx, diar_verdicts, max_fuses=cap, pass_id=pass_id, cfg=conf
+            )
+            diar_applied = int(diar_result.get("applied") or 0)
+            rounds_doc["diarization_forced_fuse"] = {
+                "pairs": len(diar_verdicts),
+                "applied": diar_applied,
+            }
 
     batch_size = int(conf.get("llm_batch_size") or 16)
     total_applied = hv_applied + diar_applied
@@ -2195,14 +2218,20 @@ def run_connector_fuse_pass(
     rounds_doc["adjudication_stats"] = _rollup_adjudication_stats(
         all_verdicts, applied=total_applied
     )
-    if total_applied:
-        air = rerun_air_bounds_on_fused(ctx, pass_id=pass_id)
-        rounds_doc["air_bounds"] = air
-    encompass = encompass_straddling_islands(ctx, pass_id=pass_id, cfg=conf)
-    rounds_doc["encompassed"] = encompass.get("applied") or 0
-    split_qc = assert_no_split_suspect_islands(ctx)
-    rounds_doc["split_island_qc"] = split_qc
-    ctx.write_json(FUSE_ROUNDS_PATH, rounds_doc)
+    # S3: air bounds / encompass / split-island QC stay analysis-only.
+    if not pre:
+        if total_applied:
+            air = rerun_air_bounds_on_fused(ctx, pass_id=pass_id)
+            rounds_doc["air_bounds"] = air
+        encompass = encompass_straddling_islands(ctx, pass_id=pass_id, cfg=conf)
+        rounds_doc["encompassed"] = encompass.get("applied") or 0
+        split_qc = assert_no_split_suspect_islands(ctx)
+        rounds_doc["split_island_qc"] = split_qc
+    else:
+        rounds_doc["air_bounds"] = {"skipped": "pre_ranking_peel"}
+        rounds_doc["encompassed"] = 0
+        rounds_doc["split_island_qc"] = {"skipped": "pre_ranking_peel"}
+    ctx.write_json(rounds_rel, rounds_doc)
     if (
         fuse_writer_stage(pass_id) == "connector_fuse_pass"
         and not ctx.artifact_exists(FUSE_AUDIT_PATH)
@@ -2226,6 +2255,7 @@ def run_connector_fuse_pass(
             "fixed_point": rounds_doc["fixed_point"],
             "settled_skipped": settled_skipped_total,
             "reopened": len(all_reopened),
+            "rounds_path": rounds_rel,
         },
     )
     return rounds_doc
@@ -2379,6 +2409,7 @@ def analyze_connector_fuses(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
 __all__ = [
     "FUSE_AUDIT_PATH",
     "FUSE_ROUNDS_PATH",
+    "FUSE_ROUNDS_PRE_RANKING_PATH",
     "SEAM_PACKETS_PATH",
     "SEAM_VERDICTS_PATH",
     "adjudicate_seams",
@@ -2394,6 +2425,7 @@ __all__ = [
     "encompass_straddling_islands",
     "ensure_connector_fuse_enabled_for_full_auto",
     "enumerate_seam_packets",
+    "fuse_rounds_path",
     "fuse_writer_stage",
     "fused_id_remap",
     "is_pre_ranking_pass",

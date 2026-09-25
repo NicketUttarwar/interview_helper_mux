@@ -1,9 +1,10 @@
-"""Post-G0 speaker_id flip detect → local-speech YES/NO → relabel or absorb.
+"""Post-G0 speaker_id flip detect → local-speech YES/NO → advisory repairs.
 
-Idempotent host pass at the start of interview_spine_build. Fail-open keeps
-original labels. Syntax hang still blocks a novel-style keeper end if verify
-misses or says NO. Nested um/uh islands are absorbed into the enclosing
-monologue for cuts (word speaker_id stays truthful).
+Idempotent host pass at the start of interview_spine_build. Lands only
+``transcript/diarization_repairs.json`` — never mutates frozen
+``transcript/full.json`` / speakers / flows (transcribe ownership). Fail-open
+keeps original labels. Nested um/uh islands are absorb_micro for fuse
+consumers (word speaker_id stays truthful on disk).
 """
 from __future__ import annotations
 
@@ -302,8 +303,9 @@ def _clip_window(words: list[dict[str, Any]], center_ms: int, *, before: bool, s
 
 
 def _relabel_later_run(words: list[dict[str, Any]], *, from_end_ms: int, old_id: str, new_id: str) -> int:
-    """Rewrite the immediate later island of old_id to new_id.
+    """Count/probe-rewrite the immediate later island of old_id → new_id.
 
+    Used on a disposable word copy for advisory ``words_relabeled`` counts only.
     Stops at a different speaker or a gap larger than the 4s continuation ceiling.
     """
     changed = 0
@@ -328,28 +330,6 @@ def _relabel_later_run(words: list[dict[str, Any]], *, from_end_ms: int, old_id:
         changed += 1
         prev_end = int(w.get("end_ms") or start)
     return changed
-
-
-def _refresh_speakers_doc(words: list[dict[str, Any]]) -> dict[str, Any]:
-    counts: dict[str, int] = {}
-    for w in words:
-        sid = str(w.get("speaker_id") or "")
-        if sid:
-            counts[sid] = counts.get(sid, 0) + 1
-    return {
-        "speakers": [{"id": sid, "role": "unknown", "word_count": counts[sid]} for sid in sorted(counts)]
-    }
-
-
-def _rebuild_speaker_flows(ctx: RunContext, transcript: dict[str, Any]) -> None:
-    if not ctx.artifact_exists("transcript/speaker_flows.json"):
-        return
-    from interview_mux.audio_probe_flows import build_speaker_flows
-
-    ctx.write_json(
-        "transcript/speaker_flows.json",
-        {"version": 1, "flows": build_speaker_flows(transcript)},
-    )
 
 
 def _verify_pair_mlx(clip_a: Path, clip_b: Path, *, ctx: RunContext | None, stage: str) -> str | None:
@@ -633,8 +613,10 @@ def run_diarization_verify(
             absorbed += 1
             covered_micro_starts.add(int(cand["next_start_ms"]))
         elif verdict == "YES":
+            # Probe copy only — never persist word speaker_id (S1/S2 repairs-only).
+            probe = [dict(w) for w in words if isinstance(w, dict)]
             changed = _relabel_later_run(
-                words,
+                probe,
                 from_end_ms=cand["end_ms"],
                 old_id=cand["to_speaker_id"],
                 new_id=cand["from_speaker_id"],
@@ -680,13 +662,7 @@ def run_diarization_verify(
         )
         absorbed += 1
 
-    if relabeled:
-        transcript["words"] = words
-        ctx.write_json("transcript/full.json", transcript)
-        if ctx.artifact_exists("transcript/speakers.json"):
-            ctx.write_json("transcript/speakers.json", _refresh_speakers_doc(words))
-        _rebuild_speaker_flows(ctx, transcript)
-
+    # S1/S2: advisory repairs only — do not write transcript/speakers/flows.
     doc = {
         "version": 1,
         "applied": bool(relabeled or absorbed),

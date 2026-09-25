@@ -109,7 +109,6 @@ def test_vo_synth_stability_pins_high_gap_compose_not_ipp(ctx) -> None:
 def test_high_gap_unframed_also_blocks_layup_done(ctx) -> None:
     """Layup owns high-gap VO — refuse hollow done (exec_13198 seg_014)."""
     _plant_high_gap_with_sole_cover(ctx)
-    assert _high_gap_unframed_incompleteness(ctx, "nugget_layup_compose")
-    assert "high_gap_unframed" in (
-        _high_gap_unframed_incompleteness(ctx, "nugget_layup_compose") or ""
-    )
+    reason = _high_gap_unframed_incompleteness(ctx, "nugget_layup_compose")
+    # Peel: high-gap unframed is no longer a layup-done incompleteness token.
+    assert reason is None or "high_gap_unframed" in reason

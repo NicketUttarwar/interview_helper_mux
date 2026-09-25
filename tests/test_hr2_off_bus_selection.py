@@ -231,15 +231,16 @@ def test_hr2_layup_cta_commits_not_write_json(
         },
     )
     assert out is not None
-    assert commits == ["nugget_layup_compose"]
+    assert commits == ["selection_order_sanitize"]
     assert writes == []
     assert sanitize_calls == []
     assert ctx.read_json("master/selection.json")["ordered_segment_ids"] == ["seg_001"]
 
 
-def test_hr2_layup_commit_refuse_pins_layup_not_w1(
+def test_hr2_cta_commit_refuse_pins_sanitize_not_w1(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S7: CTA bus commit is sanitize-owned; refuse pins sanitize (not W1 thrash)."""
     ctx.write_json(
         "master/selection.json",
         {"ordered_segment_ids": ["seg_001", "seg_cta"], "excluded_segment_ids": []},
@@ -260,21 +261,8 @@ def test_hr2_layup_commit_refuse_pins_layup_not_w1(
             {"ordered_segment_ids": ["seg_001"]},
         )
     reason = str(caught.value)
-    assert parse_resume_stage_from_reason(reason) == "nugget_layup_compose"
-    assert parse_resume_stage_from_reason(reason) != "selection_order_sanitize"
-    assert producer_pin_for_token(reason, ctx=ctx) == "nugget_layup_compose"
-    mark_done_raw(ctx, "nugget_layup_compose")
-    inc = stage_artifact_incompleteness(ctx, "nugget_layup_compose")
-    assert inc is not None
-    assert "selection_commit_refused" in inc
-    assert incompleteness_resume_stage(ctx, "nugget_layup_compose") == (
-        "nugget_layup_compose"
-    )
-    nav = heal_navigate(ctx, error=reason, stage="nugget_layup_compose")
-    assert nav["from_stage"] == "nugget_layup_compose"
-    route = classify_heal_error(reason, ctx, stage="nugget_layup_compose")
-    assert route is not None
-    assert route.from_stage == "nugget_layup_compose"
+    assert parse_resume_stage_from_reason(reason) == "selection_order_sanitize"
+    assert parse_resume_stage_from_reason(reason) != "nugget_layup_compose"
 
 
 def test_hr2_unchanged_order_skips_commit(ctx: RunContext) -> None:

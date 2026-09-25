@@ -201,6 +201,23 @@ def _resync_current_transition_audio(ctx: RunContext) -> None:
     _clear_stale_vo_stage_done(ctx)
 
 
+def _preserve_prior_producer_stage(
+    prior: Any, rewritten: Any
+) -> Any:
+    """Integrity remaps must not flip shared-path ``_meta.producer_stage`` (S2)."""
+    if not isinstance(prior, dict) or not isinstance(rewritten, dict):
+        return rewritten
+    prior_meta = prior.get("_meta") if isinstance(prior.get("_meta"), dict) else {}
+    prior_prod = str(prior_meta.get("producer_stage") or "").strip()
+    if not prior_prod:
+        return rewritten
+    out = dict(rewritten)
+    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+    meta["producer_stage"] = prior_prod
+    out["_meta"] = meta
+    return out
+
+
 def rewrite_artifact_segment_refs(
     ctx: RunContext,
     mapping: dict[str, str],
@@ -226,6 +243,7 @@ def rewrite_artifact_segment_refs(
         except Exception:
             continue
         rewritten = apply_segment_id_map(doc, mapping)
+        rewritten = _preserve_prior_producer_stage(doc, rewritten)
         if rel == "master/edl.json" and isinstance(rewritten, dict):
             rewritten = _pop_transition_source_paths(rewritten)
         if rewritten != doc:

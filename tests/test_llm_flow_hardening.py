@@ -8,10 +8,11 @@ from interview_mux.llm_flow_hardening import (
     flow_hardening_enabled,
     llm_stage_progress_ok,
     maybe_require_upstream_llm_progress,
+    producer_artifact_path,
     require_llm_stage_progress,
     require_spend_artifacts_complete,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready, mark_done_raw
+from run_fixtures import isolated_run_ctx, patch_merged_config, plant_primary_and_stamp, plant_seed_complete_through, seed_flow1_sound_spend_ready, mark_done_raw
 
 def _minimal_speakers(**extra: object) -> dict:
     base = {
@@ -124,7 +125,15 @@ def test_require_llm_stage_progress_skips_stages_without_producer(tmp_path, monk
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_no_producer")
-    require_llm_stage_progress(ctx, "audio_probe_build")
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    # Stages with no producer path skip the progress gate.
+    assert producer_artifact_path("vo_ingest") is None
+    require_llm_stage_progress(ctx, "vo_ingest")
+    for sid in ANALYSIS_ORDER:
+        plant_primary_and_stamp(ctx, sid)
+        if sid == "low_conf_island_scan":
+            break
     maybe_require_upstream_llm_progress(ctx, "low_conf_island_scan")
 
 

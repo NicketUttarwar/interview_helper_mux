@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import math
 from pathlib import Path
@@ -91,59 +90,20 @@ def _check_bed_presence_band(
     ctx.write_json("master/bed_presence_qc.json", legacy)
 
     verdict = str(report["verdict"])
-    max_cycles = int(settings["max_remux_cycles"])
-    if verdict == "remux_masking" and remux_cycle < max_cycles:
-        carve_step = float(settings["carve_step_db"])
-        cut_step = float(settings["level_cut_step_db"])
-        current_depth = float(eq["depth_db"])
-        current_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
-        cut = max(
-            -float(settings["max_total_bed_cut_db"]),
-            current_lift - cut_step,
-        )
-
-        def _deepen(m: dict) -> None:
-            m["mix_underbed_carve_depth_db"] = min(
-                float(eq["max_depth_db"]), current_depth + carve_step
-            )
-            m["mix_underbed_lift_db"] = cut
-
-        try:
-            ctx.mutate_run_meta(_deepen)
-        except Exception:
-            pass
-        return "remux_masking"
-    if verdict == "remux_lift" and remux_cycle < max_cycles:
-        current_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
-        lift = min(
-            float(settings["max_total_bed_lift_db"]),
-            current_lift + float(settings["bed_lift_step_db"]),
-        )
-
-        def _lift(m: dict) -> None:
-            m["mix_underbed_lift_db"] = lift
-
-        try:
-            ctx.mutate_run_meta(_lift)
-        except Exception:
-            pass
-        return "remux_lift"
-    if verdict == "remux_masking":
-        if settings["fail_closed"]:
-            return "fail"
+    # S3: analyze + report only — no remux meta mutate / re-admit.
+    # remux_* stays advisory (caller continues); fail_closed only for hard fail verdicts.
+    if verdict in {"remux_masking", "remux_lift"}:
         ctx.log(
-            "mix: underbed masking remains after automated A/B remux cap — continue",
+            f"mix: underbed {verdict} (no remux re-admit) — continue",
             level="warning",
             stage="mix",
             detail=report,
         )
-    elif verdict == "remux_lift":
-        ctx.log(
-            "mix: underbed remains below audibility floor after automated A/B remux cap — continue",
-            level="warning",
-            stage="mix",
-            detail=report,
-        )
+        return verdict
+    if verdict in {"fail", "fail_closed"} or (
+        verdict not in {"ok", "pass"} and settings["fail_closed"]
+    ):
+        return "fail"
     return "ok"
 
 
@@ -417,45 +377,10 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         if isinstance(edl, dict):
             from interview_mux.edl_source_contract import persist_sanitized_edl, sanitize_edl_source_paths
 
+            # S2: sanitize ghost paths only — no listenability craft rewrite of live EDL.
             edl, ghosts = sanitize_edl_source_paths(ctx, edl)
             if ghosts:
                 persist_sanitized_edl(ctx, edl)
-            from interview_mux.listenability_guards import remediate_listenability_edl
-
-            edl_before = copy.deepcopy(edl)
-            edl, listen_fix_notes = remediate_listenability_edl(ctx, edl)
-            if listen_fix_notes:
-                from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
-
-                qc_errors = validate_flow1_edl_narrative(ctx, edl)
-                if qc_errors:
-                    edl = edl_before
-                    ctx.log(
-                        "mix: reverted listenability seating; narrative QC failed",
-                        level="warning",
-                        stage="mix",
-                        detail=(listen_fix_notes[:8] + qc_errors[:8]),
-                    )
-                else:
-                    from interview_mux.air_order import write_live_edl
-
-                    write_live_edl(ctx, edl, source="mix_listenability")
-                    ctx.log(
-                        "mix: listenability EDL remediations applied",
-                        level="info",
-                        stage="mix",
-                        detail=listen_fix_notes[:12],
-                    )
-                    try:
-                        from interview_mux.homunculus.kb import append_thinking
-
-                        append_thinking(
-                            ctx,
-                            "listenability remediations: " + "; ".join(listen_fix_notes[:8]),
-                            identity="mix",
-                        )
-                    except Exception:
-                        pass
         source = load_audio(ctx.read_path("ingest", "normalized.wav"))
 
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
@@ -464,7 +389,6 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     vo_count = 0
     missing_vo: list[str] = []
     retried_vo: list[str] = []
-    _vo_retry_attempted: set[str] = set()
     prev_speech_seg_id = ""
     live_vo_windows: list[tuple[int, int]] = []
     live_landmarks: dict[str, Any] = {
@@ -570,20 +494,11 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     vo_path = ctx.read_path(str(src_rel))
                     if vo_path.is_file():
                         audio = load_audio(vo_path)
+                # S4: no last-chance synth — missing WAV is refuse, not heal.
                 if audio is None:
-                    from interview_mux.transition_vo import last_chance_synth_missing_clip
-
-                    retry_path = last_chance_synth_missing_clip(
-                        ctx, clip, edl=edl, attempted=_vo_retry_attempted
-                    )
-                    if retry_path is not None and retry_path.is_file():
-                        audio = load_audio(retry_path)
-                        clip["source_path"] = str(retry_path.relative_to(ctx.run_dir)) if str(retry_path).startswith(str(ctx.run_dir)) else str(src_rel or retry_path)
-                        retried_vo.append(line_id or str(retry_path))
-                    else:
-                        audio = placeholder_from_clip(clip)
-                        missing_vo.append(line_id or str(src_rel or "unknown"))
-                        clip.pop("source_path", None)
+                    audio = placeholder_from_clip(clip)
+                    missing_vo.append(line_id or str(src_rel or "unknown"))
+                    clip.pop("source_path", None)
                 vo_count += 1
                 clip_crossfade = crossfade_ms
                 last_vo_kind = classify_vo_line(line_id)
@@ -595,21 +510,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     if tr_path.is_file():
                         audio = load_audio(tr_path)
                 if audio is None and (src_rel or str(clip.get("text") or "").strip()):
-                    from interview_mux.transition_vo import last_chance_synth_missing_clip
-
-                    retry_path = last_chance_synth_missing_clip(
-                        ctx, clip, edl=edl, attempted=_vo_retry_attempted
-                    )
-                    if retry_path is not None and retry_path.is_file():
-                        audio = load_audio(retry_path)
-                        try:
-                            clip["source_path"] = retry_path.relative_to(ctx.run_dir).as_posix()
-                        except ValueError:
-                            clip["source_path"] = retry_path.as_posix()
-                        retried_vo.append(
-                            f"transition:{clip.get('after_segment_id')}->{clip.get('before_segment_id')}"
-                        )
-                    elif src_rel:
+                    # S4: no last-chance synth at mix.
+                    if src_rel:
                         audio = placeholder_from_clip(clip)
                         missing_vo.append(f"transition:{src_rel}")
                         clip.pop("source_path", None)
@@ -731,16 +633,19 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 live_landmarks["opening_music_window"] = (t_start, t_end)
 
         if missing_vo:
-            ctx.log(
-                f"mix: missing VO pickup WAV — inserted silence for {sorted(set(missing_vo))}",
-                level="warning",
+            from interview_mux.loud_fail import raise_loud_failure
+
+            # S4: refuse missing VO/transition WAV — pin synthesize, no mix heal.
+            raise_loud_failure(
+                ctx,
+                "mix: missing VO WAV — resume vo_synthesize: "
+                + ", ".join(sorted(set(missing_vo))[:8]),
                 stage="mix",
-            )
-        if retried_vo:
-            ctx.log(
-                f"mix: last-chance VO synth seated {sorted(set(retried_vo))}",
-                level="info",
-                stage="mix",
+                reason="missing_vo_wav",
+                detail={
+                    "missing_vo": sorted(set(missing_vo))[:12],
+                    "resume": "vo_synthesize",
+                },
             )
         if isinstance(edl, dict):
             edl["clips"] = clips
@@ -979,43 +884,11 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         from interview_mux.master_qc import intelligibility_qc_config
 
         intel_cfg = intelligibility_qc_config()
-        max_intel_remux = int(intel_cfg.get("max_remux_cycles") or 2)
         remux_on_fail = bool(intel_cfg.get("remux_on_fail", False))
-        if (
-            intel is not None
-            and not intel.ok
-            and remux_on_fail
-            and remux_cycle < max_intel_remux
-        ):
-            boost = float(intel_cfg.get("remux_duck_boost_db") or 4.0)
-            prev = float(contract.get("duck_under_speech_db") or 16.0)
-            prev_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
-            bed_cut = prev_lift - boost
-
-            def _boost_duck(m: dict) -> None:
-                # Accents still sidechain; constant underbeds drop level instead.
-                m["mix_intelligibility_remux_duck_db"] = prev + boost
-                m["mix_underbed_lift_db"] = bed_cut
-
-            try:
-                ctx.mutate_run_meta(_boost_duck)
-            except Exception:
-                pass
-            ctx.log(
-                f"mix: intelligibility remux duck +{boost} dB / underbed {bed_cut:+.1f} dB "
-                f"(cycle {remux_cycle})",
-                level="warning",
-                stage="mix",
-            )
-            contract = {
-                **contract,
-                "duck_under_speech_db": prev + boost,
-                "underbed_level_adjust_db": bed_cut,
-            }
-            return mix(ctx, remux_cycle=remux_cycle + 1)
+        # S3: single render + refuse — no recursive remux re-admit.
         if intel is not None and not intel.ok and remux_on_fail:
             raise RuntimeError(
-                "mix intelligibility QC failed after remux: "
+                "mix intelligibility QC failed: "
                 + ", ".join(intel.flagged_segment_ids or intel.failures[:6] or ["unknown"])
             )
         # Ghost-bed presence: beds under speech must stay in audible band.
@@ -1028,27 +901,22 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             remux_cycle=remux_cycle,
             overlays=overlays,
         )
-        from interview_mux.underbed_ab_qc import underbed_qc_settings
-
-        max_presence_remux = int(underbed_qc_settings(_mix_cfg())["max_remux_cycles"])
-        if presence.startswith("remux") and remux_cycle < max_presence_remux:
+        if presence.startswith("remux"):
             ctx.log(
-                f"mix: bed presence remux ({presence}, cycle {remux_cycle})",
+                f"mix: bed presence advisory ({presence}) — no remux re-admit",
                 level="warning",
                 stage="mix",
             )
-            return mix(ctx, remux_cycle=remux_cycle + 1)
-        if presence == "fail":
+        elif presence == "fail":
             raise RuntimeError("mix bed presence QC failed (ghost or drowning beds)")
         if soundscape_enabled():
             report = run_soundscape_verify(ctx, remux_cycle=remux_cycle)
             if report.get("verdict") == "remediate":
                 ctx.log(
-                    f"mix: soundscape remux after remediation (cycle {remux_cycle})",
+                    "mix: soundscape remediate advisory — no remux re-admit",
                     level="warning",
                     stage="mix",
                 )
-                return mix(ctx, remux_cycle=remux_cycle + 1)
             if report.get("verdict") == "fail_closed":
                 raise RuntimeError(
                     "soundscape_verify fail_closed: " + "; ".join(report.get("failures") or [])

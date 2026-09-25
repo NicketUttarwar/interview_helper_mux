@@ -23,7 +23,13 @@ def test_get_artifact_uses_resolve_read_path_during_staging(tmp_path):
     staged_doc = {"speakers": [{"speaker_id": "spk_001", "role": "interviewer", "label": "Host"}]}
     write_pending_content(ctx, "speaker_roles", "understanding/speakers.json", data=staged_doc)
     record_pending_approval(ctx, "speaker_roles")
-    read_path = resolve_read_path(ctx, "understanding/speakers.json")
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    enter_stage_staging("speaker_roles")
+    try:
+        read_path = resolve_read_path(ctx, "understanding/speakers.json")
+    finally:
+        exit_stage_staging()
     assert read_path.is_file()
     assert read_path.read_text(encoding="utf-8").strip().startswith("{")
 

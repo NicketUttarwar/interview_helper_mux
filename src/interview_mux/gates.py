@@ -895,7 +895,13 @@ def check_g_publish_pending(ctx: RunContext) -> bool:
 
 
 def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
-    """Allow gated packaging only after operator chose Prepare (not Skip)."""
+    """Allow gated packaging only after operator chose Prepare (not Skip).
+
+    KEEP DEAD (clinic PPUB-B4 / high-risk S5): defined for documentation and
+    AST pin tests only — never call from ``podcast_publish`` or the pipeline.
+    Wiring without a Full-auto bypass stalls unattended ship. Partial G-Publish
+    wait stays in the GUI / runner, not this helper.
+    """
     podcast = merged_config().get("podcast") or {}
     if not bool(podcast.get("enabled", True)):
         return

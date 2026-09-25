@@ -20,6 +20,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.segment_fuse import (
     FUSE_AUDIT_PATH,
     FUSE_ROUNDS_PATH,
+    FUSE_ROUNDS_PRE_RANKING_PATH,
     fuse_writer_stage,
     run_connector_fuse_pass,
 )
@@ -118,10 +119,13 @@ def test_hs3_pre_ranking_skip_writes_rounds_not_analysis_audit(
     monkeypatch.setattr("interview_mux.segment_fuse.connector_fuse_cfg", _disabled_cfg)
     result = run_connector_fuse_pass(ctx, pass_id="pre_ranking")
     assert result.get("skip_reason") == "disabled"
-    rounds = ctx.read_json(FUSE_ROUNDS_PATH)
+    rounds = ctx.read_json(FUSE_ROUNDS_PRE_RANKING_PATH)
     assert rounds.get("pass_id") == "pre_ranking"
     assert stage_outputs_present(ctx, "connector_fuse_pass_pre_ranking") is True
     assert not ctx.artifact_exists(FUSE_AUDIT_PATH)
+    assert not ctx.artifact_exists(FUSE_ROUNDS_PATH) or (
+        str((ctx.read_json(FUSE_ROUNDS_PATH) or {}).get("pass_id") or "") != "pre_ranking"
+    )
     assert stage_outputs_present(ctx, "connector_fuse_pass") is False
 
 

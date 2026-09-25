@@ -35,7 +35,7 @@ def test_classify_issue_needles() -> None:
             "authoritative maximum of eight, and splits one continuous "
             "narrative-plan body chapter into an unsupported duplicate chapter title."
         )
-        == "rerank"
+        == "align_plan"
     )
     # Plan/chapter mismatch must classify as align_plan even when "transition" appears.
     assert (
@@ -130,10 +130,11 @@ def test_metadata_align_under_seat_freeze(tmp_path, monkeypatch) -> None:
         encoding="utf-8",
     )
     applied = apply_edl_narrative_host_repair(ctx)
-    assert "seat_freeze_blocked_host_repair" in applied["notes"]
+    assert "seat_freeze_blocked_host_repair" not in applied["notes"]
     # Selection chapter repair (and nested plan align) runs under freeze.
     assert "align_selection_chapters" in applied["notes"] or "align_narrative_plan" in applied["notes"]
     assert applied.get("host_fixed") is True
+    assert applied.get("from_stage") == "edl_narrative_audit"
     plan = ctx.read_json("master/narrative_plan.json")
     ch_ids = [
         tuple(ch.get("segment_ids") or [])
@@ -197,10 +198,11 @@ def test_remutate_align_plan_skips_timeline_reopen(tmp_path, monkeypatch) -> Non
     out = apply_edl_narrative_remutate(
         ctx, {"actions": ["align_plan"], "from_stages": ["edl_narrative_audit"], "exhausted": False}
     )
-    assert out.get("ok") is True
+    assert out.get("ok") is True or out.get("reason") == "s7_demote_or_refuse"
     assert out.get("from_stage") == "edl_narrative_audit"
+    assert out.get("cleared") == []
     notes = out.get("notes") or []
-    assert "align_plan_metadata_only" in notes
+    assert "s7_demote_or_refuse" in notes
     assert "align_selection_chapters" in notes or "align_narrative_plan" in notes
     plan = ctx.read_json("master/narrative_plan.json")
     all_ids = {
@@ -321,7 +323,7 @@ def test_plan_increments_and_exhausts(tmp_path) -> None:
     p1 = plan_edl_narrative_remutate(ctx, audit)
     assert p1["attempt"] == 1
     assert "rerank" in p1["actions"]
-    assert p1["from_stage"] == "full_master_ranking"
+    assert p1["from_stage"] == "edl_narrative_audit"
     assert not p1["exhausted"]
     assert ctx.artifact_exists(REMUTATE_REL)
 
@@ -332,7 +334,8 @@ def test_plan_increments_and_exhausts(tmp_path) -> None:
     assert p3["exhausted"] is True
 
 
-def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monkeypatch) -> None:
+def test_host_repair_metadata_only_no_orientation_kitchen(tmp_path, monkeypatch) -> None:
+    """ENA S4: host_repair must not rewrite orientation/layup; may drop stale fail audit."""
     import json
 
     from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
@@ -361,6 +364,7 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monk
         encoding="utf-8",
     )
     ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001", "seg_002"]})
+    before_text = "What should we listen for as that opens?"
     ctx.write_json(
         "understanding/gap_report.json",
         {
@@ -375,7 +379,7 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monk
                     "gap_type": "missing_setup",
                     "line_category": "episode_preface",
                     "episode_orientation": True,
-                    "text": "What should we listen for as that opens?",
+                    "text": before_text,
                     "targets_segment_id": "seg_001",
                     "placement": "before",
                     "delivery": "synthesize",
@@ -388,7 +392,6 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monk
             ],
         },
     )
-    # Keep both adjacent rows so remutate (not write-time sanitize) performs dedupe.
     ctx._one_writer_raw = True
     ctx.write_json(
         "master/transitions.json",
@@ -423,20 +426,19 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monk
         encoding="utf-8",
     )
     applied = apply_edl_narrative_host_repair(ctx)
-    assert "rewrite_episode_orientation_meta_question" in applied["notes"]
-    assert "dedupe_transitions_by_adjacency" in applied["notes"]
-    assert "discard_stale_layup_pending" not in applied["notes"]
-    assert "drop_stale_fail_audit" in applied["notes"]
-    assert not audit_path.is_file()
+    assert "rewrite_episode_orientation_meta_question" not in applied["notes"]
+    assert "seed_missing_seated_layup" not in applied["notes"]
+    assert "drop_stale_fail_audit" not in applied["notes"]
+    assert applied["from_stage"] == "edl_narrative_audit"
+    assert audit_path.is_file()
     gap = ctx.read_json("understanding/gap_report.json")
     line = gap["interviewer_lines"][0]
-    assert orientation_copy_unusable(line["text"]) is False
-    tr = ctx.read_json("master/transitions.json")
-    assert len(tr["transitions"]) == 1
-    assert not str(tr["transitions"][0]["text"]).endswith("?")
+    assert line["text"] == before_text
+    assert orientation_copy_unusable(line["text"]) is True
 
 
-def test_host_repair_seeds_seated_but_missing_layup(tmp_path) -> None:
+def test_host_repair_does_not_seed_missing_layup(tmp_path) -> None:
+    """ENA S4: missing seated layup stays for true producers — host_repair refuses kitchen."""
     import json
 
     from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
@@ -481,31 +483,13 @@ def test_host_repair_seeds_seated_but_missing_layup(tmp_path) -> None:
         encoding="utf-8",
     )
     applied = apply_edl_narrative_host_repair(ctx)
-    assert "seed_missing_seated_layup" in applied["notes"]
-    assert "ensure_adjacency_transition" in applied["notes"]
-    assert applied["from_stage"] == "sound_design_vo_finalize"
+    assert "seed_missing_seated_layup" not in applied["notes"]
+    assert "ensure_adjacency_transition" not in applied["notes"]
+    assert applied["from_stage"] == "edl_narrative_audit"
     gap = ctx.read_json("understanding/gap_report.json")
-    targets = [
-        str(ln.get("targets_segment_id"))
-        for ln in (gap.get("interviewer_lines") or [])
-        if isinstance(ln, dict)
-    ]
-    assert "seg_036" in targets
+    assert not (gap.get("interviewer_lines") or [])
     tr = ctx.read_json("master/transitions.json")
-    pairs = {
-        (r.get("after_segment_id"), r.get("before_segment_id"))
-        for r in (tr.get("transitions") or [])
-        if isinstance(r, dict)
-    }
-    assert ("seg_035", "seg_036") in pairs
-    hinge = next(
-        str(r.get("text") or "")
-        for r in (tr.get("transitions") or [])
-        if isinstance(r, dict)
-        and r.get("after_segment_id") == "seg_035"
-        and r.get("before_segment_id") == "seg_036"
-    )
-    assert "next beat" not in hinge.lower()
+    assert not (tr.get("transitions") or [])
 
 
 def test_compact_vo_coverage_marks_omitted_and_rendered(tmp_path) -> None:

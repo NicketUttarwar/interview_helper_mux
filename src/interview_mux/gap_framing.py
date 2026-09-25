@@ -385,6 +385,67 @@ def rebase_gap_lines_to_selection(
     return out, notes
 
 
+def stamp_gap_seats_to_selection(
+    gap_report: dict[str, Any],
+    ordered_segment_ids: list[str] | set[str],
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """SFA-S1: stamp-only seat sync — retarget or omit; never rewrite line text.
+
+    Off-timeline lines without an on-air support stamp ``skipped_optional`` /
+    ``air_script_omit`` instead of dropping the row (S9 body sole-writer safe).
+    """
+    ordered = {str(s) for s in ordered_segment_ids if str(s).strip()}
+    if not ordered or not isinstance(gap_report, dict):
+        return gap_report, []
+    notes: list[dict[str, str]] = []
+    out_lines: list[dict[str, Any]] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        row = dict(line)
+        tid = str(row.get("targets_segment_id") or row.get("segment_id") or "").strip()
+        if not tid or tid in ordered:
+            out_lines.append(row)
+            continue
+        supports = [
+            str(s)
+            for s in (row.get("supports_segment_ids") or [])
+            if str(s).strip() and str(s) in ordered
+        ]
+        lid = str(row.get("line_id") or tid)
+        if supports:
+            old = tid
+            row["targets_segment_id"] = supports[0]
+            reps = [str(x) for x in (row.get("replaces_source_segments") or []) if x]
+            if old not in reps:
+                reps.append(old)
+            row["replaces_source_segments"] = reps
+            notes.append(
+                {
+                    "action": "retarget_gap_line",
+                    "line_id": lid,
+                    "from": old,
+                    "to": supports[0],
+                }
+            )
+        else:
+            row["skipped_optional"] = True
+            row["air_script_omit"] = True
+            notes.append(
+                {
+                    "action": "omit_gap_line_off_timeline",
+                    "line_id": lid,
+                    "from": tid,
+                }
+            )
+        out_lines.append(row)
+    if not notes:
+        return gap_report, []
+    out = dict(gap_report)
+    out["interviewer_lines"] = out_lines
+    return out, notes
+
+
 # Source joins within this window are already continuous tape — a light-bridge
 # VO placed between them cuts mid-thought (audible as synthetic interrupting native).
 _CONTIGUOUS_LIGHT_BRIDGE_GAP_MS = 2500

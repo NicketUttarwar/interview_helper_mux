@@ -136,9 +136,14 @@ def build_speaker_delivery_plan(ctx: RunContext) -> dict[str, Any]:
     }
 
 
-def write_speaker_delivery_plan(ctx: RunContext) -> dict[str, Any]:
+def write_speaker_delivery_plan(
+    ctx: RunContext, *, stage_key: str | None = None
+) -> dict[str, Any]:
+    from interview_mux.write_staging import active_stage_id
+
     plan = build_speaker_delivery_plan(ctx)
-    ctx.write_json("understanding/speaker_delivery_plan.json", plan)
+    sk = stage_key or active_stage_id() or "selection_order_sanitize"
+    ctx.write_json("understanding/speaker_delivery_plan.json", plan, stage_key=sk)
     return plan
 
 

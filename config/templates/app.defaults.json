@@ -152,7 +152,7 @@
       "enabled": true,
       "mode": "warn"
     },
-    "missing_vo_retry_once": true,
+    "missing_vo_retry_once": false,
     "intelligibility_qc": {
       "enabled": true,
       "silent_speech_mix_ceiling_dbfs": -32,
@@ -518,7 +518,7 @@
       "full_auto": true,
       "max_second_runs_per_cfi": 1,
       "priors": {
-        "enabled": "soft"
+        "enabled": false
       },
       "shadow_score": {
         "enabled": true

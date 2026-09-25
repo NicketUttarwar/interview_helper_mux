@@ -19,6 +19,70 @@ from interview_mux.artifact_sanitize.types import SanitizeResult
 REL = "understanding/gap_report.json"
 _CONTENT_KEYS = ["interviewer_lines", "gaps", "opening_orientation"]
 
+# Paid shared-path land co-producers (done_authority._SHARED_PATH_LAND_CO_PRODUCERS).
+_GAP_LAND_CO_PRODUCERS = frozenset(
+    {
+        "gap_report_sanitize",
+        "nugget_layup_compose",
+        "gap_framing_compose",
+        "gap_framing_recompose",
+    }
+)
+# Stamp/shape writers must not claim body ownership or rewrite interviewer text.
+_GAP_STAMP_ONLY_STAGES = frozenset(
+    {
+        "gap_report_sanitize",
+        "gap_report",
+        "selection_framing_apply",
+        "vo_line_adjudicate",
+        "vo_synthesize",
+        "air_contract_sanitize",
+    }
+)
+
+
+def _resolve_gap_land_producer(*, prior: str, claim: str) -> str:
+    """S1: preserve paid co-producer claim when sanitize/stamp stages write.
+
+    Mirror selection S4 — stamp-only runs must not flip ``producer_stage`` away
+    from layup/framing after a content-preserving sanitize.
+    Integrity remaps (hitch/fuse) also preserve prior paid land (hitch S2).
+    """
+    prior_s = str(prior or "").strip()
+    claim_s = str(claim or "").strip()
+    remap_claim = False
+    try:
+        from interview_mux.artifact_ownership import SEGMENT_ID_REMAP_STAGES
+
+        remap_claim = claim_s in SEGMENT_ID_REMAP_STAGES
+    except Exception:
+        remap_claim = claim_s == "chapter_close_hitch"
+    if claim_s in _GAP_STAMP_ONLY_STAGES or remap_claim or not claim_s:
+        if prior_s in _GAP_LAND_CO_PRODUCERS:
+            return prior_s
+        if remap_claim and prior_s:
+            return prior_s
+        return claim_s or "gap_report_sanitize"
+    return claim_s
+
+
+def _assert_stamp_stage_no_body_text(
+    ctx: Any,
+    *,
+    stage_key: str | None,
+    prior: Any,
+    new: Any,
+) -> None:
+    """S5: stamp-only commit callers may not mutate interviewer_lines[].text."""
+    sk = str(stage_key or "").strip()
+    if sk not in _GAP_STAMP_ONLY_STAGES:
+        return
+    from interview_mux.artifact_ownership import assert_gap_report_body_sole_writer
+
+    assert_gap_report_body_sole_writer(
+        ctx, stage_key=sk, prior=prior, new=new
+    )
+
 
 def _selection_order(ctx: Any) -> list[str]:
     if not ctx.artifact_exists("master/selection.json"):
@@ -120,32 +184,21 @@ def _scaffolding_codes(text: str) -> set[str]:
 
 
 def _strip_scaffolding(row: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """Rewrite required scaffold hits; omit optional lines. Never omit required."""
+    """Omit optional scaffold hits; leave required lines untouched for refuse.
+
+    S2: never rewrite ``text``/``script`` here — body sole writers are framing
+    / layup (S9). Required scaffolding stays active → ``scaffolding_active``.
+    """
     text = str(row.get("text") or row.get("script") or "")
     if not text.strip():
         return row, False
     codes = _scaffolding_codes(text)
     if not codes:
         return row, False
-    out = dict(row)
     if _is_required_line(row):
-        try:
-            from interview_mux.spoken_meta_lint import rewrite_speaker_role_labels
-
-            healed = rewrite_speaker_role_labels(text)
-        except Exception:
-            healed = text
-        changed = False
-        if healed != text:
-            out["text"] = healed
-            if "script" in out:
-                out["script"] = healed
-            changed = True
-            text = healed
-        # Remaining hits stay active (do not omit) so sanitize/ensure refuse.
-        if _scaffolding_codes(text):
-            return out, True
-        return out, changed
+        # No body mutate — refuse loop appends scaffolding_active.
+        return row, False
+    out = dict(row)
     out["skipped_optional"] = True
     out["omit"] = True
     out["skip_reason"] = out.get("skip_reason") or "sanitize_scaffolding"
@@ -325,13 +378,8 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                         "line_id": fixed.get("line_id"),
                     }
                 )
-            else:
-                actions.append(
-                    {
-                        "action": "rewrite_scaffolding",
-                        "line_id": fixed.get("line_id"),
-                    }
-                )
+            scrubbed.append(fixed)
+            continue
         scrubbed.append(fixed)
     out["interviewer_lines"] = scrubbed
     lines = scrubbed
@@ -348,38 +396,10 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                 f"scaffolding_active:{row.get('line_id') or _line_target(row)}"
             )
 
-    # 6. coverage refuse — compose-thin only (F7)
-    try:
-        from interview_mux.artifact_sanitize.config import sanitize_section
+    # S3: layup_coverage_below_floor moved to nugget_layup_compose done honesty
+    # (gap_layup_coverage_errors). Sanitize stays shape/stamp only.
 
-        min_cov = float(
-            (sanitize_section("gap").get("min_layup_coverage"))
-            or (sanitize_section("layup").get("min_layup_coverage"))
-            or 0.70
-        )
-    except Exception:
-        min_cov = 0.70
-    authority = bool(out.get("nugget_layup_authority"))
-    if authority and order:
-        active = [
-            r
-            for r in lines
-            if isinstance(r, dict)
-            and not r.get("skipped_optional")
-            and not r.get("omit")
-            and not _is_orientation(r)
-        ]
-        # Only refuse when compose marked partial / thin — not after Pass B omits.
-        compose_thin = bool(out.get("_meta", {}).get("compose_thin")) if isinstance(
-            out.get("_meta"), dict
-        ) else False
-        status = str(out.get("status") or out.get("compose_status") or "").lower()
-        if compose_thin or status in {"partial", "blocked", "incomplete"}:
-            cov = len(active) / max(1, len(order))
-            if cov < min_cov:
-                errors.append(f"layup_coverage_below_floor:{cov:.3f}<{min_cov}")
-
-    # 7. stamp
+    # 6. stamp
     lock = _selection_lock_token(ctx)
     out = stamp_sanitize_meta(
         out,
@@ -403,6 +423,58 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         artifact_rel=REL,
         metrics={"actions": len(actions), "selection_lock": lock[:16]},
     )
+
+
+def gap_layup_coverage_errors(ctx: Any, doc: Any | None = None) -> list[str]:
+    """S3: compose-thin coverage floor — owned by layup done honesty, not sanitize."""
+    report: Any = doc
+    if report is None:
+        if not ctx.artifact_exists(REL):
+            return []
+        try:
+            report = ctx.read_json(REL)
+        except Exception:
+            return []
+    if not isinstance(report, dict):
+        return []
+    if not bool(report.get("nugget_layup_authority")):
+        return []
+    order = _selection_order(ctx)
+    if not order:
+        return []
+    try:
+        from interview_mux.artifact_sanitize.config import sanitize_section
+
+        min_cov = float(
+            (sanitize_section("gap").get("min_layup_coverage"))
+            or (sanitize_section("layup").get("min_layup_coverage"))
+            or 0.70
+        )
+    except Exception:
+        min_cov = 0.70
+    lines = report.get("interviewer_lines")
+    if not isinstance(lines, list):
+        lines = []
+    active = [
+        r
+        for r in lines
+        if isinstance(r, dict)
+        and not r.get("skipped_optional")
+        and not r.get("omit")
+        and not _is_orientation(r)
+    ]
+    compose_thin = (
+        bool(report.get("_meta", {}).get("compose_thin"))
+        if isinstance(report.get("_meta"), dict)
+        else False
+    )
+    status = str(report.get("status") or report.get("compose_status") or "").lower()
+    if not (compose_thin or status in {"partial", "blocked", "incomplete"}):
+        return []
+    cov = len(active) / max(1, len(order))
+    if cov < min_cov:
+        return [f"layup_coverage_below_floor:{cov:.3f}<{min_cov}"]
+    return []
 
 
 def gap_doc_sanitary_errors(ctx: Any, doc: Any) -> list[str]:
@@ -450,6 +522,7 @@ def commit_gap_report_doc(
     reason: str = "",
     skip_handoff: bool = False,
     stage_key: str | None = None,
+    mutation_class: str | None = None,
 ) -> SanitizeResult:
     """Write + sanitize gap_report (sole preferred persist path for repair modules)."""
     from interview_mux.artifact_sanitize.one_writer import (
@@ -487,9 +560,19 @@ def commit_gap_report_doc(
     try:
         with sanitize_reentry_guard(ctx) as nested:
             if nested:
-                _persist_gap_disk(ctx, doc, skip_handoff=skip_handoff, stage_key=stage_key)
+                _persist_gap_disk(
+                    ctx,
+                    doc,
+                    skip_handoff=skip_handoff,
+                    stage_key=stage_key,
+                    mutation_class=mutation_class,
+                )
                 _cascade_gap_spoken(ctx, prior_gap, doc, stage_key=stage_key or reason)
                 return SanitizeResult(doc=doc, ok=True, metrics={"skipped": "reentry"})
+            # S5: stamp-only callers cannot mutate interviewer body text.
+            _assert_stamp_stage_no_body_text(
+                ctx, stage_key=stage_key, prior=prior_gap, new=doc
+            )
             before_hash = sanitary_content_hash(doc, keys=_CONTENT_KEYS)
             result = sanitize_gap_report(ctx, dict(doc))
             from interview_mux.artifact_sanitize.audit import write_sanitize_audit
@@ -498,18 +581,45 @@ def commit_gap_report_doc(
                 ctx, result, stage_key="gap_report", mode=reason or "commit"
             )
             out = result.doc if result.ok and isinstance(result.doc, dict) else dict(doc)
-            # Land Honesty: shared-path gap_report needs matching producer_stage.
+            # Land Honesty (S1): stamp-only claims preserve paid co-producer.
             sk = str(stage_key or "").strip()
             if sk:
+                prior_producer = ""
+                if isinstance(prior_gap, dict):
+                    prior_meta = (
+                        prior_gap.get("_meta")
+                        if isinstance(prior_gap.get("_meta"), dict)
+                        else {}
+                    )
+                    prior_producer = str(
+                        prior_meta.get("producer_stage") or ""
+                    ).strip()
+                if not prior_producer and isinstance(doc, dict):
+                    doc_meta = (
+                        doc.get("_meta")
+                        if isinstance(doc.get("_meta"), dict)
+                        else {}
+                    )
+                    prior_producer = str(
+                        doc_meta.get("producer_stage") or ""
+                    ).strip()
                 meta = (
                     dict(out.get("_meta") or {})
                     if isinstance(out.get("_meta"), dict)
                     else {}
                 )
-                meta["producer_stage"] = sk
+                meta["producer_stage"] = _resolve_gap_land_producer(
+                    prior=prior_producer, claim=sk
+                )
                 out["_meta"] = meta
             # One disk write — sanitized when ok; otherwise input (still sole writer).
-            _persist_gap_disk(ctx, out, skip_handoff=skip_handoff, stage_key=stage_key)
+            _persist_gap_disk(
+                ctx,
+                out,
+                skip_handoff=skip_handoff,
+                stage_key=stage_key,
+                mutation_class=mutation_class,
+            )
             after_hash = sanitary_content_hash(out, keys=_CONTENT_KEYS)
             try:
                 from interview_mux.thrash_hardening import note_authority_undo_attempt
@@ -574,21 +684,38 @@ def _persist_gap_disk(
     *,
     skip_handoff: bool,
     stage_key: str | None,
+    mutation_class: str | None = None,
 ) -> None:
-    """Persist gap under admit — prefer mirrored/schema path when possible."""
-    # file_store bypasses schema so repair modules can persist cleaned shape
-    # without requiring full LLM schema. Callers already hold _one_writer_admit.
-    from interview_mux.file_store import write_json as fs_write_json
+    """Persist gap under admit via write_json (sole-writer + schema path)."""
+    from interview_mux.artifact_ownership import AuthorityDenied
 
-    if skip_handoff:
-        try:
-            from interview_mux.write_staging import write_mirrored_json
+    sk = str(stage_key or "").strip()
+    try:
+        if sk:
+            ctx.write_json(
+                REL,
+                doc,
+                skip_handoff=skip_handoff,
+                stage_key=sk,
+                mutation_class=mutation_class,
+            )
+        else:
+            # Nameless admit (fixtures / ops) must not spoof GRS body authorship.
+            ctx.write_json(
+                REL,
+                doc,
+                skip_handoff=skip_handoff,
+                role="ops",
+                mutation_class=mutation_class,
+            )
+        return
+    except AuthorityDenied:
+        raise
+    except Exception:
+        pass
+    from interview_mux.write_staging import write_mirrored_json
 
-            write_mirrored_json(ctx, REL, doc)
-            return
-        except Exception:
-            pass
-    fs_write_json(ctx.path(REL), doc)
+    write_mirrored_json(ctx, REL, doc)
 
 
 def _cascade_gap_spoken(
@@ -637,7 +764,6 @@ def _cascade_gap_spoken(
 def run_gap_report_sanitize(ctx: Any) -> None:
     """Delivery stage after nugget_layup_compose."""
     from interview_mux.artifact_sanitize.reentry import sanitary_content_hash
-    from interview_mux.file_store import write_json as fs_write_json
 
     with sanitize_reentry_guard(ctx) as nested:
         if nested:
@@ -650,8 +776,13 @@ def run_gap_report_sanitize(ctx: Any) -> None:
         except Exception:
             framing_yes = False
         if not ctx.artifact_exists(REL):
-            # Framing skip: empty sanitary stub may complete.
-            # GRS-B2: framing Yes → seed empty stub for evidence but refuse done.
+            # S4: framing Yes → refuse missing (no empty stub seed).
+            # Framing No / skip: empty sanitary stub may complete.
+            if framing_yes:
+                raise RuntimeError(
+                    "understanding/gap_report.json missing while framing enabled — "
+                    "resume nugget_layup_compose"
+                )
             doc: dict[str, Any] = {
                 "version": 1,
                 "interviewer_lines": [],
@@ -659,16 +790,19 @@ def run_gap_report_sanitize(ctx: Any) -> None:
                 "_meta": {
                     "producer": "gap_report_sanitize_empty_seed",
                     "empty_stub": True,
-                    "framing_enabled": framing_yes,
+                    "framing_enabled": False,
                 },
             }
             before_hash = ""
+            prior_producer = ""
         else:
             loaded = ctx.read_json(REL)
             if not isinstance(loaded, dict):
                 raise RuntimeError("gap_report_sanitize: gap_report invalid")
             doc = loaded
             before_hash = sanitary_content_hash(doc, keys=_CONTENT_KEYS)
+            prior_meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+            prior_producer = str(prior_meta.get("producer_stage") or "").strip()
         result = sanitize_gap_report(ctx, doc)
         from interview_mux.artifact_sanitize.audit import write_sanitize_audit
 
@@ -678,13 +812,15 @@ def run_gap_report_sanitize(ctx: Any) -> None:
                 sanitize_refused_message("gap_report", result.errors)
             )
         out = result.doc if isinstance(result.doc, dict) else dict(doc)
-        # Land Honesty (SHARED_PATH_PRODUCER_STAGES): fs_write_json does not
-        # fingerprint — stamp producer_stage or gap_report_sanitize stays unpaid
-        # (exec_13196 hollow_done alongside selection unpaid).
+        # S1: preserve paid co-producer; claim sanitize only when unpaid/foreign.
         meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
-        meta["producer_stage"] = "gap_report_sanitize"
+        meta["producer_stage"] = _resolve_gap_land_producer(
+            prior=prior_producer, claim="gap_report_sanitize"
+        )
         out["_meta"] = meta
-        fs_write_json(ctx.path(REL), out)
+        _persist_gap_disk(
+            ctx, out, skip_handoff=True, stage_key="gap_report_sanitize"
+        )
         after_hash = sanitary_content_hash(out, keys=_CONTENT_KEYS)
         try:
             from interview_mux.artifact_sanitize.invalidate import (

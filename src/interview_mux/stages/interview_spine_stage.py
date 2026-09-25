@@ -55,6 +55,7 @@ def run_interview_spine_build(ctx: RunContext) -> None:
             )
         raise RuntimeError(sap_reason)
 
+    # Hosted verify is repairs-only (diarization_repairs.json); transcript is read-only.
     with logged_step("interview_spine_build/diarization_verify", ctx=ctx, stage="interview_spine_build"):
         try:
             from interview_mux.diarization_suspicion import run_diarization_verify

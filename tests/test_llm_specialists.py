@@ -210,8 +210,9 @@ def test_apply_segment_topic_patches_invalidates_downstream_with_hardening(tmp_p
         merge_from_disk=False,
         stage_key="segment_classification",
     )
-    ctx.mark_done("missing_framing")
-    ctx.mark_done("gap_framing_compose")
+    from run_fixtures import mark_done_raw
+
+    mark_done_raw(ctx, "missing_framing", "gap_framing_compose")
     from run_fixtures import populated_analysis_state
 
     state = populated_analysis_state(ctx.run_id)

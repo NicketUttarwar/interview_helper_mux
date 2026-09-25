@@ -7,6 +7,8 @@ import struct
 import wave
 from pathlib import Path
 
+import pytest
+
 from interview_mux.mmaudio_asset_qa import (
     _expected_bucket_from_room_timbre,
     _peak_density,
@@ -265,7 +267,10 @@ def test_mix_mark_done_refuses_when_assembly_seating_stale(tmp_path, monkeypatch
     hollow = stage_artifact_incompleteness(ctx, "mix")
     assert hollow is not None
     assert "mix unseated" in hollow
-    ctx.mark_done("mix")
+    from interview_mux.artifact_ownership import AuthorityDenied
+
+    with pytest.raises(AuthorityDenied, match="mark_done:hollow"):
+        ctx.mark_done("mix")
     assert not ctx.is_done("mix")
     meta = ctx.read_json("run_meta.json")
     assert meta.get("assembly_seating_stale") is True

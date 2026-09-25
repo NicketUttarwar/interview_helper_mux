@@ -3,8 +3,8 @@
   "status": "PASS",
   "tier": "D1",
   "notes": [
-    "incompleteness_ok:understanding/gap_report.json is pending"
+    "incompleteness_ok:understanding/gap_report.json missing while framing enabled \u2014 resume nugget_layu"
   ],
   "confirmed_clusters": [],
-  "executed_at": "2026-09-18T14:28:08Z"
+  "executed_at": "2026-09-25T20:42:48Z"
 }

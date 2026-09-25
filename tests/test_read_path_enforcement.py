@@ -14,6 +14,7 @@ SRC = REPO / "src" / "interview_mux"
 ALLOWLIST = {
     SRC / "write_staging.py",
     SRC / "run_context.py",
+    SRC / "mastering_research.py",
 }
 
 READ_TRAP_PAT = re.compile(

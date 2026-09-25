@@ -451,6 +451,13 @@ def test_shape_tokens_pin_sanitize() -> None:
         )
         == "full_master_ranking"
     )
+    assert (
+        producer_pin_for_token(
+            "framing:primary impact segment seg_012 excluded — never_exclude_primary_impact",
+            ctx=None,
+        )
+        == "full_master_ranking"
+    )
 
 
 def test_order_shrink_triggers_lifecycle(monkeypatch) -> None:

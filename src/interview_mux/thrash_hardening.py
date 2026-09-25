@@ -1682,24 +1682,12 @@ def note_authority_undo_attempt(
                 if reason
                 else "selection_metadata_co_write"
             )
-        # Workstream B: layup plan hash oscillation → pick-best archived candidate
-        # instead of halt with no accepted plan (under-goal accounted stays advisory).
+        # S4: layup oscillation no longer pick-best from a long archive.
         if art.endswith("nugget_layup_plan.json") or art == "understanding/nugget_layup_plan.json":
-            try:
-                from interview_mux.nugget_layup import try_pick_best_layup_on_oscillation
-
-                picked = try_pick_best_layup_on_oscillation(ctx)
-                if picked.get("ok"):
-                    halt = False
-                    reason = (reason + "|layup_air_pick_best") if reason else "layup_air_pick_best"
-                    row_extra = {
-                        "layup_air_pick_best": True,
-                        "picked_attempt_id": (picked.get("candidate") or {}).get("attempt_id"),
-                    }
-                else:
-                    row_extra = {"layup_air_pick_best": False, "pick_reason": picked.get("reason")}
-            except Exception as exc:
-                row_extra = {"layup_air_pick_best": False, "pick_error": str(exc)[:120]}
+            row_extra = {
+                "layup_air_pick_best": False,
+                "pick_reason": "oscillation_pick_disabled_s4",
+            }
         else:
             row_extra = {}
         try:
@@ -1990,13 +1978,14 @@ def _heal_navigate_ungated(
     except Exception:
         pass
     # HR-4: W1 ranking/gap sanitize unsanitary self-pins, never edl / Pass-2.
-    # "gap_unsanitary" stays HF-5 (Pass-2 writer under freeze).
+    # Bare gap_unsanitary is claimed above when Pass-2 freeze applies; when that
+    # path returns None, fall through here to gap_report_sanitize (Clinic E).
     try:
         blob_w1 = f"{error} {stage}".strip().lower()
         pin = None
         # HR-2 selection_commit_refused embeds sanitize_refused text in the refuse
         # detail — do not hijack to W1 (exec_13177 / test_hr2_layup_commit_refuse).
-        if "gap_unsanitary" not in blob_w1 and "selection_commit_refused" not in blob_w1:
+        if "selection_commit_refused" not in blob_w1:
             from interview_mux.stage_completion import parse_resume_stage_from_reason
 
             parsed = parse_resume_stage_from_reason(str(error or ""))
@@ -2019,7 +2008,11 @@ def _heal_navigate_ungated(
                 or "sanitize_refused:selection" in blob_w1
             ):
                 pin = "selection_order_sanitize"
-            elif parsed == "gap_report_sanitize" or "gap still unsanitary" in blob_w1:
+            elif (
+                parsed == "gap_report_sanitize"
+                or "gap still unsanitary" in blob_w1
+                or "gap_unsanitary" in blob_w1
+            ):
                 pin = "gap_report_sanitize"
         if pin:
             from interview_mux.v2.config import DELIVERY_ORDER

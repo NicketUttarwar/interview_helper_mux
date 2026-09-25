@@ -51,11 +51,13 @@ def test_format_dump_text(trace_ctx):
 
 def test_approve_stage_writes_trace(trace_ctx, monkeypatch):
     from interview_mux.write_staging import approve_stage_writes, write_pending_content
+    from run_fixtures import write_fixture_theme_wav
 
     monkeypatch.setattr(
         "interview_mux.write_staging.write_approval_enabled",
         lambda: True,
     )
+    write_fixture_theme_wav(trace_ctx, "preclean/isolated.wav")
     write_pending_content(trace_ctx, "audio_preclean", "preclean/lineage.json", data={"v": 1})
     flushed = approve_stage_writes(trace_ctx, "audio_preclean")
     assert flushed

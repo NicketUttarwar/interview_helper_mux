@@ -11,6 +11,7 @@ from run_fixtures import (
     minimal_gap_report,
     minimal_manifest,
     minimal_manifest_segment,
+    write_fixture_json,
 )
 
 
@@ -94,7 +95,8 @@ def _write_story_artifacts(ctx: RunContext) -> None:
                 ]
             },
         )
-        ctx.write_json(
+        write_fixture_json(
+            ctx,
             "understanding/gap_report.json",
             minimal_gap_report(
                 minimal_gap_line(
@@ -104,6 +106,7 @@ def _write_story_artifacts(ctx: RunContext) -> None:
                     delivery="record",
                 )
             ),
+            stage_key="gap_framing_compose",
         )
         ctx.write_json(
             "master/edl_narrative_audit.json",
@@ -234,7 +237,9 @@ def test_validate_synthesize_gap_with_missing_vo_warning() -> None:
     _write_story_artifacts(ctx)
     report = ctx.read_json("understanding/gap_report.json")
     report["interviewer_lines"][0]["delivery"] = "synthesize"
-    ctx.write_json("understanding/gap_report.json", report)
+    write_fixture_json(
+        ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose"
+    )
     edl = _good_edl()
     edl["warnings"]["missing_vo_files"] = ["line_001"]
     assert validate_flow1_edl_narrative(ctx, edl) == []
@@ -273,12 +278,9 @@ def test_validate_duplicate_line_id_is_blocking() -> None:
     line = dict(report["interviewer_lines"][0])
     report["interviewer_lines"].append(line)
     # Plant intentional duplicate past one-writer sanitize (which would collapse it).
-    prev = getattr(ctx, "_one_writer_raw", False)
-    ctx._one_writer_raw = True
-    try:
-        ctx.write_json("understanding/gap_report.json", report)
-    finally:
-        ctx._one_writer_raw = prev
+    write_fixture_json(
+        ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose"
+    )
     edl = _good_edl()
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("appears 2x" in e and "line_id" in e for e in errors)
@@ -299,7 +301,9 @@ def test_validate_clone_voice_adjacency_allows_only_cut_recovery() -> None:
     report["interviewer_lines"][0].update(
         {"voice_speaker_id": "spk_host", "origin": "nugget_layup", "nugget_ids": []}
     )
-    ctx.write_json("understanding/gap_report.json", report)
+    write_fixture_json(
+        ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose"
+    )
     edl = _good_edl()
     edl["clips"][1]["voice_speaker_id"] = "spk_host"
 
@@ -307,7 +311,9 @@ def test_validate_clone_voice_adjacency_allows_only_cut_recovery() -> None:
     assert any("cloned voice" in error for error in errors)
 
     report["interviewer_lines"][0]["nugget_ids"] = ["cut_fact"]
-    ctx.write_json("understanding/gap_report.json", report)
+    write_fixture_json(
+        ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose"
+    )
     ctx.write_json(
         "understanding/nugget_corpus.json",
         {
@@ -477,7 +483,9 @@ def test_validate_clone_suppressed_vo_skips_gap_placement() -> None:
     report["interviewer_lines"][0]["delivery"] = "synthesize"
     report["interviewer_lines"][0]["line_id"] = "vo_layup_seg_010"
     report["interviewer_lines"][0]["targets_segment_id"] = "seg_b"
-    ctx.write_json("understanding/gap_report.json", report)
+    write_fixture_json(
+        ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose"
+    )
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
     edl["gap_placements"] = []

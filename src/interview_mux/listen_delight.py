@@ -1,11 +1,10 @@
 """Listen delight audit — ship aspiration rubric (config: mastering.listen_delight).
 
-Computes per-dimension scores from on-disk artifacts at call time. With default
-``mastering.aspirational_quality.enabled``, floor failures are advisory: register
-candidates, remutate up to ``mastering.listen_delight.max_remutate_attempts``
-(default 3), pick-best, and continue to ``master.wav`` — or refuse honestly when
-authoritative floors remain unmet. Set ``aspirational_quality.enabled: false`` and
-``listen_delight.mode: authoritative`` to restore hard ship blocks.
+Computes per-dimension scores from on-disk artifacts at call time. Pre-mix stage
+pass is always advisory; authoritative ship gate re-scores at ``master_finalize``.
+Floor failures remutate via recovery playbook
+(``playbook_listen_delight_remutate``) up to ``max_remutate_attempts`` (default 3),
+then pick-best or refuse — stage body plans only, never APPLY/clears.
 """
 
 from __future__ import annotations
@@ -57,8 +56,13 @@ def listen_delight_cfg() -> dict[str, Any]:
 
 
 def _fail_early_at_audit_stage(conf: dict[str, Any] | None = None) -> bool:
-    cfg = conf if conf is not None else listen_delight_cfg()
-    return bool(cfg.get("fail_early_at_audit_stage", False))
+    """Always False — pre-mix is advisory; ship gate is master_finalize.
+
+    Config key ``fail_early_at_audit_stage`` is retained for docs/compat but
+    ignored (stage-clinic KEEP). Do not restore early loud-fail here.
+    """
+    _ = conf  # retained signature; knob deliberately unused
+    return False
 
 
 def _late_opening_native_in_edl_ok(ctx: RunContext) -> bool:
@@ -668,10 +672,7 @@ def _handle_listen_delight_failure(
         record_quality_advisories,
         register_quality_candidate,
     )
-    from interview_mux.listen_delight_remutate import (
-        apply_listen_delight_remutate,
-        plan_listen_delight_remutate,
-    )
+    from interview_mux.listen_delight_remutate import plan_listen_delight_remutate
 
     if not is_aspirational_enabled(ctx):
         return False
@@ -730,8 +731,13 @@ def _handle_listen_delight_failure(
         audit_patch["blocking"] = False
         audit_patch["advisory"] = True
     elif not remutate.get("exhausted"):
-        applied = apply_listen_delight_remutate(ctx, remutate)
-        audit_patch["remutate_applied"] = applied
+        # S1: plan only — APPLY lives in playbook_listen_delight_remutate.
+        # Stage / ship handlers must not clear .stage_done.
+        audit_patch["remutate_deferred_to_recovery"] = True
+        audit_patch["remutate_applied"] = {
+            "ok": False,
+            "reason": "deferred_to_recovery",
+        }
     else:
         # Cap reached: ship best candidate; under catastrophic_as_advisory always soft-proceed.
         audit_patch["pick_best"] = apply_best_quality_candidate(
@@ -804,15 +810,12 @@ def _handle_listen_delight_failure(
 
 def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     conf = listen_delight_cfg()
-    from interview_mux.aspirational_quality import is_aspirational_enabled
-
-    aspirational = is_aspirational_enabled(ctx)
     result = evaluate_listen_delight(ctx, cfg=conf)
     dims = result["dimensions"]
     authoritative = bool(result["authoritative"])
-    fail_early = _fail_early_at_audit_stage(conf)
-    blocking = authoritative and fail_early and not aspirational
-    advisory = not blocking
+    # S4: pre-mix is always advisory (fail_early knob ignored). Ship gate is finalize.
+    blocking = False
+    advisory = True
 
     audit = _build_audit_doc(
         result,
@@ -824,77 +827,7 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
     _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=advisory)
 
-    if blocking and not result["passed"]:
-        from interview_mux.aspirational_quality import is_aspirational_enabled
-
-        if is_aspirational_enabled(ctx) and _handle_listen_delight_failure(
-            ctx, result, dims, pass_phase="pre_mix", stage_id="listen_delight_audit"
-        ):
-            audit = ctx.read_json(AUDIT_REL)
-            return audit if isinstance(audit, dict) else {}
-        try:
-            from interview_mux.homunculus.issues import ingest_catch
-
-            ingest_catch(
-                ctx,
-                kind="listen_delight_floors",
-                source="listen_delight",
-                stage_id="listen_delight_audit",
-                implicated=["listen_delight_audit", "mix"],
-                evidence={"failed_dimensions": result.get("failed_dimensions")},
-            )
-        except Exception:
-            pass
-        from interview_mux.listen_delight_remutate import (
-            apply_listen_delight_remutate,
-            plan_listen_delight_remutate,
-        )
-        from interview_mux.loud_fail import raise_loud_failure
-
-        remutate = plan_listen_delight_remutate(
-            ctx, failed_dimensions=list(result["failed_dimensions"] or [])
-        )
-        audit["remutate"] = remutate
-        ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
-        if not remutate.get("exhausted"):
-            applied = apply_listen_delight_remutate(ctx, remutate)
-            audit["remutate_applied"] = applied
-            ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
-        else:
-            # Cap reached: ship-best then refuse (loud_fail below).
-            try:
-                from interview_mux.aspirational_quality import apply_best_quality_candidate
-
-                audit["pick_best"] = apply_best_quality_candidate(
-                    ctx, family="listen_delight"
-                )
-                audit["remutate_terminate"] = remutate.get("terminate") or (
-                    "remutate_budget_exhausted"
-                )
-                ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
-            except Exception:
-                pass
-        raise_loud_failure(
-            ctx,
-            "Listen delight floors failed: overall="
-            f"{result['overall']} (min {result['overall_min']}); "
-            f"dims_below_floor={result['failed_dimensions'] or 'none'}"
-            + (
-                f"; remutate_from={remutate.get('from_stage')}"
-                if remutate.get("from_stage")
-                else ""
-            ),
-            stage="listen_delight_audit",
-            reason="listen_delight_floors_failed",
-            detail={
-                "overall": result["overall"],
-                "overall_min": result["overall_min"],
-                "failed_dimensions": result["failed_dimensions"],
-                "dimensions": dims,
-                "remutate": remutate,
-            },
-        )
-    elif authoritative and not result["passed"]:
+    if authoritative and not result["passed"]:
         try:
             from interview_mux.homunculus.issues import ingest_catch
 
@@ -1005,33 +938,23 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
 
 
 def rerun_listen_delight_after_mix(ctx: RunContext) -> dict[str, Any]:
-    """Second pass after mix so sonic_weave sees composed cues / seam autopsy.
+    """S2: soft post-mix snapshot only — never rewrites ship SSOT audit.
 
-    Writes the same audit path; does not Loud-fail (ship gate is master_finalize).
+    Ship SSOT is ``mastering/listen_delight_audit.json`` (pre_mix stage write +
+    post_master finalize co-write). Mix must not call this; kept for diagnostics
+    / callers that still import the symbol. Returns an in-memory advisory doc
+    without persisting.
     """
     conf = listen_delight_cfg()
     result = evaluate_listen_delight(ctx, cfg=conf)
     dims = result["dimensions"]
-    prior: dict[str, Any] = {}
-    if ctx.artifact_exists(AUDIT_REL):
-        try:
-            loaded = ctx.read_json(AUDIT_REL)
-            if isinstance(loaded, dict):
-                prior = loaded
-        except Exception:
-            prior = {}
-    audit = dict(prior)
-    audit.update(
-        _build_audit_doc(
-            result,
-            dims,
-            pass_phase="post_mix",
-            blocking=False,
-            advisory=True,
-        )
+    return _build_audit_doc(
+        result,
+        dims,
+        pass_phase="post_mix",
+        blocking=False,
+        advisory=True,
     )
-    ctx.write_json(AUDIT_REL, audit, stage_key="listen_delight_audit")
-    return audit
 
 
 __all__ = [

@@ -150,9 +150,9 @@ def test_heal_nugget_layup_helper_no_bare_is_done_early_return() -> None:
     assert "def _heal_nugget_layup_compose_if_complete" in text
     idx = text.index("def _heal_nugget_layup_compose_if_complete")
     window = text[idx : idx + 1200]
-    assert "heal_or_raise" in window
     assert "if ctx.is_done" not in window
     assert "Land Honesty" in window or "never early-return" in window
+    assert "heal_or_raise" in window or "heal_or_refuse_mark" in window or "identify_hosted_vo_floor" in window
 
 
 def test_gaps_and_analysis_import_heal_apis() -> None:

@@ -103,6 +103,14 @@ SEGMENT_ID_REMAP_STAGES: tuple[str, ...] = (
 MATRIX_VERSION_META_KEY = "artifact_ownership_matrix_version"
 AUTHORITY_DENIED_FP_PREFIX = "authority_denied"
 
+# S9: gap_report interviewer_lines[].text — framing pre-authority; layup sole
+# post-compose / post-authority body writer.
+GAP_REPORT_REL = "understanding/gap_report.json"
+GAP_REPORT_BODY_WRITERS: frozenset[str] = frozenset(
+    {"gap_framing_compose", "nugget_layup_compose"}
+)
+GAP_REPORT_SOLE_BODY_WRITER = "nugget_layup_compose"
+
 
 @dataclass(frozen=True)
 class ArtifactRow:
@@ -339,11 +347,13 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         # (exec_13157 AuthorityDenied when only post_sanitize owned the path).
         "connector_fuse_pass_pre_ranking",
     ),
-    # Both fuse passes write rounds.json (analysis + pre_ranking); keep
-    # pre_ranking last as authoritative (HS-3 / exec_11871).
+    # Analysis fuse owns shared rounds; pre_ranking has a dedicated SSOT (S1).
     _row(
         "analysis/connector_fuse_rounds.json",
         "connector_fuse_pass",
+    ),
+    _row(
+        "analysis/connector_fuse_rounds_pre_ranking.json",
         "connector_fuse_pass_pre_ranking",
     ),
     _row("understanding/sonic_context.json", "sonic_context_build"),
@@ -392,15 +402,10 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     ),
     _row(
         "understanding/gap_report.json",
-        # Skip stub when operator chooses G-Framing No (ensure_gap_fill_skipped).
-        "missing_framing",
+        # S9: body (interviewer_lines[].text) sole writers — framing pre-authority,
+        # layup post-compose (authoritative). Omit/delivery stampers are AllowRows.
         "gap_framing_compose",
         "nugget_layup_compose",
-        "selection_framing_apply",
-        "vo_line_adjudicate",
-        "gap_report_sanitize",
-        # VS-B3: Full-auto record→synth rewrite persists delivery under vo_synthesize.
-        "vo_synthesize",
         mode="one_writer",
         end="A",
         fields=(
@@ -422,7 +427,12 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         end="A",
     ),
     _row("understanding/delivery_brief.json", "delivery_brief_build"),
-    _row("understanding/soundscape_policy.json", "soundscape_policy_build"),
+    _row(
+        "understanding/soundscape_policy.json",
+        "soundscape_policy_build",
+        # music_palette_compose injects bed cue_slots when seating real cues (SDP invent peeled).
+        "music_palette_compose",
+    ),
     _row("understanding/episode_structure.json", "episode_structure_compose"),
     # Compact digest of episode_structure.json (plain text, LX-03 / LLM-volley
     # attach). Three writers, all legitimate: sound_design_plan refreshes after
@@ -444,14 +454,15 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "full_master_ranking",
         "selection_order_sanitize",
         "selection",  # legacy stage_key used by air_order_boundary / ranking helpers
-        # Layup CTA prune must persist during compose (exec_13177 / HR-2):
-        # without this producer, pre_soft_freeze deny fingerprints junction_snip_qa.
-        "nugget_layup_compose",
         # Junction is the delivery-time cut authority: an incomplete cut that is
         # unrecoverable within its clip is resolved by fuse-into-neighbor or omit,
         # which drops the segment from selection (F5 fixtures assert this, and
         # exec_11871 stalled on the denied omit).
+        # S7: nugget_layup_compose removed — CTA / never_touch omit is ranking+sanitize.
         "junction_snip_qa",
+        # SFA-S2 / lattice #6: framing VO-cover excludes land here via
+        # selection_framing_apply → commit_selection_mutation only.
+        "selection_framing_apply",
         mode="one_writer",
         end="A",
     ),
@@ -551,11 +562,8 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("master/sfx/*.wav", "mmaudio_sfx", mode="binary", end="D"),
     _row("master/assembly.wav", "mix", mode="binary", end="D"),
     _row("master/junction_snip_qa.json", "junction_snip_qa", end="D"),
-    # master_finalize rebuilds the ``post_master`` phase autopsy against the
-    # committed master (`run_post_master_quality`) — its blocking_reasons are what
-    # the ship gate reads, so the ship pass must be able to record them. The
-    # authoritative rewriter stays junction_snip_qa (exec_11871).
-    _row("master/seam_autopsy.json", "master_finalize", "junction_snip_qa", end="D"),
+    # S3: seam autopsy SSOT is junction_snip_qa only — finalize reads commitment.
+    _row("master/seam_autopsy.json", "junction_snip_qa", end="D"),
     _row("master/master.wav", "master_finalize", mode="binary", end="F"),
     _row("master/post_master_quality.json", "master_finalize", end="F"),
     _row("master/transcript.json", "master_transcript_build", end="ops"),
@@ -727,8 +735,16 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("analysis/island_cluster_structure_verdicts.json", "low_conf_island_scan", mode="operational"),
     _row("analysis/low_conf_density_ranking.json", "low_conf_island_scan", mode="operational"),
     _row("analysis/low_conf_must_keep.json", "low_conf_island_scan", mode="operational"),
-    _row("analysis/stt_lexicon_island_boosts.json", "vernacular_segment_sanitize", mode="operational"),
-    _row("analysis/stt_lexicon_islands.json", "vernacular_segment_sanitize", mode="operational"),
+    # Soft STT lexicon islands/boosts: written by ranking (scan + OS-04) and
+    # merged earlier by low_conf / high_value under low_conf_island_scan —
+    # not vernacular_segment_sanitize (ghost ALLOW peeled VSS S1).
+    _row(
+        "analysis/stt_lexicon_island_boosts.json",
+        "low_conf_island_scan",
+        "full_master_ranking",
+        mode="operational",
+    ),
+    _row("analysis/stt_lexicon_islands.json", "full_master_ranking", mode="operational"),
     _row("analysis/vernacular_must_keep.json", "vernacular_segment_sanitize", mode="operational"),
     _row("mastering/research_dossier.json", "mastering_research_rollup", mode="operational"),
     _row("mastering/shadow_diff.json", "ops", mode="operational", end="ops"),
@@ -751,9 +767,26 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/native_comprehension_masks.json", "ops", mode="operational", end="ops"),
     _row("understanding/operator_clarifications.json", "ops", mode="operational", end="ops"),
     _row("understanding/pipeline_mode.json", "ops", mode="operational", end="ops"),
-    _row("understanding/refinement_cascade.json", "refinement_agenda", mode="operational", end="C"),
-    _row("understanding/refinement_ensemble_lint.json", "refinement_agenda", mode="operational", end="C"),
-    _row("understanding/refinement_plan.json", "refinement_agenda", mode="operational", end="C"),
+    # Pass-2 side artifacts — written by gate/accept/ensemble callers, not L0 agenda.
+    _row(
+        "understanding/refinement_cascade.json",
+        "gap_framing_recompose",
+        mode="operational",
+        end="C",
+    ),
+    _row(
+        "understanding/refinement_ensemble_lint.json",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "understanding/refinement_plan.json",
+        "gap_framing_recompose",
+        "selection_framing_apply",
+        mode="operational",
+        end="C",
+    ),
     _row("understanding/refinement_skip_copy.json", "gap_framing_recompose", mode="operational", end="C"),
     _row("understanding/source_readiness.json", "ops", mode="operational", end="ops"),
     _row("understanding/value_features.json", "ops", mode="operational", end="ops"),
@@ -791,19 +824,17 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/gap_framing_plan.json", "gap_framing_compose", mode="operational", end="C"),
     # Operator-facing VO script (plain text, surfaced by the G1 gate and the
     # gap_framing_compose workbench, and required by stage_completion before
-    # optimal_questions may be marked done). Three writers, all legitimate:
-    # missing_framing stamps the skip stub on the running stage, the retired
-    # optimal_questions path still writes it from llm_output_resilience's partial
-    # persist, and gap_framing_compose is the live author — so it stays last.
+    # optimal_questions may be marked done). Skip stub is compose-owned
+    # (ensure_gap_report_skipped); optimal_questions may still write from
+    # llm_output_resilience partial persist; gap_framing_compose is live author.
     _row(
         "understanding/interviewer_script.txt",
-        "missing_framing",
         "optimal_questions",
         "gap_framing_compose",
         end="C",
     ),
     _row("understanding/gap_vo_context_audit.json", "gap_framing_compose", mode="operational", end="C"),
-    _row("understanding/gap_vo_rebudget_after_selection.json", "full_master_ranking", mode="operational", end="C"),
+    _row("understanding/gap_vo_rebudget_after_selection.json", "selection_order_sanitize", "full_master_ranking", mode="operational", end="C"),
     _row("understanding/gap_fill_skip.json", "ops", mode="operational", end="ops"),
     # Voice reference gate (GUI approve + candidate collect) — exec_11871 unknown_path.
     _row(
@@ -841,6 +872,37 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         "ops",
         mode="operational",
         end="ops",
+    ),
+    _row(
+        "understanding/llm_calls/missing_framing/**",
+        "missing_framing",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "understanding/stage_runs/missing_framing/**",
+        "missing_framing",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "understanding/llm_calls/gap_framing_compose/**",
+        "gap_framing_compose",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "understanding/stage_runs/gap_framing_compose/**",
+        "gap_framing_compose",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "vo_pickup/",
+        "vo_synthesize",
+        "vo_ingest",
+        mode="operational",
+        end="B",
     ),
     _row(
         "understanding/llm_calls/**/*.json",
@@ -969,7 +1031,7 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     ),
     _row("master/bridge_completeness.json", "transitions", "edl", end="C"),
     _row("master/deferred_transition_pairs.json", "transitions", end="A"),
-    _row("master/story_health.json", "full_master_ranking", mode="operational", end="A"),
+    _row("master/story_health.json", "full_master_ranking", "selection_order_sanitize", mode="operational", end="A"),
     _row("master/rank_candidates.json", "full_master_ranking", mode="operational", end="A"),
     _row(
         "understanding/ideal_cuts_selection_seed.json",
@@ -1039,6 +1101,7 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     _row("understanding/music_brief.json", "sound_design_plan", mode="operational", end="D"),
     _row(
         "understanding/speaker_delivery_plan.json",
+        "selection_order_sanitize",
         "full_master_ranking",
         "ops",
         mode="operational",
@@ -1069,6 +1132,33 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         end="ops",
     ),
     _row("mastering/homunculus/limit_exhausted.json", "homunculus", mode="operational", end="ops"),
+    _row(
+        "mastering/homunculus/analyses/*.json",
+        "homunculus",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "mastering/homunculus/ears/**",
+        "homunculus",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "mastering/homunculus/mints/*.json",
+        "homunculus",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "mastering/homunculus/memory_probe.json",
+        "homunculus",
+        mode="operational",
+        end="ops",
+    ),
+    _row("scratch/**", "ops", "homunculus", mode="operational", end="ops"),
+    # Legacy G0 pack alias still read by homunculus packer/ears/speakers.
+    _row("ingest/transcript.json", "transcribe", "ops", mode="operational", end="ops"),
     # Wave 6 publish
     # The local episode package written by podcast_publish (`s3_layout.episode_files`).
     # These were never cataloged, so packaging died on
@@ -1112,7 +1202,7 @@ _PRIMARY_BY_STAGE: dict[str, str] = {
     "vernacular_segment_sanitize": "vernacular/resplit_report.json",
     "low_conf_island_scan": "analysis/low_conf_islands.json",
     "connector_fuse_pass": "analysis/connector_fuse_audit.json",
-    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_audit.json",
+    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_rounds_pre_ranking.json",
     "sonic_context_build": "understanding/sonic_context.json",
     "sound_design_palettes": "understanding/sound_design_plan.json",
     "mastering_research_routing": "mastering/research/routing.json",
@@ -1130,7 +1220,6 @@ _PRIMARY_BY_STAGE: dict[str, str] = {
     "topic_coverage_audit": "master/coverage_audit.json",
     "narrative_arc_plan": "master/narrative_plan.json",
     "chapter_close_hitch": "mastering/chapter_close_hitch.json",
-    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_rounds.json",
     "full_master_ranking": "master/selection.json",
     "selection_order_sanitize": "master/selection.json",
     "air_script_compose": "mastering/mastering_plan.json",
@@ -1367,6 +1456,40 @@ def _build_allow() -> tuple[AllowRow, ...]:
                     verb="persist",
                 )
             )
+        # S9: gap_report omit/delivery stampers (body text = framing + layup only).
+        if art.path == "understanding/gap_report.json":
+            _gap_stamp_fields = (
+                "interviewer_lines[].skipped_optional",
+                "interviewer_lines[].air_script_omit",
+                "interviewer_lines[].delivery",
+                "interviewer_lines[].voice_speaker_id",
+                "interviewer_lines[].targets_segment_id",
+            )
+            for stamp_stage in (
+                "selection_framing_apply",
+                "vo_line_adjudicate",
+                "gap_report_sanitize",
+                "vo_synthesize",
+            ):
+                rows.append(
+                    AllowRow(
+                        path=art.path,
+                        stage=stamp_stage,
+                        role="producer",
+                        fields=_gap_stamp_fields,
+                        epochs=(
+                            "pre_soft_freeze",
+                            "soft_freeze",
+                            "hard_freeze",
+                            "edl_sealed",
+                            "mix_seated",
+                            "junction_committed",
+                            "",
+                        ),
+                        write_mode="one_writer",
+                        verb="persist",
+                    )
+                )
         # GUI gate / transcript / gap CRUD / NLE / recompute / publish scaffolds
         if art.path in {
             "transcript/review_queue.json",
@@ -2105,8 +2228,9 @@ def _suggested_owner_for_deny(
         if stage_s in {"full_master_ranking", "selection_order_sanitize", "selection"}:
             return stage_s
         if ep in {"pre_soft_freeze", "soft_freeze", ""} or not ep:
-            return "nugget_layup_compose"
-        return (art.heal_pin or art.authoritative) if art else "nugget_layup_compose"
+            # S7: CTA omit lives on ranking/sanitize — not layup.
+            return "selection_order_sanitize"
+        return (art.heal_pin or art.authoritative) if art else "selection_order_sanitize"
 
     if art and stage_s and stage_s in art.producers:
         return stage_s
@@ -2115,6 +2239,115 @@ def _suggested_owner_for_deny(
             art.producers[-1] if art.producers else ""
         )
     return stage_s
+
+
+def _gap_line_text_map(doc: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not isinstance(doc, dict):
+        return out
+    for ln in doc.get("interviewer_lines") or []:
+        if not isinstance(ln, dict):
+            continue
+        lid = str(ln.get("line_id") or "").strip()
+        if not lid:
+            tid = str(ln.get("targets_segment_id") or "").strip()
+            lid = f"target:{tid}" if tid else ""
+        if not lid:
+            continue
+        out[lid] = str(ln.get("text") or "")
+    return out
+
+
+def gap_report_body_text_changed(prior: Any, new: Any) -> bool:
+    """True when interviewer_lines[].text set differs (by line_id / target)."""
+    return _gap_line_text_map(prior) != _gap_line_text_map(new)
+
+
+def assert_gap_report_body_sole_writer(
+    ctx: Any,
+    *,
+    stage_key: str | None,
+    prior: Any,
+    new: Any,
+    mutation_class: str | None = None,
+    role: str | None = None,
+) -> None:
+    """S9: refuse foreign gap_report body (text) mutates.
+
+    Pre-authority: only ``gap_framing_compose`` / ``nugget_layup_compose``.
+    After ``nugget_layup_authority``: layup is the sole body writer.
+
+    ``mutation_class=segment_id_remap`` may rewrite embedded ``seg_*`` in
+    ``line_id`` / targets when spoken ``text`` values are unchanged (hitch).
+    Empty ``stage_key`` may rewrite existing body only with explicit
+    ``role="ops"`` / ``role="fixture"``.
+    """
+    mc = str(mutation_class or "").strip()
+    if mc == "segment_id_remap":
+        # Id-map only: same text bag under remapped keys is not authorship.
+        prior_texts = sorted(_gap_line_text_map(prior).values())
+        new_texts = sorted(_gap_line_text_map(new).values())
+        if prior_texts == new_texts:
+            return
+    if not gap_report_body_text_changed(prior, new):
+        return
+    sk = str(stage_key or "").strip()
+    role_s = str(role or "").strip()
+    if not sk:
+        if role_s in {"ops", "fixture"}:
+            return
+        # Initial persist (no prior body texts) is not a foreign rewrite.
+        if not _gap_line_text_map(prior):
+            return
+        suggested = GAP_REPORT_SOLE_BODY_WRITER
+        epoch = ""
+        try:
+            epoch = current_epoch(ctx) if ctx is not None else ""
+        except Exception:
+            epoch = ""
+        exc = AuthorityDenied(
+            f"authority_denied:persist:{GAP_REPORT_REL}::{epoch}:{suggested} "
+            "(gap_body_writers:empty_stage_key)",
+            path=GAP_REPORT_REL,
+            stage_key="",
+            role=role_s or "producer",
+            epoch=epoch,
+            suggested_owner=suggested,
+            verb="persist",
+        )
+        _log_authority_denied(ctx, exc)
+        raise exc
+    authority = False
+    if isinstance(prior, dict) and prior.get("nugget_layup_authority"):
+        authority = True
+    elif isinstance(new, dict) and new.get("nugget_layup_authority") and sk != "nugget_layup_compose":
+        # Non-layup cannot mint authority + body in one write either.
+        authority = True
+    if authority:
+        allowed = {GAP_REPORT_SOLE_BODY_WRITER}
+        reason = "gap_body_sole_writer:nugget_layup_compose"
+    else:
+        allowed = set(GAP_REPORT_BODY_WRITERS)
+        reason = "gap_body_writers:gap_framing_compose|nugget_layup_compose"
+    if sk in allowed:
+        return
+    suggested = GAP_REPORT_SOLE_BODY_WRITER if authority else "gap_framing_compose"
+    epoch = ""
+    try:
+        epoch = current_epoch(ctx) if ctx is not None else ""
+    except Exception:
+        epoch = ""
+    exc = AuthorityDenied(
+        f"authority_denied:persist:{GAP_REPORT_REL}:{sk}:{epoch}:{suggested} ({reason})",
+        path=GAP_REPORT_REL,
+        stage_key=sk,
+        role="producer",
+        epoch=epoch,
+        suggested_owner=suggested,
+        verb="persist",
+    )
+    _log_authority_denied(ctx, exc)
+    raise exc
 
 
 def assert_write(
@@ -2580,6 +2813,10 @@ __all__ = [
     "FREEZE_WRITE_POLICY",
     "FreezeWritePolicyRow",
     "HEAL_TOKEN_OWNERS",
+    "GAP_REPORT_BODY_WRITERS",
+    "GAP_REPORT_SOLE_BODY_WRITER",
+    "assert_gap_report_body_sole_writer",
+    "gap_report_body_text_changed",
     "HOT_PATHS",
     "MATRIX_VERSION_META_KEY",
     "ONE_WRITER_RAW_ALLOWLIST",

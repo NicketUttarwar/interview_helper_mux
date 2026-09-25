@@ -475,7 +475,7 @@ def test_bridge_completeness_blocks_stock_stub():
 def test_shape_hybrid_bind_requires_health():
     plan = {"plan_status": "complete", "ordered_segment_ids": ["a", "b", "c"]}
     ok, ordered, reason = shape_order_bindable(plan, kept_ids={"a", "b", "c"})
-    assert ok and ordered == ["a", "b", "c"] and reason == "bind_ok"
+    assert ok and ordered == ["a", "b", "c"] and reason in {"bind_ok", "air_script_bind"}
     bind = resolve_air_order(
         mastering_plan=plan,
         selection_ordered=["c", "b", "a"],

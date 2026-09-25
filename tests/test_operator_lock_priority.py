@@ -16,7 +16,12 @@ from interview_mux.write_staging import (
     exit_stage_staging,
     list_pending_paths,
 )
-from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider, patch_write_approval_enabled
+from run_fixtures import (
+    minimal_preclean_lineage,
+    minimal_preclean_provider,
+    patch_write_approval_enabled,
+    write_fixture_vo_wav,
+)
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -82,9 +87,7 @@ def test_approve_write_after_orphaned_lock_with_awaiting_job(
 ) -> None:
     ctx = _ctx(tmp_path, monkeypatch)
     enter_stage_staging("audio_preclean")
-    iso = ctx.path("preclean/isolated.wav")
-    iso.parent.mkdir(parents=True, exist_ok=True)
-    iso.write_bytes(b"wav")
+    write_fixture_vo_wav(ctx.path("preclean/isolated.wav"))
     ctx.write_json("preclean/lineage.json", minimal_preclean_lineage())
     ctx.write_json("preclean/provider.json", minimal_preclean_provider())
     exit_stage_staging()

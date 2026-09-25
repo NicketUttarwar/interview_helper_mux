@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|missing_framing->mastering_plan_confirm|manual|M3_hollow_object|gap_delivery_pending",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "seed_block_ok:missing_framing",
+    "empty_artifact_rejected:(root): empty artifacts for stage 'speaker_roles' (schema speakers_artifact.sche"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-25T20:42:59Z"
+}

@@ -1,0 +1,11 @@
+{
+  "cell_id": "D2-ATYP|nugget_layup_compose->gap_report_sanitize|full_auto|M5_stage_done_without_primary|layup_compose_qc_pending",
+  "status": "PASS",
+  "tier": "D2-ATYP",
+  "notes": [
+    "incompleteness_ok:understanding/nugget_layup_plan.json is pending",
+    "seed_block_other:topic_coverage_audit"
+  ],
+  "confirmed_clusters": [],
+  "executed_at": "2026-09-25T20:43:01Z"
+}

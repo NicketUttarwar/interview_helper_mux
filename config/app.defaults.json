@@ -195,7 +195,7 @@
       "hard_fail_empty_speech": true,
       "soft_fail_sfx_placeholder": false
     },
-    "missing_vo_retry_once": true,
+    "missing_vo_retry_once": false,
     "intelligibility_qc": {
       "enabled": true,
       "silent_speech_mix_ceiling_dbfs": -32,
@@ -1159,7 +1159,7 @@
       "full_auto": true,
       "max_second_runs_per_cfi": 1,
       "priors": {
-        "enabled": "soft"
+        "enabled": false
       },
       "shadow_score": {
         "enabled": true
@@ -1292,7 +1292,7 @@
       "demote_synthetic_framing_content": true,
       "authoritative_gap_report": true,
       "compose_orientation_only_when_plan_ready": false,
-      "_comment_compose_orientation_only": "R2 opt-in: when true and layup plan/corpus ready, gap_framing_compose seeds orientation stub only (no full LLM body).",
+      "_comment_compose_orientation_only": "When true and layup plan/corpus ready, gap_framing_compose no-ops (layup owns body) — folded into compose_authority_gate; no separate orientation stub.",
       "block_on_open_must_keep": true,
       "block_on_open_high_salience": true,
       "honor_information_package_dense_budget": true,
@@ -1815,9 +1815,9 @@
       },
       "require_mode_consistency": true,
       "fail_early_at_audit_stage": false,
-      "_comment_fail_early": "When false (default), listen_delight_audit is pre-mix advisory; authoritative block runs at master_finalize after master.wav",
+      "_comment_fail_early": "DEPRECATED/ignored: listen_delight_audit is always pre-mix advisory; authoritative ship gate is master_finalize. Knob kept for config compat only.",
       "max_remutate_attempts": 3,
-      "_comment_max_remutate": "Finite remutate budget N then ship-best (aspirational) or refuse — no infinite thrash"
+      "_comment_max_remutate": "Finite remutate budget N then ship-best (aspirational) or refuse — APPLY via recovery playbook only (not stage body)"
     },
     "homunculus": {
       "default_version": "latest",

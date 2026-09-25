@@ -128,7 +128,7 @@ def test_absent_ledger_is_zero_not_an_error(tmp_path: Path) -> None:
 def test_pmq_refuses_publish_when_defects_cannot_be_counted(
     tmp_path: Path, payload: str
 ) -> None:
-    """The fail-open regression: any counting error used to read as "no defects"."""
+    """Counting errors still fail the check; S5 demotes to rubric under aspirational."""
     from interview_mux import post_master_quality as pmq
 
     ctx = _ctx(tmp_path, f"pmq_failclosed_{abs(hash(payload))}")
@@ -139,8 +139,8 @@ def test_pmq_refuses_publish_when_defects_cannot_be_counted(
     quality = pmq.evaluate_post_master_quality(ctx)
     row = _check(quality, "no_open_ship_bar_defects")
     assert row["passed"] is False
-    assert "no_open_ship_bar_defects" in quality["structural_failed_checks"]
-    assert quality["publish_allowed"] is False
+    assert "no_open_ship_bar_defects" in quality["rubric_failed_checks"]
+    assert "no_open_ship_bar_defects" not in quality["structural_failed_checks"]
     # Never a silent zero, and never a mysterious refusal.
     detail = row["detail"]
     assert detail["open_ship_bar"] is None
@@ -506,10 +506,8 @@ def test_default_ratchet_blocks_edl(tmp_path: Path) -> None:
     _stage_done_with_bad_output(ctx)
     quality = pmq.evaluate_post_master_quality(ctx)
     assert _check(quality, "stage_output_semantics")["passed"] is False
-    assert "stage_output_semantics" in quality["structural_failed_checks"]
-    assert quality["publish_allowed"] is False
-    assert _check(quality, "no_open_ship_bar_defects")["passed"] is False
-    assert [r["stage"] for r in open_ship_bar_defects(ctx)] == ["edl"]
+    assert "stage_output_semantics" in quality["rubric_failed_checks"]
+    assert "stage_output_semantics" not in quality["structural_failed_checks"]
 
 
 def test_unlisted_stage_stays_report_only(tmp_path: Path) -> None:
@@ -568,11 +566,8 @@ def test_global_flag_makes_the_sweep_block(
     assert semantic_sweep_enforced() is True
     quality = pmq.evaluate_post_master_quality(ctx)
     assert _check(quality, "stage_output_semantics")["passed"] is False
-    assert "stage_output_semantics" in quality["structural_failed_checks"]
-    assert quality["publish_allowed"] is False
-    # And the defect itself now degrades the ship bar, so the ledger check agrees.
-    assert _check(quality, "no_open_ship_bar_defects")["passed"] is False
-    assert [r["stage"] for r in open_ship_bar_defects(ctx)] == ["edl"]
+    assert "stage_output_semantics" in quality["rubric_failed_checks"]
+    assert "stage_output_semantics" not in quality["structural_failed_checks"]
 
 
 def test_per_stage_ratchet_scopes_enforcement(
@@ -662,22 +657,23 @@ def test_sweep_errors_are_surfaced_not_swallowed(
     assert "status backend down" in report["sweep_errors"][0]
 
 
-def test_new_check_is_structural_so_it_cannot_be_softened() -> None:
+def test_new_check_is_rubric_under_thin_ship_bar() -> None:
+    """S5: semantics/reachability stay visible but are rubric, not structural."""
     from interview_mux.aspirational_quality import (
         is_rubric_pmq_check,
         is_structural_pmq_check,
     )
 
-    assert is_rubric_pmq_check("stage_output_semantics") is False
-    assert is_structural_pmq_check("stage_output_semantics") is True
-    assert is_rubric_pmq_check("ship_reachability_analysis") is False
-    assert is_structural_pmq_check("ship_reachability_analysis") is True
+    assert is_rubric_pmq_check("stage_output_semantics") is True
+    assert is_structural_pmq_check("stage_output_semantics") is False
+    assert is_rubric_pmq_check("ship_reachability_analysis") is True
+    assert is_structural_pmq_check("ship_reachability_analysis") is False
 
 
 def test_pmq_refuses_when_reachability_analysis_is_degraded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Finding 6 enforcement: unreadable contracts refuse the ship gate, not the walk."""
+    """Finding 6: unreadable contracts fail the check; S5 keeps it rubric under aspirational."""
     from interview_mux import post_master_quality as pmq
     from interview_mux import stage_contract
 
@@ -692,8 +688,8 @@ def test_pmq_refuses_when_reachability_analysis_is_degraded(
     assert row["passed"] is False
     assert row["detail"]["degraded"] is True
     assert row["detail"]["unreadable_contracts"]
-    assert "ship_reachability_analysis" in quality["structural_failed_checks"]
-    assert quality["publish_allowed"] is False
+    assert "ship_reachability_analysis" in quality["rubric_failed_checks"]
+    assert "ship_reachability_analysis" not in quality["structural_failed_checks"]
     # Walk doctrine is unchanged: a failed read still does not halt.
     from interview_mux.ship_reachability import unreachable_halt
 

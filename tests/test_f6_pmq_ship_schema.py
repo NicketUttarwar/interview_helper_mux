@@ -45,7 +45,7 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
 def _plant_good_master(ctx) -> None:
     master = ctx.path("master", "master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
-    master.write_bytes(b"RIFF....")
+    master.write_bytes(b"RIFF" + (b"\x00" * 4096))
     _write_raw(
         ctx,
         "master/seam_autopsy.json",
@@ -132,6 +132,14 @@ def test_run_pmq_block_true_does_not_loud_fail_on_allowed_rubric(
     )
     monkeypatch.setattr("interview_mux.seam_autopsy.write_autopsy", lambda *_a, **_k: None)
     monkeypatch.setattr("interview_mux.seam_autopsy.enrich_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "interview_mux.done_authority.stamp_finalize_on_success",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_invariants.committed_master_integrity_ok",
+        lambda _ctx: True,
+    )
     out = run_post_master_quality(ctx, block=True)
     assert out["publish_allowed"] is True
     assert out["status"] == STATUS_PASS

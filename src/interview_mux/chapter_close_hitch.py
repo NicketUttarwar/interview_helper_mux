@@ -1015,116 +1015,13 @@ def _resolve_snapshot_wav(ctx: RunContext, line: dict[str, Any], mapping: dict[s
 
 
 def reattach_vo_to_gap_report(ctx: RunContext, mapping: dict[str, str]) -> dict[str, Any]:
-    """Keep recorded/synthesized G1 lines attached after gap_report is rebuilt."""
-    try:
-        from interview_mux.seat_authority import gate_seat_mutation
-
-        if not gate_seat_mutation(
-            ctx,
-            reason="hitch_reattach_vo",
-            symptoms=["hitch_remap"],
-        ):
-            return {"copied": 0, "injected": 0, "stamped_skips": 0, "seat_freeze_blocked": True}
-    except Exception:
-        # Fail-closed: never remap VO under unknown gate/freeze error.
-        return {
-            "copied": 0,
-            "injected": 0,
-            "stamped_skips": 0,
-            "seat_freeze_blocked": True,
-            "seat_freeze_fail_closed": True,
-        }
-    snapshot: dict[str, Any] = {}
-    if ctx.artifact_exists(VO_SNAPSHOT_REL):
-        loaded = ctx.read_json(VO_SNAPSHOT_REL)
-        if isinstance(loaded, dict):
-            snapshot = loaded
-    old_lines = [
-        row
-        for row in (snapshot.get("interviewer_lines") or [])
-        if isinstance(row, dict) and (row.get("line_id") or row.get("targets_segment_id"))
-    ]
-    if not ctx.artifact_exists("understanding/gap_report.json"):
-        return {"copied": 0, "injected": 0, "stamped_skips": 0}
-    report = ctx.read_json("understanding/gap_report.json")
-    if not isinstance(report, dict):
-        return {"copied": 0, "injected": 0, "stamped_skips": 0}
-    lines = [row for row in (report.get("interviewer_lines") or []) if isinstance(row, dict)]
-    by_target: dict[str, list[dict[str, Any]]] = {}
-    by_line: dict[str, dict[str, Any]] = {}
-    for row in lines:
-        tid = str(row.get("targets_segment_id") or "")
-        lid = str(row.get("line_id") or "")
-        if tid:
-            by_target.setdefault(tid, []).append(row)
-        if lid:
-            by_line[lid] = row
-    copied = 0
-    injected = 0
-    stamped = 0
-    pickup = ctx.final_path("vo_pickup")
-    pickup.mkdir(parents=True, exist_ok=True)
-
-    def _copy_to_line(src: Path, line: dict[str, Any]) -> None:
-        nonlocal copied
-        lid = str(line.get("line_id") or "")
-        tid = str(line.get("targets_segment_id") or "")
-        dest_stems = [s for s in (lid, tid) if s]
-        for stem in dest_stems:
-            dest = src.parent / f"{stem}{src.suffix}"
-            if dest.resolve() == src.resolve():
-                continue
-            if not dest.is_file():
-                shutil.copy2(src, dest)
-                copied += 1
-        if lid and not (pickup / f"{lid}.wav").is_file() and src.parent != pickup:
-            raw_dest = pickup / f"{lid}.wav"
-            if not raw_dest.is_file():
-                shutil.copy2(src, raw_dest)
-                copied += 1
-
-    for old in old_lines:
-        new_tid = rewrite_embedded_segment_ids(str(old.get("targets_segment_id") or ""), mapping)
-        new_lid = rewrite_embedded_segment_ids(str(old.get("line_id") or ""), mapping)
-        wav = _resolve_snapshot_wav(ctx, old, mapping)
-        targets = list(by_target.get(new_tid) or [])
-        if new_lid and new_lid in by_line and by_line[new_lid] not in targets:
-            targets.append(by_line[new_lid])
-        if targets:
-            for row in targets:
-                if wav is not None:
-                    _copy_to_line(wav, row)
-                if old.get("skipped_optional") and not row.get("skipped_optional"):
-                    row["skipped_optional"] = True
-                    if not row.get("skip_reason_code"):
-                        row["skip_reason_code"] = str(old.get("skip_reason_code") or "hitch_remap")
-                    stamped += 1
-            continue
-        if wav is None and not old.get("skipped_optional"):
-            continue
-        injected_line = dict(old)
-        injected_line["line_id"] = new_lid or str(old.get("line_id") or "")
-        injected_line["targets_segment_id"] = new_tid
-        lines.append(injected_line)
-        if new_tid:
-            by_target.setdefault(new_tid, []).append(injected_line)
-        if injected_line.get("line_id"):
-            by_line[str(injected_line["line_id"])] = injected_line
-        if wav is not None:
-            _copy_to_line(wav, injected_line)
-        injected += 1
-
-    report["interviewer_lines"] = lines
-    from interview_mux.seat_authority import persist_frozen_seat_doc
-
-    persist_frozen_seat_doc(
-        ctx,
-        "understanding/gap_report.json",
-        report,
-        reason="hitch_reattach_vo",
-        skip_handoff=True,
-    )
-    return {"copied": copied, "injected": injected, "stamped_skips": stamped}
+    """Peeled (S3): hitch no longer injects gap lines. Remap owns id maps only."""
+    return {
+        "copied": 0,
+        "injected": 0,
+        "stamped_skips": 0,
+        "peeled": "s3_no_gap_kitchen",
+    }
 
 
 def remap_omit_ledger(ctx: RunContext, mapping: dict[str, str]) -> bool:
@@ -1279,37 +1176,32 @@ def remap_homunculus_memory(ctx: RunContext, mapping: dict[str, str]) -> list[st
 
 
 def _ensure_inner_walk_gates(ctx: RunContext) -> None:
-    """Inner restage must not re-block on G-Framing after the operator already passed G1."""
-    try:
-        from interview_mux.gap_vo_gates import (
-            check_gap_framing_decision_pending,
-            set_gap_framing_enabled,
-        )
-        from interview_mux.source_topology import (
-            confirm_pickup_speaker,
-            pickup_eligible_speaker_id,
-            pickup_speaker_confirmed,
-        )
+    """S5: hitch never auto-confirms G-Framing / pickup (no ``flow_adaptation`` write).
 
-        if check_gap_framing_decision_pending(ctx):
-            enabled = True
-            if ctx.artifact_exists("run_meta.json"):
-                meta = ctx.read_json("run_meta.json")
-                if isinstance(meta, dict) and "gap_framing_enabled" in meta:
-                    enabled = bool(meta.get("gap_framing_enabled"))
-            set_gap_framing_enabled(ctx, enabled)
-        if not pickup_speaker_confirmed(ctx):
-            sid = pickup_eligible_speaker_id(ctx)
-            if sid:
-                # Honest ownership: hitch is an ALLOW co-owner of flow_adaptation.
-                confirm_pickup_speaker(
-                    ctx,
-                    speaker_id=sid,
-                    writer_stage="chapter_close_hitch",
-                    reason="inner_walk_gate_auto_confirm",
-                )
-    except Exception:
-        return
+    Outer walk already cleared gates before ``narrative_arc_plan``. If a gate is
+    somehow still pending, nested stages refuse/wait — hitch must not forge land.
+    """
+    return
+
+
+def hitch_inner_walk_needed(
+    *,
+    any_change: bool,
+    mapping: dict[str, str],
+    listen_restage: bool,
+) -> bool:
+    """S4 safest: keep full ``hitch_restage_order``; skip walk only when remap-only.
+
+    Skip only when ends did not change, map is empty/identity, and this is not a
+    listen restage. Never shrink the restage list (least app-error risk).
+    """
+    if listen_restage:
+        return True
+    if any_change:
+        return True
+    if mapping and any(str(k) != str(v) for k, v in mapping.items()):
+        return True
+    return False
 
 
 def refresh_live_remap(
@@ -1552,33 +1444,28 @@ def apply_post_walk_patches(
     mapping: dict[str, str],
     new_ids: set[str],
 ) -> dict[str, Any]:
-    """VO, omit, chapters, episode structure, and leftover memory after restage."""
+    """Id remaps + chapter authority after restage (S3: no VO/gap/omit kitchen)."""
     vo_files: list[str] = []
-    vo_gap: dict[str, Any] = {"copied": 0, "injected": 0, "stamped_skips": 0}
+    # Peeled: reattach_vo_to_gap_report / stamp_gap_report_omit_skips /
+    # clamp_hosted_seats — hitch must not mutate gap body or hosted seats.
+    vo_gap: dict[str, Any] = {
+        "copied": 0,
+        "injected": 0,
+        "stamped_skips": 0,
+        "peeled": "s3_no_gap_kitchen",
+    }
     omit_updated = False
     stamped = 0
     rewritten: list[str] = []
     try:
+        # Filename stem rebind only (integrity) — not gap inject.
         vo_files = rebind_vo_pickup_files(ctx, mapping)
-        vo_gap = reattach_vo_to_gap_report(ctx, mapping)
     except Exception as exc:
         vo_gap = {**vo_gap, "error": str(exc)[:240]}
     try:
         omit_updated = remap_omit_ledger(ctx, mapping)
     except Exception:
         omit_updated = False
-    try:
-        from interview_mux.omit_ledger import stamp_gap_report_omit_skips
-
-        stamped = stamp_gap_report_omit_skips(ctx)
-    except Exception:
-        stamped = 0
-    try:
-        from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
-
-        clamp_hosted_seats_to_rendered_wavs(ctx)
-    except Exception:
-        pass
     try:
         rewritten = remap_homunculus_memory(ctx, mapping)
     except Exception:
@@ -1594,6 +1481,7 @@ def apply_post_walk_patches(
     try:
         from interview_mux.nugget_layup import adopt_layup_plan_to_selection
 
+        # Id remap + selection lock only; adopt skips gap republish for hitch (S3).
         layup_adopt = adopt_layup_plan_to_selection(
             ctx, mapping=mapping, persist=True, stage="chapter_close_hitch"
         )
@@ -1790,7 +1678,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         )
 
         any_change = any(bool(w.get("end_changed")) for w in windows)
-        boundaries, snapped = _publish_boundaries_from_windows(ctx, windows)
+        boundaries, _snapped = _publish_boundaries_from_windows(ctx, windows)
         new_rows = _windows_from_boundaries(boundaries)
         remap_doc = build_segment_remap(
             old_keepers, new_rows, must_keep_ids=must_keep
@@ -1881,18 +1769,8 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         rewritten = rewrite_upstream_segment_refs(ctx, mapping)
         rebind_vo_pickup_files(ctx, mapping)
         remap_omit_ledger(ctx, mapping)
-        ctx.write_json(
-            MATERIALIZED_REL,
-            {
-                **snapped,
-                "snapped": True,
-                "hitch": True,
-                "cut_count": len(snapped.get("cuts") or []),
-            },
-            skip_handoff=True,
-            stage_key=STAGE_ID,
-            mutation_class="segment_id_remap",
-        )
+        # S1: do not republish snapped cuts into ideal_cuts_materialized —
+        # SHARED remap id-maps the prior materialize doc; boundaries are hitch SSOT.
         _write_latch(
             ctx,
             {
@@ -1907,7 +1785,19 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             },
         )
 
-    restaged = run_inner_walk(ctx)
+    if hitch_inner_walk_needed(
+        any_change=any_change,
+        mapping=mapping,
+        listen_restage=bool(listen_restage),
+    ):
+        restaged = run_inner_walk(ctx)
+    else:
+        ctx.log(
+            "chapter_close_hitch: remap-only (no end/id churn) — skip inner walk (S4)",
+            level="info",
+            stage=STAGE_ID,
+        )
+        restaged = []
 
     remap_doc = refresh_live_remap(ctx, old_keepers, must_keep_ids=must_keep)
     mapping = _mapping_from_remap_doc(remap_doc)

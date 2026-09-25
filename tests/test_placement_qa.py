@@ -41,6 +41,9 @@ def test_maybe_run_placement_qa_after_sfx_enabled(tmp_path, monkeypatch):
     patch_merged_config(monkeypatch, {"sound_design": {"placement_qa_enabled": True}})
     ctx = isolated_run_ctx(tmp_path, "pq_maybe")
     seed_flow1_sound_spend_ready(ctx)
+    missing = ctx.path("sound_design", "assets") / "theme_underscore_01.wav"
+    if missing.is_file():
+        missing.unlink()
     maybe_run_placement_qa(ctx)
     assert ctx.artifact_exists(OUTPUT_PATH)
     log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")

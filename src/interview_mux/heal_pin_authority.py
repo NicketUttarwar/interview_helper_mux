@@ -72,6 +72,8 @@ HEAL_PIN_ALLOWLIST_IDS: frozenset[str] = frozenset(
         "selection_commit_refused",
         # Host CTA omit recovery must land on layup, not clamp to package plan
         "selection_cta_omit",
+        # HR-1: hitch adopt fail pins layup (never hitch-complete)
+        "hitch_layup_adopt_failed",
     }
 )
 
@@ -122,7 +124,10 @@ _BLOB_ALLOWLIST_PATTERNS: tuple[tuple[str, str], ...] = (
     ("selection still unsanitary", "w1_sanitize_unsanitary"),
     ("sanitize_refused:selection", "w1_sanitize_unsanitary"),
     ("gap still unsanitary", "w1_sanitize_unsanitary"),
+    # Bare incompleteness token (Clinic E) — after the "gap still …" phrase.
+    ("gap_unsanitary", "w1_sanitize_unsanitary"),
     ("sanitize_refused:gap_report", "w1_sanitize_unsanitary"),
+    ("hitch_layup_adopt_failed", "hitch_layup_adopt_failed"),
 )
 
 
@@ -241,6 +246,7 @@ def heal_prereq_checklist(
         "w1_sanitize_unsanitary",
         "selection_commit_refused",
         "selection_cta_omit",
+        "hitch_layup_adopt_failed",
     }
     if str(allowlist_id or "").strip() in _loose:
         return True, "ok"
@@ -287,6 +293,20 @@ def admit_resume(
     if not raw:
         return ""
     allow_id = match_heal_allowlist(error=error, stage=current or raw, intent=intent)
+    # Typed recovery playbooks already chose a producer. Seed-order clamp must
+    # not yank mix/junction/VO pins back to information_package_plan when the
+    # fixture (or live run) has an incomplete analysis hole.
+    _typed_late_heal = {
+        "incomplete_cut_unresolved",
+        "vo_seated_coverage",
+        "mmaudio_qa_missing",
+        "sdp_theme_wavs_missing",
+        "finalize_input_missing",
+        "assembly_not_rendered_from_current_edl",
+        "upstream_stale_rerun",
+        "musicgen_theme_failed",
+        "redundant_framing_transitions",
+    }
     skip_clamp = allow_id == "w1_sanitize_unsanitary" and raw in {
         "selection_order_sanitize",
         "gap_report_sanitize",
@@ -294,6 +314,10 @@ def admit_resume(
     } or (
         allow_id in {"selection_commit_refused", "selection_cta_omit"}
         and raw in {"nugget_layup_compose", "air_script_compose"}
+    ) or (
+        allow_id == "hitch_layup_adopt_failed" and raw == "nugget_layup_compose"
+    ) or (
+        intent == "heal_success" and str(error or "").strip() in _typed_late_heal
     )
     try:
         from interview_mux.delivery_guardrails import clamp_resume_through_order
@@ -454,6 +478,10 @@ def authorize_heal_navigate_result(
         } or (
             allow_pre in {"selection_commit_refused", "selection_cta_omit"}
             and proposed_stage in {"nugget_layup_compose", "air_script_compose"}
+        ) or (
+            # HR-1: hitch adopt fail pins layup — must not clamp back onto incomplete hitch.
+            "hitch_layup_adopt_failed" in blob_l
+            and proposed_stage == "nugget_layup_compose"
         )
         if proposed_stage and not skip_clamp:
             clamped = (

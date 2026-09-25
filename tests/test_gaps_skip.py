@@ -29,7 +29,7 @@ def test_ensure_gap_fill_skipped_writes_artifacts(tmp_path: Path, monkeypatch: p
     assert artifact_status("understanding/gap_report.json", ctx) == "complete"
     report = ctx.read_json("understanding/gap_report.json")
     assert report.get("interviewer_lines") == []
-    assert (report.get("_meta") or {}).get("producer_stage") == "missing_framing"
+    assert (report.get("_meta") or {}).get("producer_stage") == "gap_framing_compose"
 
 
 def test_skip_unlocks_profile_when_analysis_state_ready(

@@ -413,31 +413,40 @@ Per-stage details live under `.cursor/plans/high_risk_stage_audits/`. Paste `/hi
 
 | Stage | Tier | Status | Over-eng? | Verdict / next | File |
 |-------|------|--------|-----------|----------------|------|
-| `nugget_layup_compose` | T0 | `complete` | yes | Dual SSOT + floor/CTA heals in one stage → `simplify` (peel publish/floor; forbid manifest writes) | [nugget_layup_compose.md](high_risk_stage_audits/nugget_layup_compose.md) |
-| `selection_order_sanitize` | T0 | `not_started` | — | — | [selection_order_sanitize.md](high_risk_stage_audits/selection_order_sanitize.md) |
-| `missing_framing` | T0 | `not_started` | — | — | [missing_framing.md](high_risk_stage_audits/missing_framing.md) |
-| `gap_framing_compose` | T0 | `not_started` | — | — | [gap_framing_compose.md](high_risk_stage_audits/gap_framing_compose.md) |
-| `full_master_ranking` | T0 | `not_started` | — | — | [full_master_ranking.md](high_risk_stage_audits/full_master_ranking.md) |
-| `edl_narrative_audit` | T0 | `not_started` | — | — | [edl_narrative_audit.md](high_risk_stage_audits/edl_narrative_audit.md) |
-| `edl` | T0 | `not_started` | — | — | [edl.md](high_risk_stage_audits/edl.md) |
-| `sound_design_plan` | T1 | `not_started` | — | — | [sound_design_plan.md](high_risk_stage_audits/sound_design_plan.md) |
-| `vo_synthesize` | T1 | `not_started` | — | — | [vo_synthesize.md](high_risk_stage_audits/vo_synthesize.md) |
-| `vo_line_adjudicate` | T1 | `not_started` | — | — | [vo_line_adjudicate.md](high_risk_stage_audits/vo_line_adjudicate.md) |
-| `junction_snip_qa` | T2 | `not_started` | — | — | [junction_snip_qa.md](high_risk_stage_audits/junction_snip_qa.md) |
-| `mix` | T2 | `not_started` | — | — | [mix.md](high_risk_stage_audits/mix.md) |
-| `master_finalize` | T2 | `not_started` | — | — | [master_finalize.md](high_risk_stage_audits/master_finalize.md) |
-| `listen_delight_audit` | T2 | `not_started` | — | — | [listen_delight_audit.md](high_risk_stage_audits/listen_delight_audit.md) |
-| `connector_fuse_pass_pre_ranking` | T1 | `not_started` | — | — | [connector_fuse_pass_pre_ranking.md](high_risk_stage_audits/connector_fuse_pass_pre_ranking.md) |
-| `selection_framing_apply` | T1 | `not_started` | — | — | [selection_framing_apply.md](high_risk_stage_audits/selection_framing_apply.md) |
-| `refinement_agenda` | T1 | `not_started` | — | — | [refinement_agenda.md](high_risk_stage_audits/refinement_agenda.md) |
-| `gap_report_sanitize` | T1 | `not_started` | — | — | [gap_report_sanitize.md](high_risk_stage_audits/gap_report_sanitize.md) |
-| `chapter_close_hitch` | T1 | `not_started` | — | — | [chapter_close_hitch.md](high_risk_stage_audits/chapter_close_hitch.md) |
-| `transitions` | T1 | `not_started` | — | — | [transitions.md](high_risk_stage_audits/transitions.md) |
-| `podcast_publish` | T2 | `not_started` | — | — | [podcast_publish.md](high_risk_stage_audits/podcast_publish.md) |
-| `framing_posture_decide` | T3 | `not_started` | — | — | [framing_posture_decide.md](high_risk_stage_audits/framing_posture_decide.md) |
-| `vernacular_segment_sanitize` | T3 | `not_started` | — | — | [vernacular_segment_sanitize.md](high_risk_stage_audits/vernacular_segment_sanitize.md) |
-| `mastering_shape_agenda` | T3 | `not_started` | — | — | [mastering_shape_agenda.md](high_risk_stage_audits/mastering_shape_agenda.md) |
-| `interview_spine_build` | T3 | `not_started` | — | — | [interview_spine_build.md](high_risk_stage_audits/interview_spine_build.md) |
+| `nugget_layup_compose` | T0 | `complete` | yes | FAIL until S6 peel — S7–S10 done (CTA off, 1 heal, sole body writer, no publish topup) | [nugget_layup_compose.md](high_risk_stage_audits/nugget_layup_compose.md) |
+| `selection_order_sanitize` | T0 | `complete` | no (PASS after S1–S4) | Shape-only+refuse; seal at ranking; meta-only preserves producer → `leave` | [selection_order_sanitize.md](high_risk_stage_audits/selection_order_sanitize.md) |
+| `missing_framing` | T0 | `complete` | no | **PASS** — S1–S8; responsibilities=2; leave/monitor CAP→high_gap | [missing_framing.md](high_risk_stage_audits/missing_framing.md) |
+| `gap_framing_compose` | T0 | `complete` | partial (**FAIL**) | S1–S9 shipped (safest S6/S9); 1 fail-if left (dual SSOT compose\|layup) → open S10 or leave/monitor | [gap_framing_compose.md](high_risk_stage_audits/gap_framing_compose.md) |
+| `full_master_ranking` | T0 | `complete` | no | **PASS** — S1–S6 verified on HEAD; responsibilities=2; `leave` | [full_master_ranking.md](high_risk_stage_audits/full_master_ranking.md) |
+| `edl_narrative_audit` | T0 | `complete` | no (PASS rescore) | HEAD confirms demote-or-refuse + read-only prep; `leave` (optional B1/B2 backlog) | [edl_narrative_audit.md](high_risk_stage_audits/edl_narrative_audit.md) |
+| `edl` | T0 | `complete` | no (**PASS** post-S1–S5) | Cut+refuse; VO/glue/orientation upstream → `leave` | [edl.md](high_risk_stage_audits/edl.md) |
+| `sound_design_plan` | T1 | `complete` | no | **PASS** after S1–S6 (invent assets only; compose owns cues/slots) → `leave` | [sound_design_plan.md](high_risk_stage_audits/sound_design_plan.md) |
+| `vo_synthesize` | T1 | `complete` | no | **PASS** after S1–S7 (recommended S6/S7); admit→one render→seal; `leave` | [vo_synthesize.md](high_risk_stage_audits/vo_synthesize.md) |
+| `vo_line_adjudicate` | T1 | `complete` | no | **PASS** after S6/S7 (honest stamp + fold) → `leave` | [vo_line_adjudicate.md](high_risk_stage_audits/vo_line_adjudicate.md) |
+| `junction_snip_qa` | T2 | `complete` | no | **PASS** — leave/monitor S6; remaster is owned seat (not thrash) → `leave` | [junction_snip_qa.md](high_risk_stage_audits/junction_snip_qa.md) |
+| `mix` | T2 | `complete` | no | **PASS** after S1–S5 (safest) — refuse→render→seat; `leave` | [mix.md](high_risk_stage_audits/mix.md) |
+| `master_finalize` | T2 | `complete` | no | **PASS** after safest S1–S5 → `leave` | [master_finalize.md](high_risk_stage_audits/master_finalize.md) |
+| `listen_delight_audit` | T2 | `complete` | no | **PASS** after S1–S5 (safest: peel APPLY, demote post_mix, no selection pack, fail_early deleted) → `leave` | [listen_delight_audit.md](high_risk_stage_audits/listen_delight_audit.md) |
+| `connector_fuse_pass_pre_ranking` | T1 | `complete` | no | **PASS** after S1–S5 (recommended) — dedicated rounds; peel HV/diar/lattice; hard manifest → `leave` | [connector_fuse_pass_pre_ranking.md](high_risk_stage_audits/connector_fuse_pass_pre_ranking.md) |
+| `selection_framing_apply` | T1 | `complete` | no | **PASS** after S1–S5 (safest) — exclude commit + stamp seats; `leave` | [selection_framing_apply.md](high_risk_stage_audits/selection_framing_apply.md) |
+| `refinement_agenda` | T1 | `complete` | no | **PASS** — leave (rescore after S1–S3; seed-order noise, not stage bloat) | [refinement_agenda.md](high_risk_stage_audits/refinement_agenda.md) |
+| `gap_report_sanitize` | T1 | `complete` | no | **PASS** (rescore) — S1–S5 confirmed on HEAD; shape+stamp; `leave` | [gap_report_sanitize.md](high_risk_stage_audits/gap_report_sanitize.md) |
+| `chapter_close_hitch` | T1 | `complete` | partial | **FAIL** after S1–S5 safest — unpaid/kitchen peeled; responsibilities=3; leave/monitor for PASS | [chapter_close_hitch.md](high_risk_stage_audits/chapter_close_hitch.md) |
+| `transitions` | T1 | `complete` | no | **PASS** (rescore) — responsibilities=2 (complete `transitions.json` + admit/freeze gates); S1–S5 held → `leave` | [transitions.md](high_risk_stage_audits/transitions.md) |
+| `podcast_publish` | T2 | `complete` | no | **PASS** (HEAD rescore) — S1–S5 held; refuse→assemble→stamp; `leave` | [podcast_publish.md](high_risk_stage_audits/podcast_publish.md) |
+| `framing_posture_decide` | T3 | `complete` | no | **PASS** — advisory+stub; seed-order vs `content_context` noise → `leave` | [framing_posture_decide.md](high_risk_stage_audits/framing_posture_decide.md) |
+| `vernacular_segment_sanitize` | T3 | `complete` | no | **PASS** after S1 — stt_lexicon heal_pin→FMR; `leave` | [vernacular_segment_sanitize.md](high_risk_stage_audits/vernacular_segment_sanitize.md) |
+| `mastering_shape_agenda` | T3 | `complete` | no | **PASS** — seed-order/thin + CSP-05 hollow OpenAI (honest); responsibilities=2 → `leave` | [mastering_shape_agenda.md](high_risk_stage_audits/mastering_shape_agenda.md) |
+| `interview_spine_build` | T3 | `complete` | no | **PASS** (rescore) — S1–S4 still on HEAD; repairs-only; `leave` | [interview_spine_build.md](high_risk_stage_audits/interview_spine_build.md) |
 | `transcript_review` | T3 | `not_started` | — | — | [transcript_review.md](high_risk_stage_audits/transcript_review.md) |
 
 <!-- high-risk-audit-findings:end -->
+
+---
+
+## Post-simplify bug verification (2026-09-25)
+
+Full per-stage CLEAN/RISKY/BUGS + footguns:  
+[`.cursor/plans/high_risk_stages_bug_verification_report.md`](high_risk_stages_bug_verification_report.md)
+
+**Headline:** most stages refuse-shaped; **not** bug-free. Pytest **344 pass / 8 fail** + product bugs: VLA 0.0.0 no stub, ENA `allow_blank_drop`, layup aspirational QC, EDL hollow `mark_done`, Clinic E navigate, contract peels missing, **hitch remap×S9 sole-writer on `vo_seed_seg_*`**, compose dual seed in repair. T2+T3 CLEAN. Residual over-eng FAILs: layup S6, GFC S10, hitch resp=3.

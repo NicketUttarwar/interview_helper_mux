@@ -69,9 +69,12 @@ def _ctx(tmp_path: Path, name: str) -> RunContext:
 # ---------------------------------------------------------------------------
 
 def test_precision_is_inert_today() -> None:
-    """No group downstream of `prepare` is conformance-green, so nothing is dropped."""
+    """Precision may subtract but never add or reorder vs the blanket tail."""
     for sid in ALL_STAGES:
-        assert adg.transitive_invalidate(sid) == adg._blanket_invalidate(sid), sid
+        blanket = adg._blanket_invalidate(sid)
+        precise = adg.transitive_invalidate(sid)
+        assert set(precise) <= set(blanket), sid
+        assert precise == [s for s in blanket if s in set(precise)], sid
 
 
 def test_precise_result_is_always_a_subsequence_of_the_blanket_result(
@@ -192,10 +195,13 @@ def test_a_catalog_row_that_under_reports_is_widened_by_the_contracts() -> None:
     """
     from interview_mux.artifact_ownership import owners_of
 
-    assert "audio_probe_build" not in owners_of(PROBE_ZONES)
+    catalog = set(owners_of(PROBE_ZONES) or ())
     writers = adg._permitted_writers(PROBE_ZONES)
     assert writers is not None
     assert {"audio_probe_build", "vernacular_segment_sanitize"} <= writers
+    # Catalog now names the probe writer; contracts still widen if a row is thin.
+    assert "audio_probe_build" in writers
+    assert catalog <= writers
 
 
 def test_an_input_with_no_ownership_row_has_unknown_writers() -> None:

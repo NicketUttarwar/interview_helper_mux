@@ -177,17 +177,16 @@ def test_budget_epoch_resets_count_attempts_after_product_patch(tmp_path: Path) 
     assert dispatch_cap_refusal(ctx, "vo_line_adjudicate") is None
 
 
-def test_batch_fill_incompleteness_grants_walk_door_grace(tmp_path: Path) -> None:
-    """MUX_FORENSICS=0: hitch-burned cap must not strand missing_framing batch_fill.
+def test_batch_fill_no_longer_grants_walk_door_grace(tmp_path: Path) -> None:
+    """S1: batch_fill leftovers no longer unlock budget grace (seal-or-refuse only).
 
-    exec_13198: three started rows (analysis + done + hitch) then batch_fill heal
-    refused at max_invokes_per_identity while 5 unscored fills remained.
+    Legacy unscored fills still refuse done via incompleteness, but the walk door
+    must not grant missing_framing_batch_fill grace — re-run seals or refuses.
     """
     import os
 
     os.environ["MUX_FORENSICS"] = "0"
-    ctx = _driver_ctx(tmp_path, "door_batch_fill_grace")
-    # Unscored batch_fill leftovers — incompleteness predicate for missing_framing.
+    ctx = _driver_ctx(tmp_path, "door_batch_fill_no_grace")
     ctx.write_json(
         "understanding/gap_evaluations.json",
         {
@@ -214,15 +213,9 @@ def test_batch_fill_incompleteness_grants_walk_door_grace(tmp_path: Path) -> Non
     cap, _ = attempt_cap("missing_framing")
     _dispatch_rows(ctx, "missing_framing", cap)
     assert count_attempts(ctx, "missing_framing") >= cap
-    # Without batch_fill incompleteness, the door would refuse; with it, grace applies.
-    assert dispatch_cap_refusal(ctx, "missing_framing") is None
-    ex = exemption_for(ctx, "missing_framing", "stage")
-    assert ex is not None and ex.name == "missing_framing_batch_fill"
-    # Grace is still bounded — burn through grace too and the door refuses.
-    _dispatch_rows(ctx, "missing_framing", EXEMPTION_GRACE)
-    hit = dispatch_cap_refusal(ctx, "missing_framing")
-    assert hit is not None and hit[1].get("exhausted_with_grace") is True
-    # Other incomplete stages do not get this grace (policy door stays honest).
+    assert exemption_for(ctx, "missing_framing", "stage") is None
+    assert dispatch_cap_refusal(ctx, "missing_framing") is not None
+    # Other incomplete stages still do not get grace.
     _dispatch_rows(ctx, "transitions", cap)
     assert exemption_for(ctx, "transitions", "stage") is None
     assert dispatch_cap_refusal(ctx, "transitions") is not None

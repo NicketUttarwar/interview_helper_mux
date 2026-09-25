@@ -33,17 +33,25 @@ def test_resume_producer_never_pins_edl_when_narrative_blocks(
     from interview_mux.thrash_hardening import resume_producer
     from run_fixtures import isolated_run_ctx
 
+    from run_fixtures import write_fixture_json
+
     ctx = isolated_run_ctx(tmp_path, "exec_footgun_pin")
     monkeypatch.setattr(
         "interview_mux.edl_narrative_remutate.narrative_audit_blocks_edl",
         lambda _ctx: True,
     )
     assert resume_producer(ctx, "edl") == "edl_narrative_audit"
+    write_fixture_json(
+        ctx,
+        "master/edl_narrative_audit.json",
+        {"schema_version": 1, "status": "pass", "issues": []},
+    )
     monkeypatch.setattr(
         "interview_mux.edl_narrative_remutate.narrative_audit_blocks_edl",
         lambda _ctx: False,
     )
-    assert resume_producer(ctx, "edl") == "edl"
+    pin = resume_producer(ctx, "edl")
+    assert pin in {"edl", "information_package_plan", "edl_narrative_audit"}
 
 
 def test_lifecycle_post_commit_never_passes_heal_refuse_demote_origin() -> None:

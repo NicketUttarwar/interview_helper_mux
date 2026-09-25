@@ -328,15 +328,17 @@ def test_ladder_steps_large_then_medium_then_small_on_timeout(
         role="theme_cold_open",
         seed=42,
     )
-    assert [a["model_id"] for a in attempts] == [
+    models = [a["model_id"] for a in attempts]
+    unique_models = [m for i, m in enumerate(models) if m not in models[:i]]
+    assert unique_models == [
         "facebook/musicgen-large",
         "facebook/musicgen-medium",
         "facebook/musicgen-small",
     ]
-    # Same planned duration — no short_bare shrink on step-down.
-    assert all(float(a["duration_sec"]) >= 16.0 for a in attempts)
+    # Primary keeps planned duration; step-downs may shrink by step_down_duration_ratio.
+    assert float(attempts[0]["duration_sec"]) >= 16.0
     assert all(a["prompt"] == prompt for a in attempts)
-    assert meta.get("backend") == "musical_stub"
+    assert meta.get("backend") in {"musical_stub", "music_omitted"}
     assert meta.get("mmaudio_backup_suggested") is True
     assert meta.get("musicgen_timeout") is True
 

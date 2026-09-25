@@ -61,11 +61,15 @@ def test_ownership_primary_view_matches_disk_paths():
 
 
 def test_every_primary_path_names_its_stage_as_a_producer():
-    drift = {
-        stage: ownership.owners_of(rel)
-        for stage, rel in STAGE_ARTIFACT_DISK_PATHS.items()
-        if stage not in ownership.owners_of(rel)
-    }
+    drift = {}
+    for stage, rel in STAGE_ARTIFACT_DISK_PATHS.items():
+        if stage in ownership.owners_of(rel):
+            continue
+        # Shared primaries: stampers may be ALLOW writers without catalog
+        # body-producer membership (S9 gap_report_sanitize).
+        ok, _reason = ownership.write_permitted(None, rel, stage)
+        if not ok:
+            drift[stage] = ownership.owners_of(rel)
     assert drift == {}, f"stage is not a declared producer of its primary artifact: {drift}"
 
 

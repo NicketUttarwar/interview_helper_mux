@@ -4,7 +4,7 @@ lifecycle:
   phases:
   - prestage
   - pre_call
-  - llm_execute
+  - execute
   - staged_validate
   - committed
   - post_commit_validate
@@ -12,6 +12,12 @@ outputs:
 - path: master/selection.json
   schema: master_selection_artifact.schema.json
   staging: false
+- path: understanding/reorder_bridges.json
+  staging: true
+- path: understanding/speaker_delivery_plan.json
+  staging: true
+- path: master/story_health.json
+  staging: true
 inputs:
   hard:
   - path: master/selection.json
@@ -24,10 +30,10 @@ inputs:
   - path: segments/nle_edits.json
   - path: understanding/ideal_cuts.json
     producer: ideal_cuts_propose
-  - path: understanding/reorder_bridges.json
-    producer: full_master_ranking
   - path: understanding/talking_points.json
     producer: talking_points_compose
+  - path: understanding/reorder_bridges.json
+    producer: selection_order_sanitize
 sufficiency: []
 propagation:
   invalidates_stages: []

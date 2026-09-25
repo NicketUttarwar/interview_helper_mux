@@ -194,22 +194,12 @@ def test_hosted_1on1_requires_synthetic_vo_lines(tmp_path: Path) -> None:
     assert hosted_framing_requires_synthetic_vo(ctx)
     ctx.write_json(
         "understanding/gap_report.json",
-        {
-            "interviewer_lines": [
-                {
-                    "line_id": "vo_a",
-                    "delivery": "synthesize",
-                    "text": "Why this beat?",
-                    "gap_type": "missing_question",
-                    "targets_segment_id": "seg_001",
-                    "placement": "before",
-                },
-            ]
-        },
+        {"interviewer_lines": []},
         skip_handoff=True,
     )
+    # HOLLOW_ZERO is still incomplete. PARTIAL (1 line) may aspirational-continue.
     reason = synthetic_vo_incompleteness(ctx, "nugget_layup_compose")
-    assert reason and "synthetic host" in reason
+    assert reason and ("synthetic host" in reason or "HOLLOW_ZERO" in reason)
     assert synthetic_vo_incompleteness(ctx, "g1_vo_pickup")
     assert synthetic_vo_incompleteness(ctx, "edl")
     ctx.write_json(

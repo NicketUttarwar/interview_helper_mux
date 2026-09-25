@@ -119,7 +119,6 @@ def test_from_stage_census_allowlisted_sites() -> None:
         "thrash_hardening.py": ("resolve_heal_from_stage",),
         "delivery_guardrails.py": ("admit_resume", "admit_schedule"),
         "delivery_invariants.py": ("admit_resume",),
-        "edl_narrative_remutate.py": ("admit_resume",),
         "recovery_controller.py": ("admit_resume",),
     }
     for rel, needles in required.items():

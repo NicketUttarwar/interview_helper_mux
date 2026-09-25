@@ -72,8 +72,9 @@ _SHARED_PATH_LAND_CO_PRODUCERS: dict[str, frozenset[str]] = {
             "gap_framing_recompose",
         }
     ),
-    # Metadata align under seat freeze stamps edl_narrative_audit; sanitize
-    # restamps selection_order_sanitize. Either claim is paid land (exec_13198).
+    # Metadata align under seat freeze may rewrite chapters; order-unchanged
+    # commits preserve prior producer_stage (S4) so sanitize ↔ narrative do not
+    # flip ownership. Either claim remains paid land (exec_13198).
     "selection_order_sanitize": frozenset(
         {
             "selection_order_sanitize",
@@ -286,6 +287,8 @@ def unpaid_land_reason(ctx: RunContext, stage: str) -> str | None:
     ``land_honest``. Table-driven families (Cluster A + shared-path):
 
     1. Remaster in flight or speech_first remaster owed → mix / junction
+       (S6(B): junction-owned remaster is *paid* for ``junction_snip_qa`` —
+       mix stays unpaid until ``clear_remaster``)
     2. Active remutate targets
     3. Layup authority without plan
     4. Shared-path producer_stage mismatch or missing
@@ -306,18 +309,28 @@ def unpaid_land_reason(ctx: RunContext, stage: str) -> str | None:
 
             if remaster_in_flight(ctx):
                 owner = remaster_owner(ctx) or "unknown"
-                if music_epoch_pre_beds_seat(ctx):
+                owner_l = str(owner).strip().lower()
+                # S6(B): junction is the primary remaster producer — paid land.
+                # Mix remains unpaid so orphan promote cannot hollow-complete mid-flight.
+                if sid == "junction_snip_qa" and owner_l in {
+                    "junction",
+                    "junction_snip_qa",
+                }:
+                    pass
+                else:
+                    if music_epoch_pre_beds_seat(ctx):
+                        return (
+                            f"{sid} remaster owed — resume mix: "
+                            f"music_epoch_pre_beds_seat remaster_owner={owner} "
+                            "(assembly predates remaster; clear_remaster only on seated land)"
+                        )
                     return (
                         f"{sid} remaster owed — resume mix: "
-                        f"music_epoch_pre_beds_seat remaster_owner={owner} "
-                        "(assembly predates remaster; clear_remaster only on seated land)"
+                        f"remaster_owner={owner} (clear_remaster only on seated land)"
                     )
-                return (
-                    f"{sid} remaster owed — resume mix: "
-                    f"remaster_owner={owner} (clear_remaster only on seated land)"
-                )
-            # Owed before owner stamp (speech-first / preview-era) — block mix+junction.
-            if speech_first_remaster_owed(ctx):
+            # Owed before owner stamp (speech-first / preview-era) — mix only.
+            # Junction alone is not unpaid until an owner stamps (or music_epoch).
+            if speech_first_remaster_owed(ctx) and sid == "mix":
                 return (
                     f"{sid} remaster owed — resume mix: "
                     "speech_first_remaster_owed (owner may not be stamped yet)"

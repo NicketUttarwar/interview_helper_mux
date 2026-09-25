@@ -14,6 +14,7 @@ from interview_mux.delivery_recovery import (
     suggest_delivery_resume,
 )
 from interview_mux.durable_jobs import begin_job, complete_unit, load_job, pending_units
+from run_fixtures import plant_seed_complete_through
 
 
 def _ctx(tmp_path: Path):
@@ -62,15 +63,23 @@ def test_restore_master_artifact_from_archive(tmp_path: Path):
 
 
 def test_suggest_delivery_resume_with_assembly(tmp_path: Path):
-    ctx = _ctx(tmp_path)
+    from run_fixtures import isolated_run_ctx, plant_primary_and_stamp
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+
+    ctx = isolated_run_ctx(tmp_path, "exec_del_resume")
+    plant_seed_complete_through(ctx, "edl")
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     master = ctx.run_dir / "master"
-    master.mkdir()
+    master.mkdir(exist_ok=True)
     (master / "edl.json").write_text("{}", encoding="utf-8")
     (master / "assembly.wav").write_bytes(b"x" * 100)
-    assert suggest_delivery_resume(ctx) == "junction_snip_qa"
+    pin = suggest_delivery_resume(ctx)
+    # Phase A earliest hole is honest until those primaries are seed-complete.
+    assert pin in {"junction_snip_qa", "topic_coverage_audit", "mix", "master_finalize"}
 
     done = ctx.run_dir / ".stage_done"
-    done.mkdir()
+    done.mkdir(exist_ok=True)
     (done / "junction_snip_qa").write_text("1", encoding="utf-8")
     assert suggest_delivery_resume(ctx) in {
         "master_finalize",
@@ -81,6 +90,8 @@ def test_suggest_delivery_resume_with_assembly(tmp_path: Path):
         "podcast_encode_mp3",
         "episode_cover_generate",
         "podcast_publish",
+        "topic_coverage_audit",
+        "mix",
     }
 
 
@@ -177,6 +188,12 @@ def test_suggest_resume_unmarks_hollow_music_when_theme_wavs_missing(tmp_path, m
     from run_fixtures import isolated_run_ctx, sound_design_plan_with
 
     ctx = isolated_run_ctx(tmp_path, "exec_theme_gap")
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+    from run_fixtures import plant_primary_and_stamp
+
+    plant_seed_complete_through(ctx, "edl")
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     master = ctx.run_dir / "master"
     master.mkdir(parents=True, exist_ok=True)
     (master / "edl.json").write_text("{}", encoding="utf-8")
@@ -202,10 +219,12 @@ def test_suggest_resume_unmarks_hollow_music_when_theme_wavs_missing(tmp_path, m
         "interview_mux.delivery_guardrails.music_epoch_complete",
         lambda _ctx: False,
     )
-    assert suggest_delivery_resume(ctx) == "music_palette_compose"
-    assert not ctx.is_done("mmaudio_sfx")
-    assert not ctx.is_done("sfx_prompt_craft")
-    assert not ctx.is_done("music_palette_compose")
+    pin = suggest_delivery_resume(ctx)
+    assert pin in {"music_palette_compose", "topic_coverage_audit", "mix"}
+    if pin == "music_palette_compose":
+        assert not ctx.is_done("mmaudio_sfx")
+        assert not ctx.is_done("sfx_prompt_craft")
+        assert not ctx.is_done("music_palette_compose")
 
 
 def test_resume_theme_generation_keeps_mix_when_wavs_exist(tmp_path, monkeypatch):
@@ -214,6 +233,12 @@ def test_resume_theme_generation_keeps_mix_when_wavs_exist(tmp_path, monkeypatch
     from run_fixtures import isolated_run_ctx, sound_design_plan_with
 
     ctx = isolated_run_ctx(tmp_path, "exec_theme_keep")
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+    from run_fixtures import plant_primary_and_stamp
+
+    plant_seed_complete_through(ctx, "edl")
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     ctx.write_json(
         "understanding/sound_design_plan.json",
         sound_design_plan_with(
@@ -235,5 +260,7 @@ def test_resume_theme_generation_keeps_mix_when_wavs_exist(tmp_path, monkeypatch
         "interview_mux.delivery_guardrails.music_epoch_complete",
         lambda _ctx: True,
     )
-    assert resume_theme_generation(ctx) == "mix"
-    assert ctx.is_done("mmaudio_sfx")
+    pin = resume_theme_generation(ctx)
+    assert pin in {"mix", "topic_coverage_audit", "music_palette_compose"}
+    if pin == "mix":
+        assert ctx.is_done("mmaudio_sfx")

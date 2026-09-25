@@ -160,6 +160,9 @@ def test_sanitize_gap_typeerror_not_swallowed(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_coverage_refuse_only_for_compose_thin_under_authority() -> None:
+    """S3: coverage floor lives on layup honesty, not gap sanitize."""
+    from interview_mux.artifact_sanitize.gap_report import gap_layup_coverage_errors
+
     ctx = RunContext(create=True)
     order = [f"seg_{i:03d}" for i in range(1, 11)]
     _write_selection(ctx, order)
@@ -175,9 +178,13 @@ def test_coverage_refuse_only_for_compose_thin_under_authority() -> None:
         ],
         "gaps": [],
     }
-    refused = sanitize_gap_report(ctx, thin)
-    assert not refused.ok
-    assert any("layup_coverage_below_floor" in e for e in refused.errors)
+    # Sanitize must not refuse on coverage (shape-only).
+    sanitized = sanitize_gap_report(ctx, thin)
+    assert sanitized.ok
+    assert not any("layup_coverage_below_floor" in e for e in sanitized.errors)
+    # Layup honesty helper still refuses compose-thin under authority.
+    cov = gap_layup_coverage_errors(ctx, thin)
+    assert any("layup_coverage_below_floor" in e for e in cov)
 
     intentional_omits = {
         "nugget_layup_authority": True,
@@ -193,7 +200,7 @@ def test_coverage_refuse_only_for_compose_thin_under_authority() -> None:
     }
     ok = sanitize_gap_report(ctx, intentional_omits)
     assert ok.ok
-    assert not any("layup_coverage_below_floor" in e for e in ok.errors)
+    assert not gap_layup_coverage_errors(ctx, intentional_omits)
 
 
 def test_sanitize_drops_incomplete_omit_stub() -> None:

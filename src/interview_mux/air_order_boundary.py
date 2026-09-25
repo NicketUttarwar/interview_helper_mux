@@ -676,19 +676,30 @@ def commit_selection_mutation(
             from interview_mux.artifact_sanitize.reentry import sanitary_content_hash
             from interview_mux.thrash_hardening import note_authority_undo_attempt
 
-            undo = note_authority_undo_attempt(
-                ctx,
-                artifact="master/selection.json",
-                action_class=str(producer or stage_key or "selection_commit"),
-                content_hash=sanitary_content_hash(
-                    out, keys=["ordered_segment_ids", "order_content_hash"]
-                ),
-            )
-            if undo.get("halt"):
-                raise RuntimeError(
-                    "authority_undo_thrash:master/selection.json: "
-                    + str(undo.get("reason") or "oscillation")
+            # S4: meta-only / order-unchanged writes must not enter the undo
+            # ledger (sanitize ↔ narrative metadata_align hash oscillation).
+            prev_ids_undo = [
+                str(s)
+                for s in ((previous or {}).get("ordered_segment_ids") or [])
+                if s
+            ]
+            cur_ids_undo = [
+                str(s) for s in (out.get("ordered_segment_ids") or []) if s
+            ]
+            if (not prev_ids_undo) or prev_ids_undo != cur_ids_undo:
+                undo = note_authority_undo_attempt(
+                    ctx,
+                    artifact="master/selection.json",
+                    action_class=str(producer or stage_key or "selection_commit"),
+                    content_hash=sanitary_content_hash(
+                        out, keys=["ordered_segment_ids", "order_content_hash"]
+                    ),
                 )
+                if undo.get("halt"):
+                    raise RuntimeError(
+                        "authority_undo_thrash:master/selection.json: "
+                        + str(undo.get("reason") or "oscillation")
+                    )
         except RuntimeError:
             raise
         except Exception:
@@ -711,6 +722,8 @@ def commit_selection_mutation(
         # write_mirrored_json while admitting (no fingerprint_artifact), so the
         # doc must carry _meta.producer_stage or selection_order_sanitize stays
         # unpaid → incomplete-after-conductor thrash (exec_13196).
+        # S4: when ordered_segment_ids are unchanged, preserve prior producer_stage
+        # so metadata-align does not flip ownership vs sanitize.
         sk_stamp = str(write_sk or stage_key or "").strip()
         if sk_stamp:
             meta = (
@@ -718,7 +731,30 @@ def commit_selection_mutation(
                 if isinstance(out.get("_meta"), dict)
                 else {}
             )
-            meta["producer_stage"] = sk_stamp
+            prev_ids_stamp = [
+                str(s)
+                for s in ((previous or {}).get("ordered_segment_ids") or [])
+                if s
+            ]
+            cur_ids_stamp = [
+                str(s) for s in (out.get("ordered_segment_ids") or []) if s
+            ]
+            prev_meta = (
+                (previous or {}).get("_meta")
+                if isinstance(previous, dict)
+                else None
+            )
+            prev_producer = ""
+            if isinstance(prev_meta, dict):
+                prev_producer = str(prev_meta.get("producer_stage") or "").strip()
+            if (
+                prev_ids_stamp
+                and prev_ids_stamp == cur_ids_stamp
+                and prev_producer
+            ):
+                meta["producer_stage"] = prev_producer
+            else:
+                meta["producer_stage"] = sk_stamp
             out["_meta"] = meta
 
         if write_committed:

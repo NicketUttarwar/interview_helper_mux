@@ -75,34 +75,40 @@ def _seed_selection_manifest(ctx: RunContext, rows: list[tuple[str, str]]) -> No
     )
 
 
-def test_selection_allows_nugget_layup_compose(ctx: RunContext) -> None:
+def test_selection_denies_nugget_layup_compose(ctx: RunContext) -> None:
+    """S7: layup is not a selection.json producer."""
     row = row_for_path("master/selection.json")
     assert row is not None
-    assert "nugget_layup_compose" in row.producers
+    assert "nugget_layup_compose" not in row.producers
     ok, reason = write_permitted(
         ctx, "master/selection.json", "nugget_layup_compose", verb="persist"
     )
-    assert ok is True
-    assert reason == "owner_rerun"
+    assert ok is False
+    assert "not_allow" in reason
 
 
-def test_selection_deny_suggests_layup_not_junction(ctx: RunContext) -> None:
-    """Non-producer deny under pre_soft must pin layup, not junction."""
+def test_selection_deny_suggests_sanitize_not_junction(ctx: RunContext) -> None:
+    """Non-producer deny under pre_soft must pin sanitize, not junction (S7)."""
     ok, reason = write_permitted(
         ctx, "master/selection.json", "selection_framing_apply", verb="persist"
     )
-    assert ok is False
-    assert "not_allow" in reason
-    assert reason.endswith("owner=nugget_layup_compose") or "nugget_layup_compose" in reason
-    with pytest.raises(AuthorityDenied) as caught:
+    # Paid framing-apply is a selection producer; deny still pins sanitize.
+    if ok is False:
+        assert "not_allow" in reason
+        assert "selection_order_sanitize" in reason
+        with pytest.raises(AuthorityDenied) as caught:
+            assert_write(ctx, "master/selection.json", "selection_framing_apply")
+        assert caught.value.suggested_owner == "selection_order_sanitize"
+    else:
         assert_write(ctx, "master/selection.json", "selection_framing_apply")
-    assert caught.value.suggested_owner == "nugget_layup_compose"
-    assert heal_pin_for("master/selection.json", ctx=ctx) == "nugget_layup_compose"
+    assert heal_pin_for("master/selection.json", ctx=ctx) == "selection_order_sanitize"
 
 
-def test_ship_omit_maps_layup_and_media_ip_cta() -> None:
+def test_ship_omit_maps_ranking_sanitize_and_media_ip_cta() -> None:
     assert SHIP_OMIT_PRODUCER_ACTIONS.get("media_ip_cta") == "media_ip_cta"
-    assert SHIP_OMIT_PRODUCER_ACTIONS.get("nugget_layup_compose") == "media_ip_cta"
+    assert SHIP_OMIT_PRODUCER_ACTIONS.get("full_master_ranking") == "media_ip_cta"
+    assert SHIP_OMIT_PRODUCER_ACTIONS.get("selection_order_sanitize") == "media_ip_cta"
+    assert "nugget_layup_compose" not in SHIP_OMIT_PRODUCER_ACTIONS
     assert (
         SHIP_OMIT_PRODUCER_ACTIONS.get("media_ip_cta.heal_on_air_cta_residue")
         == "heal_on_air_cta"
@@ -320,6 +326,11 @@ def test_floor_unmet_blocks_layup_complete(
         "interview_mux.gap_vo_gates.gap_framing_enabled",
         lambda _c: True,
     )
+    # Bypass aspirational proceed so PARTIAL floor stays incompleteness.
+    monkeypatch.setattr(
+        "interview_mux.hosted_vo_authority.may_aspirational_proceed",
+        lambda *_a, **_k: False,
+    )
     gap = minimal_gap_report(
         minimal_gap_line(
             line_id="vo_only",
@@ -328,6 +339,7 @@ def test_floor_unmet_blocks_layup_complete(
             delivery="synthesize",
         ),
     )
+    gap["nugget_layup_authority"] = True
     ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
     ctx.write_json(
         "understanding/nugget_layup_plan.json",
@@ -338,6 +350,10 @@ def test_floor_unmet_blocks_layup_complete(
                     "target_segment_id": "seg_001",
                     "text": "Only one hosted framing line about the guest and stakes.",
                     "line_id": "vo_only",
+                    "target_beat": "clinical arc ahead for listeners",
+                    "listener_need_entering": "why this guest matters now",
+                    "forward_unlock": "tease the trial result that follows",
+                    "nugget_ids": ["nug_1"],
                 }
             ],
         },

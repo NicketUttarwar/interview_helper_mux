@@ -22,7 +22,7 @@ from interview_mux.write_staging import (
     promote_glue_then_discard_stale_edl,
     staging_root,
 )
-from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment
+from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment, write_fixture_json
 
 
 @pytest.fixture(autouse=True)
@@ -103,6 +103,8 @@ def test_promote_glue_keeps_gap_report_when_discarding_edl(tmp_path: Path) -> No
 def test_edl_vo_clips_subset_of_committed_gap_report(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "exec_edl_gap_contract")
     report = {"interviewer_lines": [_line(line_id="vo_keep_001", targets_segment_id="seg_001")]}
+    # EDL is not a gap_report producer under freeze; plant via the owner path.
+    write_fixture_json(ctx, "understanding/gap_report.json", report)
     enter_stage_staging("edl")
     try:
         _commit_edl_gap_report(ctx, report)

@@ -8,7 +8,7 @@ import pytest
 
 from interview_mux.stages import framing_posture_decide as framing_stage
 from interview_mux.stages import vo_line_adjudicate as adjudicate_stage
-from run_fixtures import isolated_run_ctx, mark_done_raw
+from run_fixtures import isolated_run_ctx, mark_done_raw, write_fixture_json
 
 
 def _meta(version: str) -> dict:
@@ -40,8 +40,9 @@ def test_framing_posture_homunculus_guard(tmp_path: Path, version: str) -> None:
 @pytest.mark.parametrize("version", ["0.0.0"])
 def test_vo_line_adjudicate_homunculus_guard_skips_legacy(tmp_path: Path, version: str) -> None:
     ctx = isolated_run_ctx(tmp_path, "homunc_guard")
-    ctx.write_json("run_meta.json", _meta(version), skip_handoff=True)
-    ctx.write_json(
+    write_fixture_json(ctx, "run_meta.json", _meta(version))
+    write_fixture_json(
+        ctx,
         "understanding/gap_report.json",
         {
             "interviewer_lines": [
@@ -55,11 +56,11 @@ def test_vo_line_adjudicate_homunculus_guard_skips_legacy(tmp_path: Path, versio
                 }
             ]
         },
-        skip_handoff=True,
     )
     adjudicate_stage.run_vo_line_adjudicate(ctx)
-    assert not ctx.is_done("vo_line_adjudicate")
-    assert not ctx.artifact_exists("understanding/vo_line_adjudication.json")
+    assert ctx.is_done("vo_line_adjudicate")
+    doc = ctx.read_json("understanding/vo_line_adjudication.json")
+    assert doc.get("skip_reason") == "homunculus_features_off"
 
 
 def test_stage_order_migration_unmarks_downstream(tmp_path: Path) -> None:

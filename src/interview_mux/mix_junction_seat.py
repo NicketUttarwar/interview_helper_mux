@@ -51,9 +51,11 @@ SHIP_OMIT_PRODUCER_ACTIONS: dict[str, str] = {
     "segment_id_remap": "segment_id_remap_omit",
     "junction_snip_qa": "junction_incomplete_cut_omit",
     "junction": "junction_incomplete_cut_omit",
-    # Layup / host CTA prune (End-A packaging — soft freeze only).
+    # Host CTA prune (End-A packaging — soft freeze only). S7: ranking/sanitize,
+    # not nugget_layup_compose.
     "media_ip_cta": "media_ip_cta",
-    "nugget_layup_compose": "media_ip_cta",
+    "full_master_ranking": "media_ip_cta",
+    "selection_order_sanitize": "media_ip_cta",
     "media_ip_cta.heal_on_air_cta_residue": "heal_on_air_cta",
 }
 

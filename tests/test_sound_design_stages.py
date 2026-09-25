@@ -113,8 +113,9 @@ def test_sound_design_plan_persists_assets_and_cues(tmp_path, monkeypatch):
     assert asset_ids
     assert any(aid.startswith("show_theme") or "theme" in aid for aid in asset_ids)
     cues = (((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
-    assert cues
-    assert str(cues[0].get("asset_id") or "") in asset_ids
+    podcast = ((sdp.get("flow_plans") or {}).get("podcast") or {})
+    assert podcast.get("compose_deferred") is True
+    assert cues == []
     assert ctx.is_done("sound_design_plan")
 
 
@@ -155,15 +156,12 @@ def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
 
-    # Music-only harden remaps/drops unknown cue assets onto the motif inventory.
+    # S6: invent drops LLM cues; placement deferred to music_palette_compose.
     sound_design_stages.run_sound_design_plan(ctx)
     sdp = ctx.read_json("understanding/sound_design_plan.json")
-    asset_ids = {str(a.get("asset_id") or "") for a in (sdp.get("assets") or []) if isinstance(a, dict)}
     cues = (((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
-    assert "missing_asset_xyz" not in {
-        str(c.get("asset_id") or "") for c in cues if isinstance(c, dict)
-    }
-    assert all(str(c.get("asset_id") or "") in asset_ids for c in cues if isinstance(c, dict))
+    assert cues == []
+    assert ((sdp.get("flow_plans") or {}).get("podcast") or {}).get("compose_deferred") is True
 
 
 def test_sfx_prompt_craft_refuses_default_sdp_empty_assets(tmp_path, monkeypatch):

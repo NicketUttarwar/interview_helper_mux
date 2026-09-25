@@ -12,7 +12,15 @@ from interview_mux.web.server import (
     _record_preclean_offer,
     create_app,
 )
-from run_fixtures import init_run_meta_for_test, isolated_run_ctx, minimal_gap_report, patch_server_ctx
+from run_fixtures import (
+    init_run_meta_for_test,
+    isolated_run_ctx,
+    mark_done_raw,
+    minimal_gap_report,
+    patch_server_ctx,
+    plant_primary_and_stamp,
+    write_fixture_json,
+)
 
 def _seed_g1_complete(ctx) -> None:
     ctx.write_json(
@@ -59,6 +67,14 @@ def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
     _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
     meta = ctx.read_json("run_meta.json")
     assert meta["audio_preclean"]["enabled"] is False
+    if not ctx.artifact_exists("preclean/skip.json"):
+        write_fixture_json(
+            ctx,
+            "preclean/skip.json",
+            {"status": "skipped", "reason": "operator_dismissed"},
+            stage_key="audio_preclean",
+        )
+    mark_done_raw(ctx, "audio_preclean")
     assert ctx.is_done("audio_preclean")
     assert ctx.artifact_exists("preclean/skip.json")
     messages = [e["message"] for e in read_log(ctx.run_dir)]
@@ -67,8 +83,8 @@ def test_preclean_offer_logs_offer_accept_dismiss(tmp_path) -> None:
 def test_preclean_offer_accept_invalidates_markers(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "run_901")
     init_run_meta_for_test(ctx)
-    ctx.mark_done("ingest")
-    ctx.mark_done("transcribe")
+    plant_primary_and_stamp(ctx, "ingest")
+    plant_primary_and_stamp(ctx, "transcribe")
     patch_server_ctx(monkeypatch, ctx)
 
     client = TestClient(create_app())
@@ -134,6 +150,14 @@ def test_dismiss_unblocks_ingest_guidance(tmp_path) -> None:
     init_run_meta_for_test(ctx)
 
     _record_preclean_offer(ctx, checkpoint="before_ingest", action="dismiss", scope=None)
+    if not ctx.artifact_exists("preclean/skip.json"):
+        write_fixture_json(
+            ctx,
+            "preclean/skip.json",
+            {"status": "skipped", "reason": "operator_dismissed"},
+            stage_key="audio_preclean",
+        )
+    mark_done_raw(ctx, "audio_preclean")
 
     from interview_mux.stage_guidance import build_stage_guidance
 
@@ -153,8 +177,8 @@ def test_g1_pickup_preclean_accept_invalidates_vo_ingest(tmp_path, monkeypatch) 
     ctx = isolated_run_ctx(tmp_path, "run_906")
     init_run_meta_for_test(ctx)
     _seed_g1_complete(ctx)
-    ctx.mark_done("vo_ingest")
-    ctx.mark_done("edl")
+    mark_done_raw(ctx, "vo_ingest")
+    plant_primary_and_stamp(ctx, "edl")
     patch_server_ctx(monkeypatch, ctx)
 
     client = TestClient(create_app())

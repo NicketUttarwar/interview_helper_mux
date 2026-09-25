@@ -89,11 +89,12 @@ def test_unpaid_speech_first_before_owner_stamp(
         "interview_mux.air_order.mix_outputs_seated", lambda _c: True
     )
     # Owed without calling maybe_remaster — owner may be empty.
+    # Mix unpaid; junction alone is not (S6(B) / speech_first is mix obligation).
     assert speech_first_remaster_owed(ctx) is True
     why_mix = unpaid_land_reason(ctx, "mix")
     why_j = unpaid_land_reason(ctx, "junction_snip_qa")
     assert why_mix and "speech_first_remaster_owed" in why_mix
-    assert why_j and "speech_first_remaster_owed" in why_j
+    assert why_j is None
 
 
 def test_unpaid_layup_stamp_alone(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,12 +135,14 @@ def test_unpaid_remutate_active(ctx: RunContext) -> None:
 
 def test_unpaid_shared_path_producer_mismatch(ctx: RunContext) -> None:
     # selection_order_sanitize shares master/selection.json — wrong producer_stage
+    from interview_mux.file_store import write_json as fs_write_json
     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
     rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
     assert rel
-    ctx.write_json(
-        str(rel),
+    # Bypass write_json sanitize restamp so the foreign producer_stage sticks.
+    fs_write_json(
+        ctx.path(str(rel)),
         {
             "ordered_segment_ids": ["seg_001"],
             "_meta": {"producer_stage": "full_master_ranking"},

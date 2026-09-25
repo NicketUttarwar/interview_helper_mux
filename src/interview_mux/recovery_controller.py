@@ -1133,8 +1133,12 @@ def playbook_post_master_quality_missing(ctx: RunContext) -> list[str]:
 
 
 def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
+    """HG-5: repair + deterministic seed (compose persist no longer covers)."""
     from interview_mux.artifact_repairs import repair_gap_report
-    from interview_mux.high_gap_vo import resolve_seats
+    from interview_mux.high_gap_vo import (
+        resolve_seats,
+        seed_uncovered_high_gaps_deterministic,
+    )
 
     written: list[str] = []
     repaired: dict[str, Any] | None = None
@@ -1143,6 +1147,13 @@ def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
         if isinstance(doc, dict):
             repaired, _notes = repair_gap_report(
                 ctx, doc, resolve_high_gap_seats=False
+            )
+            applied: list[dict[str, Any]] = []
+            seed_uncovered_high_gaps_deterministic(
+                ctx,
+                repaired,
+                applied=applied,
+                origin="high_gap_vo_seed_playbook",
             )
             ctx.write_json("understanding/gap_report.json", repaired)
             written.append("understanding/gap_report.json")

@@ -94,7 +94,11 @@ def test_serve_audio_uses_staged_copy(tmp_path: Path, monkeypatch: pytest.Monkey
     client = TestClient(create_app())
     res = client.get(
         f"/api/runs/{ctx.run_id}/audio",
-        params={"path": "ingest/normalized.wav"},
+        params={
+            "path": "ingest/normalized.wav",
+            "pending": 1,
+            "pending_stage": "ingest",
+        },
     )
     assert res.status_code == 200
     assert res.content == _MIN_WAV

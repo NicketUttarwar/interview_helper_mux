@@ -222,7 +222,7 @@ _BASELINE_REQUIRES_EDGES: tuple[tuple[str, str, str], ...] = (
     ('delivery_brief_build', 'gap_framing_compose', 'understanding/gap_report.json'),
     ('edl_narrative_audit', 'sound_design_plan', 'understanding/sound_design_plan.json'),
     ('episode_cover_prompt_craft', 'episode_meta_build', 'publish/episode_meta.json'),
-    ('full_master_ranking', 'connector_fuse_pass_pre_ranking', 'analysis/connector_fuse_rounds.json'),
+    ('full_master_ranking', 'connector_fuse_pass_pre_ranking', 'analysis/connector_fuse_rounds_pre_ranking.json'),
     ('gap_framing_compose', 'missing_framing', 'understanding/gap_evaluations.json'),
     ('information_package_plan', 'nugget_corpus_mine', 'understanding/nugget_corpus.json'),
     ('island_cluster_structure_adjudicate', 'low_conf_island_scan', 'analysis/high_value_speech_islands.json'),

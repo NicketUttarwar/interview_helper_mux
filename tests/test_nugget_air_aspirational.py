@@ -220,14 +220,30 @@ def test_accounted_under_goal_is_advisory_not_hard(monkeypatch):
     assert not any("min_nugget_air_coverage" in e for e in (qc.get("errors") or []))
 
 
-def test_unaccounted_open_high_hard_refuse():
+def test_unaccounted_open_high_hard_refuse(monkeypatch):
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_cfg",
+        lambda cfg=None: _cfg(
+            air_coverage_aspirational=False,
+            min_layup_coverage=0.0,
+            require_layup_per_native=False,
+            require_analysis_fields=False,
+            ban_canned_air=False,
+            block_on_open_must_keep=False,
+            block_on_open_high_salience=True,
+            max_cross_layup_overlap=1.1,
+            max_target_restate_overlap=1.1,
+        ),
+    )
     ctx = RunContext("exec_asp_open_high", create=True)
     ids = _seed_order(ctx, 12)
     ctx.write_json(CORPUS_REL, _corpus(12))
     plan = _aired_plan(ids, 10)
     qc = evaluate_layup_qc(ctx, plan)
     assert qc.get("ok") is False
-    assert any("open_high_salience" in e for e in (qc.get("errors") or []))
+    assert qc.get("open_high_salience_nugget_ids")
+    blob = list(qc.get("errors") or []) + list(qc.get("warnings") or [])
+    assert any("open_high_salience" in str(e) for e in blob)
 
 
 def test_pick_best_selects_highest_coverage(monkeypatch):
@@ -296,7 +312,8 @@ def test_config_off_restores_hard_085(monkeypatch):
     assert any("min_nugget_air_coverage" in e for e in hard["errors"])
 
 
-def test_oscillation_pick_best_accepts_viable(monkeypatch):
+def test_oscillation_pick_best_disabled_s4(monkeypatch):
+    """S4: oscillation thrash hook no longer restores from archive."""
     monkeypatch.setattr(
         "interview_mux.nugget_layup.nugget_layup_cfg",
         lambda cfg=None: _soft_craft_cfg(),
@@ -310,5 +327,25 @@ def test_oscillation_pick_best_accepts_viable(monkeypatch):
     register_layup_candidate(ctx, plan=plan, qc=qc, label="osc_a")
     ctx.write_json(PLAN_REL, plan, stage_key="nugget_layup_compose")
     picked = try_pick_best_layup_on_oscillation(ctx)
-    assert picked.get("ok") is True
-    assert (picked.get("candidate") or {}).get("catastrophic_ok") is True
+    assert picked.get("ok") is False
+    assert picked.get("reason") == "oscillation_pick_disabled_s4"
+
+
+def test_candidates_cap_at_two(monkeypatch):
+    """S4: candidate ledger retains at most two attempts."""
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.nugget_layup_cfg",
+        lambda cfg=None: _soft_craft_cfg(),
+    )
+    from interview_mux.nugget_layup import load_layup_candidates_doc
+
+    ctx = RunContext("exec_asp_cap2", create=True)
+    ids = _seed_order(ctx, 12)
+    ctx.write_json(CORPUS_REL, _mixed_corpus())
+    for aired in (8, 9, 10):
+        plan = _under_goal_plan(ids, aired)
+        qc = evaluate_layup_qc(ctx, plan)
+        register_layup_candidate(ctx, plan=plan, qc=qc, label=f"aired_{aired}")
+    doc = load_layup_candidates_doc(ctx)
+    assert len(doc.get("candidates") or []) == 2
+    assert int(doc.get("attempts") or 0) == 3

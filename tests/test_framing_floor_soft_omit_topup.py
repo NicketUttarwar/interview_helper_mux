@@ -74,20 +74,15 @@ def test_framing_floor_topup_clears_soft_omit_when_hollow(ctx: RunContext) -> No
             "skip_reason_code": "air_script_omit_sync",
         }
     ]
-    out, restored = _framing_floor_topup(
-        ctx,
-        candidate_lines=[],
-        prior_lines=prior,
-        seen_targets=set(),
-        need=3,
-        plan={"layups": []},
-    )
-    assert restored == ["vo_layup_seg_037"]
-    assert _count_active_synthetic_lines(out) == 1
-    line = out[0]
-    assert not line.get("skipped_optional")
-    assert not line.get("air_script_omit")
-    assert (line.get("_meta") or {}).get("framing_floor_soft_omit_cleared") is True
+    with pytest.raises(RuntimeError, match="peeled"):
+        _framing_floor_topup(
+            ctx,
+            candidate_lines=[],
+            prior_lines=prior,
+            seen_targets=set(),
+            need=3,
+            plan={"layups": []},
+        )
 
 
 def test_may_soft_omit_refuses_below_floor_pre_synth(

@@ -106,9 +106,9 @@ def test_omit_gap_sync_via_sanitize_air_contract(monkeypatch) -> None:
         for r in (gap_out.get("interviewer_lines") or [])
         if isinstance(r, dict)
     }
-    assert by_id["vo_b"].get("omit") is True
+    assert by_id["vo_b"].get("air_script_omit") is True
     assert by_id["vo_b"].get("skipped_optional") is True
-    assert not by_id["vo_a"].get("omit")
+    assert not by_id["vo_a"].get("air_script_omit")
 
 
 def test_sanitize_protects_hosted_vo_floor_instead_of_stamp(monkeypatch) -> None:

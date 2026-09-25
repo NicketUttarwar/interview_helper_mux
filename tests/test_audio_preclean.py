@@ -22,7 +22,7 @@ def _write_wav(path: Path, *, seconds: float = 0.1, sample_rate: int = 16000) ->
 
 
 def test_audio_preclean_skips_when_not_enabled(tmp_path, monkeypatch) -> None:
-    from run_fixtures import patch_executions_root, patch_merged_config
+    from run_fixtures import mark_done_raw, patch_executions_root, patch_merged_config
 
     patch_executions_root(monkeypatch, tmp_path)
     patch_merged_config(
@@ -45,8 +45,9 @@ def test_audio_preclean_skips_when_not_enabled(tmp_path, monkeypatch) -> None:
 
     out = audio_preclean.run_audio_preclean(ctx)
     assert out is None
-    assert ctx.is_done("audio_preclean")
     assert ctx.artifact_exists("preclean/skip.json")
+    mark_done_raw(ctx, "audio_preclean")
+    assert ctx.is_done("audio_preclean")
     assert not ctx.artifact_exists("preclean/isolated.wav")
 
 

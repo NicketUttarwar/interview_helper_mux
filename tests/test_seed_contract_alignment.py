@@ -89,9 +89,9 @@ def test_full_master_ranking_contract_hard_matches_input_checks() -> None:
         "segments/manifest.json",
         "understanding/gap_report.json",
     }
-    assert "analysis/connector_fuse_rounds.json" in soft
+    assert "analysis/connector_fuse_rounds_pre_ranking.json" in soft
     assert "master/coverage_audit.json" in soft
-    assert "analysis/connector_fuse_rounds.json" not in hard
+    assert "analysis/connector_fuse_rounds_pre_ranking.json" not in hard
     assert "master/coverage_audit.json" not in hard
 
 

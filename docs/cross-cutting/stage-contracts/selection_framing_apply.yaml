@@ -12,6 +12,8 @@ outputs:
 - path: understanding/selection_framing_apply.json
   schema: null
   staging: false
+- path: master/selection.json
+  staging: true
 - path: understanding/gap_report.json
 inputs:
   hard:
@@ -31,6 +33,7 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/gap_framing_plan.json
     producer: gap_framing_compose
   - path: understanding/nugget_corpus.json
@@ -42,7 +45,7 @@ inputs:
   - path: understanding/source_topology.json
     producer: source_topology_build
   - path: understanding/speaker_delivery_plan.json
-    producer: full_master_ranking
+    producer: selection_order_sanitize
   - path: understanding/speakers.json
     producer: speaker_roles
 sufficiency: []

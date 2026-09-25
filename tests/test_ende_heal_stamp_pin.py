@@ -19,7 +19,7 @@ from interview_mux.stage_completion import (
     stage_artifact_incompleteness,
 )
 from interview_mux.thrash_hardening import heal_navigate
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, plant_seed_complete_through
 
 
 @pytest.fixture
@@ -29,6 +29,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_ende_seed_order_parses_named_producer_not_edl(ctx) -> None:
+    plant_seed_complete_through(ctx, "edl")
     msg = "seed order: complete junction_snip_qa before running master_finalize"
     assert parse_seed_order_producer(msg) == "junction_snip_qa"
     assert producer_pin_for_token(msg, ctx=ctx) == "junction_snip_qa"

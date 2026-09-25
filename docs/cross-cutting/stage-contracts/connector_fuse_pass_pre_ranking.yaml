@@ -9,7 +9,7 @@ lifecycle:
   - committed
   - post_commit_validate
 outputs:
-- path: analysis/connector_fuse_rounds.json
+- path: analysis/connector_fuse_rounds_pre_ranking.json
   schema: null
   staging: true
 - path: segments/manifest.json
@@ -23,10 +23,10 @@ outputs:
 - path: analysis/connector_seam_verdicts.json
   staging: true
 inputs:
-  hard: []
-  soft:
+  hard:
   - path: segments/manifest.json
     producer: segment_classification
+  soft:
   - path: transcript/full.json
     producer: transcribe
   - path: analysis/low_conf_islands.json

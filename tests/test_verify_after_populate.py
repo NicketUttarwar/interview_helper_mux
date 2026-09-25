@@ -17,7 +17,59 @@ from interview_mux.gates import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import _build_stage_list
-from run_fixtures import init_run_meta_for_test, patch_executions_root, seed_analysis_ready_artifacts
+from run_fixtures import (
+    init_run_meta_for_test,
+    mark_done_raw,
+    patch_executions_root,
+    plant_primary_and_stamp,
+    seed_analysis_ready_artifacts,
+    write_fixture_json,
+)
+
+_MINIMAL_EPISODE_STRUCTURE = {
+    "schema_version": 1,
+    "policy_hash": "fixture",
+    "axes": {"format_class": "one_on_one", "tone_class": "journalistic", "atlas_bucket": "one_on_one"},
+    "slot_plan": [
+        {
+            "slot_id": "slot_open",
+            "component_id": "open",
+            "class": "standard",
+            "gate": "must",
+        }
+    ],
+    "segment_order": ["seg_001"],
+    "hook_reel": {"segment_id": "seg_001", "repeat_allowed": False},
+    "omit_reasons": [],
+    "rationale": ["fixture"],
+    "integrity": {"ok": True, "flags": []},
+    "occupancy": {"violations": []},
+}
+
+
+def _plant_analysis_ready(ctx) -> None:
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    seed_analysis_ready_artifacts(ctx)
+    for sid in ANALYSIS_ORDER:
+        plant_primary_and_stamp(ctx, sid)
+        if sid == "episode_structure_compose":
+            break
+    seed_analysis_ready_artifacts(ctx)
+    write_fixture_json(ctx, "understanding/episode_structure.json", _MINIMAL_EPISODE_STRUCTURE)
+    brief = ctx.read_json("understanding/content_brief.json")
+    if isinstance(brief, dict):
+        for topic in brief.get("topics") or []:
+            if isinstance(topic, dict) and not topic.get("segment_ids"):
+                topic["segment_ids"] = ["seg_001"]
+        write_fixture_json(ctx, "understanding/content_brief.json", brief)
+    script = ctx.final_path("understanding", "interviewer_script.txt")
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("# fixture interviewer script\n", encoding="utf-8")
+    from interview_mux.stages.gaps import ensure_gap_fill_skipped
+
+    ensure_gap_fill_skipped(ctx, reason="test", signals={})
+    mark_done_raw(ctx, "episode_structure_compose", "gap_framing_compose", "optimal_questions")
 
 COMPLETE_SPEAKERS = {
     "speakers": [
@@ -78,7 +130,7 @@ def test_analysis_profile_action_required_after_analysis(tmp_path, monkeypatch) 
     ctx = RunContext(create=True)
     init_run_meta_for_test(ctx)
     ensure_analysis_workspace(ctx)
-    seed_analysis_ready_artifacts(ctx)
+    _plant_analysis_ready(ctx)
 
     assert analysis_profile_ready_for_review(ctx)
     if v2_enabled():
@@ -109,7 +161,7 @@ def test_empty_speakers_json_no_handoff_pause_v2(tmp_path, monkeypatch) -> None:
     ctx = RunContext(create=True)
     ctx.path("understanding/speakers.json").parent.mkdir(parents=True, exist_ok=True)
     ctx.path("understanding/speakers.json").write_text("{}", encoding="utf-8")
-    ctx.mark_done("speaker_roles")
+    mark_done_raw(ctx, "speaker_roles")
     assert not artifact_ready_for_review("understanding/speakers.json", ctx)
 
 def test_complete_speakers_ready_for_review_v2(tmp_path, monkeypatch) -> None:

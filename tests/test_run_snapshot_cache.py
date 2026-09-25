@@ -8,7 +8,7 @@ from interview_mux.web.run_snapshot_cache import (
     get_or_build_run_snapshot,
     invalidate_run_snapshot,
 )
-from run_fixtures import init_run_meta_for_test, patch_executions_root
+from run_fixtures import init_run_meta_for_test, mark_done_raw, patch_executions_root
 
 
 def test_snapshot_cache_invalidates_on_mark_done(tmp_path, monkeypatch) -> None:
@@ -31,7 +31,7 @@ def test_snapshot_cache_invalidates_on_mark_done(tmp_path, monkeypatch) -> None:
     get_or_build_run_snapshot(ctx, job=job, build_stages=build_stages, build_journey=build_journey)
     assert calls["stages"] == 1
 
-    ctx.mark_done("ingest")
+    mark_done_raw(ctx, "ingest")
     get_or_build_run_snapshot(ctx, job=job, build_stages=build_stages, build_journey=build_journey)
     assert calls["stages"] == 2
 

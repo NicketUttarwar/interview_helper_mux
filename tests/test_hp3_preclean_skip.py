@@ -39,6 +39,7 @@ def test_hp3_skip_json_is_present_and_not_unmarked(ctx: RunContext) -> None:
         ctx, checkpoint="before_ingest", scope="ingest", reason="operator_dismissed"
     )
     assert ctx.artifact_exists("preclean/skip.json")
+    mark_done_raw(ctx, _STAGE)
     assert ctx.is_done(_STAGE)
     assert prepare_outputs_present(ctx, _STAGE) is True
     cleared = unmark_hollow_prepare_stages(ctx)

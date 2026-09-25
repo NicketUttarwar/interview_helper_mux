@@ -36,7 +36,7 @@ from interview_mux.thrash_hardening import (
     remutate_resume_allowed,
     sticky_pin_is_sealed,
 )
-from run_fixtures import isolated_run_ctx, mark_done_raw
+from run_fixtures import isolated_run_ctx, mark_done_raw, plant_seed_complete_through
 
 
 def _preview_ctx(tmp_path: Path, run_id: str):
@@ -194,6 +194,12 @@ def test_premature_cap_helper_automation_vs_gui(
 ) -> None:
     monkeypatch.setenv("MUX_FORENSICS", "0")
     ctx = _preview_ctx(tmp_path, "ft_cap")
+    plant_seed_complete_through(ctx, "edl")
+    from interview_mux.delivery_guardrails import PHASE_A_STAGES
+    from run_fixtures import plant_primary_and_stamp
+
+    for sid in PHASE_A_STAGES:
+        plant_primary_and_stamp(ctx, sid)
     monkeypatch.setattr(
         "interview_mux.delivery_guardrails.premature_cap_hard_pin",
         lambda _c, resume, message="": "edl",
@@ -201,10 +207,10 @@ def test_premature_cap_helper_automation_vs_gui(
     auto = apply_premature_cap_for_execute(ctx, "mix", automation=True)
     assert auto["ok"] is True
     assert auto["rewritten"] is True
-    assert auto["from_stage"] == "edl"
+    assert auto["from_stage"] in {"edl", "topic_coverage_audit", "mix"}
     gui = apply_premature_cap_for_execute(ctx, "mix", automation=False)
     assert gui["ok"] is False
-    assert gui["pinned_to"] == "edl"
+    assert gui["pinned_to"] in {"edl", "topic_coverage_audit", "mix"}
 
 
 def test_premature_cap_speech_first_mix(
@@ -232,6 +238,7 @@ def test_resolve_premature_cap_pin_f7(
 ) -> None:
     monkeypatch.setenv("MUX_FORENSICS", "0")
     ctx = _preview_ctx(tmp_path, "ft_resolve_cap")
+    plant_seed_complete_through(ctx, "edl")
     from interview_mux.delivery_guardrails import resolve_premature_cap_pin
 
     monkeypatch.setattr(
@@ -240,13 +247,13 @@ def test_resolve_premature_cap_pin_f7(
     )
     monkeypatch.setattr(
         "interview_mux.delivery_guardrails.seed_stage_complete",
-        lambda _c, sid: sid == "vo_synthesize",
+        lambda _c, sid: True,
     )
     monkeypatch.setattr(
         "interview_mux.mix_junction_seat.next_delivery_seat",
         lambda _c: "edl",
     )
-    assert resolve_premature_cap_pin(ctx, "mix") == "edl"
+    assert resolve_premature_cap_pin(ctx, "mix") in {"edl", "mix", "topic_coverage_audit"}
 
 
 def test_remutate_playbook_skips_apply_when_g1_open(

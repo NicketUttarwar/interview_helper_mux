@@ -25,7 +25,7 @@ from interview_mux.opening_orientation import is_episode_orientation, validate_o
 from interview_mux.run_context import RunContext
 from interview_mux.stage_input_checks import collect_stage_input_issues
 from interview_mux.v2.config import DELIVERY_ORDER
-from run_fixtures import isolated_run_ctx, sound_design_plan_with, write_fixture_vo_wav, mark_done_raw, minimal_narrative_plan
+from run_fixtures import isolated_run_ctx, sound_design_plan_with, write_fixture_vo_wav, mark_done_raw, minimal_narrative_plan, write_fixture_json
 
 
 @pytest.fixture(autouse=True)
@@ -429,7 +429,7 @@ def test_skip_with_artifact_never_marks_done(tmp_path: Path) -> None:
     doc = skip_stage(ctx, "transitions", reason="empty bridges ok")
     assert "transitions" in doc["skipped"]
     assert not ctx.is_done("transitions")
-    assert "transitions" not in remaining_stages(ctx, "delivery")
+    # Skip is an agenda note only — remaining still includes the producer.
 
 
 def test_pre_ranking_fuse_not_satisfied_by_first_pass_audit(tmp_path: Path) -> None:
@@ -451,7 +451,12 @@ def test_pre_ranking_fuse_not_satisfied_by_first_pass_audit(tmp_path: Path) -> N
     ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]}, skip_handoff=True)
     ctx.write_json(
         "master/coverage_audit.json",
-        {"topics": [], "topic_mappings": [], "coverage_score": 1.0},
+        {
+            "topics": [],
+            "topic_mappings": [],
+            "coverage_score": 1.0,
+            "missing_coverage": [],
+        },
         skip_handoff=True,
     )
     ctx.write_json(
@@ -482,10 +487,11 @@ def test_pre_ranking_fuse_not_satisfied_by_first_pass_audit(tmp_path: Path) -> N
         maybe_require_upstream_llm_progress(ctx, "full_master_ranking")
 
     ctx.write_json(
-        "analysis/connector_fuse_rounds.json",
+        "analysis/connector_fuse_rounds_pre_ranking.json",
         {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
         skip_handoff=True,
     )
+    mark_done_raw(ctx, "connector_fuse_pass_pre_ranking")
     assert stage_outputs_present(ctx, "connector_fuse_pass_pre_ranking") is True
     assert "connector_fuse_pass_pre_ranking" not in remaining_stages(ctx, "delivery")
 
@@ -516,7 +522,7 @@ def test_incomplete_layup_plan_stays_in_remaining(tmp_path: Path) -> None:
         mark_done_raw(ctx, sid)
         if sid == "connector_fuse_pass_pre_ranking":
             ctx.write_json(
-                "analysis/connector_fuse_rounds.json",
+                "analysis/connector_fuse_rounds_pre_ranking.json",
                 {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
                 skip_handoff=True,
             )
@@ -578,7 +584,7 @@ def test_stale_extra_ids_keep_layup_in_remaining(tmp_path: Path) -> None:
         mark_done_raw(ctx, sid)
         if sid == "connector_fuse_pass_pre_ranking":
             ctx.write_json(
-                "analysis/connector_fuse_rounds.json",
+                "analysis/connector_fuse_rounds_pre_ranking.json",
                 {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
                 skip_handoff=True,
             )
@@ -616,9 +622,10 @@ def test_delivery_sdp_fingerprint_survives_schema(tmp_path: Path) -> None:
     from interview_mux.prompt_validation import validate_artifact_write
 
     ctx = _ctx(tmp_path, "sdp_fp")
-    ctx.write_json("master/transitions.json", {"transitions": []}, skip_handoff=True)
+    write_fixture_json(ctx, "master/transitions.json", {"transitions": []})
     plan = default_sound_design_plan()
-    ctx.write_json("understanding/sound_design_plan.json", plan, skip_handoff=True)
+    # Plant without write_json so _meta.producer_stage is not stamped.
+    write_fixture_json(ctx, "understanding/sound_design_plan.json", plan)
     assert delivery_sdp_present(ctx) is False
 
     fp = fingerprint_artifact(plan, "sound_design_plan")
@@ -635,14 +642,15 @@ def test_delivery_sdp_fingerprint_survives_schema(tmp_path: Path) -> None:
 
 
 def test_host_repair_counts_orientation_omit_as_progress() -> None:
-    from interview_mux.edl_narrative_remutate import HOST_REPAIR_PROGRESS_NOTES
+    from interview_mux.edl_narrative_remutate import (
+        HOST_REPAIR_PROGRESS_NOTES,
+        METADATA_ONLY_PROGRESS_NOTES,
+    )
 
-    assert "retarget_orientation" in HOST_REPAIR_PROGRESS_NOTES
-    assert "omit_episode_orientation" in HOST_REPAIR_PROGRESS_NOTES
-    assert "suppress_opening_layup" in HOST_REPAIR_PROGRESS_NOTES
-    assert "drop_late_intro_reset" in HOST_REPAIR_PROGRESS_NOTES
-    assert "drop_post_coda_reverse_jump" in HOST_REPAIR_PROGRESS_NOTES
-    assert "prune_stale_transitions" in HOST_REPAIR_PROGRESS_NOTES
-    assert "align_selection_chapters" in HOST_REPAIR_PROGRESS_NOTES
-    assert "repair_coverage_for_selection" in HOST_REPAIR_PROGRESS_NOTES
-    assert "align_narrative_plan" in HOST_REPAIR_PROGRESS_NOTES
+    # ENA S4: kitchen VO notes are gone; freeze-safe shrink + metadata remain.
+    assert "rewrite_episode_orientation_meta_question" not in HOST_REPAIR_PROGRESS_NOTES
+    assert "seed_missing_seated_layup" not in HOST_REPAIR_PROGRESS_NOTES
+    assert "dedupe_transitions_for_framing" in HOST_REPAIR_PROGRESS_NOTES
+    assert "align_selection_chapters" in METADATA_ONLY_PROGRESS_NOTES
+    assert "repair_coverage_for_selection" not in METADATA_ONLY_PROGRESS_NOTES
+    assert "align_narrative_plan" in METADATA_ONLY_PROGRESS_NOTES

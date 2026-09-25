@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+
+from interview_mux.artifact_ownership import AuthorityDenied
 
 from interview_mux.sfx_prompt_review import (
     can_run_sfx_generation,
     maybe_auto_approve_prompt_review,
 )
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config, patch_server_ctx
+from run_fixtures import (
+    init_run_meta_for_test,
+    isolated_run_ctx,
+    patch_merged_config,
+    patch_server_ctx,
+    write_fixture_json,
+)
 
 
 def _write_prompts_with_soft_warning(ctx) -> None:
     """Prompts pass schema but SDP alignment warning fires (missing SDP)."""
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "sound_design/sfx_prompts.json",
         {
             "prompts": [
@@ -26,6 +36,7 @@ def _write_prompts_with_soft_warning(ctx) -> None:
                 }
             ]
         },
+        stage_key="sfx_prompt_craft",
     )
 
 
@@ -90,7 +101,8 @@ def test_sfx_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
     patch_merged_config(monkeypatch, {"g1_5_require_prompt_approval": True})
     ctx = isolated_run_ctx(tmp_path, "run_g15")
     init_run_meta_for_test(ctx)
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "sound_design/sfx_prompts.json",
         {
             "prompts": [
@@ -102,6 +114,7 @@ def test_sfx_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
                 }
             ]
         },
+        stage_key="sfx_prompt_craft",
     )
     patch_server_ctx(monkeypatch, ctx)
     client = TestClient(create_app())
@@ -115,24 +128,38 @@ def test_sfx_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
     assert body["listen_results"] == []
     assert body["generated_assets"] == []
 
-    res = client.put(
-        f"/api/runs/{ctx.run_id}/sfx-prompts",
-        json={
-            "path": "sound_design/sfx_prompts.json",
-            "data": {
-                "prompts": [
-                    {
-                        "asset_id": "sting_a",
-                        "sfx_prompt": "Edited warm sting.",
-                        "duration_seconds": 1.5,
-                        "negative_prompt": "speech",
-                    }
-                ]
+    with pytest.raises(AuthorityDenied, match="role_gui_pin_only"):
+        client.put(
+            f"/api/runs/{ctx.run_id}/sfx-prompts",
+            json={
+                "path": "sound_design/sfx_prompts.json",
+                "data": {
+                    "prompts": [
+                        {
+                            "asset_id": "sting_a",
+                            "sfx_prompt": "Edited warm sting.",
+                            "duration_seconds": 1.5,
+                            "negative_prompt": "speech",
+                        }
+                    ]
+                },
             },
+        )
+    write_fixture_json(
+        ctx,
+        "sound_design/sfx_prompts.json",
+        {
+            "prompts": [
+                {
+                    "asset_id": "sting_a",
+                    "sfx_prompt": "Edited warm sting.",
+                    "duration_seconds": 1.5,
+                    "negative_prompt": "speech",
+                }
+            ]
         },
+        stage_key="sfx_prompt_craft",
     )
-    assert res.status_code == 200
-    assert res.json()["review"]["approved"] is False
 
     res = client.post(
         f"/api/runs/{ctx.run_id}/sfx-prompts/approve",
@@ -190,7 +217,8 @@ def test_sfx_listen_result_appends_meta_and_logs(tmp_path, monkeypatch) -> None:
 def test_sfx_generated_assets_on_prompts_get(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "run_g15_assets")
     init_run_meta_for_test(ctx)
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
         "sound_design/sfx_prompts.json",
         {
             "prompts": [
@@ -202,6 +230,7 @@ def test_sfx_generated_assets_on_prompts_get(tmp_path, monkeypatch) -> None:
                 }
             ]
         },
+        stage_key="sfx_prompt_craft",
     )
     assets_dir = ctx.path("sound_design/assets")
     assets_dir.mkdir(parents=True)

@@ -9,7 +9,41 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux import s2s_runner
-from run_fixtures import patch_executions_root
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    patch_executions_root,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
+
+
+def _arm_vo_path(ctx: RunContext, speaker_id: str = "spk_host") -> None:
+    confirm_test_pickup_speaker(ctx, speaker_id=speaker_id)
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", f"{speaker_id}.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        f"understanding/voice_reference/{speaker_id}.json",
+        {
+            "speaker_id": speaker_id,
+            "approved": True,
+            "wav": f"understanding/speaker_samples/{speaker_id}.wav",
+        },
+    )
+    meta: dict = {}
+    if ctx.artifact_exists("run_meta.json"):
+        try:
+            existing = ctx.read_json("run_meta.json")
+            if isinstance(existing, dict):
+                meta = dict(existing)
+        except Exception:
+            meta = {}
+    meta.setdefault("gap_framing_enabled", True)
+    meta.setdefault("gap_vo_delivery", "chatterbox")
+    meta.setdefault("voice_reference_approved_at", "2026-01-01T00:00:00Z")
+    write_fixture_json(ctx, "run_meta.json", meta)
 
 
 @pytest.fixture
@@ -20,6 +54,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     pickup.mkdir(parents=True, exist_ok=True)
     out = pickup / "line_001.wav"
     out.write_bytes(b"RIFF" + b"\x00" * 64)
+    _arm_vo_path(run)
     return run
 
 

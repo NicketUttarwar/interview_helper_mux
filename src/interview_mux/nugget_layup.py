@@ -86,7 +86,8 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "min_nugget_air_coverage": float(block.get("min_nugget_air_coverage", 0.85)),
         # NLC-B2 aspirational: 0.85 is a goal; structural accounting stays hard.
         "air_coverage_aspirational": bool(block.get("air_coverage_aspirational", True)),
-        "air_coverage_max_attempts": max(1, int(block.get("air_coverage_max_attempts") or 3)),
+        # S4: best-of-≤2 only — no long candidate archive / oscillation thrash.
+        "air_coverage_max_attempts": max(1, min(2, int(block.get("air_coverage_max_attempts") or 2))),
         "catastrophic_nugget_air_coverage": float(
             block.get("catastrophic_nugget_air_coverage", 0.0)
         ),
@@ -2800,6 +2801,13 @@ def adopt_layup_plan_to_selection(
     if not isinstance(plan, dict):
         return {"ok": False, "error": "invalid_plan"}
 
+    prior_producer = str(
+        ((plan.get("_meta") or {}) if isinstance(plan.get("_meta"), dict) else {}).get(
+            "producer_stage"
+        )
+        or ""
+    ).strip()
+
     map_ids = {
         str(k): str(v)
         for k, v in (mapping or {}).items()
@@ -2892,6 +2900,9 @@ def adopt_layup_plan_to_selection(
     meta["adopted_inherited"] = inherited
     meta["adopted_skipped"] = skipped_ids
     meta["adopted_rebound"] = rebound
+    # S2/S3: hitch integrity adopt must not claim layup ownership on the plan.
+    if prior_producer and stage == "chapter_close_hitch":
+        meta["producer_stage"] = prior_producer
     plan["_meta"] = meta
     if persist:
         write_kw: dict[str, Any] = {"skip_handoff": True, "stage_key": stage}
@@ -2899,8 +2910,17 @@ def adopt_layup_plan_to_selection(
             # Cousin writers (e.g. hitch) must declare segment_id_remap under freeze.
             write_kw["mutation_class"] = "segment_id_remap"
         ctx.write_json(PLAN_REL, plan, **write_kw)
+        # S3: hitch must not republish gap body — owned stages own that land.
+        if stage == "chapter_close_hitch":
+            return {
+                "ok": True,
+                "inherited": inherited,
+                "skipped": skipped_ids,
+                "rebound": rebound,
+                "gap_publish": False,
+            }
         try:
-            publish_layup_plan_to_gap_report(ctx, plan)
+            commit_layup_gap_authority(ctx, plan)
         except Exception as exc:
             return {
                 "ok": False,
@@ -2936,6 +2956,56 @@ def attach_selection_order_lock(ctx: RunContext, plan: dict[str, Any]) -> dict[s
     return out
 
 
+def _compose_shards_block_gap_publish(plan: dict[str, Any] | None) -> bool:
+    """True when mid-shard plan must not stamp gap_report (S1)."""
+    if not isinstance(plan, dict):
+        return False
+    meta = plan.get("_meta") if isinstance(plan.get("_meta"), dict) else {}
+    if not meta.get("compose_shards_pending"):
+        return False
+    idx = meta.get("compose_shard_index")
+    total = meta.get("compose_shard_total")
+    layups = plan.get("layups")
+    final_shard_done = (
+        idx is not None
+        and total is not None
+        and int(idx) >= int(total)
+        and isinstance(layups, list)
+        and len(layups) > 0
+    )
+    return not final_shard_done
+
+
+def commit_layup_gap_authority(
+    ctx: RunContext,
+    plan: dict[str, Any] | None = None,
+    *,
+    allow_mid_shard: bool = False,
+) -> dict[str, Any]:
+    """Sole layup → gap_report publish + hosted-floor path (S1).
+
+    Compose may QC-complete the plan without calling this. Mid-shard pending
+    plans must not hollow-stamp gap_report. Callers that need single-flight
+    should wrap with ``gap_report_write_lock`` (do not nest locks here).
+    """
+    if plan is None:
+        plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    if not isinstance(plan, dict):
+        plan = {}
+    if not allow_mid_shard and _compose_shards_block_gap_publish(plan):
+        from interview_mux.loud_fail import raise_loud_failure
+
+        meta = plan.get("_meta") if isinstance(plan.get("_meta"), dict) else {}
+        raise_loud_failure(
+            ctx,
+            "layup gap publish refused while compose_shards_pending "
+            f"(shard {meta.get('compose_shard_index')}/{meta.get('compose_shard_total')})",
+            stage="nugget_layup_compose",
+            reason="layup_gap_publish_refused_shards_pending",
+        )
+    return publish_layup_plan_to_gap_report(ctx, plan)
+
+
 def ensure_layup_gap_authority(ctx: RunContext) -> dict[str, Any] | None:
     """Republish nugget layup lines into gap_report when EDL VO lacks script authority."""
     if not ctx.artifact_exists(PLAN_REL):
@@ -2959,7 +3029,57 @@ def ensure_layup_gap_authority(ctx: RunContext) -> dict[str, Any] | None:
         needs_publish = bool(aired - gap_ids)
     if not needs_publish:
         return gap if gap else None
-    return publish_layup_plan_to_gap_report(ctx)
+    return commit_layup_gap_authority(ctx)
+
+
+def layup_claimed_air_missing_high_gap(ctx: RunContext) -> list[str]:
+    """S5: high-gap segs the plan claimed as aired but gap_report still lacks a line.
+
+    Framing owns "never had a line." Layup only owes when it claimed air for that
+    target and the authoritative gap body is still empty for it.
+    """
+    if not ctx.artifact_exists(PLAN_REL) or not ctx.artifact_exists(GAP_REL):
+        return []
+    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
+        return []
+    try:
+        from interview_mux.deterministic_lint import _lint_optimal_questions
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        if gap_fill_was_skipped(ctx):
+            return []
+        report = ctx.read_json(GAP_REL)
+        if not isinstance(report, dict):
+            return []
+        errs = _lint_optimal_questions(report, ctx)
+    except Exception:
+        return []
+    dirty = [
+        str(e)
+        for e in errs
+        if "has no interviewer line" in str(e)
+    ]
+    if not dirty:
+        return []
+    # Extract segment ids from lint prose ("… segment seg_014 has no …").
+    missing_ids: set[str] = set()
+    for msg in dirty:
+        for token in str(msg).replace(",", " ").split():
+            if token.startswith("seg_"):
+                missing_ids.add(token.strip(".:;"))
+    if not missing_ids:
+        return []
+    plan = ctx.read_json(PLAN_REL)
+    if not isinstance(plan, dict):
+        return []
+    claimed: list[str] = []
+    for row in plan.get("layups") or []:
+        if not isinstance(row, dict) or not row_is_aired(row):
+            continue
+        tid = str(row.get("target_segment_id") or "").strip()
+        if tid and tid in missing_ids:
+            claimed.append(tid)
+    return claimed
 
 
 def _scrub_foreign_before_vo_for_hollow_preserve(
@@ -3033,94 +3153,10 @@ def _framing_floor_topup(
     need: int,
     plan: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Restore prior layup-authority before-VO to hold the G-Framing Yes floor.
-
-    Only lines that (a) came from the layup authority, (b) still target a live
-    ordered segment, (c) carry real spoken copy, and (d) are not superseded by a
-    fresh row on the same target are eligible. The matching plan row is re-aired
-    so plan and gap_report keep telling the same story.
-    """
-    from interview_mux.opening_orientation import is_episode_orientation
-
-    out = list(candidate_lines)
-    restored: list[str] = []
-    if _count_active_synthetic_lines(out) >= need:
-        return out, restored
-    try:
-        live = {str(s) for s in (_ordered_ids(ctx) or [])}
-    except Exception:
-        live = set()
-    rows_by_target: dict[str, dict[str, Any]] = {}
-    if isinstance(plan, dict):
-        for row in plan.get("layups") or []:
-            if isinstance(row, dict):
-                tid = str(row.get("target_segment_id") or "").strip()
-                if tid:
-                    rows_by_target.setdefault(tid, row)
-    plan_touched = False
-    for ln in prior_lines:
-        if _count_active_synthetic_lines(out) >= need:
-            break
-        if not isinstance(ln, dict) or is_episode_orientation(ln):
-            continue
-        # Soft-omit wipe (exec_13196): pre-synth air-script clamp stamped
-        # skipped_optional/air_script_omit on the only floor line → topup skipped
-        # it forever → HOLLOW_ZERO. Clear omit flags when restoring for floor.
-        soft_omitted = bool(
-            ln.get("skipped_optional") or ln.get("omit") or ln.get("omitted")
-            or ln.get("air_script_omit")
-        )
-        if soft_omitted and _count_active_synthetic_lines(out) >= 1:
-            # Prefer never-omitted priors when we already have some actives.
-            continue
-        if str(ln.get("origin") or "").strip() not in AUTHORITY_BODY_ORIGINS:
-            continue
-        tid = str(ln.get("targets_segment_id") or "").strip()
-        if not tid or tid in seen_targets:
-            continue
-        if live and tid not in live:
-            continue
-        text = str(ln.get("text") or "").strip()
-        if not text:
-            continue
-        raw = ln.get("delivery")
-        delivery = "synthesize" if raw is None else str(raw).strip().lower()
-        if delivery not in {"synthesize", "chatterbox", "record", "mlx_audio"}:
-            continue
-        keep = dict(ln)
-        if soft_omitted:
-            keep["skipped_optional"] = False
-            keep.pop("omit", None)
-            keep.pop("omitted", None)
-            keep.pop("air_script_omit", None)
-            if str(keep.get("skip_reason_code") or "") in {
-                "air_script_omit_sync",
-                "air_contract_omit",
-            }:
-                keep.pop("skip_reason_code", None)
-                keep.pop("skip_reason", None)
-        meta = dict(keep.get("_meta") or {}) if isinstance(keep.get("_meta"), dict) else {}
-        meta["framing_floor_preserved"] = True
-        if soft_omitted:
-            meta["framing_floor_soft_omit_cleared"] = True
-        keep["_meta"] = meta
-        out.append(keep)
-        seen_targets.add(tid)
-        restored.append(str(keep.get("line_id") or tid))
-        # Do NOT re-air the plan row: it is a typed skip with no analysis fields,
-        # and layup QC refuses `insufficient_analysis[<tid>]` on an aired row that
-        # lacks them (exec_11871 seg_055 → `layup_unsanitary` loop). The floor
-        # lives on the gap_report; record the restore on the plan for the audit.
-        row = rows_by_target.get(tid)
-        if isinstance(row, dict):
-            row["framing_floor_restored_line"] = True
-            plan_touched = True
-    if plan_touched and isinstance(plan, dict):
-        try:
-            ctx.write_json(PLAN_REL, plan, skip_handoff=True)
-        except Exception:
-            pass
-    return out, restored
+    """Removed from publish path (S10). Kept as hard-refuse stub to catch rewires."""
+    raise RuntimeError(
+        "nugget_layup:_framing_floor_topup peeled (S10) — use raise_hosted_vo_floor_unsatisfiable"
+    )
 
 
 def publish_layup_plan_to_gap_report(
@@ -3278,102 +3314,19 @@ def publish_layup_plan_to_gap_report(
                     "compose_restart" in w for w in warnings
                 )
                 if hollow_plan and prior_active >= need:
-                    live_targets = {str(s) for s in (_ordered_ids(ctx) or []) if s}
-                    preserved = _scrub_foreign_before_vo_for_hollow_preserve(
-                        existing,
-                        min_active=need,
-                        ideal=ideal_n,
-                        live_targets=live_targets or None,
-                        open_talking_point_ids={
-                            str(x) for x in (plan.get("open_talking_point_ids") or []) if x
-                        }
-                        or None,
-                        open_nugget_ids={
-                            str(x)
-                            for x in (
-                                plan.get("open_high_salience_nugget_ids")
-                                or plan.get("open_nugget_ids")
-                                or []
-                            )
-                            if x
-                        }
-                        or None,
-                    )
+                    # Preserve prior body verbatim — no rank-select rewrite under floor
+                    # pressure (S10 / verification P0). Plan stays hollow; escalate
+                    # is the only non-preserve path below.
                     ctx.log(
                         "nugget_layup: refuse hollow gap publish under G-Framing Yes "
                         f"(active={active_new} < {need}; preserving prior {prior_active} "
-                        f"via rank-to-budget ideal={ideal_n})",
+                        "verbatim)",
                         level="warning",
                         stage="nugget_layup_compose",
                     )
-                    if preserved is not existing:
-                        # Skip validated sanitize path — hollow preserve must not
-                        # re-run layup coverage scrub that can empty body lines.
-                        try:
-                            ctx.write_json(GAP_REL, preserved, skip_handoff=True)
-                        except Exception:
-                            from interview_mux.write_staging import write_mirrored_json
-
-                            write_mirrored_json(ctx, GAP_REL, preserved)
-                    return preserved
-                # Non-hollow plan that still lands under the floor: a typed skip
-                # (or a spoken-copy repair) took a contentful row out of a compose
-                # that already had barely enough. Re-composing cannot fix that
-                # deterministically — it just burns another LLM round and lands
-                # under the floor again (exec_11871 nugget_layup_compose spin).
-                # Restore the prior authority lines for targets this compose did
-                # not re-seat instead; they were composed by the same authority
-                # and are still on live air.
-                candidate_lines, restored = _framing_floor_topup(
-                    ctx,
-                    candidate_lines=candidate_lines,
-                    prior_lines=prior_lines,
-                    seen_targets=seen_targets,
-                    need=need,
-                    plan=plan,
-                )
-                if restored:
-                    ctx.log(
-                        "nugget_layup: held G-Framing Yes floor by restoring prior "
-                        f"layup line(s) {restored[:6]} (active={active_new} → "
-                        f"{_count_active_synthetic_lines(candidate_lines)}, min={need})",
-                        level="warning",
-                        stage="nugget_layup_compose",
-                    )
-            # Rank-to-budget underfill: adopt value-ranked framing priors up to ideal
-            # (prefer-native soft — clear matching plan skips when we adopt).
-            # Runs before floor unsatisfiable so framing adopt can meet need.
-            if _count_active_synthetic_lines(candidate_lines) < ideal_n:
-                from interview_mux.hosted_vo_authority import apply_rank_to_budget_fill
-
-                filled, fill_meta, plan_updated = apply_rank_to_budget_fill(
-                    ctx,
-                    keep_lines=candidate_lines,
-                    pool_lines=prior_lines,
-                    plan=plan,
-                    seen_targets=seen_targets,
-                )
-                if fill_meta.get("adopted_line_ids"):
-                    candidate_lines = filled
-                    for ln in filled:
-                        tid = str(ln.get("targets_segment_id") or "").strip()
-                        if tid:
-                            seen_targets.add(tid)
-                    ctx.log(
-                        "nugget_layup: rank-to-budget adopted "
-                        f"{fill_meta.get('adopted_line_ids')} "
-                        f"(active {fill_meta.get('active_before')}→"
-                        f"{fill_meta.get('active_after')}, ideal={ideal_n})",
-                        level="info",
-                        stage="nugget_layup_compose",
-                    )
-                    if isinstance(plan_updated, dict):
-                        plan = plan_updated
-                        try:
-                            ctx.write_json(PLAN_REL, plan, skip_handoff=True)
-                        except Exception:
-                            pass
-            if _count_active_synthetic_lines(candidate_lines) < need:
+                    return existing
+                # Non-hollow plan under the floor: escalate — do not restore priors
+                # or rank-to-budget fill inside publish (S10).
                 raise_hosted_vo_floor_unsatisfiable(
                     ctx,
                     need=need,
@@ -4270,17 +4223,9 @@ def evaluate_layup_qc(
         else:
             errors.append(f"missing_layup_rows={missing_required[:12]}")
     if open_must and cfg.get("block_on_open_must_keep"):
-        if cov_asp:
-            warnings.append(f"open_must_keep_talking_points={open_must[:12]}")
-            coverage_advisory = True
-        else:
-            errors.append(f"open_must_keep_talking_points={open_must[:12]}")
+        errors.append(f"open_must_keep_talking_points={open_must[:12]}")
     if open_high and cfg.get("block_on_open_high_salience"):
-        if cov_asp:
-            warnings.append(f"open_high_salience_nuggets={open_high[:12]}")
-            coverage_advisory = True
-        else:
-            errors.append(f"open_high_salience_nuggets={open_high[:12]}")
+        errors.append(f"open_high_salience_nuggets={open_high[:12]}")
 
     craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
     errors.extend(craft["errors"])
@@ -4472,10 +4417,11 @@ def air_coverage_aspirational_enabled(cfg: dict[str, Any] | None = None) -> bool
 
 
 def air_coverage_max_attempts(cfg: dict[str, Any] | None = None) -> int:
+    """S4: hard-cap at 2 (best-of-≤2); ignore higher config."""
     try:
-        return max(1, int(nugget_layup_cfg(cfg).get("air_coverage_max_attempts") or 3))
+        return max(1, min(2, int(nugget_layup_cfg(cfg).get("air_coverage_max_attempts") or 2)))
     except (TypeError, ValueError):
-        return 3
+        return 2
 
 
 def _plan_content_hash(plan: dict[str, Any]) -> str:
@@ -4518,7 +4464,7 @@ def register_layup_candidate(
     qc: dict[str, Any] | None = None,
     label: str | None = None,
 ) -> dict[str, Any]:
-    """Archive a layup plan snapshot and append to the candidate ledger."""
+    """Archive a layup plan snapshot (S4: keep at most 2 candidates)."""
     if plan is None:
         plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     plan = plan if isinstance(plan, dict) else {}
@@ -4567,7 +4513,8 @@ def register_layup_candidate(
     }
     candidates.append(entry)
     doc["attempts"] = attempts
-    doc["candidates"] = candidates[-12:]
+    # S4: retain only the last 2 attempts (best-of-≤2).
+    doc["candidates"] = candidates[-2:]
     doc["updated_at"] = _now_iso()
     ctx.write_json(LAYUP_CANDIDATES_REL, doc, skip_handoff=True, stage_key="nugget_layup_compose")
     return entry
@@ -4587,7 +4534,7 @@ def select_best_layup_candidate(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def apply_best_layup_candidate(ctx: RunContext) -> dict[str, Any]:
-    """Restore best archived plan as the live layup plan + record advisory."""
+    """Restore best of ≤2 archived plans as the live layup plan (S4)."""
     best = select_best_layup_candidate(ctx)
     if not best:
         return {"ok": False, "reason": "no_candidates"}
@@ -4602,9 +4549,14 @@ def apply_best_layup_candidate(ctx: RunContext) -> dict[str, Any]:
         return {"ok": False, "reason": "archive_unreadable", "attempt_id": best.get("attempt_id")}
     if not isinstance(plan, dict):
         return {"ok": False, "reason": "archive_invalid", "attempt_id": best.get("attempt_id")}
+    # Clear mid-shard stamps so S1 publish guard allows the restore.
+    meta = dict(plan.get("_meta") or {}) if isinstance(plan.get("_meta"), dict) else {}
+    meta.pop("compose_shards_pending", None)
+    meta.pop("compose_qc_pending", None)
+    plan["_meta"] = meta
     ctx.write_json(PLAN_REL, plan, stage_key="nugget_layup_compose")
     try:
-        publish_layup_plan_to_gap_report(ctx, plan)
+        commit_layup_gap_authority(ctx, plan)
     except Exception:
         pass
     record_layup_air_advisories(
@@ -4674,31 +4626,8 @@ def record_layup_air_advisories(
 
 
 def try_pick_best_layup_on_oscillation(ctx: RunContext) -> dict[str, Any]:
-    """Thrash hook: on hash oscillation, accept best archived candidate when viable."""
-    if not air_coverage_aspirational_enabled():
-        return {"ok": False, "reason": "aspirational_off"}
-    if not load_layup_candidates_doc(ctx).get("candidates"):
-        # Register current plan if present so pick-best has something to choose.
-        if ctx.artifact_exists(PLAN_REL):
-            try:
-                register_layup_candidate(ctx, label="oscillation_snapshot")
-            except Exception:
-                pass
-    applied = apply_best_layup_candidate(ctx)
-    if not applied.get("ok"):
-        return applied
-    winner = applied.get("candidate") or {}
-    if not winner.get("catastrophic_ok"):
-        return {"ok": False, "reason": "best_not_viable", "candidate": winner}
-    qc = evaluate_layup_qc(ctx)
-    if not qc.get("ok"):
-        # Still structural — do not soft-accept.
-        return {"ok": False, "reason": "winner_qc_failed", "qc": qc, "candidate": winner}
-    try:
-        ctx.write_json(QC_REL, qc, stage_key="nugget_layup_compose")
-    except Exception:
-        pass
-    return {"ok": True, "candidate": winner, "qc": qc}
+    """S4: oscillation thrash hook retired — best-of-≤2 lives in compose QC only."""
+    return {"ok": False, "reason": "oscillation_pick_disabled_s4"}
 
 
 def assert_layup_qc_or_raise(ctx: RunContext, qc: dict[str, Any]) -> None:

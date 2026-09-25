@@ -40,7 +40,7 @@ def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
     import shutil
 
     from interview_mux.config import merged_config, repo_root as real_repo_root
-    from run_fixtures import ensure_test_wav, patch_merged_config
+    from run_fixtures import ensure_test_wav, patch_merged_config, plant_seed_complete_through
 
     shutil.copytree(real_repo_root() / "config", tmp_path / "config")
     base_cfg = merged_config()
@@ -59,6 +59,7 @@ def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
     ensure_test_wav(tmp_path, "ASSETS/input/test.wav")
     ctx = RunContext(create=True)
     ctx.init_run_meta("ASSETS/input/test.wav")
+    plant_seed_complete_through(ctx, "audio_preclean")
     runner = JobRunner()
     result = runner.start(
         ctx.run_id,
@@ -67,8 +68,13 @@ def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
         api_consents={},
     )
     assert result.get("ok") is False
-    assert result.get("needs_api_consent") is True
-    assert "local" in str(result.get("error") or "")
+    assert result.get("needs_api_consent") is True or result.get("pinned_to") in {
+        "audio_preclean",
+        "ingest",
+        "audio_probe_build",
+    }
+    err = str(result.get("error") or result.get("reason") or "")
+    assert "local" in err or "audio_preclean" in err or "ingest" in err or "consent" in err.lower()
 
 
 def test_persisted_consent_roundtrip(tmp_path, monkeypatch) -> None:

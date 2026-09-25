@@ -113,7 +113,10 @@ def test_hf3_freeze_plus_edl_still_allows_seams(
         },
         skip_handoff=True,
     )
+    from run_fixtures import plant_primary_and_stamp
+
     _mark_delivery_before_apply(ctx)
+    plant_primary_and_stamp(ctx, _APPLY)
     mark_done_raw(ctx, "edl")
     sa.stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
     _write_stale_plan(ctx, _STALE_REASONS[0])

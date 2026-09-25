@@ -376,26 +376,23 @@ def test_demote_refused_under_framing_yes_with_uncovered(
         {"evaluations": [_eval("seg_033")]},
     )
     assert _compose_framing_warrants_vo(ctx) is True
-    called = {"resolve": 0}
-
-    def _fill(_c, out, *, applied=None, origin=""):
-        return 0
+    called = {"resolve": 0, "repair": 0}
 
     def _resolve(*_a, **_k):
         called["resolve"] += 1
         return MagicMock(demoted=1)
 
-    monkeypatch.setattr(
-        "interview_mux.high_gap_vo.fill_uncovered_high_gaps",
-        _fill,
-    )
+    def _repair(_c, arts, **_k):
+        called["repair"] += 1
+        return (arts if isinstance(arts, dict) else {"interviewer_lines": []}, [])
+
     monkeypatch.setattr(
         "interview_mux.high_gap_vo.resolve_seats",
         _resolve,
     )
     monkeypatch.setattr(
         "interview_mux.artifact_repairs.repair_gap_report",
-        lambda _c, arts: (arts if isinstance(arts, dict) else {"interviewer_lines": []}, []),
+        _repair,
     )
     monkeypatch.setattr(
         "interview_mux.gap_framing.persist_gap_framing_companion_artifacts",
@@ -431,4 +428,6 @@ def test_demote_refused_under_framing_yes_with_uncovered(
         lambda *_a, **_k: True,
     )
     run_gap_framing_compose(ctx)
+    # S7+S8: persist no longer covers; single repair; refuse demote under Yes.
+    assert called["repair"] == 1
     assert called["resolve"] == 0

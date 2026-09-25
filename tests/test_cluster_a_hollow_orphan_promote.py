@@ -85,9 +85,10 @@ def test_mtime_defeat_still_blocks_promote_while_remaster_owner_set(
     assert unpaid_land_reason(ctx, "mix") is None
 
 
-def test_junction_remaster_blocks_mix_and_junction_promote(
+def test_junction_remaster_blocks_mix_promote_junction_paid(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """S6(B): junction-owned remaster — mix unpaid; junction paid; promote still blocked."""
     begin_remaster(ctx, owner="junction")
     _write_assembly(ctx)
     monkeypatch.setattr(
@@ -104,7 +105,7 @@ def test_junction_remaster_blocks_mix_and_junction_promote(
         p.write_text('{"version":1,"generated_at":"t"}', encoding="utf-8")
 
     assert unpaid_land_reason(ctx, "mix") is not None
-    assert unpaid_land_reason(ctx, "junction_snip_qa") is not None
+    assert unpaid_land_reason(ctx, "junction_snip_qa") is None
     assert promote_complete_orphan_stage_done(ctx, ("mix", "junction_snip_qa")) == []
 
 

@@ -588,13 +588,25 @@ def test_sync_ready_packages_dry_run_skips_known_and_never_deletes(tmp_path: Pat
     assert not hasattr(sync_assets, "empty_bucket")
 
 
-def test_sync_ready_packages_execution_id_ignores_siblings(tmp_path: Path):
+def test_sync_ready_packages_execution_id_ignores_siblings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     from interview_mux.podcast_rss import sync_assets
+    from run_fixtures import patch_executions_root, write_fixture_json
+    from interview_mux.run_context import RunContext
 
-    sibling = tmp_path / "exec_020_abcdefabcdef_20260101T000000Z"
-    current = tmp_path / "exec_021_abcdefabcdef_20260101T000001Z"
+    exec_root = patch_executions_root(monkeypatch, tmp_path)
+    sibling = exec_root / "exec_020_abcdefabcdef_20260101T000000Z"
+    current = exec_root / "exec_021_abcdefabcdef_20260101T000001Z"
     _write_ready_package(sibling, title="Sibling")
     _write_ready_package(current, title="Current")
+    for rid in (sibling.name, current.name):
+        ctx = RunContext(rid, create=True)
+        write_fixture_json(
+            ctx,
+            "master/post_master_quality.json",
+            {"status": "pass", "publish_allowed": True, "failed_checks": []},
+        )
 
     with (
         patch.object(
@@ -614,7 +626,7 @@ def test_sync_ready_packages_execution_id_ignores_siblings(tmp_path: Path):
     ):
         result = sync_assets.sync_ready_packages(
             dry_run=True,
-            exec_root=tmp_path,
+            exec_root=exec_root,
             execution_id=current.name,
         )
 

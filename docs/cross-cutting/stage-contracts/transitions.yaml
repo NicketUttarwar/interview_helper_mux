@@ -18,11 +18,8 @@ outputs:
   staging: true
 - path: master/deferred_transition_pairs.json
 - path: master/transitions_pair_freeze.json
-- path: master/order_reconcile.json
-- path: master/rank_candidates.json
-- path: master/story_health.json
 - path: understanding/reorder_bridges.json
-- path: understanding/speaker_delivery_plan.json
+- path: master/bridge_completeness.json
 inputs:
   hard:
   - path: understanding/nugget_layup_plan.json
@@ -60,6 +57,7 @@ inputs:
   - path: understanding/episode_structure.json
     producer: episode_structure_compose
   - path: understanding/flow_adaptation.json
+    producer: source_topology_build
   - path: understanding/ideal_cuts.json
     producer: ideal_cuts_propose
   - path: understanding/interview_spine.json

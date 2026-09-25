@@ -30,6 +30,7 @@ inputs:
   - path: master/junction_snip_qa.json
     producer: junction_snip_qa
   - path: master/seam_autopsy.json
+    producer: junction_snip_qa
   - path: understanding/omit_ledger.json
     producer: air_script_compose
   - path: understanding/gap_report.json

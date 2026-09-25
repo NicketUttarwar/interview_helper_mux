@@ -1,10 +1,10 @@
 """Mastering Junction Snips — deterministic edge QA + O(1) thought-complete + feel LLM.
 
-Plan 2 (v2): every timeline junction is evaluated with transcript/energy signals
-(zero per-edge OpenAI). Hanging native ends traverse following transcript and
-use one batched ``junction_thought_complete`` LLM to recut — never whole-segment
-``merge_micro`` absorb. A single ``junction_feel_audit`` LLM pass then judges how
-the assembled master feels. Remaster is bounded (≤2).
+Plan 2 (v2) / S1–S5 simplify: every timeline junction is evaluated with
+transcript/energy signals (zero per-edge OpenAI). Hanging native ends use
+batched ``junction_thought_complete`` to recut. Feel audit is advisory-only.
+Remaster is critical-incomplete + commitment only (no cosmetic / feel remaster,
+no nested run_edl, no SDP rewrite, no in-stage fuse/hitch arming).
 """
 
 from __future__ import annotations
@@ -725,7 +725,10 @@ def arm_incomplete_cut_producer_heals(
     residual_findings: list[dict[str, Any]],
     commitment: dict[str, Any],
 ) -> bool:
-    """Arm producer heals for incomplete-cut residuals even when commitment diverged."""
+    """Legacy helper — S5: ``run_junction_snip_qa`` no longer arms fuse/hitch.
+
+    Kept for recovery / tests that want to arm heals explicitly outside the stage.
+    """
     incomplete = [
         f
         for f in residual_findings
@@ -2382,89 +2385,20 @@ def _merge_placement_adjustments(ctx: RunContext, rows: list[dict[str, Any]]) ->
             continue
         prev = by_asset.get(aid, {})
         by_asset[aid] = {**prev, **row}
-        # Keep SDP podcast cues sticky so remasters see soft fades without
-        # re-depending solely on placement_adjustments flush timing.
-        xf = row.get("suggested_crossfade_ms")
-        if xf is not None:
-            _patch_sdp_cue_crossfade(ctx, aid, int(xf))
+        # S4: never mirror fades into SDP — mix/QA apply placement_adjustments at read.
     out = {"version": int(doc.get("version") or 1), "adjustments": list(by_asset.values())}
     write_committed_json(ctx, OUTPUT_PATH, out, stage_key=STAGE_ID)
 
 
 def _patch_sdp_cue_crossfade(ctx: RunContext, asset_id: str, crossfade_ms: int) -> None:
-    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
-        return
-    plan = ctx.read_json("understanding/sound_design_plan.json")
-    if not isinstance(plan, dict):
-        return
-    changed = False
-
-    def _patch_list(cues: list[Any]) -> list[Any]:
-        nonlocal changed
-        out: list[Any] = []
-        for cue in cues:
-            if not isinstance(cue, dict):
-                out.append(cue)
-                continue
-            if str(cue.get("asset_id") or "") != asset_id:
-                out.append(cue)
-                continue
-            prev = int(cue.get("crossfade_ms") or 0)
-            if prev >= crossfade_ms:
-                out.append(cue)
-                continue
-            patched = dict(cue)
-            patched["crossfade_ms"] = crossfade_ms
-            out.append(patched)
-            changed = True
-        return out
-
-    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
-    podcast = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else None
-    if podcast and isinstance(podcast.get("cues"), list):
-        podcast = dict(podcast)
-        podcast["cues"] = _patch_list(list(podcast["cues"]))
-        flow_plans = dict(flow_plans)
-        flow_plans["podcast"] = podcast
-        plan = dict(plan)
-        plan["flow_plans"] = flow_plans
-    if isinstance(plan.get("cues"), list):
-        plan = dict(plan)
-        plan["cues"] = _patch_list(list(plan["cues"]))
-    if not changed:
-        return
-    # The durable record of this fade is sound_design/placement_adjustments.json,
-    # which mix/QA apply at read time (placement_qa.apply_placement_adjustments).
-    # Once the SDP owner sealed the plan, do not rewrite it from junction
-    # (exec_11871 authority_denied under edl_sealed).
-    try:
-        from interview_mux.artifact_ownership import write_permitted
-
-        allowed, reason = write_permitted(
-            ctx,
-            "understanding/sound_design_plan.json",
-            STAGE_ID,
-            role="producer",
-            verb="persist",
-        )
-    except Exception:
-        allowed, reason = True, ""
-    if not allowed:
-        ctx.log(
-            "junction: sound_design_plan sealed — fade lives in placement_adjustments "
-            f"({reason})",
-            level="info",
-            stage=STAGE_ID,
-        )
-        return
-    from interview_mux.write_staging import write_committed_json
-
-    write_committed_json(
-        ctx,
-        "understanding/sound_design_plan.json",
-        plan,
-        stage_key=STAGE_ID,
+    """S4 no-op: music fades live only in ``placement_adjustments`` (never rewrite SDP)."""
+    ctx.log(
+        f"junction S4: skip SDP crossfade patch asset={asset_id} "
+        f"xf={int(crossfade_ms)} — placement_adjustments only",
+        level="info",
+        stage=STAGE_ID,
     )
+    return
 
 
 def _sync_edl_speech_bounds_from_nle(
@@ -2573,14 +2507,15 @@ def remaster_mix_only(ctx: RunContext) -> None:
                         c for c in (edl_now.get("clips") or []) if isinstance(c, dict)
                     ]
             has_speech = any(str(c.get("type") or "") == "speech" for c in clips)
-            # Full EDL rebuild drops listenability-seated host VO. Bound nudges keep speech.
+            # S1: never nested run_edl — speechless / naked ledger is refuse, not rebuild.
             if not has_speech:
-                assembly.run_edl(ctx)
-                ledger = write_assembly_ledger(ctx)
-                if not ledger.get("complete", True):
-                    raise RuntimeError(
-                        f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
-                    )
+                raise RuntimeError(
+                    "junction remaster: no speech clips on live EDL — refuse nested "
+                    f"run_edl (naked_seam_count={ledger.get('naked_seam_count')})"
+                )
+            raise RuntimeError(
+                f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
+            )
         if ctx.artifact_exists("master/edl.json"):
             edl_now = ctx.read_json("master/edl.json")
             if isinstance(edl_now, dict):
@@ -3178,35 +3113,22 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     max_rounds = max(1, int(conf.get("max_remaster_rounds") or 8))
     residual_findings = list(findings)
 
-    # Two full repair runs maximum.  Each run detects the complete set first,
-    # applies every repair in one batch, remasters, and only then rescans.
-    from interview_mux.failure_recovery import identify_all_failures, plan_all_fixes
-
+    # Bounded repair runs: batch repairs, remaster only for critical incomplete cuts,
+    # then rescan. Observational repairs land on EDL/NLE; commitment remaster seats audio.
     remediation_runs: list[dict[str, Any]] = []
     current_edl = edl
     prior_applied_sig: set[tuple[str, str, int]] | None = None
+    _CRITICAL_REMASTER_KINDS = frozenset(
+        {
+            "naked_seam",
+            "incomplete_clause",
+            "on_a_roll",
+            "chapter_bleed_incomplete",
+        }
+    )
     for run_index in range(1, max_rounds + 1):
         if not residual_findings:
             break
-        provisional = {
-            "version": 1,
-            "mode": mode,
-            "pace_class": _pace_class(ctx),
-            "findings": residual_findings,
-            "applied": [],
-            "remaster_rounds": remaster_rounds,
-            "llm_calls": 0,
-            "advisory": False,
-            "blocking": True,
-            "generated_at": _now(),
-        }
-        review = identify_all_failures(
-            ctx,
-            trigger="junction_quality",
-            snip_report=provisional,
-            run_index=run_index,
-        )
-        plan_all_fixes(ctx, review)
         from interview_mux.seam_autopsy import _canonical_hash
 
         pre_repair_hash = _canonical_hash(current_edl)
@@ -3243,32 +3165,20 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             thought_llm_calls += extra_llm
             break
         prior_applied_sig = applied_sig
-        if needs:
+        needs_critical = any(
+            isinstance(f, dict)
+            and (
+                str(f.get("severity") or "") == "critical"
+                or str(f.get("kind") or "") in _CRITICAL_REMASTER_KINDS
+            )
+            for f in residual_findings
+        )
+        if needs and needs_critical:
             try:
-                # Critical incomplete-cut repairs must not hit the cosmetic
-                # low_gain gate (bare path="repair" → used=0 mislabeled as
-                # budget exhaust — exec_13159).
-                critical_kinds = {
-                    "naked_seam",
-                    "incomplete_clause",
-                    "on_a_roll",
-                    "chapter_bleed_incomplete",
-                }
-                needs_critical = any(
-                    isinstance(f, dict)
-                    and (
-                        str(f.get("severity") or "") == "critical"
-                        or str(f.get("kind") or "") in critical_kinds
-                    )
-                    for f in residual_findings
-                )
-                remaster_path = (
-                    "repair_incomplete_clause" if needs_critical else "repair"
-                )
+                # S1: critical incomplete-cut remasters only (no cosmetic path=repair).
+                remaster_path = "repair_incomplete_clause"
                 remastered, used = _budgeted_remaster_mix(ctx, path=remaster_path)
                 if not remastered:
-                    # EM2 / JSQ-B3: budget/osc exhaust → classified pin + refuse
-                    # terminate (no needs_operator hang).
                     residual_findings = detect_junction_findings(
                         ctx, current_edl, cfg=conf
                     )
@@ -3276,13 +3186,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                         isinstance(f, dict)
                         and (
                             str(f.get("severity") or "") == "critical"
-                            or str(f.get("kind") or "")
-                            in {
-                                "naked_seam",
-                                "incomplete_clause",
-                                "on_a_roll",
-                                "chapter_bleed_incomplete",
-                            }
+                            or str(f.get("kind") or "") in _CRITICAL_REMASTER_KINDS
                         )
                         for f in residual_findings
                     )
@@ -3317,21 +3221,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                         )
                         break
                     if not remastered:
-                        # Observational-only residuals: quality waivers only
-                        # (CFG-01 — e2e_soft is gate auto-progress, not quality).
-                        try:
-                            if critical_residuals_may_soften():
-
-                                def _e2e_only(meta: dict) -> None:
-                                    meta["e2e_soft_junction_residuals"] = True
-                                    meta["junction_remaster_budget_exhausted"] = True
-
-                                ctx.mutate_run_meta(_e2e_only)
-                        except Exception:
-                            pass
                         ctx.log(
-                            "junction_snip_qa: remaster budget exhausted "
-                            f"(used={used}) — observational residuals only",
+                            "junction_snip_qa: critical remaster refused "
+                            f"(used={used}) — halt repair rounds",
                             level="warning",
                             stage=STAGE_ID,
                         )
@@ -3350,6 +3242,13 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 )
             remaster_rounds += 1
             _set_g_listen_pending_after_remaster(ctx)
+        elif needs and not needs_critical:
+            ctx.log(
+                "junction_snip_qa S1: observational repairs on EDL/NLE only — "
+                "skip remaster until commitment",
+                level="info",
+                stage=STAGE_ID,
+            )
         current_edl = (
             ctx.read_json("master/edl.json")
             if ctx.artifact_exists("master/edl.json")
@@ -3363,8 +3262,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         critical_residuals = [
             f for f in residual_findings if str(f.get("severity") or "") == "critical"
         ]
-        pieces = [p for p in (review.get("broken_pieces") or []) if isinstance(p, dict)]
-        pieces_resolved = max(0, len(pieces) - len(critical_residuals))
+        pieces = [f for f in residual_findings if isinstance(f, dict)]
+        pieces_resolved = max(0, len(run_applied) - len(critical_residuals))
         actions_executed = [
             str(a.get("action") or "")
             for a in run_applied
@@ -3383,35 +3282,6 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             "completed_at": _now(),
         }
         remediation_runs.append(row)
-        from interview_mux.failure_recovery import append_learning
-        from interview_mux.write_staging import write_committed_json
-
-        write_committed_json(
-            ctx,
-            "master/remediation_run_log.json",
-            {
-                "version": 1,
-                "max_runs": 2,
-                "runs": remediation_runs,
-                "runs_used": len(remediation_runs),
-                "third_run_forbidden": True,
-            },
-        )
-        append_learning(
-            ctx,
-            {
-                "execution_id": ctx.run_id,
-                "source_audio_hash": (
-                    (ctx.read_json("run_meta.json") or {}).get("source_audio_hash")
-                    if ctx.artifact_exists("run_meta.json")
-                    else None
-                ),
-                "trigger": "junction_quality",
-                **row,
-                "failure_codes": sorted({str(p.get("kind") or "") for p in pieces}),
-                "succeeded": pieces_resolved >= len(pieces) and not critical_residuals,
-            },
-        )
         if not critical_residuals:
             break
 
@@ -3433,6 +3303,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
 
     audit = run_junction_feel_audit(ctx, report, cfg=conf)
     report["llm_calls"] = thought_llm_calls + int(audit.get("llm_calls") or 0)
+    # S2: feel audit is advisory-only — never apply directives / remaster.
+    report["feel_advisory_only"] = True
     ctx.write_json(QA_REL, report)
 
     if report["llm_calls"] > 6:
@@ -3441,46 +3313,6 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             level="warning",
             stage=STAGE_ID,
         )
-
-    if (
-        audit.get("verdict") != "unavailable"
-        and remaster_rounds < max_rounds
-        and apply_feel_directives(ctx, audit, cfg=conf)
-    ):
-        try:
-            remastered, _used = _budgeted_remaster_mix(ctx, path="feel")
-            if remastered:
-                remaster_rounds += 1
-                _set_g_listen_pending_after_remaster(ctx)
-                report["remaster_rounds"] = remaster_rounds
-                ctx.write_json(QA_REL, report)
-            else:
-                report["feel_remaster_refused"] = True
-                ctx.write_json(QA_REL, report)
-        except Exception as exc:
-            from interview_mux.loud_fail import raise_loud_failure
-
-            try:
-                from interview_mux.homunculus.issues import ingest_catch
-
-                ingest_catch(
-                    ctx,
-                    kind="junction_feel_remaster_failed",
-                    source="junction_snip_qa",
-                    stage_id=STAGE_ID,
-                    implicated=[STAGE_ID, "mix"],
-                    evidence={"error": str(exc)[:240]},
-                )
-            except Exception:
-                pass
-            _persist_terminal_autopsy(ctx)
-            raise_loud_failure(
-                ctx,
-                f"Junction feel remediation could not remaster: {exc}",
-                stage=STAGE_ID,
-                reason="junction_feel_remaster_failed",
-                cause=exc,
-            )
 
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
     from interview_mux.order_hash import (
@@ -3608,81 +3440,11 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     commit_edl_hash = str(commitment.get("edl_hash") or "")
     if critical_left and commit_edl_hash and live_edl_hash != commit_edl_hash:
         blocking_reasons.append("junction_edl_hash_mismatch")
-    # When autopsy commitment is already committed and the feel audit soft-passed,
-    # residual "critical" labels after the remaster budget are observational —
-    # re-running junction forever does not improve ship readiness.
+    # S3: never severity-soften critical residuals. Live detect + incomplete kinds gate.
+    # S5: no fuse/hitch producer-heal arming — loud refuse and let recovery route.
     commit_ok = str(commitment.get("status") or "") == "committed"
-    feel_ok = str(audit.get("verdict") or "") in {"pass", "soft_pass", "warn"}
-    _INCOMPLETE_SOFT_BLOCK_KINDS = frozenset(
-        {
-            "on_a_roll",
-            "incomplete_clause",
-            "chapter_bleed_incomplete",
-        }
-    )
-
-    def _is_incomplete_cut_residual(finding: dict[str, Any]) -> bool:
-        kind = str(finding.get("kind") or "")
-        if kind in _INCOMPLETE_SOFT_BLOCK_KINDS:
-            return True
-        detail = finding.get("detail") if isinstance(finding.get("detail"), dict) else {}
-        return bool(detail.get("unrecoverable_within_clip"))
-
-    if critical_left and not (commit_ok and feel_ok):
+    if critical_left:
         blocking_reasons.append("critical_junction_residuals_after_two_runs")
-    elif critical_left and commit_ok and feel_ok:
-        softenable = [
-            f
-            for f in residual_findings
-            if isinstance(f, dict)
-            and str(f.get("severity") or "") == "critical"
-            and not _is_incomplete_cut_residual(f)
-        ]
-        # CFG-01: severity downgrade only under quality waivers — not e2e_soft.
-        if softenable and critical_residuals_may_soften():
-            report["critical_residuals_softened"] = True
-            report["critical_residual_soft_reason"] = (
-                "commitment_committed_and_feel_soft_pass_after_budget"
-            )
-            for finding in softenable:
-                finding["severity"] = "warning"
-                finding["e2e_softened"] = True
-        elif softenable:
-            blocking_reasons.append("critical_junction_residuals_after_two_runs")
-        # Incomplete mid-clause residuals stay critical — cut_integrity must fail.
-        critical_left = [
-            f
-            for f in residual_findings
-            if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
-        ]
-        if critical_left:
-            blocking_reasons.append("critical_incomplete_cut_residuals")
-            if not arm_incomplete_cut_producer_heals(
-                ctx,
-                report=report,
-                residual_findings=residual_findings,
-                commitment=commitment,
-            ):
-                hitch_armed = False
-                try:
-                    from interview_mux.chapter_close_hitch import arm_hitch_listen_restage
-
-                    hitch_armed = arm_hitch_listen_restage(ctx)
-                except Exception as hitch_exc:  # noqa: BLE001
-                    report["hitch_listen_restage_error"] = str(hitch_exc)[:300]
-                if hitch_armed:
-                    blocking_reasons.append("hitch_listen_restage")
-                    report["hitch_listen_restage"] = True
-                else:
-                    try:
-                        from interview_mux.stages.low_conf_fuse_stages import (
-                            run_connector_fuse_pass_junction_heal,
-                        )
-
-                        run_connector_fuse_pass_junction_heal(ctx)
-                        report["connector_fuse_junction_heal"] = True
-                    except Exception as fuse_exc:  # noqa: BLE001
-                        report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
     # F5 3A: hanging mid-thought clips always hard-block, including the
     # not-committed / advisory path that only stamped after_two_runs.
     incomplete_left = [

@@ -1093,7 +1093,22 @@ def test_gap_framing_compose_noop_under_layup_authority_no_llm(
         lambda: True,
     )
 
-    # Minimal committed gap_report already under layup authority (plan optional).
+    # Minimal committed gap_report under layup authority WITH contentful plan
+    # (stamp-without-plan is orphan-cleared into analysis compose — not a no-op).
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "lines": [
+                {
+                    "line_id": "vo_seed_seg_001",
+                    "text": "Host line one for floor.",
+                    "targets_segment_id": "seg_001",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
     ctx.write_json(
         "understanding/gap_report.json",
         {

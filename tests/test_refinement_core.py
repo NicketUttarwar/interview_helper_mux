@@ -25,9 +25,22 @@ from interview_mux.refinement_ledger import can_run_refinement, load_ledger, rec
 from interview_mux.run_context import RunContext
 from interview_mux.refinement_accept import accept_gap_recompose
 from interview_mux.refinement_champion import load_champion
-from interview_mux.refinement_gate import freeze_inputs
 from interview_mux.refinement_succession import is_unlocked, mutex_blocked
-from run_fixtures import patch_executions_root, mark_done_raw
+from interview_mux.refinement_gate import compute_input_hash
+from run_fixtures import patch_executions_root, mark_done_raw, write_fixture_json
+
+
+def _plant_snapshot(ctx: RunContext, pass_id: str, rel_paths: list[str]) -> str:
+    digest = compute_input_hash(ctx, rel_paths)
+    write_fixture_json(
+        ctx,
+        f"understanding/refinement_snapshots/{pass_id}/meta.json",
+        {
+            "paths": [{"rel": rel, "present": ctx.artifact_exists(rel)} for rel in rel_paths],
+            "input_hash": digest,
+        },
+    )
+    return digest
 
 
 def _raw_json(ctx: RunContext, rel: str, data: dict) -> None:
@@ -182,8 +195,8 @@ def test_legacy_succession_injectable(ctx: RunContext, monkeypatch: pytest.Monke
 
 
 def test_gate_skips_on_unchanged_input_hash(ctx: RunContext) -> None:
-    ctx.write_json("understanding/gap_report.draft.json", {"interviewer_lines": []})
-    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_1"]})
+    write_fixture_json(ctx, "understanding/gap_report.draft.json", {"interviewer_lines": []})
+    write_fixture_json(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
     req = ["understanding/gap_report.draft.json", "master/selection.json"]
 
     first = decide_pass(ctx, "gap_framing_recompose")
@@ -192,8 +205,13 @@ def test_gate_skips_on_unchanged_input_hash(ctx: RunContext) -> None:
     # Simulate a completed refinement run: freeze inputs, write the final
     # gap_report, and mark the stage done — matching what
     # refinement_passes.run_gap_framing_recompose does on success.
-    freeze_inputs(ctx, "gap_framing_recompose", req)
-    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
+    _plant_snapshot(ctx, "gap_framing_recompose", req)
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        stage_key="gap_framing_compose",
+    )
     mark_done_raw(ctx, "gap_framing_recompose")
 
     second = decide_pass(ctx, "gap_framing_recompose")
@@ -222,7 +240,7 @@ def _gap_line(line_id: str, text: str, **overrides: object) -> dict[str, object]
 
 def test_accept_gap_recompose_noop_when_unchanged(ctx: RunContext) -> None:
     draft = {"interviewer_lines": [_gap_line("vo_1", "Hello")]}
-    ctx.write_json("understanding/gap_report.draft.json", draft)
+    write_fixture_json(ctx, "understanding/gap_report.draft.json", draft)
 
     result = accept_gap_recompose(ctx, dict(draft))
     assert result["accepted"] is False
@@ -234,7 +252,18 @@ def test_accept_gap_recompose_noop_when_unchanged(ctx: RunContext) -> None:
 
 def test_accept_gap_recompose_promotes_champion_on_improvement(ctx: RunContext) -> None:
     draft = {"interviewer_lines": [_gap_line("vo_1", "Hello")]}
-    ctx.write_json("understanding/gap_report.draft.json", draft)
+    write_fixture_json(ctx, "understanding/gap_report.draft.json", draft)
+    write_fixture_json(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
+    orig_write = ctx.write_json
+
+    def _gap_via_compose(rel, data, **kwargs):
+        if rel == "understanding/gap_report.json":
+            kwargs.setdefault("stage_key", "gap_framing_compose")
+        if str(rel).startswith("understanding/refinement_"):
+            return write_fixture_json(ctx, rel, data)
+        return orig_write(rel, data, **kwargs)
+
+    ctx.write_json = _gap_via_compose  # type: ignore[method-assign]
     assert load_champion(ctx, "gap_vo") is None
 
     candidate = {
@@ -261,7 +290,10 @@ def test_accept_gap_recompose_promotes_champion_on_improvement(ctx: RunContext) 
 
 
 def test_confirm_phase_injects_ranking_on_coverage_holes(ctx: RunContext) -> None:
-    """RA-B3: confirm opens ranking when coverage holes exist (even simple_tape)."""
+    """RA-B3: confirm opens ranking when coverage holes exist (even simple_tape).
+
+    Explicit ``phase="draft"`` is test-only contrast against confirm injects.
+    """
     _raw_json(
         ctx,
         "understanding/source_topology.json",

@@ -25,7 +25,7 @@ _ISLAND_ARTIFACTS = (
     "analysis/low_conf_islands.json",
     "analysis/connector_fuse_audit.json",
 )
-_PRE_RANKING_ROUNDS = "analysis/connector_fuse_rounds.json"
+_PRE_RANKING_ROUNDS = "analysis/connector_fuse_rounds_pre_ranking.json"
 # After G0 is closed, re-STT / re-ingest / re-clip is not a surgical rerun — pack g0_transcript.
 G0_LOCKED_RERUN_STAGES = frozenset(
     {"transcribe", "ingest", "audio_preclean", "transcript_review_build"}
@@ -707,10 +707,8 @@ def delivery_sdp_present(ctx: RunContext) -> bool:
 def _pre_ranking_rounds_present(ctx: RunContext) -> bool:
     """True only after the pre-ranking fuse pass wrote its own rounds doc.
 
-    The first ``connector_fuse_pass`` may leave ``connector_fuse_audit.json``
-    (and even a post_sanitize rounds file). Those must not satisfy
-    ``connector_fuse_pass_pre_ranking`` or remaining_stages drops the pass,
-    ranking looks done, and maybe_require then loops on a self-prerequisite.
+    Analysis ``connector_fuse_rounds.json`` (and the first-pass audit) must not
+    satisfy ``connector_fuse_pass_pre_ranking`` or remaining_stages drops the pass.
 
     H6-B: ``skip_reason=missing_manifest`` is not present (broken upstream).
     """

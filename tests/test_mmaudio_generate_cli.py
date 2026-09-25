@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -35,8 +37,11 @@ def test_mmaudio_generate_calls_native_with_cfg():
                 str(out),
             ],
         ):
-            rc = main()
-    assert rc == 0
+            # CLI hard-exits after a successful write to skip accelerator teardown.
+            with patch("os._exit", side_effect=SystemExit(0)):
+                with pytest.raises(SystemExit) as exited:
+                    main()
+    assert exited.value.code == 0
     gen.assert_called_once()
     kwargs = gen.call_args.kwargs
     assert kwargs["prompt"] == "soft bed"

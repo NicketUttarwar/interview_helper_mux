@@ -470,10 +470,11 @@ def commit_layup_cta_selection(
     previous: dict[str, Any] | None,
     pruned: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """HR-2: persist CTA prune on the selection bus. None if order is unchanged.
+    """Persist CTA prune on the selection bus (ranking/sanitize owner — S7).
 
     Soft freeze: land editorial CTA omit via End-A packaging (media_ip_cta).
     Hard freeze: skip — no silent CTA order rewrite after VO seat freeze.
+    Layup compose no longer calls this; kept for sanitize/ranking + unit tests.
     """
     if not isinstance(previous, dict) or not isinstance(pruned, dict):
         return None
@@ -488,10 +489,10 @@ def commit_layup_cta_selection(
 
         if hard_freeze_active(ctx):
             ctx.log(
-                "nugget_layup_compose: CTA selection commit skipped — hard freeze "
+                "selection_order_sanitize: CTA selection commit skipped — hard freeze "
                 "(no silent CTA order rewrite after VO freeze)",
                 level="warning",
-                stage="nugget_layup_compose",
+                stage="selection_order_sanitize",
             )
             return None
     except Exception:
@@ -511,8 +512,8 @@ def commit_layup_cta_selection(
     return commit_selection_or_refuse(
         ctx,
         pruned,
-        producer="nugget_layup_compose",
-        stage_key="nugget_layup_compose",
+        producer="selection_order_sanitize",
+        stage_key="selection_order_sanitize",
         checkpoint_mode="detect",
     )
 
@@ -619,12 +620,12 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         assert_layup_fresh_vs_selection,
         assert_layup_qc_or_raise,
         build_layup_compose_input,
+        commit_layup_gap_authority,
         degraded_layup_cfg,
         evaluate_layup_qc,
         merge_layup_plan_parts,
         nugget_layup_cfg,
         nugget_layup_enabled,
-        publish_layup_plan_to_gap_report,
         repair_or_skip_spoken_copy_layups,
     )
     from interview_mux.operator_trace import log_step
@@ -641,41 +642,8 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         _heal_nugget_layup_compose_if_complete(ctx)
         return
 
-    try:
-        from interview_mux.media_ip_cta import apply_cta_judgments, heal_on_air_cta_residue
-
-        # Wave 4: pre-layup fragment omit via existing CTA helpers only.
-        sel = (
-            ctx.read_json("master/selection.json")
-            if ctx.artifact_exists("master/selection.json")
-            else None
-        )
-        pruned = apply_cta_judgments(ctx, sel if isinstance(sel, dict) else None)
-        commit_layup_cta_selection(
-            ctx,
-            sel if isinstance(sel, dict) else None,
-            pruned if isinstance(pruned, dict) else None,
-        )
-        healed = heal_on_air_cta_residue(ctx)
-        if isinstance(healed, dict) and healed.get("ordered_segment_ids") is not None:
-            ctx.log(
-                "nugget_layup_compose: host CTA residue prune before compose",
-                level="info",
-                stage="nugget_layup_compose",
-                detail={
-                    "natives": len(healed.get("ordered_segment_ids") or []),
-                },
-            )
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        if "selection_commit_refused" in str(exc):
-            raise
-        ctx.log(
-            f"nugget_layup_compose: CTA residue prune skipped: {exc}",
-            level="warning",
-            stage="nugget_layup_compose",
-        )
+    # S7: layup never mutates master/selection.json — ranking + sanitize own
+    # never_touch / CTA omit. Read-only never-touch skip still runs in plan QC.
 
     persist_plan = make_stage_persist(PLAN_REL, "nugget_layup_compose")
     deg = degraded_layup_cfg()
@@ -686,19 +654,13 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
     def persist(c: RunContext, artifacts: dict) -> None:
         """P1: heal/QC in memory first; publish gap only after QC would pass."""
         from interview_mux.nugget_layup import (
-            apply_craft_spine_or_skip,
             ensure_deterministic_floor_before_refuse,
             gap_report_write_lock,
             invalidate_vo_after_layup_rewrite,
-            materialize_over_skipped_layups,
             normalize_layup_talking_point_ledger,
-            park_open_high_salience_on_orientation,
             prepare_layup_plan_for_persist,
             prior_gap_line_fingerprints,
-            recover_open_high_salience_nuggets,
-            recover_open_must_keep_talking_points,
             stamp_sparse_or_empty_corpus_exits,
-            stamp_valueless_skips,
             strip_model_order_lock,
         )
 
@@ -769,131 +731,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 + "; ".join((qc.get("errors") or [])[:4]),
             )
 
-        # In-memory recover / materialize / park / spine — no gap publish yet (P1).
-        if not qc.get("ok") and any(
-            "layup_coverage" in str(e)
-            or "min_layup_coverage" in str(e)
-            or "open_must_keep" in str(e)
-            for e in (qc.get("errors") or [])
-        ):
-            sparse_omit = False
-            try:
-                from interview_mux.source_topology import vo_posture_is_sparse_omit
-
-                sparse_omit = vo_posture_is_sparse_omit(c)
-            except Exception:
-                sparse_omit = False
-            if sparse_omit:
-                doc, skip_notes = stamp_valueless_skips(c, doc)
-                if skip_notes:
-                    doc = prepare_layup_plan_for_persist(c, doc)
-                    qc = evaluate_layup_qc(c, doc)
-                    c.log(
-                        "stamped valueless layup skips: "
-                        + "; ".join(
-                            str(n.get("target_segment_id") or n) for n in skip_notes[-10:]
-                        ),
-                        level="warning",
-                        stage="nugget_layup_compose",
-                    )
-            else:
-                doc, mat_notes = materialize_over_skipped_layups(c, doc)
-                if any(str(n).startswith("materialized:") for n in mat_notes):
-                    doc = prepare_layup_plan_for_persist(c, doc)
-                    qc = evaluate_layup_qc(c, doc)
-                    c.log(
-                        "materialized over-skipped layups: "
-                        + "; ".join(str(n) for n in mat_notes[-10:]),
-                        level="warning",
-                        stage="nugget_layup_compose",
-                    )
-        if not qc.get("ok") and qc.get("open_must_keep_talking_point_ids"):
-            doc, rec_notes = recover_open_must_keep_talking_points(c, doc)
-            if rec_notes:
-                doc = prepare_layup_plan_for_persist(c, doc)
-                qc = evaluate_layup_qc(c, doc)
-                c.log(
-                    "recovered open must_keep talking points: "
-                    + "; ".join(str(n) for n in rec_notes[-10:]),
-                    level="warning",
-                    stage="nugget_layup_compose",
-                )
-        if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
-            doc, rec_notes = recover_open_high_salience_nuggets(c, doc)
-            if rec_notes:
-                doc, copy_repairs = repair_or_skip_spoken_copy_layups(c, doc)
-                if copy_repairs:
-                    c.log(
-                        "nugget_layup_compose: spoken-copy heal after salience recover "
-                        f"({len(copy_repairs)} row(s))",
-                        level="warning",
-                        stage="nugget_layup_compose",
-                    )
-                doc = prepare_layup_plan_for_persist(c, doc)
-                qc = evaluate_layup_qc(c, doc)
-                c.log(
-                    "recovered open high-salience nuggets: "
-                    + "; ".join(str(n) for n in rec_notes[-10:]),
-                    level="warning",
-                    stage="nugget_layup_compose",
-                )
-        if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
-            doc, park_notes = park_open_high_salience_on_orientation(c, doc)
-            if park_notes:
-                doc = prepare_layup_plan_for_persist(c, doc)
-                qc = evaluate_layup_qc(c, doc)
-                c.log(
-                    "parked unhealable high-salience on orientation: "
-                    + "; ".join(str(n) for n in park_notes[-10:]),
-                    level="warning",
-                    stage="nugget_layup_compose",
-                )
-
-        # P7/H1: craft fail → corpus spine or typed skip (no third LLM call).
-        if not qc.get("ok") and degraded_retry_used["n"] >= 1:
-            doc, spine_notes = apply_craft_spine_or_skip(c, doc, qc=qc)
-            if spine_notes:
-                doc = prepare_layup_plan_for_persist(c, doc)
-                qc = evaluate_layup_qc(c, doc)
-                c.log(
-                    "nugget_layup_compose: craft spine/skip "
-                    + "; ".join(spine_notes[-10:]),
-                    level="warning",
-                    stage="nugget_layup_compose",
-                )
-        elif not qc.get("ok"):
-            # Even without degraded retry, spine craft holes when only craft remains.
-            craft_only = all(
-                any(
-                    m in str(e)
-                    for m in (
-                        "invented_island",
-                        "canned_air",
-                        "thin_layup",
-                        "restates_target",
-                        "spoken_copy",
-                        "insufficient_analysis",
-                    )
-                )
-                for e in (qc.get("errors") or [])
-            ) and bool(qc.get("errors"))
-            if craft_only and degraded_retry_used["n"] >= 1:
-                pass  # handled above
-            elif craft_only and degraded_retry_used["n"] < 1:
-                # Prefer one degraded LLM regen first (raised above when markers match).
-                # If markers did not trigger StageError, spine now.
-                doc, spine_notes = apply_craft_spine_or_skip(c, doc, qc=qc)
-                if spine_notes:
-                    doc = prepare_layup_plan_for_persist(c, doc)
-                    qc = evaluate_layup_qc(c, doc)
-                    c.log(
-                        "nugget_layup_compose: craft spine/skip (no LLM budget) "
-                        + "; ".join(spine_notes[-10:]),
-                        level="warning",
-                        stage="nugget_layup_compose",
-                    )
-
-        # P2: last deterministic floor materialize before publish.
+        # S8: one deterministic heal pass then refuse — no materialize↔recover↔park↔spine ladder.
         if not qc.get("ok"):
             doc, floor_notes = ensure_deterministic_floor_before_refuse(c, doc)
             if floor_notes:
@@ -934,7 +772,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     level="warning",
                     stage="nugget_layup_compose",
                 )
-            report = publish_layup_plan_to_gap_report(c, doc)
+            report = commit_layup_gap_authority(c, doc)
             assert_layup_qc_or_raise(c, qc)
             assert_gap_report_layup_authority(c, report)
             invalidate_vo_after_layup_rewrite(

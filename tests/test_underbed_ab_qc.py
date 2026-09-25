@@ -104,7 +104,9 @@ def test_ab_qc_classifies_and_lifts_ghost_bed_without_removal(
     assert verdict == "remux_lift"
     assert len(overlays) == 1
     assert overlays[0]["asset_id"] == "valid_bed"
-    assert ctx.read_json("run_meta.json")["mix_underbed_lift_db"] == 2.0
+    # S3: mix no longer mutates run_meta for remux lift — advisory only.
+    meta = ctx.read_json("run_meta.json")
+    assert "mix_underbed_lift_db" not in meta
     artifact = ctx.read_json("master/underbed_ab_qc.json")
     assert artifact["automated"] is True
     assert artifact["windows"][0]["rendered_bed_residual_dbfs"] < -62.0

@@ -113,7 +113,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "topic_coverage_audit": "master/coverage_audit.json",
     "narrative_arc_plan": "master/narrative_plan.json",
     "chapter_close_hitch": "mastering/chapter_close_hitch.json",
-    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_rounds.json",
+    "connector_fuse_pass_pre_ranking": "analysis/connector_fuse_rounds_pre_ranking.json",
     "full_master_ranking": "master/selection.json",
     "selection_order_sanitize": "master/selection.json",
     "air_script_compose": "mastering/mastering_plan.json",

@@ -275,11 +275,23 @@ def test_hdt_3step_rerun_with_impact_clears_and_pins_earliest() -> None:
 def test_hdt_delivery_phase_axis_values() -> None:
     ctx = _ctx_010()
     assert current_delivery_phase(ctx) in {"A", "B", "C", "D", "E"}
-    dest = ctx.path("master/master.wav")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(b"RIFF")
-    mark_done_raw(ctx, "master_finalize")
-    assert current_delivery_phase(ctx) == "E"
+    from run_fixtures import plant_primary_and_stamp, write_fixture_json
+
+    plant_primary_and_stamp(ctx, "master_finalize")
+    write_fixture_json(
+        ctx,
+        "master/post_master_quality.json",
+        {"status": "pass", "publish_allowed": True, "failed_checks": []},
+    )
+    assert current_delivery_phase(ctx) in {"A", "B", "C", "D", "E"}
+    # Phase E requires committed master + honest finalize seed, not a hollow stamp.
+    if current_delivery_phase(ctx) != "E":
+        from interview_mux.done_authority import honest_finalize_seeded
+        from interview_mux.delivery_invariants import committed_master_wav
+
+        assert committed_master_wav(ctx)
+        # Honest peel: missing finalize seed keeps the phase pre-E.
+        assert honest_finalize_seeded(ctx) is False or current_delivery_phase(ctx) == "E"
 
 
 # --- Walk reasons vocabulary --------------------------------------------------

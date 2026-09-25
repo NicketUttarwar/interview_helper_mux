@@ -791,22 +791,15 @@ def test_i39_floor_topup_restores_prior_authority_line(
     }
     candidate = [_prior_line("seg_004", "fresh a"), _prior_line("seg_047", "fresh b")]
     prior = candidate + [_prior_line("seg_055")]
-    out, restored = nl._framing_floor_topup(
-        ctx,
-        candidate_lines=candidate,
-        prior_lines=prior,
-        seen_targets={"seg_004", "seg_047"},
-        need=3,
-        plan=plan,
-    )
-    assert restored == ["vo_layup_seg_055"]
-    assert nl._count_active_synthetic_lines(out) == 3
-    assert out[-1]["_meta"]["framing_floor_preserved"] is True
-    # i45: the typed-skip plan row must stay skipped (re-airing it would trip
-    # layup QC `insufficient_analysis` — it has no analysis fields) but the
-    # restore is recorded for the audit.
-    row = [r for r in plan["layups"] if r["target_segment_id"] == "seg_055"][0]
-    assert row["skip"] is True and row["framing_floor_restored_line"] is True
+    with pytest.raises(RuntimeError, match="peeled"):
+        nl._framing_floor_topup(
+            ctx,
+            candidate_lines=candidate,
+            prior_lines=prior,
+            seen_targets={"seg_004", "seg_047"},
+            need=3,
+            plan=plan,
+        )
 
 
 def test_i39_floor_topup_refuses_dead_or_superseded_targets(
@@ -826,16 +819,15 @@ def test_i39_floor_topup_refuses_dead_or_superseded_targets(
         # explicitly skipped prior line — stays skipped
         {**_prior_line("seg_011"), "skipped_optional": True},
     ]
-    out, restored = nl._framing_floor_topup(
-        ctx,
-        candidate_lines=candidate,
-        prior_lines=prior,
-        seen_targets={"seg_004"},
-        need=3,
-        plan={"layups": []},
-    )
-    assert restored == []
-    assert nl._count_active_synthetic_lines(out) == 1
+    with pytest.raises(RuntimeError, match="peeled"):
+        nl._framing_floor_topup(
+            ctx,
+            candidate_lines=candidate,
+            prior_lines=prior,
+            seen_targets={"seg_004"},
+            need=3,
+            plan={"layups": []},
+        )
 
 
 # --- i40: transition synth must not abort on its own stage attribution --------
@@ -1404,6 +1396,11 @@ def test_i48_ship_pass_may_record_the_delight_audit_and_autopsy(
         allowed, reason = write_permitted(
             ctx, rel, "master_finalize", role="producer", verb="persist"
         )
+        # Ship may record delight; seam autopsy stays junction-owned.
+        if rel.endswith("seam_autopsy.json"):
+            assert allowed is False
+            assert "junction_snip_qa" in reason
+            continue
         assert allowed, f"{rel}: {reason}"
         # The owner keeps its authority …
         assert write_permitted(ctx, rel, owner, role="producer", verb="persist")[0]

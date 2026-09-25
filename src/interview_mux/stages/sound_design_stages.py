@@ -187,32 +187,65 @@ def _finalize_existing_sdp_under_mix_seat(ctx: RunContext) -> None:
             level="warning",
             stage="sound_design_plan",
         )
+    # Paid delivery SDP may predate completeness bars (e.g. sonic_identity).
+    # Seed the minimum so heal_or_refuse can land without raw_stamp bypass.
+    try:
+        sdp = ctx.read_json(_SOUND_DESIGN_PLAN_REL)
+        if isinstance(sdp, dict):
+            coherence = sdp.get("coherence") if isinstance(sdp.get("coherence"), dict) else {}
+            coherence = dict(coherence)
+            changed = False
+            if not str(coherence.get("sonic_identity") or "").strip():
+                coherence["sonic_identity"] = "mix_seat_delivery"
+                changed = True
+            if changed:
+                sdp["coherence"] = coherence
+                ctx.write_json(
+                    _SOUND_DESIGN_PLAN_REL, sdp, stage_key="sound_design_plan"
+                )
+    except Exception as exc:
+        ctx.log(
+            f"sound_design_plan: mix-seat coherence seed skipped ({exc})",
+            level="warning",
+            stage="sound_design_plan",
+        )
     ctx.log(
         "sound_design_plan: skip invent — mix seated with delivery SDP already present",
         level="info",
         stage="sound_design_plan",
     )
-    # Force-done is incompleteness-gated for SDP; mix-seat skip stamps via raw
-    # session because delivery SDP is already paid upstream.
-    try:
-        from interview_mux.done_authority import raw_stamp_session
-
-        with raw_stamp_session(ctx, "heal_or_refuse_mark"):
-            ctx.mark_done("sound_design_plan", force=True)
-    except Exception as exc:
-        ctx.log(
-            f"sound_design_plan: mix-seat mark_done skipped ({exc})",
-            level="warning",
-            stage="sound_design_plan",
-        )
-        try:
-            heal_or_refuse_mark(ctx, "sound_design_plan", force=True)
-        except Exception:
-            pass
+    # Delivery SDP already paid → incompleteness gates clear; honest heal/refuse only.
+    heal_or_refuse_mark(ctx, "sound_design_plan", force=True)
 
 
 class _SdpMixSeatSkip(Exception):
     """Abort invent when mix seat + delivery SDP already paid (caught by run_sound_design_plan)."""
+
+
+def _selection_narrative_drift(ctx: RunContext) -> list[str]:
+    """Read-only selection↔narrative conflicts (no narrative_plan mutate)."""
+    from interview_mux.order_reconcile import material_order_conflicts
+
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return []
+    if not isinstance(sel, dict):
+        return []
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    if not ordered:
+        return []
+    plan: dict = {}
+    if ctx.artifact_exists("master/narrative_plan.json"):
+        try:
+            raw = ctx.read_json("master/narrative_plan.json")
+        except Exception:
+            raw = None
+        if isinstance(raw, dict):
+            plan = raw
+    return list(material_order_conflicts(ordered, plan) or [])
 
 
 def run_sound_design_plan(ctx: RunContext) -> None:
@@ -230,54 +263,38 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         from interview_mux.soundscape_policy import (
             compact_for_volley as soundscape_compact,
             load_policy,
-            refresh_cue_slots,
-            soundscape_enabled,
         )
 
-        # Reconcile any mid-pipeline drift before SDP LLM sees narrative vs selection.
-        # Full-auto / production: fail-closed — never invent music on drifted order.
-        from interview_mux.order_reconcile import reconcile_selection_and_narrative
-
-        try:
-            reconcile_selection_and_narrative(
-                c, allow_llm=True, label="sound_design_plan/order_reconcile"
-            )
-        except Exception as exc:
-            # Safety net when early mix-seat skip did not fire (hollow SDP or
-            # assembly without delivery stamp). Never invent under mix freeze.
+        # Read-only drift check — refuse invent; do not mutate narrative/selection.
+        drift = _selection_narrative_drift(c)
+        if drift:
             if _mix_seat_active(c):
                 if _sdp_delivery_ready_for_mix_skip(c):
                     c.log(
-                        f"sound_design_plan: order_reconcile skipped under mix seat ({exc})",
+                        "sound_design_plan: selection/narrative drift under mix seat — skip invent",
                         level="warning",
                         stage="sound_design_plan",
+                        detail={"conflicts": drift[:6]},
                     )
-                    raise _SdpMixSeatSkip(str(exc)) from exc
+                    raise _SdpMixSeatSkip("selection_narrative_drift")
                 raise RuntimeError(
-                    "sound_design_plan: order_reconcile failed under mix seat with "
-                    f"incomplete SDP (resume stamp/repair, not invent): {exc}"
-                ) from exc
-            elif _sdp_fail_closed_reconcile(c):
-                raise RuntimeError(
-                    "sound_design_plan: order_reconcile failed — refuse invent on "
-                    f"drifted selection/narrative (resume order_reconcile / ranking): {exc}"
-                ) from exc
-            else:
-                c.log(
-                    f"order_reconcile before sound_design_plan failed (fail-open): {exc}",
-                    level="warning",
-                    stage="sound_design_plan",
+                    "sound_design_plan: selection/narrative drift under mix seat with "
+                    "incomplete SDP (resume stamp/repair, not invent): "
+                    + "; ".join(drift[:4])
                 )
+            if _sdp_fail_closed_reconcile(c):
+                raise RuntimeError(
+                    "sound_design_plan: refuse invent on drifted selection/narrative "
+                    "(resume order_reconcile / ranking): "
+                    + "; ".join(drift[:4])
+                )
+            c.log(
+                "selection/narrative drift before sound_design_plan (fail-open): "
+                + "; ".join(drift[:4]),
+                level="warning",
+                stage="sound_design_plan",
+            )
 
-        if soundscape_enabled():
-            try:
-                refresh_cue_slots(c)
-            except Exception as exc:
-                c.log(
-                    f"soundscape_policy cue refresh skipped: {exc}",
-                    level="warning",
-                    stage="sound_design_plan",
-                )
         from interview_mux.episode_structure import (
             attach_episode_structure_to_payload,
             refresh_episode_structure_compact_only,
@@ -368,116 +385,26 @@ def run_sound_design_plan(ctx: RunContext) -> None:
             raise ValueError(
                 "sound_design_plan invent lint failed: " + "; ".join(invent_errs[:6])
             )
-        # Cue placement is owned by music_palette_compose (after EDL/preview).
-        # Keep a minimal placeholder cue list so schema links stay valid.
-        flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
-        podcast = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+        # S6: cue/palette placement owned by music_palette_compose — invent commits
+        # assets + motif only, with an empty deferred podcast cue list.
         if not isinstance(sdp.get("flow_plans"), dict):
             sdp["flow_plans"] = {}
-        assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
-        by_kind = {
-            str(a.get("palette_kind") or ""): a
-            for a in assets
-            if a.get("palette_kind")
-        }
-        placeholder: list[dict] = []
-        motif = by_kind.get("motif") or by_kind.get("full_bed")
-        if motif and motif.get("asset_id"):
-            placeholder.append(
-                {
-                    "cue_id": "palette_open_placeholder",
-                    "asset_id": str(motif["asset_id"]),
-                    "role": str(motif.get("role") or "theme_cold_open"),
-                    "placement": "before_segment",
-                    "level_db": -10,
-                }
-            )
-        unders = by_kind.get("underscore_loop")
-        if unders and unders.get("asset_id"):
-            from interview_mux.creative_delivery import audible_bed_level_db
-
-            placeholder.append(
-                {
-                    "cue_id": "palette_bed_placeholder",
-                    "asset_id": str(unders["asset_id"]),
-                    "role": str(unders.get("role") or "theme_underscore"),
-                    "placement": "under_segment",
-                    "level_db": audible_bed_level_db(),
-                    "crossfade_ms": 1500,
-                }
-            )
+        podcast = (
+            sdp["flow_plans"].get("podcast")
+            if isinstance(sdp["flow_plans"].get("podcast"), dict)
+            else {}
+        )
         podcast = dict(podcast)
-        podcast["cues"] = placeholder
+        podcast["profile"] = str(podcast.get("profile") or "podcast") or "podcast"
+        podcast["cues"] = []
         podcast["compose_deferred"] = True
         sdp["flow_plans"]["podcast"] = podcast
-        from interview_mux.creative_delivery import hydrate_flow_cue_segments
 
-        actions = hydrate_flow_cue_segments(c, sdp)
-        if actions:
-            c.log(
-                f"Hydrated {len(actions)} SDP cue segment anchor(s)",
-                level="info",
-                stage="sound_design_plan",
-                detail={"actions": actions[:12]},
-            )
-        # Bind bookends to the final selected air order and use musical,
-        # scene-length fades for beds.  A cue may not carry an old ranking
-        # anchor into the final master.
-        selection = c.read_json("master/selection.json")
-        ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
-        if not ordered:
-            raise ValueError(
-                "sound_design_plan: master/selection.json ordered_segment_ids empty — "
-                "refuse orphan bookend/bed anchors"
-            )
-        bed_anchor = _safe_placeholder_bed_segment(c, ordered)
-        podcast = (
-            (sdp.get("flow_plans") or {}).get("podcast")
-            if isinstance(sdp.get("flow_plans"), dict)
-            else None
-        )
-        if isinstance(podcast, dict):
-            cues = [dict(x) for x in (podcast.get("cues") or []) if isinstance(x, dict)]
-            cleaned: list[dict] = []
-            for cue in cues:
-                if not str(cue.get("asset_id") or "").strip():
-                    continue
-                placement = str(cue.get("placement") or "")
-                if placement and placement not in {
-                    "under_segment",
-                    "before_segment",
-                    "after_segment",
-                }:
-                    cue["placement"] = "under_segment"
-                    placement = "under_segment"
-                role = str(cue.get("role") or "")
-                if role == "theme_outro":
-                    cue["placement"] = "after_segment"
-                    cue["after_segment_id"] = ordered[-1]
-                    cue.pop("before_segment_id", None)
-                elif role == "theme_cold_open":
-                    cue["placement"] = "before_segment"
-                    cue["before_segment_id"] = ordered[0]
-                    cue.pop("after_segment_id", None)
-                if str(cue.get("placement") or "") == "under_segment":
-                    cue["crossfade_ms"] = max(1500, int(cue.get("crossfade_ms") or 0))
-                    cue["under_segment_id"] = bed_anchor
-                    cue["segment_id"] = bed_anchor
-                cleaned.append(cue)
-            podcast["cues"] = cleaned
-            sdp["flow_plans"]["podcast"] = podcast
-
-        # Seed a palette covering placeholder bed anchors when early pals were empty.
-        _ensure_placeholder_palette(sdp, bed_anchor)
-
-        # Clear invent obligation — delivery invent paid (assets + deferred cues).
+        # Clear invent obligation — delivery invent paid (assets; cues deferred).
         _clear_sdp_invent_obligation(sdp)
 
         # Clamp durations before commit so craft/preflight do not thrash later.
         _clamp_sdp_asset_durations_inplace(sdp)
-
-        # Align cue_slots with placeholder bed before commit (same flush).
-        _inject_placeholder_bed_cue_slot(c, bed_anchor)
 
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
@@ -491,18 +418,6 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         restamp_committed_artifact(
             c, _SOUND_DESIGN_PLAN_REL, producer_stage="sound_design_plan"
         )
-        # Refresh policy invent_gate now that invent is paid.
-        try:
-            from interview_mux.soundscape_policy import refresh_cue_slots, soundscape_enabled
-
-            if soundscape_enabled():
-                refresh_cue_slots(c)
-        except Exception as exc:
-            c.log(
-                f"soundscape_policy post-invent refresh skipped: {exc}",
-                level="warning",
-                stage="sound_design_plan",
-            )
 
     with logged_step("sound_design_plan/llm_stage", ctx=ctx, stage="sound_design_plan"):
         try:
@@ -1020,32 +935,10 @@ def _safe_placeholder_bed_segment(ctx: RunContext, ordered: list[str]) -> str:
 
 
 def _ensure_placeholder_palette(sdp: dict, bed_anchor: str) -> None:
-    pals = sdp.get("palettes") if isinstance(sdp.get("palettes"), list) else []
-    if pals and isinstance(pals[0], dict):
-        ids = [str(x) for x in (pals[0].get("segment_ids") or []) if x]
-        if bed_anchor and bed_anchor not in ids:
-            pals[0]["segment_ids"] = ids + [bed_anchor]
-        # Fill schema-required palette fields if a thin seed slipped in.
-        pal0 = pals[0]
-        pal0.setdefault("theme_label", str(pal0.get("label") or "delivery invent seed"))
-        pal0.setdefault("keywords", ["underscore", "podcast"])
-        pal0.setdefault("ambient_description", "Soft underscore bed under speech.")
-        pal0.setdefault("accent_description", "Light tonal accent at hinges.")
-        pal0.setdefault("avoid", ["vocals", "lyrics", "speech"])
-        sdp["palettes"] = pals
-        return
-    sdp["palettes"] = [
-        {
-            "palette_id": "palette_default",
-            "theme_label": "delivery invent seed",
-            "keywords": ["underscore", "podcast"],
-            "ambient_description": "Soft underscore bed under speech.",
-            "accent_description": "Light tonal accent at hinges.",
-            "avoid": ["vocals", "lyrics", "speech"],
-            "segment_ids": [bed_anchor] if bed_anchor else [],
-            "notes": "seeded by sound_design_plan after deferred early palettes",
-        }
-    ]
+    """Peeled: compose owns cues/slots; invent must not mint placeholder palettes."""
+    raise RuntimeError(
+        "sound_design_plan:_ensure_placeholder_palette peeled — compose owns palettes"
+    )
 
 
 def _clear_sdp_invent_obligation(sdp: dict) -> None:
@@ -1102,35 +995,6 @@ def _clamp_sdp_asset_durations_inplace(sdp: dict) -> None:
                 asset["duration_seconds"] = max(lo, min(hi, d))
         else:
             asset["duration_seconds"] = float(clamp_duration_seconds(d))
-
-
-def _inject_placeholder_bed_cue_slot(ctx: RunContext, bed_anchor: str) -> None:
-    if not bed_anchor:
-        return
-    try:
-        from interview_mux.soundscape_policy import (
-            admit_inject_cue_slots,
-            load_policy,
-            soundscape_enabled,
-        )
-
-        if not soundscape_enabled():
-            return
-        policy = load_policy(ctx) or {}
-        admit_inject_cue_slots(
-            ctx,
-            policy,
-            segment_ids=[bed_anchor],
-            reason="theme_underscore_sdp_placeholder",
-            persist=True,
-            rescore=False,
-        )
-    except Exception as exc:
-        ctx.log(
-            f"placeholder bed cue_slot inject skipped: {exc}",
-            level="warning",
-            stage="sound_design_plan",
-        )
 
 
 def _mark_skipped(ctx: RunContext, stage_key: str) -> None:

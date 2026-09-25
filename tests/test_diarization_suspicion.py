@@ -79,7 +79,8 @@ def test_hanging_flips_sort_first() -> None:
     assert flips[0]["next_text"] == "1080"
 
 
-def test_verify_yes_relabels_later_run(tmp_path: Path, monkeypatch) -> None:
+def test_verify_yes_advisory_repairs_does_not_mutate_transcript(tmp_path: Path, monkeypatch) -> None:
+    """S1/S2: YES lands repairs only — frozen transcript speaker_ids stay put."""
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("relabel_yes", create=True)
     t = 1_785_000
@@ -108,15 +109,18 @@ def test_verify_yes_relabels_later_run(tmp_path: Path, monkeypatch) -> None:
         "interview_mux.diarization_suspicion.extract_clip",
         lambda *a, **k: None,
     )
+    before = [dict(w) for w in ctx.read_json("transcript/full.json")["words"]]
     doc = run_diarization_verify(ctx, verify_pair=yes_fn)
     assert not validate_diarization_repairs(doc)
-    later = [w for w in ctx.read_json("transcript/full.json")["words"] if w["start_ms"] < 1_900_000]
-    assert {w["speaker_id"] for w in later[3:6]} == {"spk_1"}
-    host = [w for w in ctx.read_json("transcript/full.json")["words"] if w["text"] == "Host"]
-    assert host and host[0]["speaker_id"] == "spk_0"
+    after = ctx.read_json("transcript/full.json")["words"]
+    assert [w["speaker_id"] for w in after] == [w["speaker_id"] for w in before]
+    later = [w for w in after if w["start_ms"] < 1_900_000]
+    assert {w["speaker_id"] for w in later[3:6]} == {"spk_0"}
     assert doc["pairs"][0]["action"] == "relabel"
+    assert int(doc["pairs"][0].get("words_relabeled") or 0) >= 1
+    assert doc.get("applied") is True
     flows = ctx.read_json("transcript/speaker_flows.json")
-    assert any(f.get("speaker_id") == "spk_1" for f in (flows.get("flows") or []))
+    assert flows["flows"] == [{"speaker_id": "spk_0", "start_ms": 0}]
 
 
 def test_verify_no_and_miss_keep_labels(tmp_path: Path, monkeypatch) -> None:
@@ -299,7 +303,18 @@ def test_yes_fuse_and_remap(tmp_path: Path, monkeypatch) -> None:
     )
     ctx.write_json(
         "understanding/gap_report.json",
-        {"interviewer_lines": [{"line_id": "vo_seg_017", "targets_segment_id": "seg_017", "gap_type": "clarification", "text": "x", "placement": "before", "delivery": "synthesize"}]},
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_line",
+                    "targets_segment_id": "seg_017",
+                    "gap_type": "clarification",
+                    "text": "x",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
         skip_handoff=True,
     )
     verdicts = forced_diarization_fuse_verdicts(ctx)
@@ -312,6 +327,7 @@ def test_yes_fuse_and_remap(tmp_path: Path, monkeypatch) -> None:
     assert "seg_017" not in ids
     gap = ctx.read_json("understanding/gap_report.json")
     assert gap["interviewer_lines"][0]["targets_segment_id"] == "seg_016"
+    assert gap["interviewer_lines"][0]["line_id"] == "vo_line"
 
 
 def test_micro_keeper_fuse(tmp_path: Path, monkeypatch) -> None:

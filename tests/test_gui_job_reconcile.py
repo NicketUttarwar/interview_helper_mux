@@ -3,6 +3,7 @@ from __future__ import annotations
 from interview_mux.gui_job_reconcile import reconcile_stale_job, reconcile_stale_jobs
 from interview_mux.run_context import RunContext
 from interview_mux.session_log import read_log
+from run_fixtures import plant_primary_and_stamp, write_fixture_json
 
 
 def _wav_path(tmp_path) -> str:
@@ -40,7 +41,9 @@ def test_sanitize_gui_job_clears_after_reuse_decision(tmp_path, monkeypatch) -> 
         "at": "2026-01-01T00:00:00Z",
     }
     ctx.write_json("run_meta.json", meta)
-    ctx.write_json(
+    plant_primary_and_stamp(ctx, "transcribe")
+    write_fixture_json(
+        ctx,
         "gui_job.json",
         {
             "status": "needs_operator",

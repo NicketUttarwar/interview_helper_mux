@@ -47,7 +47,7 @@ def test_ranking_cta_manifest_write_permitted(tmp_path, monkeypatch: pytest.Monk
     assert ok, reason
 
 
-def test_stageinfo_declares_ranking_side_outputs() -> None:
+def test_stageinfo_declares_ranking_membership_outputs() -> None:
     from interview_mux.web.stages import DELIVERY_STAGES
 
     info = next(s for s in DELIVERY_STAGES if s.id == "full_master_ranking")
@@ -55,7 +55,19 @@ def test_stageinfo_declares_ranking_side_outputs() -> None:
     assert "master/selection.json" in outs
     assert "master/rank_candidates.json" in outs
     assert "master/story_health.json" in outs
+    # FMR S6: bridges / SDP owned by selection_order_sanitize
+    assert "understanding/reorder_bridges.json" not in outs
+    assert "understanding/speaker_delivery_plan.json" not in outs
+
+
+def test_stageinfo_sanitize_declares_ranking_side_outputs() -> None:
+    from interview_mux.web.stages import DELIVERY_STAGES
+
+    info = next(s for s in DELIVERY_STAGES if s.id == "selection_order_sanitize")
+    outs = set(info.artifacts)
+    assert "master/selection.json" in outs
     assert "understanding/reorder_bridges.json" in outs
+    assert "understanding/speaker_delivery_plan.json" in outs
 
 
 def test_deterministic_ranking_fallback_from_chapters(
@@ -266,3 +278,172 @@ def test_hard_freeze_skips_cta_child_invent(
     ids = {str(s.get("segment_id")) for s in man["segments"]}
     assert "child_new_1" not in ids
     assert "child_new_2" not in ids
+
+
+def test_fmr_s2_inject_ranking_lattice_keeps(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S2: playable primary-impact + hard_keeps land in ordered before CTA."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "fmr_s2_inject")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001"),
+            minimal_manifest_segment("seg_impact", start_ms=1000, end_ms=2000),
+            minimal_manifest_segment("seg_keep", start_ms=2000, end_ms=3000),
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "acts": [
+                {
+                    "act_id": "a1",
+                    "impact_blocks": [
+                        {"source_segment_ids": ["seg_impact"]},
+                    ],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.hard_keep.hard_keep_segment_ids",
+        lambda _ctx: {"seg_keep"},
+    )
+    from interview_mux.framing_coverage_guard import inject_ranking_lattice_keeps
+
+    out = inject_ranking_lattice_keeps(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_impact", "reason": "aside"},
+                {"segment_id": "seg_keep", "reason": "aside"},
+            ],
+        },
+    )
+    ordered = out["ordered_segment_ids"]
+    assert "seg_impact" in ordered
+    assert "seg_keep" in ordered
+    excl = {
+        str(r.get("segment_id") or "") if isinstance(r, dict) else str(r)
+        for r in (out.get("excluded_segment_ids") or [])
+    }
+    assert "seg_impact" not in excl
+    assert "seg_keep" not in excl
+
+
+def test_fmr_s2_cta_restore_keeps_primary_impact(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S2: CTA prune restore re-admits enforceable primary-impact."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "fmr_s2_cta")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001", text="Normal answer about origins."),
+            minimal_manifest_segment(
+                "seg_impact",
+                start_ms=1000,
+                end_ms=2000,
+                text="The real claim that carries the act.",
+            ),
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "acts": [
+                {
+                    "act_id": "a1",
+                    "impact_blocks": [{"source_segment_ids": ["seg_impact"]}],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.framing_coverage_guard import (
+        restore_enforceable_primary_impact_natives,
+    )
+
+    after = restore_enforceable_primary_impact_natives(
+        ctx,
+        ["seg_001", "seg_impact"],
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_impact", "reason": "media_ip_cta"}
+            ],
+        },
+    )
+    assert "seg_impact" in after["ordered_segment_ids"]
+
+
+def test_fmr_s5_contract_soft_trimmed_to_build_input() -> None:
+    """S5: soft inputs are the attach/persist set; dropped unused rows stay out."""
+    from interview_mux.stage_contract import load_contract
+
+    c = load_contract("full_master_ranking")
+    assert c is not None
+    soft = {d.path for d in c.inputs if not d.hard and d.path}
+    outs = {o.path for o in c.outputs}
+    assert "understanding/gap_framing_plan.json" in soft
+    assert "understanding/ideal_cuts_selection_seed.json" in soft
+    assert "mastering/mastering_plan.json" in soft
+    assert "understanding/nugget_corpus.json" not in soft
+    assert "understanding/nugget_layup_plan.json" not in soft
+    assert "transcript/full.json" not in soft
+    assert "master/transitions.json" not in soft
+    assert "analysis/run_golden_facts.json" not in soft
+    assert "master/order_reconcile.json" not in outs
+    # FMR S6: bridges / SDP no longer ranking outputs
+    assert "understanding/reorder_bridges.json" not in outs
+    assert "understanding/speaker_delivery_plan.json" not in outs
+
+
+def test_fmr_s6_ensure_ranking_side_artifacts(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S6: first consumer writes bridges / story_health after sealed selection."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "fmr_s6_sides")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001"),
+            minimal_manifest_segment("seg_002", start_ms=1000, end_ms=2000),
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/narrative_plan.json",
+        minimal_narrative_plan(
+            chapters=[
+                {
+                    "chapter_id": "ch1",
+                    "title": "Open",
+                    "suggested_open_segment_id": "seg_001",
+                    "segment_ids": ["seg_001", "seg_002"],
+                }
+            ]
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [],
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.ranking_side_artifacts import ensure_ranking_side_artifacts
+
+    ensure_ranking_side_artifacts(ctx, stage_key="selection_order_sanitize")
+    assert ctx.artifact_exists("understanding/reorder_bridges.json")
+    assert ctx.artifact_exists("master/story_health.json")

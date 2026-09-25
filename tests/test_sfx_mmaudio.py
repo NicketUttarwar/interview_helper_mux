@@ -4,6 +4,7 @@ import json
 
 from interview_mux.run_context import RunContext
 from interview_mux.stages import sfx_mmaudio
+from run_fixtures import confirm_test_pickup_speaker, write_fixture_json, write_fixture_theme_wav
 
 
 def test_collect_generation_items_uses_unique_plan_asset_ids(tmp_path, monkeypatch):
@@ -71,6 +72,17 @@ def test_resolve_generation_params_uses_plan_duration_not_crafted():
 def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_064", create=True)
+    confirm_test_pickup_speaker(ctx)
+    write_fixture_theme_wav(ctx, "master/assembly_preview.wav")
+    write_fixture_theme_wav(ctx, "master/assembly.wav")
+    write_fixture_json(ctx, "master/edl.json", {"clips": []})
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    epoch = dict(meta.get("delivery_epoch") or {})
+    epoch["mix_junction_seat"] = {**dict(epoch.get("mix_junction_seat") or {}), "preview_music": True}
+    meta["delivery_epoch"] = epoch
+    write_fixture_json(ctx, "run_meta.json", meta)
     ctx.write_json(
         "understanding/sound_design_plan.json",
         {
@@ -120,7 +132,10 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
     monkeypatch.setattr(sfx_mmaudio, "generate_music_clip", fake_music)
     monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: True)
     def fake_qa(c):
-        doc = {"version": 1, "assets": []}
+        doc = {
+            "version": 1,
+            "assets": [{"asset_id": "theme_emphasis_a", "verdict": "pass"}],
+        }
         c.write_json("sound_design/mmaudio_qa.json", doc, skip_handoff=True, stage_key="mmaudio_sfx")
         return doc
 

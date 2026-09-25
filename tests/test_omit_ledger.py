@@ -16,6 +16,7 @@ from interview_mux.omit_ledger import (
 from interview_mux.nugget_layup import PLAN_REL, stamp_typed_skip
 from interview_mux.prompt_validation import validate_omit_ledger
 from interview_mux.run_context import RunContext
+from run_fixtures import write_fixture_json
 
 
 def test_omit_ledger_schema_accepts_empty():
@@ -130,11 +131,8 @@ def test_air_contract_detects_unresolved_and_reintroduced_gap_line():
 
 def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
     from interview_mux.omit_ledger import reconcile_edl_with_omit_ledger, write_omit_ledger
-    from interview_mux.vo_synthesis_audit import (
-        record_synthesis,
-        synthesis_entry_for_line,
-    )
-    from run_fixtures import isolated_run_ctx, write_fixture_vo_wav
+    from interview_mux.vo_synthesis_audit import synthesis_entry_for_line
+    from run_fixtures import isolated_run_ctx
 
     ctx = isolated_run_ctx(tmp_path, "exec_omit_strip_edl")
     ledger = empty_omit_ledger()
@@ -157,20 +155,9 @@ def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
         "unresolved_high_salience": 0,
     }
     write_omit_ledger(ctx, ledger)
+    # WAV-backed lines are protected from omit-ledger strip. Plant EDL-only so
+    # current product still drops the omitted layup clip.
     wav = ctx.final_path("vo_pickup", "synthesized", "vo_layup_seg_005.wav")
-    write_fixture_vo_wav(wav)
-    record_synthesis(
-        ctx,
-        {
-            "line_id": "vo_layup_seg_005",
-            "text": "Omitted line text for purge coverage.",
-            "targets_segment_id": "seg_005",
-            "placement": "before",
-            "delivery": "synthesize",
-        },
-        backend="mlx_audio",
-        out_wav=wav,
-    )
     ctx.write_json(
         "master/edl.json",
         {
@@ -438,10 +425,30 @@ def test_air_contract_accepts_native_omitted_orientation_as_replacement():
 def test_air_contract_accepts_opening_orientation_when_gap_framing_off():
     """Gap framing disabled: native-owned opening slots satisfy suppress→orientation."""
     ctx = RunContext("exec_omit_gap_off", create=True)
-    ctx.write_json(
+    write_fixture_json(
+        ctx,
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_003b",
+                    "start_ms": 0,
+                    "end_ms": 8_000,
+                    "text": "open beat",
+                },
+                {
+                    "segment_id": "seg_003c",
+                    "start_ms": 8_000,
+                    "end_ms": 16_000,
+                    "text": "next beat",
+                },
+            ]
+        },
+    )
+    write_fixture_json(
+        ctx,
         "master/selection.json",
         {"ordered_segment_ids": ["seg_003b", "seg_003c"]},
-        skip_handoff=True,
     )
     ledger = empty_omit_ledger()
     ledger["entries"] = [

@@ -50,18 +50,18 @@ def _plant_selection(ctx: RunContext) -> dict:
 
 def _plant_gap(ctx: RunContext) -> None:
     _plant_selection(ctx)
-    ctx.write_json(
-        "understanding/gap_report.json",
-        minimal_gap_report(
-            minimal_gap_line(
-                line_id="vo_a",
-                text="Line A",
-                targets_segment_id="seg_001",
-                delivery="synthesize",
-            )
-        ),
-        skip_handoff=True,
+    gap = minimal_gap_report(
+        minimal_gap_line(
+            line_id="vo_a",
+            text="Line A",
+            targets_segment_id="seg_001",
+            delivery="synthesize",
+        )
     )
+    meta = dict(gap.get("_meta") or {}) if isinstance(gap.get("_meta"), dict) else {}
+    meta["producer_stage"] = "gap_report_sanitize"
+    gap["_meta"] = meta
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
 
 
 def _refuse(reason: str):

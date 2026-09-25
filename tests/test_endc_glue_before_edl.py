@@ -122,9 +122,10 @@ def test_endc_framing_quality_pins_compose_or_layup_never_edl(
         stage="edl_narrative_audit",
     )
     assert route is not None
-    assert route.from_stage == "nugget_layup_compose"
+    # S5: empty plan → framing owns; claimed-air miss would pin layup. Never EDL.
+    assert route.from_stage in {"nugget_layup_compose", "gap_framing_compose"}
     assert route.from_stage != "edl"
-    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
+    assert high_gap_heal_resume_stage(ctx) == "gap_framing_compose"
 
     # Without layup plan → gap_framing_compose
     plan_path = ctx.final_path(*PLAN_REL.split("/"))

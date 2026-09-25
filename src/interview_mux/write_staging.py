@@ -317,6 +317,25 @@ def write_committed_json(
         )
     except ImportError:
         pass
+    if rel == "understanding/gap_report.json" and isinstance(data, dict):
+        try:
+            from interview_mux.artifact_ownership import assert_gap_report_body_sole_writer
+
+            prior = None
+            try:
+                if ctx.artifact_exists(rel):
+                    prior = ctx.read_json(rel)
+            except Exception:
+                prior = None
+            assert_gap_report_body_sole_writer(
+                ctx,
+                stage_key=stage_key,
+                prior=prior,
+                new=data,
+                mutation_class=mutation_class,
+            )
+        except ImportError:
+            pass
     if isinstance(data, dict):
         from interview_mux.artifact_writes import _prepare_for_disk_validation
         from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
@@ -1604,7 +1623,13 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
                 from interview_mux.artifact_repairs import repair_manifest_segments
 
                 repaired, _notes = repair_manifest_segments(ctx, hydrated)
-                ctx.write_json("segments/manifest.json", repaired, stage_key=stage_id)
+                # Hydrate is segment_classification ownership — never attribute
+                # the rewrite to the flushing consumer stage (S2 / exec_13198).
+                ctx.write_json(
+                    "segments/manifest.json",
+                    repaired,
+                    stage_key="segment_classification",
+                )
         from interview_mux.stage_completion import (
             assert_stage_artifacts_complete,
             vo_synthesize_should_defer_done,
@@ -1612,35 +1637,41 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
 
         deferred = vo_synthesize_should_defer_done(ctx, stage_id)
         if deferred:
-            # Always fail-open after a successful flush: WAVs/audit are already
-            # committed. Raising here (old automation path) left .pending_writes
-            # orphans when flush never ran, and after flush discarded progress
-            # under identical×N seed_order / incomplete-after-conductor thrash.
+            # S5: bytes may already be flushed — still refuse mark_done and pin
+            # honestly (no fail-open continue-to-mix from this flush path).
+            # Mix last-chance remains an explicit later-stage policy.
             ctx.log(
-                f"vo_synthesize fail-open: {deferred} — continuing to edl/mix last-chance",
+                f"vo_synthesize incomplete after flush — refuse mark_done: {deferred}",
                 level="warning",
                 stage=stage_id,
             )
             post = after_flush_resilience(ctx, stage_id, flushed)
             if post.action == "halt" and post.acceptance_ok is False:
                 raise ValueError(
-                    "Post-flush resilience failed: " + "; ".join(post.reasons[:4] or ["unacceptable"])
+                    "Post-flush resilience failed: "
+                    + "; ".join(post.reasons[:4] or ["unacceptable"])
                 )
             record_resilience_event(
                 ctx,
                 stage_id,
                 event="stage_committed_incomplete",
-                action="pass",
+                action="halt",
                 reasons=[deferred],
-                detail={"flushed": flushed[:40], "fail_open": True},
+                detail={"flushed": flushed[:40], "fail_open": False, "honest_pin": True},
             )
             end_action(
                 trace_id,
                 run_dir=ctx.run_dir,
-                status="ok",
-                detail={"flushed": flushed, "stage_id": stage_id, "deferred_done": deferred},
+                status="error",
+                detail={
+                    "flushed": flushed,
+                    "stage_id": stage_id,
+                    "deferred_done": deferred,
+                },
             )
-            return flushed
+            raise RuntimeError(
+                f"vo_synthesize incomplete — resume vo_synthesize: {deferred}"
+            )
         assert_stage_artifacts_complete(ctx, stage_id)
         post = after_flush_resilience(ctx, stage_id, flushed)
         # Heal Success V3: retry/halt with acceptance fail must not mark_done.

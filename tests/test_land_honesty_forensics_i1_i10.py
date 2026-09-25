@@ -15,7 +15,7 @@ os.environ["MUX_FORENSICS"] = "0"
 
 import pytest
 
-from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
+from interview_mux.artifact_repairs import repair_gap_report
 from interview_mux.delivery_guardrails import (
     mix_epoch_block,
     promote_complete_orphan_stage_done,
@@ -193,10 +193,13 @@ def test_residual_mtime_defeat_does_not_clear_remaster(
     assert mix_epoch_block(ctx, stage="junction_snip_qa") is None
 
 
-def test_residual_junction_unpaid_under_remaster_owner(
+def test_residual_junction_paid_under_junction_remaster_owner(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Junction remaster owner blocks mix + junction_snip_qa promote."""
+    """S6(B): junction remaster owner is paid land for junction; mix stays unpaid.
+
+    Orphan promote of junction still refused via remaster-in-flight incompleteness.
+    """
     begin_remaster(ctx, owner="junction")
     _write_assembly(ctx)
     _mock_mix_presence(monkeypatch)
@@ -206,7 +209,7 @@ def test_residual_junction_unpaid_under_remaster_owner(
         p.write_text('{"version":1,"generated_at":"t"}', encoding="utf-8")
 
     assert unpaid_land_reason(ctx, "mix") is not None
-    assert unpaid_land_reason(ctx, "junction_snip_qa") is not None
+    assert unpaid_land_reason(ctx, "junction_snip_qa") is None
     assert promote_complete_orphan_stage_done(ctx, ("mix", "junction_snip_qa")) == []
 
 
@@ -234,15 +237,12 @@ def test_residual_repair_clears_orphan_layup_authority(
     _enable_layup(monkeypatch)
     assert not ctx.artifact_exists(PLAN_REL)
     out: dict = {"nugget_layup_authority": True, "interviewer_lines": []}
-    applied: list[dict] = []
-    _seed_missing_high_gap_interviewer_lines(
-        ctx, out, manifest_ids=set(), applied=applied
-    )
-    assert out.get("nugget_layup_authority") is False
+    patched, applied = repair_gap_report(ctx, out)
+    assert patched.get("nugget_layup_authority") is False
     assert any(
         a.get("action") == "clear_orphan_nugget_layup_authority" for a in applied
     )
-    ctx.write_json("understanding/gap_report.json", out)
+    ctx.write_json("understanding/gap_report.json", patched)
     assert layup_authority_without_plan(ctx) is False
     assert unpaid_land_reason(ctx, "gap_framing_compose") is None
 

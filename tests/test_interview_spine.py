@@ -80,11 +80,12 @@ def test_can_skip_rebuild_when_derived_from_matches(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("spine_skip", create=True)
     ctx.write_json("transcript/full.json", {"text": "hi", "words": _sample_words()})
-    sap_path = ctx.path("understanding", "source_acoustic_profile.json")
-    sap_path.parent.mkdir(parents=True, exist_ok=True)
-    sap_path.write_text(
-        json.dumps({"schema_version": 1, "pacing": {"pace_class": "conversational"}}),
-        encoding="utf-8",
+    from run_fixtures import minimal_source_acoustic_profile, write_fixture_json
+
+    write_fixture_json(
+        ctx,
+        "understanding/source_acoustic_profile.json",
+        minimal_source_acoustic_profile(),
     )
     wav = ctx.path("ingest", "normalized.wav")
     wav.parent.mkdir(parents=True, exist_ok=True)

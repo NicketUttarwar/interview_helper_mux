@@ -29,8 +29,58 @@ from interview_mux.write_staging import (
     enter_stage_staging,
     exit_stage_staging,
     promote_staged_side_effects,
+    write_committed_json,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import (
+    confirm_test_pickup_speaker,
+    isolated_run_ctx,
+    patch_merged_config,
+    write_fixture_json,
+    write_fixture_vo_wav,
+)
+
+
+def _arm_vo_path(ctx: RunContext, speaker_id: str = "spk_host") -> None:
+    confirm_test_pickup_speaker(ctx, speaker_id=speaker_id)
+    write_fixture_vo_wav(
+        ctx.final_path("understanding", "speaker_samples", f"{speaker_id}.wav"),
+        duration_sec=3.2,
+    )
+    write_fixture_json(
+        ctx,
+        f"understanding/voice_reference/{speaker_id}.json",
+        {
+            "speaker_id": speaker_id,
+            "approved": True,
+            "wav": f"understanding/speaker_samples/{speaker_id}.wav",
+        },
+    )
+    meta: dict = {}
+    if ctx.artifact_exists("run_meta.json"):
+        try:
+            existing = ctx.read_json("run_meta.json")
+            if isinstance(existing, dict):
+                meta = dict(existing)
+        except Exception:
+            meta = {}
+    meta.setdefault("gap_framing_enabled", True)
+    meta.setdefault("gap_vo_delivery", "chatterbox")
+    meta.setdefault("voice_reference_approved_at", "2026-01-01T00:00:00Z")
+    write_fixture_json(ctx, "run_meta.json", meta)
+
+
+def _plant_g1_skip(ctx: RunContext) -> None:
+    meta: dict = {}
+    if ctx.artifact_exists("run_meta.json"):
+        try:
+            existing = ctx.read_json("run_meta.json")
+            if isinstance(existing, dict):
+                meta = dict(existing)
+        except Exception:
+            meta = {}
+    meta["g1_vo_skipped_optional"] = True
+    write_fixture_json(ctx, "run_meta.json", meta)
+    write_fixture_json(ctx, "understanding/gap_fill_skip.json", {"status": "skipped"})
 
 
 def _write_wav(path: Path, *, frames: int = 4800) -> None:
@@ -314,14 +364,12 @@ def test_write_json_never_persists_ghost_source_path(tmp_path) -> None:
 
 
 def test_write_committed_json_never_persists_ghost_source_path(tmp_path) -> None:
-    from interview_mux.write_staging import write_committed_json
-
     ctx = isolated_run_ctx(tmp_path, "vo_committed")
     write_committed_json(
         ctx,
         "master/edl.json",
         _contract_edl([_ghost_transition()]),
-        stage_key="junction_snip_qa",
+        stage_key="edl",
     )
     disk = ctx.read_json("master/edl.json")
     clip = disk["clips"][0]
@@ -570,6 +618,8 @@ def test_vo_synthesize_incomplete_on_old_pair_files_only(tmp_path, monkeypatch) 
         {"analysis": {"gap_vo": {"post_synthesis_qc": {"enabled": False, "speech_qa_enabled": False}}}},
     )
     ctx = isolated_run_ctx(tmp_path, "vo_stage_done")
+    _arm_vo_path(ctx)
+    _plant_g1_skip(ctx)
     leftover = transition_wav_path(ctx, "seg_055", "seg_061")
     _write_wav(leftover)
     text = "Meanwhile the trial enrolled."
@@ -605,6 +655,22 @@ def test_remaster_sync_unlinks_vo_synthesize_done_marker(tmp_path, monkeypatch) 
 
     assert "vo_synthesize" in DELIVERY_ORDER
     ctx = isolated_run_ctx(tmp_path, "vo_opt")
+    write_fixture_json(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "delivery": "synthesize",
+                    "text": "A host question that still needs audio.",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "required": True,
+                }
+            ]
+        },
+    )
     marker = ctx.final_path(".stage_done", "vo_synthesize")
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("1", encoding="utf-8")
@@ -636,6 +702,7 @@ def test_usable_wav_without_audit_is_not_missing(tmp_path) -> None:
 
 def test_commit_persists_still_missing_pairs(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "vo_persist")
+    _arm_vo_path(ctx)
     _dump(
         ctx,
         "master/transitions.json",
@@ -645,7 +712,11 @@ def test_commit_persists_still_missing_pairs(tmp_path, monkeypatch) -> None:
         "interview_mux.transition_vo.synthesize_spoken_transitions",
         lambda *_a, **_k: [],
     )
-    still = commit_current_transition_wavs(ctx)
+    enter_stage_staging("vo_synthesize")
+    try:
+        still = commit_current_transition_wavs(ctx)
+    finally:
+        exit_stage_staging()
     assert still == ["seg_055->seg_058"]
     report = ctx.read_json("mastering/vo_synthesize.json")
     assert report["still_missing_pairs"] == ["seg_055->seg_058"]
@@ -654,6 +725,7 @@ def test_commit_persists_still_missing_pairs(tmp_path, monkeypatch) -> None:
 
 def test_commit_persists_still_missing_pairs_when_synth_raises(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "vo_persist_raise")
+    _arm_vo_path(ctx)
     _dump(
         ctx,
         "master/transitions.json",
@@ -664,8 +736,12 @@ def test_commit_persists_still_missing_pairs_when_synth_raises(tmp_path, monkeyp
         raise RuntimeError("s2s down")
 
     monkeypatch.setattr("interview_mux.transition_vo.synthesize_spoken_transitions", _boom)
-    with pytest.raises(RuntimeError, match="s2s down"):
-        commit_current_transition_wavs(ctx)
+    enter_stage_staging("vo_synthesize")
+    try:
+        with pytest.raises(RuntimeError, match="s2s down"):
+            commit_current_transition_wavs(ctx)
+    finally:
+        exit_stage_staging()
     report = ctx.read_json("mastering/vo_synthesize.json")
     assert report["still_missing_pairs"] == ["seg_055->seg_058"]
     assert report["last_source"] == "commit"
@@ -689,7 +765,17 @@ def test_vo_synthesize_defer_done_fail_open(tmp_path) -> None:
     from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
 
     ctx = isolated_run_ctx(tmp_path, "vo_defer")
-    persist_vo_pair_gap(ctx, ["seg_055->seg_058"], source="test")
+    _plant_g1_skip(ctx)
+    enter_stage_staging("vo_synthesize")
+    try:
+        persist_vo_pair_gap(
+            ctx,
+            ["seg_055->seg_058"],
+            source="test",
+            stage_key="vo_synthesize",
+        )
+    finally:
+        exit_stage_staging()
     _dump(
         ctx,
         "master/transitions.json",
@@ -704,7 +790,11 @@ def test_vo_synthesize_defer_done_fail_open(tmp_path) -> None:
     _dump(ctx, "understanding/gap_report.json", gap)
     reason = vo_synthesize_should_defer_done(ctx, "vo_synthesize")
     assert reason is not None
-    assert "seg_055->seg_058" in reason or "missing" in reason.lower()
+    assert (
+        "pending" in reason.lower()
+        or "seg_055->seg_058" in reason
+        or "missing" in reason.lower()
+    )
     assert vo_synthesize_should_defer_done(ctx, "edl") is None
 
 

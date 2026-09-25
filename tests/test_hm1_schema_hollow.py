@@ -135,7 +135,13 @@ def test_hm1_empty_agenda_is_schema_hollow(ctx: RunContext) -> None:
     assert out.get("unmarked") is True or not ctx.is_done(_AGENDA)
 
 
-def test_hm1_heuristic_agenda_maps_schema_and_marks(ctx: RunContext) -> None:
+def test_hm1_heuristic_agenda_maps_schema_and_marks(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda *_a, **_k: False,
+    )
     run_mastering_shape_agenda(ctx)
     agenda = ctx.read_json("mastering/shape/agenda.json")
     assert agenda.get("steps")
@@ -174,7 +180,13 @@ def test_hm1_ensure_schema_agenda_fills_missing_keys() -> None:
     assert validate_mastering_shape_agenda(out) == []
 
 
-def test_hm1_candidates_heuristic_marks(ctx: RunContext) -> None:
+def test_hm1_candidates_heuristic_marks(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda *_a, **_k: False,
+    )
     run_mastering_shape_agenda(ctx)
     run_mastering_shape_candidates(ctx)
     doc = ctx.read_json("mastering/shape/candidates.json")
@@ -183,10 +195,16 @@ def test_hm1_candidates_heuristic_marks(ctx: RunContext) -> None:
     assert stage_artifact_incompleteness(ctx, _CAND) is None
 
 
-def test_msc_b1_empty_modes_forced_sparse_survivor(ctx: RunContext) -> None:
+def test_msc_b1_empty_modes_forced_sparse_survivor(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """MSC-B1: explicit empty mode_candidates still yields ≥1 forced-sparse survivor + done."""
     from interview_mux.prompt_validation import validate_mastering_shape_candidates
 
+    monkeypatch.setattr(
+        "interview_mux.mastering_shape_runtime.shape_llm_enabled",
+        lambda *_a, **_k: False,
+    )
     ctx.write_json(
         "mastering/shape/agenda.json",
         {

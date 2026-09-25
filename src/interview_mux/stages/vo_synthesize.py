@@ -10,62 +10,18 @@ STAGE_ID = "vo_synthesize"
 REPORT_REL = "mastering/vo_synthesize.json"
 
 
-def run_vo_synthesize(ctx: RunContext) -> None:
-    """Generate current-pair transition audio, then fail-open remaining synthesize gap lines."""
-    from interview_mux.gap_vo_gates import (
-        gap_framing_enabled,
-        require_vo_path_ready,
-        rewrite_full_auto_record_lines_to_synth,
-    )
+def _render_required_vo_wavs(ctx: RunContext) -> tuple[list[str], list[str]]:
+    """S7: one render job — current-pair transitions + seated gap WAVs + bind heal.
+
+    Two input artifacts (``transitions.json`` + ``gap_report``) feed one spoken
+    render surface; do not treat them as competing SSOTs.
+    """
     from interview_mux.stages.assembly import resync_required_synthesize_wavs
     from interview_mux.transition_vo import (
         current_transition_pairs_missing,
-        restamp_edl_transition_source_paths,
         synthesize_spoken_transitions,
     )
     from interview_mux.write_staging import promote_staged_side_effects
-
-    if gap_framing_enabled(ctx):
-        try:
-            require_vo_path_ready(ctx, for_synthesize=True, auto_accept=True)
-        except SystemExit as exc:
-            msg = str(exc)
-            if "no synthesize lines" in msg.lower():
-                try:
-                    from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
-
-                    ident = identify_hosted_vo_floor(
-                        ctx, stage_id=STAGE_ID, persist=True
-                    )
-                    ctx.log(
-                        f"vo_synthesize refused: {msg} ({ident.prose})",
-                        level="warning",
-                        stage=STAGE_ID,
-                    )
-                except Exception:
-                    pass
-            raise
-
-    # VS-B3: unattended Full-auto owns formerly record-required lines via synth.
-    rewrite_full_auto_record_lines_to_synth(ctx)
-
-    # Align gap skipped_optional with omit ledger before G1 / resync (End-A under
-    # freeze). Without this, ledger-omitted layups stay G1-red while synth no-ops.
-    try:
-        from interview_mux.omit_ledger import stamp_gap_report_omit_skips
-
-        stamped = stamp_gap_report_omit_skips(ctx)
-        if stamped:
-            ctx.log(
-                f"vo_synthesize: stamped {stamped} omit-ledger skip(s) onto gap_report",
-                stage=STAGE_ID,
-            )
-    except Exception as exc:
-        ctx.log(
-            f"vo_synthesize: omit-ledger gap stamp incomplete: {exc}",
-            level="warning",
-            stage=STAGE_ID,
-        )
 
     attempted: list[str] = []
     if ctx.artifact_exists("master/transitions.json"):
@@ -105,27 +61,70 @@ def run_vo_synthesize(ctx: RunContext) -> None:
             from interview_mux.vo_bind_authority import heal_seated_bind_mismatch
 
             heal = heal_seated_bind_mismatch(ctx, attempt_synth=True)
-            if heal.get("omitted") or heal.get("resynthesized"):
+            if heal.get("refused") or heal.get("resynthesized"):
                 ctx.log(
                     "vo_synthesize: seated bind heal "
-                    f"resynth={heal.get('resynthesized')} omit={heal.get('omitted')}",
+                    f"resynth={heal.get('resynthesized')} refused={heal.get('refused')}",
                     stage=STAGE_ID,
                 )
+    return attempted, gap_notes
 
-    try:
-        restamp_edl_transition_source_paths(ctx)
-    except Exception:
-        pass
-    try:
-        from interview_mux.stages.assembly import restamp_edl_vo_pickup_source_paths
 
-        restamp_edl_vo_pickup_source_paths(ctx)
+def run_vo_synthesize(ctx: RunContext) -> None:
+    """Admit → render required spoken VO → seal.
+
+    S1: EDL ``source_path`` bind lives on ``edl`` (not here).
+    S3/S6: Full-auto record→synth + opening orientation live on ``vo_line_adjudicate``.
+    S7: transition + gap mint is one render job (``_render_required_vo_wavs``).
+    """
+    from interview_mux.gap_vo_gates import (
+        gap_framing_enabled,
+        require_vo_path_ready,
+    )
+    from interview_mux.transition_vo import current_transition_pairs_missing
+    from interview_mux.write_staging import promote_staged_side_effects
+
+    if gap_framing_enabled(ctx):
+        try:
+            require_vo_path_ready(ctx, for_synthesize=True, auto_accept=True)
+        except SystemExit as exc:
+            msg = str(exc)
+            if "no synthesize lines" in msg.lower():
+                try:
+                    from interview_mux.hosted_vo_authority import identify_hosted_vo_floor
+
+                    ident = identify_hosted_vo_floor(
+                        ctx, stage_id=STAGE_ID, persist=True
+                    )
+                    ctx.log(
+                        f"vo_synthesize refused: {msg} ({ident.prose})",
+                        level="warning",
+                        stage=STAGE_ID,
+                    )
+                except Exception:
+                    pass
+            raise
+
+    # Align gap skipped_optional with omit ledger before G1 / resync (End-A under
+    # freeze). Without this, ledger-omitted layups stay G1-red while synth no-ops.
+    try:
+        from interview_mux.omit_ledger import stamp_gap_report_omit_skips
+
+        stamped = stamp_gap_report_omit_skips(ctx)
+        if stamped:
+            ctx.log(
+                f"vo_synthesize: stamped {stamped} omit-ledger skip(s) onto gap_report",
+                stage=STAGE_ID,
+            )
     except Exception as exc:
         ctx.log(
-            f"vo_synthesize: VO bind restamp incomplete: {exc}",
+            f"vo_synthesize: omit-ledger gap stamp incomplete: {exc}",
             level="warning",
             stage=STAGE_ID,
         )
+
+    attempted, gap_notes = _render_required_vo_wavs(ctx)
+
     try:
         promote_staged_side_effects(
             ctx, ("master/transitions/", "vo_pickup/"), stage_id=STAGE_ID

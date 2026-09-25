@@ -44,7 +44,6 @@ def enforce_mix_completeness(
     hard_vo = bool(cfg.get("hard_fail_missing_blocking_vo", True))
     hard_speech = bool(cfg.get("hard_fail_empty_speech", True))
     soft_sfx = bool(cfg.get("soft_fail_sfx_placeholder", True)) or allow_placeholder_mix()
-    last_chance = bool((merged_config().get("mix") or {}).get("missing_vo_retry_once", True))
 
     def _id_list(raw: Any) -> list[str]:
         """Accept id sequences; ignore int counts / other non-iterables (DEEP-MIX)."""
@@ -116,11 +115,10 @@ def enforce_mix_completeness(
         except Exception:
             pass
 
-    # Last-chance mix retry already ran (or is the policy): warn, do not hard-block ship.
+    # S4: mix does not last-chance synth — missing VO blocks when hard_vo + block/first_try.
     block_for_vo = (
         bool(vo)
         and hard_vo
-        and not last_chance
         and (mode == "block" or first_try_mode_enabled())
     )
     block_for_sfx = bool(sfx) and mode == "block" and not soft_sfx

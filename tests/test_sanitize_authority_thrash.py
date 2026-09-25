@@ -146,10 +146,10 @@ def test_gap_commit_records_authority_undo() -> None:
         "interviewer_lines": [],
         "gaps": [],
     }
-    commit_gap_report_doc(ctx, doc, reason="test", stage_key="gap_report")
+    commit_gap_report_doc(ctx, doc, reason="test", stage_key="gap_framing_compose")
     assert ctx.artifact_exists("understanding/gap_report.json")
     # Second commit with same content hash should not halt; oscillating hashes do.
-    commit_gap_report_doc(ctx, doc, reason="test2", stage_key="gap_report")
+    commit_gap_report_doc(ctx, doc, reason="test2", stage_key="gap_framing_compose")
     assert ctx.artifact_exists("operator/authority_undo.json")
 
 
@@ -290,4 +290,67 @@ def test_selection_metadata_align_sanitize_oscillation_not_halt(
         )
     assert row.get("halt") is False
     assert "selection_metadata_co_write" in str(row.get("reason") or "")
+
+
+def test_s4_meta_only_commit_preserves_producer_stage(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S4: order-unchanged selection commit keeps prior producer_stage."""
+    import json
+    import os
+
+    os.environ["MUX_FORENSICS"] = "0"
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from run_fixtures import isolated_run_ctx, minimal_manifest, patch_executions_root
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = isolated_run_ctx(tmp_path, "s4_preserve_producer")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_010", "seg_020"),
+        skip_handoff=True,
+    )
+    ctx.path("segments").mkdir(parents=True, exist_ok=True)
+    (ctx.path("segments") / "boundaries.json").write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {"segment_id": "seg_010", "start_ms": 0, "end_ms": 500},
+                    {"segment_id": "seg_020", "start_ms": 600, "end_ms": 1200},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    sel = {
+        "ordered_segment_ids": ["seg_010", "seg_020"],
+        "excluded_segment_ids": [],
+        "chapters": [
+            {"title": "Old", "segment_ids": ["seg_010", "seg_020"]},
+        ],
+        "order_content_hash": "abc",
+        "_meta": {"producer_stage": "selection_order_sanitize"},
+    }
+    ctx._one_writer_raw = True
+    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    updated = dict(sel)
+    updated["chapters"] = [
+        {"title": "Aligned", "segment_ids": ["seg_010", "seg_020"]},
+    ]
+    out = commit_selection_mutation(
+        ctx,
+        updated,
+        producer="edl_narrative_metadata_align",
+        stage_key="edl_narrative_audit",
+        checkpoint_mode="detect",
+        skip_checkpoint=True,
+        write_committed=True,
+    )
+    meta = out.get("_meta") if isinstance(out.get("_meta"), dict) else {}
+    assert meta.get("producer_stage") == "selection_order_sanitize"
+    disk = ctx.read_json("master/selection.json")
+    disk_meta = disk.get("_meta") if isinstance(disk.get("_meta"), dict) else {}
+    assert disk_meta.get("producer_stage") == "selection_order_sanitize"
+    assert (disk.get("ordered_segment_ids") or []) == ["seg_010", "seg_020"]
 

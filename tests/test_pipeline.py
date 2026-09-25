@@ -4,7 +4,7 @@ import pytest
 
 from interview_mux import pipeline
 from interview_mux.analysis_memory import default_analysis_state
-from run_fixtures import ctx_from_fixture
+from run_fixtures import ctx_from_fixture, plant_primary_and_stamp
 
 def _bypass_upstream_llm_checks(monkeypatch) -> None:
     monkeypatch.setattr(
@@ -88,7 +88,11 @@ def test_run_delivery_blocks_when_profile_unverified(tmp_path):
 
 def test_run_single_stage_transcript_review_build_pauses_when_queue_exists(tmp_path, monkeypatch):
     ctx = ctx_from_fixture(tmp_path)
+    plant_primary_and_stamp(ctx, "audio_preclean")
+    plant_primary_and_stamp(ctx, "ingest")
+    plant_primary_and_stamp(ctx, "audio_probe_build")
     _bypass_stage_input_checks(monkeypatch)
+    _bypass_upstream_llm_checks(monkeypatch)
     monkeypatch.setattr(
         pipeline,
         "_analysis_stage_fns",
@@ -148,10 +152,8 @@ def test_run_delivery_smoke_uses_fixture_run_dir_without_external_calls(tmp_path
 
     pipeline.run_delivery(ctx)
 
-    # Fixture gap is already sanitary → prepare_delivery_guardrails seals
-    # gap_report_sanitize done before the walk, so the stub is not invoked.
-    assert called == [s for s in DELIVERY_ORDER if s != "gap_report_sanitize"]
-    assert ctx.is_done("gap_report_sanitize")
+    # Production no longer pre-seals gap_report_sanitize before the delivery walk.
+    assert called == list(DELIVERY_ORDER)
 
 def test_sound_design_disabled_skips_spend_stages(tmp_path, monkeypatch):
     from interview_mux.stages import sound_design_stages

@@ -36,11 +36,28 @@ def _seed_mix_seated_delivery_sdp(ctx: RunContext) -> None:
     sdp = {
         "version": 1,
         "_meta": {"producer_stage": "sound_design_plan"},
-        "palettes": [{"palette_id": "theme_default", "segment_ids": ["seg_002"]}],
+        "coherence": {
+            "sonic_identity": "test",
+            "primary_mood": "warm",
+            "density": "sparse",
+        },
+        "palettes": [
+            {
+                "palette_id": "theme_default",
+                "theme_label": "test",
+                "keywords": ["underscore"],
+                "ambient_description": "Soft bed.",
+                "accent_description": "Light accent.",
+                "avoid": ["vocals"],
+                "segment_ids": ["seg_002"],
+            }
+        ],
         "assets": [
             {
                 "asset_id": "show_theme_v1_underscore_loop",
                 "role": "theme_underscore",
+                "description": "Soft bed loop.",
+                "duration_seconds": 12.0,
                 "path": "assets/show_theme_v1_underscore_loop.wav",
             }
         ],
@@ -58,6 +75,7 @@ def _seed_mix_seated_delivery_sdp(ctx: RunContext) -> None:
                 ],
             }
         },
+        "generated": {},
     }
     path = ctx.final_path("understanding", "sound_design_plan.json")
     path.parent.mkdir(parents=True, exist_ok=True)
