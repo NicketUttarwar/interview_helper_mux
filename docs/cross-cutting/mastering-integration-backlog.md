@@ -82,7 +82,7 @@ Code cutover is **not** implied by this doc — implement per stage with fail-op
 | F1 | `tests/fixtures/tbiy/*`, `test_tbiy_*` | migrate | → mastering fixtures / excellence-filter cases |
 | F2 | stage-volley-matrix, delivery-quality matrix, config-keys, speech-to-speech VO | migrate | Add mastering rows; note TBIY heritage |
 | F3 | artifact_root_cause / lifecycle `tbiy_affected` | rename | → `mastering_affected` |
-| F4 | [tbiy-production-profile.md](./tbiy-production-profile.md) | docs-done | Historical; points here |
+| F4 | TBIY heritage (folded into Mastering Process) | docs-done | Historical; points here |
 | F5 | INDEX / AGENTS / NORTH_STAR / episode-architecture-spine | docs-done | Link Mastering Process |
 
 ## G. Quality Hardening layer

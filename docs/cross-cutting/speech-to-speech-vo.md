@@ -220,7 +220,7 @@ Store `synthesis_context_ms` in VO line metadata for audit (`vo_pickup_trim` / `
 
 **Quality improvement**
 
-- Gap metadata today shapes **LLM text only**; audio delivery is unconstrained. Wrong tone at act transitions sounds like a producer note, not story (especially TBIY-style frame/reactor bridges — [tbiy-production-profile.md](./tbiy-production-profile.md)).
+- Gap metadata today shapes **LLM text only**; audio delivery is unconstrained. Wrong tone at act transitions sounds like a producer note, not story (especially TBIY-style frame/reactor bridges).
 - Beds/stingers set mood **under** speech; tone-correct VO **carries** narrative between clips.
 - Master sounds **directed**, not assembled.
 
@@ -369,4 +369,4 @@ Pair-named transition WAVs (`master/transitions/tr_{after}_{before}.wav`) are bo
 - [pipeline/audio_preclean/README.md](../pipeline/audio_preclean/README.md) — pickup noise (complements, does not replace VC)
 - [sound-design.md](./sound-design.md) — VO bridge cues and mix order
 - [post-generation-placement.md](./post-generation-placement.md) — crossfade defaults at speech joins
-- [tbiy-production-profile.md](./tbiy-production-profile.md) — pickup voice invariant, act bridges
+- [mastering-process.md](./mastering-process.md) — pickup voice invariant (TBIY heritage retained there)

@@ -12,14 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "interview_mux"
-CENSUS_MD = (
-    REPO_ROOT
-    / ".cursor"
-    / "heal-clinic"
-    / "classes"
-    / "hollow_pass"
-    / "done_constitution_census.md"
-)
+# Census is HEAD source — no campaign markdown pack.
 
 # Unpaid-land reason family substrings that must remain in unpaid_land_reason.
 UNPAID_FAMILY_SUBSTRINGS: tuple[str, ...] = (
@@ -87,7 +80,8 @@ def iter_src_py() -> list[Path]:
 
 
 def read_census() -> str:
-    return CENSUS_MD.read_text(encoding="utf-8")
+    """Joined ``src/interview_mux`` text — Land Honesty pins live in code."""
+    return "\n".join(p.read_text(encoding="utf-8") for p in iter_src_py())
 
 
 def disk_mapped_hollow_stages() -> list[str]:

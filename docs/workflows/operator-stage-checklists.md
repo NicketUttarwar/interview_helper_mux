@@ -149,7 +149,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `content_context` | Transcript length ≥ ~80 chars; G0 complete | Extend transcript or complete G0 |
 | `boundary_detection` | `speakers.json` with ≥1 `interviewer`; `pause_ladder_hints` + SAP `pace_class` in volley | Re-run `speaker_roles` or edit speakers; `--from-stage boundary_detection` after G0 timestamp fix |
 | `interview_spine_build` | `understanding/interview_spine.json` when enabled; CLAP optional (`retrieval.enabled: false` fail-open) | `--from-stage interview_spine_build` or **Recompute spine**; complete G0 + SAP first |
-| `source_topology_build` (TBIY) | `source_topology.json` + `flow_adaptation.json`; when `production_style=tbiy_narrative`, the stage panel shows conformance score / acts / moat / VO-bridge modes | Confirm topology + pickup speaker; see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md) |
+| `source_topology_build` (TBIY) | `source_topology.json` + `flow_adaptation.json`; when `production_style=tbiy_narrative`, the stage panel shows conformance score / acts / moat / VO-bridge modes | Confirm topology + pickup speaker; see [mastering-process.md](../cross-cutting/mastering-process.md) |
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
 | Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review the coherence panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |

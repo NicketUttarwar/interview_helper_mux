@@ -117,20 +117,6 @@ def test_gate_marker_only_primary_exempt() -> None:
 
 def test_census_pack_and_modules_mention_apis() -> None:
     root = Path(__file__).resolve().parents[1]
-    census = (
-        root
-        / ".cursor"
-        / "heal-clinic"
-        / "classes"
-        / "hollow_pass"
-        / "done_constitution_census.md"
-    )
-    assert census.is_file()
-    text = census.read_text(encoding="utf-8")
-    assert "honest_restamp" in text
-    assert "may_skip_as_complete" in text
-    assert "unpaid_land_reason" in text
-    assert "land_honest" in text
     src = root / "src" / "interview_mux"
     assert "honest_restamp" in (src / "delivery_invariants.py").read_text(encoding="utf-8")
     assert "may_skip_as_complete" in (src / "pipeline.py").read_text(encoding="utf-8")

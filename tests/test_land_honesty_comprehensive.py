@@ -611,18 +611,11 @@ def test_exhausted_remutate_does_not_block_promote(
 
 
 def test_census_doc_lists_land_honesty_apis() -> None:
-    census = (
-        _REPO
-        / ".cursor"
-        / "heal-clinic"
-        / "classes"
-        / "hollow_pass"
-        / "done_constitution_census.md"
+    text = (_REPO / "src" / "interview_mux" / "done_authority.py").read_text(
+        encoding="utf-8"
     )
-    text = census.read_text(encoding="utf-8")
     assert "unpaid_land_reason" in text
     assert "land_honest" in text
-    assert "Land Honesty" in text
 
 
 def test_i1_and_i10_cascade_modules_imported() -> None:

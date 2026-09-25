@@ -64,14 +64,8 @@ def test_pipeline_shared_analysis_uses_land_honest_or_seed() -> None:
 
 
 def test_census_documents_land_honesty() -> None:
-    census = (
-        _REPO
-        / ".cursor"
-        / "heal-clinic"
-        / "classes"
-        / "hollow_pass"
-        / "done_constitution_census.md"
+    text = (_REPO / "src" / "interview_mux" / "done_authority.py").read_text(
+        encoding="utf-8"
     )
-    text = census.read_text(encoding="utf-8")
     assert "unpaid_land_reason" in text
     assert "land_honest" in text

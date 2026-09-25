@@ -291,7 +291,7 @@ One delivery path. Execute with `mode: "delivery"` (optionally with `from_stage`
 
 ### TBiy production profile gates
 
-When `production_profiles.active` is `tbiy` (see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md)):
+When `production_profiles.active` is `tbiy` (see [mastering-process.md](../cross-cutting/mastering-process.md)):
 
 | Panel | Stage `id` | API | Notes |
 |-------|------------|-----|-------|

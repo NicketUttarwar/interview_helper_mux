@@ -1,6 +1,6 @@
 """H-08 is not ready: nothing in the contract system replaces `seed_policy.py`.
 
-[subtraction-holes.md](../docs/cross-cutting/subtraction-holes.md) H-08 proposes deleting
+H-08 proposed deleting
 `seed_policy.py` (104L) on the grounds that "the solver picks the lowest seed index", and
 concedes in the same row that `ensure_sticky_seed_mark` "has no equivalent". The
 subtraction bar asks for a test that *proves* the replacement enforces what the deleted

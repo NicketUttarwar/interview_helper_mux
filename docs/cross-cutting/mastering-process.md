@@ -2,7 +2,7 @@
 
 > **One interview → one bespoke `master/master.wav`.** Structure emerges from source + assets + operator intent — never from a fixed template.
 
-**TBIY heritage:** [tbiy-production-profile.md](./tbiy-production-profile.md) was the original Wondery-style compass. The Mastering Process **evolves past TBIY**. Five-act / moat / dual-voice are optional tools when evidence supports them — not an enforced compass. Useful TBIY discipline retained: **prefer pickup-eligible (least-spoken) voice for new VO** (any on-tape speaker allowed with consent when needed); never invent unspoken dialogue; speech-wins ducking under speaker volleys.
+**TBIY heritage:** the original Wondery-style compass is superseded. The Mastering Process **evolves past TBIY**. Five-act / moat / dual-voice are optional tools when evidence supports them — not an enforced compass. Useful TBIY discipline retained: **prefer pickup-eligible (least-spoken) voice for new VO** (any on-tape speaker allowed with consent when needed); never invent unspoken dialogue; speech-wins ducking under speaker volleys.
 
 **Reliability layer:** [mastering-quality-hardening.md](./mastering-quality-hardening.md) — routing, evidence packets, diversity, feasibility, semantic integrity, clone consent, auditions, multi-critic L4, Pareto, closed-loop polish. Shape hardening gates remain soft by default; **listen delight is an authoritative ship gate** (see [NORTH_STAR.md](../../NORTH_STAR.md)).
 

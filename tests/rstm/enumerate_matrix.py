@@ -29,10 +29,9 @@ except ModuleNotFoundError:
     )
 
 ROOT = Path(__file__).resolve().parents[2]
-RSTM_DIR = ROOT / ".cursor/plans/rstm"
+RSTM_DIR = ROOT / "tests" / "rstm"
 MATRIX_JSON = RSTM_DIR / "matrix.json"
 MATRIX_MD = RSTM_DIR / "matrix.md"
-CATALOG_INDEX = ROOT / ".cursor/plans/failure_catalog/INDEX.md"
 
 GATES = (
     "G0",
@@ -46,7 +45,7 @@ GATES = (
 
 MODES = ("manual", "full_auto", "partial")
 
-# Wave-A P0/P1 surfaces (stage or symbolic) for D3 seeding — from failure_catalog INDEX.
+# Wave-A P0/P1 surfaces (stage or symbolic) for D3 seeding.
 P0_SURFACES: list[tuple[str, str]] = [
     ("XC-HOLLOW-01", "content_context"),
     ("SYN-SHAPE-01", "mastering_plan_synthesize"),

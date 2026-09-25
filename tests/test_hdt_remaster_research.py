@@ -314,41 +314,6 @@ def test_hdt_walk_reason_strings_are_stable(reason: str) -> None:
     assert f'reason="{reason}"' in agenda or f"reason='{reason}'" in agenda or reason in agenda
 
 
-# --- Docs deliverables exist --------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "rel",
-    [
-        "docs/v2/homunculus-010-hdt-axes.md",
-        "docs/v2/homunculus-010-gate-combo-matrix.md",
-        "docs/v2/homunculus-010-input-variance.md",
-        "docs/v2/homunculus-010-stage-edge-matrix.md",
-        "docs/v2/homunculus-010-flow-pattern-breaks.md",
-        "docs/v2/homunculus-010-prompt-host-parity.md",
-        "docs/v2/homunculus-010-hdt-coverage-ledger.md",
-        ".cursor/plans/homunculus-010-hdt-coverage-ledger.json",
-    ],
-)
-def test_hdt_research_artifacts_exist(rel: str) -> None:
-    assert Path(rel).is_file(), rel
-
-
-def test_hdt_stage_edge_matrix_lists_every_stage() -> None:
-    text = Path("docs/v2/homunculus-010-stage-edge-matrix.md").read_text(encoding="utf-8")
-    for sid in (*ANALYSIS_ORDER, *DELIVERY_ORDER):
-        assert f"`{sid}`" in text, sid
-
-
-def test_hdt_coverage_ledger_has_high_severity_backlog() -> None:
-    doc = json.loads(
-        Path(".cursor/plans/homunculus-010-hdt-coverage-ledger.json").read_text(encoding="utf-8")
-    )
-    rows = doc["high_severity_uncovered_for_durable"]
-    assert any(r["id"] == "blast-radius-unwired" for r in rows)
-    assert doc["counts"]["blast_radius_wired"] is False
-
-
 def test_hdt_music_epoch_incomplete_without_assets() -> None:
     ctx = _ctx_010()
     assert music_epoch_complete(ctx) is False

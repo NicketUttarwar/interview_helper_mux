@@ -36,7 +36,6 @@ Hub for **interview_helper_mux v2** — one messy interview → structured `mast
 - [cross-cutting/mastering-eval-corpus.md](./cross-cutting/mastering-eval-corpus.md) — fixture taxonomy + quality metrics
 - [cross-cutting/mastering-integration-backlog.md](./cross-cutting/mastering-integration-backlog.md) — TBIY → mastering migration backlog
 - [cross-cutting/refinement-passes.md](./cross-cutting/refinement-passes.md) — Refinement Pass: L0 agenda, L1 gate, CFI ledger, flow integrity
-- [cross-cutting/tbiy-production-profile.md](./cross-cutting/tbiy-production-profile.md) — TBIY heritage (superseded as strategy)
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — pinned deps, CVE gate (AWS = Terraform + boto3, never AWS CLI)
 - [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — DeepFilterNet + MMAudio + CLAP
 - [cross-cutting/podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md) — The War Room S3 + CloudFront RSS (Terraform state + boto3 publish)

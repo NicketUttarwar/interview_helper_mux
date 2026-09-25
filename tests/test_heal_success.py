@@ -118,15 +118,6 @@ def test_v8_partial_full_auto_parity(ctx, monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_census_and_caller_wiring() -> None:
     root = Path(__file__).resolve().parents[1]
-    census = (
-        root
-        / ".cursor"
-        / "heal-clinic"
-        / "classes"
-        / "heal_validate_stage_fail"
-        / "heal_success_census.md"
-    )
-    assert census.is_file()
     src = root / "src" / "interview_mux"
     assert "finalize_heal_success" in (src / "recovery_controller.py").read_text(
         encoding="utf-8"

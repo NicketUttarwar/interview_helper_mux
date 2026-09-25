@@ -61,22 +61,13 @@ def test_writer_restamp_uses_honest_restamp() -> None:
 
 
 def test_writer_census_families_in_code_and_md() -> None:
-    census = lh.read_census()
-    assert "## Writer census" in census
     src_blob = "\n".join(p.read_text(encoding="utf-8") for p in lh.iter_src_py())
     for label, needle in lh.WRITER_FAMILY_NEEDLES:
         assert needle in src_blob, f"writer family {label}: missing {needle}"
-        # Census table names the site (substring of needle without def)
-        site = needle.replace("def ", "")
-        assert site in census or label.split()[0].lower() in census.lower(), (
-            f"census missing writer site for {label}"
-        )
 
 
 def test_writer_hollow_done_guard_documented_in_census() -> None:
     """Runtime hollow escalate is detection (not a stamp writer) but must stay listed."""
-    census = lh.read_census()
-    assert "hollow_done_guard" in census
     assert (lh.SRC_ROOT / "hollow_done_guard.py").is_file()
     text = (lh.SRC_ROOT / "hollow_done_guard.py").read_text(encoding="utf-8")
     assert "land_honest" in text
@@ -102,8 +93,6 @@ def test_advance_must_honest_modules() -> None:
 
 
 def test_advance_detection_only_allowlist_documented() -> None:
-    census = lh.read_census()
-    assert "DETECTION" in census or "detection" in census.lower()
     for rel in ("homunculus/agenda.py", "hollow_done_guard.py"):
         assert rel in lh.DETECTION_ONLY or rel.split("/")[-1] in " ".join(
             lh.DETECTION_ONLY

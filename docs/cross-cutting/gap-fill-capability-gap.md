@@ -9,7 +9,7 @@ satisfied, so every re-run of an analysis stage regenerates blind instead of ret
 **Related:**
 
 - [artifact-generation-and-validation.md](./artifact-generation-and-validation.md) — the contract this gap breaks
-- [subtraction-holes.md](./subtraction-holes.md) §1.4, §1.4.2 — the campaign that deleted the (already orphaned) injector
+- Guardrail subtraction later deleted the already-orphaned injector; the gap predates that campaign
 
 ---
 

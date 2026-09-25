@@ -1,6 +1,6 @@
 """H-02 is not ready: the contract system does not replace the recovery playbooks.
 
-[subtraction-holes.md](../docs/cross-cutting/subtraction-holes.md) H-02 proposes deleting
+H-02 proposed deleting
 `recovery_controller.py` (1,816L), justified for one of its 37 error classes by plan §2.3:
 "solver admissibility makes `seed order` unreachable by construction". The rest of the row
 already says the other 35 have no replacement.

@@ -41,7 +41,7 @@ The product is not “glue leftover clips.” **Shape / Mastering Process** choo
 
 Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-process.md)** — **8-wave research** → Shape Composition Engine (mutation search over native/synthetic/sonic ensembles) → realization → `master/master.wav`.
 
-First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narrative-mode-and-montage.md](docs/cross-cutting/narrative-mode-and-montage.md)) — realized through gap VO, selection, EDL, and mode-aware **musical** sound design (MusicGen motif family; no whoosh/tick/foley). TBIY is historical inspiration only ([tbiy-production-profile.md](docs/cross-cutting/tbiy-production-profile.md)).
+First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narrative-mode-and-montage.md](docs/cross-cutting/narrative-mode-and-montage.md)) — realized through gap VO, selection, EDL, and mode-aware **musical** sound design (MusicGen motif family; no whoosh/tick/foley). TBIY is historical inspiration only.
 
 ## Success criteria
 

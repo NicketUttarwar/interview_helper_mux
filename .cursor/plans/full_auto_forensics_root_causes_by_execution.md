@@ -664,7 +664,7 @@ Not listed as forensics campaign roots, but HEAD now implements five heal SSOTs 
 | heal_validate_stage_fail | `heal_success.finalize_heal_success` | implemented |
 | post_heal_budget_thrash | `heal_post_accounting.finalize_post_heal_accounting` | implemented |
 
-Source: `.cursor/heal-clinic/heal_readiness.md` (Wave 3 complete). Residuals there are allowlist/exception drift and P6 (walk `max_invokes` not epoch’d on recover) — see OPEN below.
+Source: Heal Clinic Wave 3 (pack removed). Residuals then were allowlist/exception drift and P6 (walk `max_invokes` not epoch’d on recover) — see OPEN below.
 
 ---
 
@@ -703,9 +703,9 @@ HAU speech-first filter test debt (**closed**): `test_filter_phase_a_before_spee
 
 | Risk | Why it matters | Where tracked |
 |------|----------------|---------------|
-| **Heal Clinic residual P6** | Walk `max_invokes` not reset on recover; sticky still sealed/token-only; empty `POST_HEAL_EPOCH_ALLOW` by design — misuse reopens budget thrash | `.cursor/heal-clinic/heal_readiness.md` |
+| **Heal residual P6** | Walk `max_invokes` not reset on recover; sticky still sealed/token-only; empty `POST_HEAL_EPOCH_ALLOW` by design — misuse reopens budget thrash | `homunculus/budget` / `thrash_hardening` |
 | **Pin / playbook allowlist drift** | New navigators that bypass `resolve_heal_from_stage` or widen `RECOVER_PLAYBOOK_ALLOW` reintroduce wrong_pin / false recovered | Heal Clinic readiness residuals |
-| **XC-HOLLOW-01 and failure_catalog OPEN_RISK crosscuts** | Many analysis stages still lack incompleteness/heal coverage; G1 fail-open; music-epoch / delight-authoritative / heal-navigate-pins still flagged OPEN_RISK in catalog | `.cursor/plans/failure_catalog/crosscuts.md` |
+| **XC-HOLLOW-01 / analysis incompleteness** | Many analysis stages still lack incompleteness/heal coverage; G1 fail-open; music-epoch / delight-authoritative / heal-navigate-pins historically OPEN_RISK | `stage_completion` / `done_authority` |
 | **`gap_vo_rebudget.py`** | Post-ranking VO density re-budget — new coupling to floor/topup honesty; not in original forensics root index | `src/interview_mux/gap_vo_rebudget.py` |
 | **Listen-delight / live soak** | Explicitly outside Heal Clinic claim; tape quality and first-try finish not guaranteed | heal_readiness operator verdict |
 | **Sibling HINT cousins (13161/63/65)** | Not intervene-logged; VO ladder / freeze / wrong-pin cousins may still appear on Partial/HINT | named exec HINT only |
@@ -735,7 +735,7 @@ HAU speech-first filter test debt (**closed**): `test_filter_phase_a_before_spee
 | **SUPERSEDED** | 1 (missing-assembly precede) |
 | **PARTIAL** | ~3 (serve reload ops, thin CTA-retry naming, by-design unsatisfiable) |
 | Report product roots still **OPEN** | **0** |
-| **NEW RISK / catalog OPEN_RISK** | Heal Clinic residuals + failure_catalog crosscuts + no post-residual fresh ship |
+| **NEW RISK / catalog OPEN_RISK** | Heal residuals + analysis incompleteness + no post-residual fresh ship |
 
 ---
 
@@ -750,4 +750,4 @@ HAU speech-first filter test debt (**closed**): `test_filter_phase_a_before_spee
 
 ---
 
-*Audit date: 2026-09-23. Based on HEAD product symbols, cascade collection under `MUX_FORENSICS=0`, Heal Clinic readiness, and failure_catalog crosscuts. Does not claim a new fresh ship has re-proven the tape end-to-end after residuals closed.*
+*Audit date: 2026-09-23. Based on HEAD product symbols and cascade collection under `MUX_FORENSICS=0`. Does not claim a new fresh ship has re-proven the tape end-to-end after residuals closed.*

@@ -4,9 +4,8 @@
 dependency: an **in-module call chain** reached from `recovery_controller.py`. Three of the four
 symbols are load-bearing; one is safe to delete.
 
-This closes the open item in
-[subtraction-holes.md §6.05](./subtraction-holes.md) ("*the mechanism is therefore not understood…
-It needs a dedicated investigation before H-12 can proceed*").
+This closes the former open item: the mechanism was not understood and needed
+a dedicated investigation before further subtraction of `delivery_invariants`.
 
 ---
 
@@ -106,7 +105,7 @@ apply_seed_order_heal  →  seed_order_heal_action  →  live_producer_authority
                                                  →  seed_order_consumer_for
 ```
 
-This is the third recurrence of the same defect class recorded in subtraction-holes.md
+This is the third recurrence of the same defect class previously recorded during guardrail subtraction
 (§1.4.1 `AcceptanceResult`, §1.4.3 the 49-function Batch 1 revert). The fix already exists:
 `tools/subtraction_predict.py::_closure_evict`.
 
@@ -247,11 +246,11 @@ ORPHANS (no reference anywhere) — 2 symbols, 65 lines
 
 The other three do not appear because strict mode counts intra-module references — exactly the
 signal the per-symbol view discarded. (`build_gap_fill_context` is the W0.1 cascade tail already
-logged in subtraction-holes.md §1.4.2.)
+logged during W0.1 of guardrail subtraction.)
 
 ### 5.3 What must change: two methodology rules
 
-These are the transferable findings, and they are not covered anywhere in subtraction-holes.md.
+These are the transferable findings from that investigation.
 
 1. **Single-symbol restore is an invalid bisection method.** A delete set that contains a call chain
    cannot be bisected one symbol at a time: every single-restore probe fails, and the operator

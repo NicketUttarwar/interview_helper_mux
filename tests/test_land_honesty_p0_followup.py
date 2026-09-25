@@ -155,15 +155,9 @@ def test_unpaid_land_families_still_implemented_in_source() -> None:
 
 
 def test_census_lists_shared_and_layup_tables() -> None:
-    census = (
-        _REPO
-        / ".cursor"
-        / "heal-clinic"
-        / "classes"
-        / "hollow_pass"
-        / "done_constitution_census.md"
+    text = (_REPO / "src" / "interview_mux" / "done_authority.py").read_text(
+        encoding="utf-8"
     )
-    text = census.read_text(encoding="utf-8")
     assert "SHARED_PATH_PRODUCER_STAGES" in text
     assert "LAYUP_AUTHORITY_STAGES" in text
     assert "unpaid_land_blocks_promote" in text or "unpaid_land_reason" in text

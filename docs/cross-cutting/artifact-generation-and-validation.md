@@ -71,7 +71,7 @@ surface — is live.
 | Gap-fill + merge + completeness | `src/interview_mux/artifact_completeness.py` | `compute_gaps`, `merge_artifact`, `artifact_status`, `should_run_stage_for_artifact`, `make_stage_persist`; plus `build_gap_fill_context` — **intact but zero callers** |
 | Validated write | `src/interview_mux/artifact_writes.py` | `write_validated_artifact` — merge, validate, log, `RunContext.write_json` |
 | Schema registry | `src/interview_mux/prompt_validation.py` | `STAGE_ARTIFACT_SCHEMAS`, `STAGE_ARTIFACT_DISK_PATHS`, `ARTIFACT_WRITE_VALIDATORS`, `validate_artifact_write` |
-| Stage runner | `src/interview_mux/stages/analysis_stage.py` | **`attach_gap_fill_to_input` no longer exists.** The *call* was dropped by the v2 reset `f99f228b` (2026-07-20); the then-orphaned *definition* was later deleted by guardrail subtraction ([subtraction-holes.md](./subtraction-holes.md) §1.4). Nothing injects `gap_fill_context` into stage input today — [gap-fill-capability-gap.md](./gap-fill-capability-gap.md) |
+| Stage runner | `src/interview_mux/stages/analysis_stage.py` | **`attach_gap_fill_to_input` no longer exists.** The *call* was dropped by the v2 reset `f99f228b` (2026-07-20); the then-orphaned *definition* was later deleted. Nothing injects `gap_fill_context` into stage input today — [gap-fill-capability-gap.md](./gap-fill-capability-gap.md) |
 | Call path | `src/interview_mux/llm_simple.py` | Single OpenAI call per attempt, max 2 attempts |
 | Pipeline | `src/interview_mux/pipeline.py` | Re-run LLM stage if `should_run_stage_for_artifact` even when `.stage_done` exists |
 | GUI API | `src/interview_mux/web/server.py` | `artifacts_status`, `POST …/fill-artifact-gaps` |
@@ -117,7 +117,7 @@ Canonical map: `STAGE_ARTIFACT_DISK_PATHS` in `prompt_validation.py`.
 > **ABSENT since 2026-07-20 — no live code path produces this block.** The v2 reset `f99f228b`
 > rewrote `stages/analysis_stage.py` (+14/−572) and dropped the `attach_gap_fill_to_input()` call;
 > the function then sat orphaned for two months before guardrail subtraction deleted the definition
-> ([subtraction-holes.md](./subtraction-holes.md) §1.4). **The subtraction campaign did not cause this
+> (guardrail subtraction). **The subtraction campaign did not cause this
 > gap.** Its builder `artifact_completeness.build_gap_fill_context` still exists intact but has no
 > callers, and no caller passes `gap_fill_context` to `build_required_response_block()` /
 > `volley_format_footer()`. **No replacement route exists in the source** — stage inputs currently
