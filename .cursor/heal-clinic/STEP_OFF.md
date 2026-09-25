@@ -20,7 +20,7 @@ what_you_can_do_now: Optional live Partial soak outside clinic; or stop — clin
 ## Open
 
 - None inside Heal Clinic queue  
-- Optional: companion Partial soak / Partial Zero (separate)
+- Optional: live Full-auto or Partial soak (separate from clinic)
 
 ## Do not
 
@@ -34,7 +34,6 @@ what_you_can_do_now: Optional live Partial soak outside clinic; or stop — clin
 
 Clinic queue is empty. Typical next lanes:
 
-- Companion watch a Partial 0.2.0 run (no clinic paste required)
-- Partial Zero / Stage Clinic / Debug if a new class of failure appears
+- Debug if a new class of failure appears
 
 Or re-open clinic only with an explicit new class / reopen paste.

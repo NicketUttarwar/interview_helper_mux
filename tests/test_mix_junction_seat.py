@@ -1,4 +1,4 @@
-"""Mix–Junction Seat Authority (Partial Zero DP-MIX-JUNCTION-SEAT-AUTHORITY)."""
+"""Mix–Junction Seat Authority."""
 
 from __future__ import annotations
 

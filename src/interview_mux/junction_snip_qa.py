@@ -595,8 +595,8 @@ def live_incomplete_cut_critical_findings(
 def junction_recut_precedes_mix(ctx: RunContext) -> bool:
     """True when the junction recut ladder must run ahead of the first mix.
 
-    SSOT facade: ``mix_junction_seat.junction_precedes_mix`` (Partial Zero seat
-    authority). Remaster-in-flight is an explicit ``remaster_owner``, not bare
+    SSOT facade: ``mix_junction_seat.junction_precedes_mix``. Remaster-in-flight
+    is an explicit ``remaster_owner``, not bare
     unmarked mix.
     """
     from interview_mux.mix_junction_seat import junction_precedes_mix

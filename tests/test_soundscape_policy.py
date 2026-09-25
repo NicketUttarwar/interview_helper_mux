@@ -319,7 +319,7 @@ def test_normalize_cue_slot_fills_canonical_fields() -> None:
 
 
 def test_invent_soft_block_keeps_planned_beds(tmp_path, monkeypatch) -> None:
-    """Unpaid invent must not wipe planned SDP beds (Partial Zero A+)."""
+    """Unpaid invent must not wipe planned SDP beds."""
     import os
 
     os.environ["MUX_FORENSICS"] = "0"

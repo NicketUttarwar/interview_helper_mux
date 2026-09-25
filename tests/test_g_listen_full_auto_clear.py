@@ -1,4 +1,4 @@
-"""Full-auto G-Listen auto-clear (master_finalize + mix) — Stage Clinic Wave 2.
+"""Full-auto G-Listen auto-clear (master_finalize + mix).
 
 Shared helper ``maybe_auto_clear_g_listen_for_full_auto``; Partial keeps block.
 No mix render / local heavy ML.

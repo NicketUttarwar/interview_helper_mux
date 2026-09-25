@@ -337,7 +337,7 @@ Update [`../../cross_class_patterns.md`](../../cross_class_patterns.md): HC-POST
 ## Evidence appendix
 
 - HEAD code (**SSOT**): `recovery_controller.py` R12c / attempt_count; `identical_failures.py` BUD-1 reclaim; `heal_success.py` finalize; `thrash_hardening.py` sticky; `delivery_unstick.py` RC6; `homunculus/budget.py` + `ledger.py` epochs; L1 [`possibility.md`](possibility.md)
-- Docs / Partial Zero (**hints**): BUDGET_THRASH / DP-BUD1 A closed; STEP_OFF soak residual “same fp thrash” → this class — verify-or-drop; no `exec_*` browse
+- Docs (**hints**): BUDGET_THRASH / fingerprint reclaim closed; residual same-fp thrash → this class — verify-or-drop; no `exec_*` browse
 - Named exec HINT: none this turn
 - Swarm: merge-captain packet (this file); raw optional under `solution_swarm/`
 

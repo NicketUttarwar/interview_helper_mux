@@ -144,7 +144,7 @@ def test_refinement_agenda_contract_gap_report_soft() -> None:
 
 
 def test_transitions_contract_hard_matches_payload() -> None:
-    """Stage Clinic transitions-B2: brief+gap hard with selection (payload reads)."""
+    """transitions-B2: brief+gap hard with selection (payload reads)."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("transitions")
@@ -171,7 +171,7 @@ def test_transitions_b1_empty_ok_min_rows_zero() -> None:
 
 
 def test_vo_synthesize_contract_hard_includes_transitions() -> None:
-    """Stage Clinic VS-B2: hard inputs = gap_report + transitions (not gap-only)."""
+    """VS-B2: hard inputs = gap_report + transitions (not gap-only)."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("vo_synthesize")
@@ -182,7 +182,7 @@ def test_vo_synthesize_contract_hard_includes_transitions() -> None:
 
 
 def test_sound_design_vo_finalize_contract_hard_includes_sdp() -> None:
-    """Stage Clinic SDVF-B2: hard inputs = vo_synthesize + sound_design_plan."""
+    """SDVF-B2: hard inputs = vo_synthesize + sound_design_plan."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("sound_design_vo_finalize")
@@ -193,7 +193,7 @@ def test_sound_design_vo_finalize_contract_hard_includes_sdp() -> None:
 
 
 def test_edl_narrative_audit_contract_hard_matches_payload() -> None:
-    """Stage Clinic ENA-B2: hard = brief+coverage+narrative+selection; consumers edl."""
+    """ENA-B2: hard = brief+coverage+narrative+selection; consumers edl."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("edl_narrative_audit")
@@ -210,7 +210,7 @@ def test_edl_narrative_audit_contract_hard_matches_payload() -> None:
 
 
 def test_edl_contract_sdp_soft_producer_is_delivery_plan() -> None:
-    """Stage Clinic EDL-B2: soft SDP producer = sound_design_plan (not palettes)."""
+    """EDL-B2: soft SDP producer = sound_design_plan (not palettes)."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("edl")
@@ -242,7 +242,7 @@ def test_mastering_research_rollup_contract_has_no_hard_waves() -> None:
 
 
 def test_assembly_preview_contract_selection_soft() -> None:
-    """Stage Clinic AP-B2: hard = edl only; selection unused by run_preview → soft."""
+    """AP-B2: hard = edl only; selection unused by run_preview → soft."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("assembly_preview")
@@ -256,7 +256,7 @@ def test_assembly_preview_contract_selection_soft() -> None:
 
 
 def test_junction_snip_qa_contract_selection_soft_correctness() -> None:
-    """Stage Clinic JSQ-B4: hard = edl only; selection soft+correctness (matches `_check`)."""
+    """JSQ-B4: hard = edl only; selection soft+correctness (matches `_check`)."""
     from interview_mux.stage_contract import load_contract
 
     c = load_contract("junction_snip_qa")

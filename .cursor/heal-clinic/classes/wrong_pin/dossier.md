@@ -9,8 +9,8 @@ wave: remediation | L1_map: complete | L2_options: complete | verdict: E | L3_pa
 - plain name: Wrong pin
 - what you’d notice in a run: Heal/resume jumps to the **wrong stage** (e.g. mix while VO/G1 still open, or a fake stage name from an error string). Walk thrash or leapfrogs past real work.
 - heal surfaces to census first: `producer_pin_for_token`, `premature_class_pin`, `heal_navigate`, `canonical_resume_pin`, `path_to_master_pin`, `resolve_premature_cap_pin` / `premature_cap_hard_pin`, `classify_heal_error`
-- Partial Zero cousin families (HINT): PIN_PREMATURE (claimed closed B1–B3+B6); residuals called out: premature_cap ranking↔TCA; path_to_master / mix_seat loops
-- Stage Clinic overlap: any stage that emits incompleteness / premature_complete tokens; delivery heal hotspots (mix, VO, music, finalize)
+- Cousin families (HINT): PIN_PREMATURE (claimed closed B1–B3+B6); residuals called out: premature_cap ranking↔TCA; path_to_master / mix_seat loops
+- Over-heal stages (HINT): any stage that emits incompleteness / premature_complete tokens; delivery heal hotspots (mix, VO, music, finalize)
 
 ## Evidence checklist
 

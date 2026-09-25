@@ -14,8 +14,8 @@ wave: implemented | L1_map: complete | L2_options: complete | verdict: decided B
   3. Pipeline re-runs failed stage on recover (ignores `resume_stage`)
   4. Identical-failure ledger skipped when falsely recovered
   5. Done Constitution / Admit plug-in (already shipped cousins)
-- Partial Zero cousin families (HINT): SDP_CUE_SLOTS (heal-pass/stage-fail for cue slots — claimed closed); soft_pass refuse; HE-2 honest refuse pattern
-- Stage Clinic overlap: soft-pass refuse / identical fingerprints (symptom, not this class SSOT)
+- Cousin families (HINT): SDP_CUE_SLOTS (heal-pass/stage-fail for cue slots — claimed closed); soft_pass refuse; HE-2 honest refuse pattern
+- Over-heal stages (HINT): soft-pass refuse / identical fingerprints (symptom, not this class SSOT)
 
 ## Evidence checklist
 

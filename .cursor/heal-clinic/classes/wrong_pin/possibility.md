@@ -32,7 +32,7 @@ code_is_king: true | prior_exec: hint_only_if_named
 | Driver / JobRunner execute | Call `resolve_premature_cap_pin` / `apply_premature_cap_for_execute` | `IN_CODE` | `delivery_guardrails` + callers |
 | Agenda / unstick | May call `heal_navigate` / resume helpers | `IN_CODE` | `homunculus/agenda.py`, `delivery_unstick.py` |
 
-**Declared vs actual:** Docs/Partial Zero say `producer_pin_for_token` is the family SSOT. **Actual:** token mapping is centralized there, but **navigation** still has multiple winners (`heal_navigate` specialty paths, `canonical_resume_pin`, `path_to_master_pin`, `classify_heal_error`). Tag: `CODE_DOC_CONFLICT` (SSOT claim narrower than runtime graph).
+**Declared vs actual:** Docs say `producer_pin_for_token` is the family SSOT. **Actual:** token mapping is centralized there, but **navigation** still has multiple winners (`heal_navigate` specialty paths, `canonical_resume_pin`, `path_to_master_pin`, `classify_heal_error`). Tag: `CODE_DOC_CONFLICT` (SSOT claim narrower than runtime graph).
 
 ---
 

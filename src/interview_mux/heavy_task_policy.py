@@ -174,7 +174,7 @@ def wait_abort_backoff(ctx: Any | None = None, consumer: str = "") -> float:
     return remaining
 
 
-# --- Partial Zero §0.3b: reclaim → fixed settle → same-class retry -------------
+# --- Reclaim → fixed settle → same-class retry ---------------------------------
 
 _reclaim_retry_used: set[str] = set()
 _reclaim_bound_run_id: str | None = None

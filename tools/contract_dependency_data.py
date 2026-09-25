@@ -1427,7 +1427,7 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                 ),
             ]
         },
-        # Stage Clinic TCA-B1: pin ADG `_PROPAGATION_SEEDS` + contract invalidates.
+        # TCA: pin ADG `_PROPAGATION_SEEDS` + contract invalidates.
         "propagation": [
             "narrative_arc_plan",
             "connector_fuse_pass_pre_ranking",
@@ -1959,7 +1959,7 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
         "remediation": ["full_stage_rerun"],
     },
     "transitions": {
-        # Stage Clinic transitions-B2: hard = selection + content_brief (and
+        # Transitions: hard = selection + content_brief (and
         # gap_report) match `build_input` unconditional `read_json` + preflight.
         # Layup stays LLM_UPSTREAM hard; mastering_plan stays SEED_ORDER promote.
         "inputs": {
@@ -2004,7 +2004,7 @@ _PLAN_RANK: dict[str, dict[str, Any]] = {
                 ),
             ],
         },
-        # Stage Clinic transitions-B3: pin ADG `_PROPAGATION_SEEDS` + contract.
+        # Transitions: pin ADG `_PROPAGATION_SEEDS` + contract.
         "propagation": [
             "sound_design_plan",
             "vo_line_adjudicate",

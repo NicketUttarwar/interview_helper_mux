@@ -20,7 +20,7 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
     ),
     "narrative_arc_plan": ("master/coverage_audit.json",),
     "full_master_ranking": ("master/narrative_plan.json",),
-    # Stage Clinic transitions-B2: brief + gap match build_input hard reads.
+    # Transitions: brief + gap match build_input hard reads.
     "transitions": (
         "master/selection.json",
         "understanding/content_brief.json",
@@ -459,7 +459,7 @@ def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
 
 
 def _preflight_transitions(ctx: RunContext) -> list[str]:
-    # Stage Clinic transitions-B2: refuse when payload hard reads would crash.
+    # Transitions: refuse when payload hard reads would crash.
     return _check_upstream_artifacts(
         ctx,
         (

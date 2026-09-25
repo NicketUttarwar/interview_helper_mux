@@ -9,7 +9,7 @@ basis: ledger L3=implemented for all five classes + HEAD modules below
 
 - Odds for error-free **Partial** on HEAD: **Meaningfully higher** than pre-clinic — the five heal-variance lies (wrong pin, leapfrog, hollow done, false recover, success-as-thrash-fuel) now have host SSOTs. Not a guarantee of tape quality or first-try finish; orchestration honesty is the claim.
 - Odds for quieter **Full-auto / all modes**: **Same direction** — each verdict required Partial=Full-auto law (`FULL_AUTO_REGRESSION_RISK` refused). No Partial-only soft wipe shipped.
-- Biggest residual heal risk: **Allowlist / exception drift** (RECOVER_PLAYBOOK_ALLOW, pin allowlists, POST_HEAL_EPOCH_ALLOW empty-by-design) and **P6** (walk max_invokes still not reset on recovered — BUD-1 product flip only). Stage Clinic / listen-delight / live soak remain outside this clinic.
+- Biggest residual heal risk: **Allowlist / exception drift** (RECOVER_PLAYBOOK_ALLOW, pin allowlists, POST_HEAL_EPOCH_ALLOW empty-by-design) and **P6** (walk max_invokes still not reset on recovered — BUD-1 product flip only). Listen-delight / live soak remain outside this clinic.
 
 ---
 
@@ -70,14 +70,14 @@ See [cross_class_patterns.md](cross_class_patterns.md).
 | Walk `max_invokes` after honest recover (P6) | Intentional anti-C; product flip reclaim only | BUD-1 / `homunculus/budget` |
 | Allowlist sprawl | New playbooks / pins if added without gate | RECOVER_* / pin allow tables |
 | Sticky / ESR soft-continue | Can delay halt while work continues | `thrash_hardening` / ESR |
-| Stage Clinic per-stage quality | Heal honesty ≠ listen-delight | Stage Clinic / Debug |
-| Partial Zero soak gates | Live proof separate from clinic | Partial Zero companion |
+| Per-stage listen quality | Heal honesty ≠ listen-delight | Debug / product quality |
+| Live soak | Tape proof separate from clinic | Full-auto or Partial run |
 
 ---
 
 ## Not claimed here
 
-- Partial Zero closeout / live Mohan soak proof (separate campaign)
+- Live Mohan soak proof (separate from this clinic)
 - Tape listen-delight / MusicGen / MMAudio quality (Debug / product quality lane)
 - That every future stage never fails — failures must stay **honest**
 - Infinite retry after heal (explicitly rejected as Option C / anti-C)

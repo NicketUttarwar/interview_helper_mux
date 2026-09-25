@@ -14,8 +14,8 @@ wave: implemented | L1_map: complete | L2_options: complete | verdict: decided B
   3. Sticky heal + thrash_report — no hook to `recovered`; unstick clears thrash **never** identical
   4. Pipeline / runtime resume after recovered → more stage starts toward dispatch caps
   5. BUD-1 product reclaim (closed) vs soak residual “same fp thrash after ok”
-- Partial Zero cousin families (HINT): **BUDGET_THRASH** / **DP-BUD1** A implemented (fingerprint reclaim + refuse≠Finished); STEP_OFF named soak residual = thrash on **same** fingerprint — this class
-- Stage Clinic overlap: identical×3 / sticky / max_invokes symptoms; root for this clinic is **post-success accounting**, not per-stage quality
+- Cousin families (HINT): **BUDGET_THRASH** (fingerprint reclaim + refuse≠Finished); residual = thrash on **same** fingerprint — this class
+- Over-heal stages (HINT): identical×3 / sticky / max_invokes symptoms; root for this clinic is **post-success accounting**, not per-stage quality
 
 ## Evidence checklist
 

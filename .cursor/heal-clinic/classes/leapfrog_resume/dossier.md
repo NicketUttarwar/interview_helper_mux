@@ -9,8 +9,8 @@ wave: analysis | L1_map: complete | L2_options: complete | verdict: B+ | L3_patc
 - plain name: Leapfrog resume
 - what you’d notice in a run: Walk jumps **over** an unfinished required stage (e.g. synth while layup/adjudicate still open, or music while VO chain open) — thrash, identical storms, wasted Chatterbox/MusicGen.
 - heal surfaces to census first: `MUST_PRECEDE`, `earliest_incomplete_must_precede`, `clamp_resume_through_order`, agenda reinject, `filter_delivery_candidates` / `defer_until_producers_ready`, ungated `from_stage` setters, interaction with `heal_pin_authority` (wrong_pin E)
-- Partial Zero cousin families (HINT): VO_LADDER_PARTIAL / DP-LAYUP-ADJ (claimed closed); PIN wrong-pin cousins
-- Stage Clinic overlap: VO chain + plan_rank→sound handoff; any stage with MUST_PRECEDE edges
+- Cousin families (HINT): VO_LADDER_PARTIAL / layup→adjudicate (claimed closed); PIN wrong-pin cousins
+- Over-heal stages (HINT): VO chain + plan_rank→sound handoff; any stage with MUST_PRECEDE edges
 
 ## Evidence checklist
 

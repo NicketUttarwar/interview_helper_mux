@@ -1,4 +1,4 @@
-"""PIN_PREMATURE family matrix — Partial Zero DP-B1+B2+B3+B6 (all Option A).
+"""PIN_PREMATURE family matrix.
 
 One heal surface: ``producer_pin_for_token`` + sole ``incompleteness_resume_stage``.
 High coverage for compound / substring / unknown-class / single-API laws.

@@ -1,6 +1,6 @@
 ---
 name: Heal Clinic
-overview: "Operator-controlled clinic for the five heal-variance error classes. Stage-clinic execution style: paste /heal-clinic-next to pick up the next bug; you keep control of cause; agents propose Option A/B/C (surgical vs bigger deterministic) in simple language with real-world worst case, pros/cons, and a recommendation—you decide; Wave 2 implements only after your verdict. Raises error-free odds for Partial first and all modes via shared heal SSOT."
+overview: "Operator-controlled clinic for the five heal-variance error classes. Paste /heal-clinic-next to pick up the next bug; you keep control of cause; agents propose Option A/B/C (surgical vs bigger deterministic) in simple language with real-world worst case, pros/cons, and a recommendation—you decide; Wave 2 implements only after your verdict. Raises error-free odds for Partial first and all modes via shared heal SSOT."
 todos:
   - id: wave0-framework
     content: "Wave 0: land this plan + .cursor/heal-clinic pack + skill paste prompts (docs only; no product patches)"
@@ -21,7 +21,7 @@ isProject: false
 
 ## Why this exists
 
-Runtime failures on real executions often cluster in **heal variance**. This clinic does **not** auto-heal mid-run and does **not** decide for you. It gives you the **same execution feel as Stage Clinic**:
+Runtime failures on real executions often cluster in **heal variance**. This clinic does **not** auto-heal mid-run and does **not** decide for you. Operator-controlled flow:
 
 1. Paste a command → agent works one bug class thoroughly.
 2. You stay in control of **what caused it**.
@@ -36,7 +36,7 @@ Runtime failures on real executions often cluster in **heal variance**. This cli
 **Pack root:** [`.cursor/heal-clinic/`](../heal-clinic/)  
 **Skill / paste crib:** [`.cursor/skills/heal-clinic/SKILL.md`](../skills/heal-clinic/SKILL.md)
 
-Related (do not merge): Partial Zero companion soak · Stage Clinic (per-stage) · Debug mode (novel tape-quality / heal-audit when unclear).
+Related (do not merge): Debug mode (novel tape-quality / heal-audit when unclear).
 
 ---
 
@@ -52,11 +52,11 @@ Each class is its **own** clinic thread: own dossier, map, option packet, decisi
 | `heal_validate_stage_fail` | Heal-validate then stage-fail | Heal says pass; stage fails again (identical loop) |
 | `post_heal_budget_thrash` | Budget thrash after “successful” heal | Heal looked done; then max_invokes / identical thrash |
 
-HINT-only background (verify or drop on HEAD): [partial_zero/mohan_hint_digest.md](partial_zero/mohan_hint_digest.md) · [partial_zero/cousin_matrix.md](partial_zero/cousin_matrix.md).
+HINT-only background (verify or drop on HEAD): prior Mohan exec histograms if the operator names a folder.
 
 ---
 
-## Operator path (how you execute — like Stage Clinic)
+## Operator path (how you execute)
 
 ```mermaid
 flowchart LR
@@ -164,6 +164,4 @@ Live resume: [`.cursor/heal-clinic/STEP_OFF.md`](../heal-clinic/STEP_OFF.md).
 ## Out of scope
 
 - Mid-soak forensics doctor / silent auto-heal from the agent.
-- Replacing Partial Zero companion or Stage Clinic.
 - Local heavy ML model tuning.
-- Declaring Partial Zero closed inside this clinic (separate DP-CLOSEOUT after soak proof).

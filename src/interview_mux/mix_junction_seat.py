@@ -1,6 +1,6 @@
 """Mix–Junction Seat Authority — single lifecycle SSOT for build seating.
 
-Partial Zero DP-MIX-JUNCTION-SEAT-AUTHORITY + HAU (Heard-Assembly Unification):
+HAU (Heard-Assembly Unification):
 one state, many thin facades. Callers must not keep private assembly / precede /
 music-admit shortcuts (preview OR assembly dual admit is forbidden).
 

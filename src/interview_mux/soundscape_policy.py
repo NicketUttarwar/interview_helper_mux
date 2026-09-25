@@ -500,7 +500,7 @@ def _merge_planned_bed_slots(
     return out
 
 
-# --- Cue-slot SSOT (Partial Zero DP-SOUND-SDP-CUE custom A+) -----------------
+# --- Cue-slot SSOT ----------------------------------------------------------
 # One writer: dens score ∪ planned ∪ inject → normalize → dedupe → invent soft-block.
 
 _ORIGIN_RANK = {"planned": 3, "inject": 2, "dens": 1}
@@ -715,7 +715,7 @@ def admit_inject_cue_slots(
     rescore: bool = False,
     writer_stage: str = "soundscape_policy_build",
 ) -> dict[str, Any]:
-    """Fold repair inject into the SSOT writer (Partial Zero A+)."""
+    """Fold repair inject into the SSOT writer."""
     base = dict(policy) if isinstance(policy, dict) else (load_policy(ctx) or {})
     inject: list[dict[str, Any]] = []
     for sid in segment_ids:
@@ -804,7 +804,7 @@ def _apply_invent_obligation_gate(
 ) -> dict[str, Any]:
     """Block heuristic musical invent while invent obligation is unpaid.
 
-    Partial Zero A+: never wipe planned/inject cue_slots — soft-block only.
+    Never wipe planned/inject cue_slots — soft-block only.
     Dens heuristic invent beds are dropped; invent_gate stays blocked.
     """
     if not status.get("unpaid"):

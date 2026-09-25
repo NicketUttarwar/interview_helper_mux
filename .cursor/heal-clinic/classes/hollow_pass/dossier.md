@@ -14,8 +14,8 @@ wave: analysis | L1_map: complete | L2_options: not_started | verdict: none | L3
   3. `seed_stage_complete` / `producer_ready` / `stage_outputs_present` / `stage_artifact_incompleteness`
   4. Heal restamp (`apply_seed_order_heal`) + orphan promote / hollow unmark (G3)
   5. `heal_or_refuse_mark` + `_mark_done_raw` escapes
-- Partial Zero cousin families (HINT): `HOLLOW_DONE` (cousin_matrix claims closed via DP-DONE-AUTHORITY) · `J-hollow-done` · XC-HOLLOW-01 · Stage Clinic HV3/HV4/HF1 hollow series
-- Stage Clinic overlap: `vo_line_adjudicate` (HV3), `vo_synthesize` / G1 skip (HV4), pass-2 hollow (HF1), mix unseated (HX2), ship finalize (HPUB*), SAP/topology/G0 build hollow (HU*/HP*)
+- Cousin families (HINT): `HOLLOW_DONE` (Done Authority) · `J-hollow-done` · XC-HOLLOW-01 · HV3/HV4/HF1 hollow series
+- Over-heal stages (HINT): `vo_line_adjudicate` (HV3), `vo_synthesize` / G1 skip (HV4), pass-2 hollow (HF1), mix unseated (HX2), ship finalize (HPUB*), SAP/topology/G0 build hollow (HU*/HP*)
 
 ## Evidence checklist
 

@@ -40,7 +40,7 @@ def test_contracts_loaded():
 
 
 def test_topic_coverage_audit_invalidates_match_adg_seeds() -> None:
-    """Stage Clinic TCA-B1: contract invalidates == ADG seeds ⊆ propagation_map."""
+    """TCA-B1: contract invalidates == ADG seeds ⊆ propagation_map."""
     expected = set(_PROPAGATION_SEEDS["topic_coverage_audit"])
     contract = load_contract("topic_coverage_audit")
     assert set(contract.propagation) == expected
@@ -48,7 +48,7 @@ def test_topic_coverage_audit_invalidates_match_adg_seeds() -> None:
 
 
 def test_transitions_invalidates_match_adg_seeds() -> None:
-    """Stage Clinic transitions-B3: contract invalidates == ADG seeds ⊆ propagation_map."""
+    """transitions-B3: contract invalidates == ADG seeds ⊆ propagation_map."""
     expected = set(_PROPAGATION_SEEDS["transitions"])
     contract = load_contract("transitions")
     assert set(contract.propagation) == expected
@@ -56,7 +56,7 @@ def test_transitions_invalidates_match_adg_seeds() -> None:
 
 
 def test_master_transcript_invalidates_exclude_episode_meta() -> None:
-    """Stage Clinic EMB-B3: transcript rebuild must not invalidate episode_meta."""
+    """EMB-B3: transcript rebuild must not invalidate episode_meta."""
     expected = set(_PROPAGATION_SEEDS["master_transcript_build"])
     assert expected == {"podcast_publish"}
     assert "episode_meta_build" not in expected

@@ -71,7 +71,7 @@ written: 2026-09-22
 | R12c unified recovery↔identical counters | Intentional (`test_unified_recovery_counters_r12c`) | Yes | Intentional design becomes thrash fuel when recovered is true |
 | Unstick never zeros identical (RC6/O8) | Intentional | Yes | Correct for unstick; leaves post-heal identical climb |
 
-HINT only (not proof): Partial Zero STEP_OFF “BUDGET_THRASH residual after reclaim (infinite thrash on same fp) → new DP” — maps to this clinic class. Do not browse `exec_*`.
+HINT only (not proof): residual same-fingerprint thrash after reclaim maps to this clinic class. Do not browse `exec_*`.
 
 ---
 

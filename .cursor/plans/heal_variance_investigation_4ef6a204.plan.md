@@ -1,6 +1,6 @@
 ---
 name: Heal Variance Investigation
-overview: "Superseded by Heal Clinic — operator-controlled Stage-Clinic-style investigate of the five heal-variance classes. See .cursor/plans/heal_clinic.plan.md and .cursor/heal-clinic/."
+overview: "Superseded by Heal Clinic — operator-controlled investigate of the five heal-variance classes. See .cursor/plans/heal_clinic.plan.md and .cursor/heal-clinic/."
 todos:
   - id: superseded
     content: "Use Heal Clinic SSOT (.cursor/plans/heal_clinic.plan.md) + pack (.cursor/heal-clinic/) + /heal-clinic-next"
@@ -10,7 +10,7 @@ isProject: false
 
 # Superseded → Heal Clinic
 
-This investigation plan was expanded into **Heal Clinic** (Stage Clinic execution style).
+This investigation plan was expanded into **Heal Clinic**.
 
 **Use instead:**
 

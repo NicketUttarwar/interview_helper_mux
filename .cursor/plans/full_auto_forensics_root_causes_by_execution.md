@@ -485,7 +485,7 @@ These share the mohan tape and appear under `ASSETS/executions/` but lack a full
 | **13161** | FREEZE + UNCLASS; narrative_plan hard_freeze | Cousin of 13167 i9 |
 | **13163** | VO_LADDER_PARTIAL (seed_order adjudicate→synth storm) | Cousin of 13167 i4–i7 |
 | **13165** | premature vo_g1; narrative hard_freeze; wrong pin | Cousin of 13170 pin/lease + 13167 freeze |
-| **13168** | Partial soak (gap_framing ownership, budget thrash) | Partial-zero DP packets — not full-auto forensics |
+| **13168** | Partial soak (gap_framing ownership, budget thrash) | Historical soak notes — not full-auto forensics |
 | **13160/62/64/66/69/71–76** | Fresh twins / aborted / driver restarts | Usually pair with the odd “campaign” exec above |
 
 ---
@@ -707,8 +707,8 @@ HAU speech-first filter test debt (**closed**): `test_filter_phase_a_before_spee
 | **Pin / playbook allowlist drift** | New navigators that bypass `resolve_heal_from_stage` or widen `RECOVER_PLAYBOOK_ALLOW` reintroduce wrong_pin / false recovered | Heal Clinic readiness residuals |
 | **XC-HOLLOW-01 and failure_catalog OPEN_RISK crosscuts** | Many analysis stages still lack incompleteness/heal coverage; G1 fail-open; music-epoch / delight-authoritative / heal-navigate-pins still flagged OPEN_RISK in catalog | `.cursor/plans/failure_catalog/crosscuts.md` |
 | **`gap_vo_rebudget.py`** | Post-ranking VO density re-budget — new coupling to floor/topup honesty; not in original forensics root index | `src/interview_mux/gap_vo_rebudget.py` |
-| **Stage Clinic / listen-delight / live soak** | Explicitly outside Heal Clinic claim; tape quality and first-try finish not guaranteed | heal_readiness operator verdict |
-| **Sibling HINT cousins (13161/63/65)** | Not intervene-logged; VO ladder / freeze / wrong-pin cousins may still appear on Partial/HINT | partial_zero digests |
+| **Listen-delight / live soak** | Explicitly outside Heal Clinic claim; tape quality and first-try finish not guaranteed | heal_readiness operator verdict |
+| **Sibling HINT cousins (13161/63/65)** | Not intervene-logged; VO ladder / freeze / wrong-pin cousins may still appear on Partial/HINT | named exec HINT only |
 | **Fresh exec after HEAD** | No post-residual full-auto forensics ship on this tape since residuals 1–6 closed | Recommend next `MUX_FRESH=1` campaign to validate quiet #45/#55/#53 |
 
 ### C. Intentionally not “open bugs”

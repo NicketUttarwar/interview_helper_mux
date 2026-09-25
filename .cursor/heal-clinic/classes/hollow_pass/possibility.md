@@ -45,7 +45,7 @@ code_is_king: true | prior_exec: hint_only_if_named
 | `e2e_soft_enabled` / quality waivers | Gate auto-progress only; quality waivers separate opt-in | `IN_CODE` | `src/interview_mux/e2e_soft.py:17–37` |
 | `soft_pass_pre_edl_delivery` | Refuses stubs unless `E2E_SOFT` + `LAST_RESORT_SOFT`; else brief + `[]` | `IN_CODE` | `tools/full_auto_driver.py:7577–7602` |
 | Agenda post-master hole backfill | After master exists: `_mark_done_raw` + `mark_done(force=True)` on unmarked pre-master holes | `IN_CODE` | `agenda.py:1341–1354` |
-| Cousin_matrix `HOLLOW_DONE` | Claims **closed** via DP-DONE-AUTHORITY | `CODE_DOC_CONFLICT` vs this class residual | `.cursor/plans/partial_zero/cousin_matrix.md:45–65` |
+| `HOLLOW_DONE` | Claims **closed** via Done Authority | `CODE_DOC_CONFLICT` vs this class residual | `src/interview_mux/done_authority.py` |
 | XC-HOLLOW-01 | Analysis incompleteness coverage gap still OPEN_RISK | `IN_CODE` (catalog) | `.cursor/plans/failure_catalog/crosscuts.md:155–165` |
 
 ---

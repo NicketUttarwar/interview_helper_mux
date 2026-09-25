@@ -9,8 +9,8 @@ wave: analysis | L1_map: not_started | L2_options: not_started | verdict: none |
 - plain name: {{CLASS_PLAIN}}
 - what you’d notice in a run:
 - heal surfaces to census first (fill in L1):
-- Partial Zero cousin families (HINT):
-- Stage Clinic overlap (stages that over-heal):
+- Cousin families (HINT):
+- Over-heal stages (HINT):
 
 ## Evidence checklist
 

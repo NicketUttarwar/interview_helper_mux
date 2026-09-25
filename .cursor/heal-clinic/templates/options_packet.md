@@ -119,7 +119,7 @@ Update [`../../cross_class_patterns.md`](../../cross_class_patterns.md) if ≥2 
 ## Evidence appendix
 
 - HEAD code (**SSOT**):
-- Docs / Partial Zero / Stage Clinic (**hints** — verify or drop):
+- Docs (**hints** — verify or drop):
 - Named exec HINT (only if operator named folder):
 - Swarm raw notes: `classes/{{CLASS_ID}}/solution_swarm/`
 

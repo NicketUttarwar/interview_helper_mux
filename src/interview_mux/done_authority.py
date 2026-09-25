@@ -1,7 +1,7 @@
 """Done Authority — single lifecycle SSOT for stage completion honesty.
 
-Partial Zero DP-DONE-AUTHORITY + Heal Clinic hollow_pass B+ Done Constitution
-+ Land Honesty v2 (Cluster A / XC-HOLLOW):
+Heal Clinic hollow_pass B+ Done Constitution + Land Honesty v2
+(Cluster A / XC-HOLLOW):
 
 - Real completion (done ∧ outputs ∧ no incompleteness) clears waits and advances.
 - Hollow ``.stage_done`` / refused stamps never count as success.

@@ -36,7 +36,7 @@ Investigation catalogued cross-surface seams under Partial + 0.2.0. **Implement 
 | `tools/audit_artifact_ownership.py --write-sites-only --allow-unknown-write-sites` | `unknown_write_sites: 0`, matrix `e2265fb515280416` |
 | Ownership smoke (`write_permitted`) | transition/vo/speech ALLOW for listed writers |
 | Cascade pytest (`MUX_FORENSICS=0`) | **122 passed** — `test_hg4_*`, `test_vo_path_ready`, `test_nugget_layup`, `test_placement_qa`, `test_gap_framing_gates`, `test_asset_transcripts` |
-| Code reads | `operator_gates`, `gap_vo_gates`, `gates`, `placement_qa`, `nugget_layup`, `heal_routing`, `homunculus/agenda`, `full_auto_driver`, Stage Clinic defaults/CSP/readiness |
+| Code reads | `operator_gates`, `gap_vo_gates`, `gates`, `placement_qa`, `nugget_layup`, `heal_routing`, `homunculus/agenda`, `full_auto_driver` |
 | Explore pass | Phase 2/3 seams ([explore agent](5ce299d3-7a11-492d-8d8a-1a184f0a3f37)) |
 
 **Status vocabulary:** `closed` · `open` · `partial` · `needs_soak` · `covered`  
@@ -253,7 +253,7 @@ Investigation catalogued cross-surface seams under Partial + 0.2.0. **Implement 
 
 #### P0-1 — Defaults inventory Partial column
 
-**Smart solution:** Extend [`.cursor/stage-clinic/defaults_inventory.md`](.cursor/stage-clinic/defaults_inventory.md):
+**Smart solution:** Inventory Partial vs Full-auto defaults in code (`config/app.defaults.json`):
 
 1. Add columns: `partial_auto` | `full_auto` | `must_act_partial` (or compact Phase-0 gate table).
 2. Record G-Listen default **`warn`** (non-blocking).
@@ -282,7 +282,7 @@ Investigation catalogued cross-surface seams under Partial + 0.2.0. **Implement 
 
 #### X-2 — Partial readiness addendum
 
-**Smart solution:** Addendum on [`full_auto_readiness.md`](.cursor/stage-clinic/full_auto_readiness.md) (or sibling):
+**Smart solution:** Document Partial must-act gates vs Full-auto auto-accept:
 
 1. Partial must-act: G0, G-Publish (and other true journey gates).
 2. G-Listen under defaults = **warn / non-blocking**.

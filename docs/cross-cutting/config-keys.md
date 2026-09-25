@@ -1340,7 +1340,7 @@ Isolated venv paths — [local-audio-stack.md](./local-audio-stack.md).
 
 ## `seed_policy`
 
-Hard-freeze sticky seed stages (Partial Zero A4). Soft freeze never sticky-completes.
+Hard-freeze sticky seed stages. Soft freeze never sticky-completes.
 
 | Key | Default | If wrong |
 |-----|---------|----------|

@@ -35,7 +35,7 @@ def test_automated_classified_vo_contract_not_operator_gate() -> None:
 
 
 def test_full_auto_020_classified_block_not_needs_operator() -> None:
-    """Stage Clinic Wave 2: 0.2.0 unattended must not early-stamp every reason."""
+    """0.2.0 unattended must not early-stamp every reason."""
     from interview_mux.operator_gates import should_stamp_needs_operator
 
     meta = {"full_auto": True, "homunculus_version": "0.2.0"}

@@ -59,7 +59,7 @@ def _fail_early_at_audit_stage(conf: dict[str, Any] | None = None) -> bool:
     """Always False — pre-mix is advisory; ship gate is master_finalize.
 
     Config key ``fail_early_at_audit_stage`` is retained for docs/compat but
-    ignored (stage-clinic KEEP). Do not restore early loud-fail here.
+    ignored. Do not restore early loud-fail here.
     """
     _ = conf  # retained signature; knob deliberately unused
     return False

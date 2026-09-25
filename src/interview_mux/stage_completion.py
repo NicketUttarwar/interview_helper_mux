@@ -263,7 +263,7 @@ _BATCH_FILL_BY = BATCH_FILL_BY
 
 
 def _missing_framing_batch_fill_incompleteness(ctx: RunContext) -> str | None:
-    """HG-3 2B / Stage Clinic missing_framing B2: unscored batch_fill rows refuse done.
+    """HG-3 2B: unscored batch_fill rows refuse done.
 
     Default ``ok_with_light_bridge`` coverage fills are not LLM-scored. Persist is allowed;
     heal must not mark ``missing_framing`` complete until a leftover re-volley scores them
@@ -2934,7 +2934,7 @@ def voice_ref_heal_resume_stage(
     error: str = "",
     stage: str = "",
 ) -> str | None:
-    """HG-4 / Stage Clinic TCA-B2: open voice-ref pins missing_framing, never topic_coverage_audit / edl."""
+    """HG-4: open voice-ref pins missing_framing, never topic_coverage_audit / edl."""
     blob = f"{error} {stage}".strip().lower()
     ladder_tokens = (
         "voice_reference_pending",
@@ -3280,7 +3280,7 @@ def producer_pin_for_token(
 ) -> str:
     """Map an error / incompleteness token to the earliest heal producer.
 
-    PIN_PREMATURE family SSOT (Partial Zero B1+B2+B3):
+    PIN_PREMATURE family SSOT:
     - **B1** Compound: score ``mix_unseated``-family vs ``premature_complete:*``;
       longest needle wins; length ties prefer non-``mix`` (VO structured over seating).
     - **B2** Table walk: exact / delimited tokens and spaced phrases only — never

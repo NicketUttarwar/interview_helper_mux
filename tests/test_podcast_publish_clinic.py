@@ -1,4 +1,4 @@
-"""Stage Clinic Wave 2 — podcast_publish (B1/B2/B3/B4/B5/B6).
+"""podcast_publish host honesty (B1/B2/B3/B4/B5/B6).
 
 No real S3/CloudFront/AWS CLI — host honesty + mocked sync only.
 """

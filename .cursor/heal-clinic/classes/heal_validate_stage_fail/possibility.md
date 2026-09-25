@@ -36,7 +36,7 @@ code_is_king: true | prior_exec: hint_only_if_named
 | Done Constitution | Stamp / ready honesty (hollow_pass B+) | `IN_CODE` | `done_authority.py`, `producer_ready` |
 | Admit Constitution | Pin/schedule clamp (leapfrog B+) — not post-heal success gate | `IN_CODE` | `heal_pin_authority.py` |
 | `soft_pass_pre_edl_delivery` | Refuse stubs unless last-resort | `IN_CODE` | `full_auto_driver.py:7577–7602` |
-| SDP_CUE_SLOTS cousin | Cue-slot heal-pass/stage-fail family claimed closed | `CODE_DOC_CONFLICT` vs class residual | Partial Zero cousin_matrix |
+| SDP_CUE_SLOTS cousin | Cue-slot heal-pass/stage-fail family claimed closed | `CODE_DOC_CONFLICT` vs class residual | `soundscape_policy.py` cue-slot SSOT |
 
 **Declared vs actual:** Done Constitution closed **stamp** lies; driver skip-ahead after heals requires seed-complete. **Residual:** recovery `recovered`, resilience soft/pre_flush, after_flush `retry≠halt` still advertise success without Done Constitution. Ledger note “Must plug into Done Constitution ready” is accurate (`CODE_DOC_CONFLICT` if docs imply class closed).
 

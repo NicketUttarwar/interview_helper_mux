@@ -1,4 +1,4 @@
-"""Stage Clinic Wave 2: disabled low_conf_island_scan must write + heal."""
+"""Disabled low_conf_island_scan must write a skip stub and mark done."""
 
 from __future__ import annotations
 

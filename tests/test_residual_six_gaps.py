@@ -317,7 +317,7 @@ def test_f02_record_wasted_work_schema_bypass(tmp_path, monkeypatch):
 def test_f03_invent_gate_blocks_heuristic_beds(tmp_path, monkeypatch):
     """F-03: unpaid invent_obligation → invent_gate blocked; dens invent beds cleared.
 
-    Soft-block (Partial Zero A+) keeps planned/inject beds when present; with no
+    Soft-block keeps planned/inject beds when present; with no
     planned SDP beds the slot list stays empty.
     """
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))

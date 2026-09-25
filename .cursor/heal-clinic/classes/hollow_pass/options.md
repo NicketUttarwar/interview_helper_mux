@@ -213,7 +213,7 @@ Only if you accept hollow side doors until soak proves otherwise — conflicts w
 
 - [possibility.md](possibility.md) · [dossier.md](dossier.md)
 - HEAD: `done_authority.py`, `run_context.mark_done`, `producer_ready`, `apply_seed_order_heal`, `heal_or_refuse_mark`, agenda backfill
-- Hints: Partial Zero HOLLOW_DONE partial; XC-HOLLOW-01 OPEN_RISK
+- Hints: HOLLOW_DONE residual; XC-HOLLOW-01 OPEN_RISK
 
 ---
 
