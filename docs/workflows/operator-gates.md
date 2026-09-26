@@ -41,7 +41,7 @@ Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/ru
 
 | Offer | When | Behavior |
 |-------|------|----------|
-| Pre-clean source | Before ingest | **Manual / Partial:** dismissible offer — never required. **Full-auto (shipped default):** `audio_preclean.auto_run_before_ingest=true` may run DeepFilter before ingest unattended. Partial prepare-until-G0 still defers preclean until after G0 (see Hard gates). |
+| Pre-clean source | Before ingest | **Manual / Partial:** dismissible offer — never required. **Full-auto (shipped default):** `audio_preclean.auto_run_before_ingest=true` may run DeepFilter before ingest unattended. Set `MUX_SKIP_PRECLEAN=1` to dismiss instead (forensics / skip-clean campaigns). Partial prepare-until-G0 still defers preclean until after G0 (see Hard gates). |
 | NLE edits | After ranking / before EDL | Operator choice via Timeline tab |
 | Assembly preview listen | After `assembly_preview` | Soft milestone; does not block mix by default |
 | **G-Listen** | After `mix` when `master/listen_critic.json` recommends (`g_listen_recommended`) | Optional borderline quality review before `master_finalize`. Default `sound_design.g_listen_mode: warn` (advisory). Set `block` to hard-stop. Continue: `POST …/g-listen/continue`; skip: `POST …/g-listen/skip`. Distinct from `listen_delight_audit`, which scores the human-listen rubric (aspiration floors by default). **Thrash spine:** do **not** re-arm G-Listen after a delight remutate `refused_low_gain` decision (imperfect ship OK). |

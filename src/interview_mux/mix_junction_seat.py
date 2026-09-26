@@ -57,6 +57,7 @@ SHIP_OMIT_PRODUCER_ACTIONS: dict[str, str] = {
     "full_master_ranking": "media_ip_cta",
     "selection_order_sanitize": "media_ip_cta",
     "media_ip_cta.heal_on_air_cta_residue": "heal_on_air_cta",
+    "media_ip_cta.orphaned_cta_child_omit": "orphaned_cta_child_omit",
 }
 
 

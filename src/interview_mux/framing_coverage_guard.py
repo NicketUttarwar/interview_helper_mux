@@ -39,6 +39,19 @@ def _impact_source_is_unenforceable(
     if not key:
         return True
     try:
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            live = {
+                str(row.get("segment_id") or "")
+                for row in (man.get("segments") or [])
+                if isinstance(row, dict)
+            }
+            live.discard("")
+            if live and key not in live:
+                return True
+    except Exception:
+        pass
+    try:
         from interview_mux.media_ip_cta import (
             is_editorial_exclude_reason,
             never_touch_segment_ids,
@@ -265,6 +278,18 @@ def inject_ranking_lattice_keeps(
         from interview_mux.hard_keep import hard_keep_segment_ids
 
         need.extend(sorted(str(s) for s in hard_keep_segment_ids(ctx) if s))
+    except Exception:
+        pass
+    try:
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            live = {
+                str(row.get("segment_id") or "")
+                for row in (man.get("segments") or [])
+                if isinstance(row, dict) and row.get("segment_id")
+            }
+            if live:
+                need = [s for s in need if s in live]
     except Exception:
         pass
     # De-dupe preserving order.

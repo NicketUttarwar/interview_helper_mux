@@ -567,6 +567,39 @@ def test_sanitary_errors_never_auto_commit_floor_reseat(monkeypatch) -> None:
     assert any("protect_hosted_vo_floor_reseat" in e for e in errs)
 
 
+def test_stamp_match_still_reports_protect_hosted_reseat(monkeypatch) -> None:
+    """Stamp match must not hide a needed floor reseat (forensics i3)."""
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.config.block_consumers_on_unsanitary",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.reentry.stamp_matches",
+        lambda _doc: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_sanitize.air_script.sanitize_air_contract",
+        lambda _ctx, docs=None: type(
+            "R",
+            (),
+            {
+                "ok": True,
+                "actions": [
+                    {
+                        "action": "protect_hosted_vo_floor_reseat",
+                        "ids": ["vo_preface_seg_019"],
+                    }
+                ],
+                "errors": [],
+            },
+        )(),
+    )
+    ctx = RunContext(create=True)
+    _dump_raw(ctx, "mastering/mastering_plan.json", {"air_script": {"vo_seats": {}}})
+    errs = air_contract_sanitary_errors(ctx)
+    assert any("protect_hosted_vo_floor_reseat" in e for e in errs)
+
+
 def test_full_auto_always_blocks_unsanitary(monkeypatch) -> None:
     from interview_mux.artifact_sanitize.config import block_consumers_on_unsanitary
 
@@ -614,3 +647,9 @@ def test_i34_gap_framing_compose_reconcile_no_authority_denied(
     snap = reconcile_execution_contract(ctx, reason="test_gap_framing")
     assert isinstance(snap, dict)
     assert "mastering/mastering_plan.json" not in (snap.get("reconcile_changed") or [])
+
+
+def test_revive_pre_synth_floor_is_auto_commit_action() -> None:
+    from interview_mux.artifact_sanitize.air_script import _AUTO_COMMIT_ACTIONS
+
+    assert "revive_pre_synth_floor_soft_omit" in _AUTO_COMMIT_ACTIONS

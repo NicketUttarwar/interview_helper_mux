@@ -409,8 +409,15 @@ def _seed_order_skip_stage(ctx: RunContext, stage_id: str) -> bool:
     try:
         from interview_mux.automation_run import is_partially_accelerated_run
         from interview_mux.homunculus.packer import g0_closed
+        from interview_mux.stage_completion import heal_or_refuse_mark
         from interview_mux.stages.audio_preclean import preclean_was_skipped
 
+        if preclean_was_skipped(ctx):
+            try:
+                heal_or_refuse_mark(ctx, "audio_preclean", force=True)
+            except Exception:
+                pass
+            return True
         meta: dict = {}
         if ctx.artifact_exists("run_meta.json"):
             raw = ctx.read_json("run_meta.json")
@@ -420,7 +427,7 @@ def _seed_order_skip_stage(ctx: RunContext, stage_id: str) -> bool:
             return False
         if g0_closed(ctx):
             return False
-        if ctx.is_done("audio_preclean") or preclean_was_skipped(ctx):
+        if ctx.is_done("audio_preclean"):
             return False
         return True
     except Exception:

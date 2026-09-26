@@ -1215,33 +1215,9 @@ def restamp_edl_transition_source_paths(ctx: RunContext) -> bool:
 
 
 def _justified_skip_before_ids(ctx: RunContext) -> set[str]:
-    skip: set[str] = set()
-    try:
-        from interview_mux.nugget_layup import (
-            PLAN_REL,
-            is_justified_skip_row,
-            nugget_layup_enabled,
-        )
+    from interview_mux.bridge_completeness import justified_skip_before_ids
 
-        if nugget_layup_enabled() and ctx.artifact_exists(PLAN_REL):
-            plan = ctx.read_json(PLAN_REL)
-            if isinstance(plan, dict):
-                for row in plan.get("layups") or []:
-                    if not isinstance(row, dict) or not row.get("skip"):
-                        continue
-                    tid = str(row.get("target_segment_id") or "").strip()
-                    if tid and is_justified_skip_row(row, soft_migrate=True):
-                        skip.add(tid)
-    except Exception:
-        pass
-    try:
-        from interview_mux.air_script import native_handoff_segment_ids
-        from interview_mux.mastering_plan_loader import load_plan_raw
-
-        skip |= native_handoff_segment_ids(load_plan_raw(ctx))
-    except Exception:
-        pass
-    return skip
+    return justified_skip_before_ids(ctx)
 
 
 def _selection_ordered_ids(ctx: RunContext) -> list[str]:

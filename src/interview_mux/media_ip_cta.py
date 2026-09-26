@@ -1572,6 +1572,39 @@ def heal_on_air_cta_residue(
         ordered = [sid for sid in ordered if sid not in set(empty_shells)]
         out["ordered_segment_ids"] = ordered
         stripped_never_touch = True
+    scrap_kids = on_air_orphaned_cta_scrap_ids(ctx, out)
+    if scrap_kids:
+        drop = set(scrap_kids)
+        ordered = [sid for sid in ordered if sid not in drop]
+        out["ordered_segment_ids"] = ordered
+        rationales = (
+            dict(out.get("exclude_rationales") or {})
+            if isinstance(out.get("exclude_rationales"), dict)
+            else {}
+        )
+        excl = list(out.get("excluded_segment_ids") or [])
+        have = {
+            str(row.get("segment_id") if isinstance(row, dict) else row) for row in excl
+        }
+        for sid in scrap_kids:
+            rationales[sid] = "media_ip_cta"
+            if sid not in have:
+                excl.append({"segment_id": sid, "reason": "media_ip_cta"})
+        out["exclude_rationales"] = rationales
+        out["excluded_segment_ids"] = excl
+        if ctx.artifact_exists("master/selection.json"):
+            from interview_mux.air_order_boundary import commit_selection_mutation
+
+            commit_selection_mutation(
+                ctx,
+                out,
+                producer="media_ip_cta.orphaned_cta_child_omit",
+                stage_key=_selection_commit_stage_key(),
+                checkpoint_mode="detect",
+                skip_checkpoint=True,
+                write_committed=True,
+            )
+        return out
     residue = [
         sid
         for sid in ordered
@@ -1819,6 +1852,95 @@ def _is_nle_child(sid: str, parent: str) -> bool:
         return False
     rest = sid[len(parent) :]
     return bool(rest) and rest[0].isalpha()
+
+
+_SCRAP_TOKEN_RE = re.compile(
+    r"\b(sponsor|agilisium|fullview|podcast|platform|collective|subscribe|"
+    r"episodes|newsletter|patreon|promo|remind)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def looks_like_orphaned_cta_scrap(text: str) -> bool:
+    """Short sponsor/credit/incomplete-CTA leftover — not mixed-recut story."""
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    raw = str(text or "").strip()
+    if not raw:
+        return True
+    if should_hard_omit_cta(raw):
+        return True
+    if _looks_like_degraded_signoff(raw):
+        return True
+    from interview_mux.homunculus.values import normalize_omit_text
+
+    words = normalize_omit_text(raw).split()
+    if len(words) <= 16 and _SCRAP_TOKEN_RE.search(raw):
+        return True
+    collapsed = re.sub(r"\s+", "", raw.lower())
+    if len(words) <= 16 and any(
+        tld in collapsed for tld in (".com", ".net", ".org", ".io")
+    ):
+        return True
+    if raw.rstrip(" .").endswith(" by"):
+        return True
+    return False
+
+
+def _cta_exclude_parent_ids(selection: dict[str, Any], extra: set[str] | None = None) -> set[str]:
+    parents: set[str] = set(extra or ())
+    rationales = (
+        selection.get("exclude_rationales")
+        if isinstance(selection.get("exclude_rationales"), dict)
+        else {}
+    )
+    for row in selection.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "").strip()
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "").strip()
+            reason = str(rationales.get(sid) or "")
+        if sid and is_editorial_exclude_reason(reason):
+            parents.add(sid)
+    return parents
+
+
+def on_air_orphaned_cta_scrap_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> list[str]:
+    """On-air NLE children of excluded CTA parents that are leftover scraps."""
+    sel = selection
+    if sel is None:
+        if not ctx.artifact_exists("master/selection.json"):
+            return []
+        loaded = ctx.read_json("master/selection.json")
+        sel = loaded if isinstance(loaded, dict) else {}
+    if not isinstance(sel, dict):
+        return []
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    parents = _cta_exclude_parent_ids(sel)
+    try:
+        parents |= never_touch_segment_ids(ctx)
+    except Exception:
+        pass
+    if not ordered or not parents:
+        return []
+    try:
+        story = set(admitted_story_segment_ids(ctx) or [])
+    except Exception:
+        story = set()
+    by_id = _segments_by_id(ctx)
+    out: list[str] = []
+    for sid in ordered:
+        if sid in story:
+            continue
+        if not any(_is_nle_child(sid, parent) for parent in parents if parent):
+            continue
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        if looks_like_orphaned_cta_scrap(text):
+            out.append(sid)
+    return out
 
 
 def _reverse_jump_keep_ids(reason: str) -> set[str]:
@@ -2431,6 +2553,14 @@ def omit_locked_degraded_cta_scraps(ctx: RunContext) -> list[str]:
             scraps.append(sid)
             continue
         if child and tail and _looks_like_degraded_signoff(text):
+            scraps.append(sid)
+            continue
+        if child and looks_like_orphaned_cta_scrap(text):
+            try:
+                if sid in set(admitted_story_segment_ids(ctx) or []):
+                    continue
+            except Exception:
+                pass
             scraps.append(sid)
             continue
     if not scraps:

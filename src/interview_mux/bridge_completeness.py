@@ -124,6 +124,42 @@ def _bridged_pairs(
     return bridged
 
 
+def justified_skip_before_ids(ctx: Any) -> set[str]:
+    """Destinations whose layup skip or native handoff already covers the seam.
+
+    Mint, Done Authority, and the EDL preflight must share this set. Calling
+    ``missing_reorder_bridges`` without it reports hollow hinges that mint
+    already treats as covered (exec_002: 7 missing vs persist n=6).
+    """
+    skip: set[str] = set()
+    try:
+        from interview_mux.nugget_layup import (
+            PLAN_REL,
+            is_justified_skip_row,
+            nugget_layup_enabled,
+        )
+
+        if nugget_layup_enabled() and ctx.artifact_exists(PLAN_REL):
+            plan = ctx.read_json(PLAN_REL)
+            if isinstance(plan, dict):
+                for row in plan.get("layups") or []:
+                    if not isinstance(row, dict) or not row.get("skip"):
+                        continue
+                    tid = str(row.get("target_segment_id") or "").strip()
+                    if tid and is_justified_skip_row(row, soft_migrate=True):
+                        skip.add(tid)
+    except Exception:
+        pass
+    try:
+        from interview_mux.air_script import native_handoff_segment_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        skip |= native_handoff_segment_ids(load_plan_raw(ctx))
+    except Exception:
+        pass
+    return skip
+
+
 def missing_reorder_bridges(
     reorder_bridges: dict[str, Any] | None,
     *,

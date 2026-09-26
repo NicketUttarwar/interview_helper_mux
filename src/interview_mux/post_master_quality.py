@@ -1048,6 +1048,15 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     # seam_commitment when unpaid. Persist PMQ even when delight loud-fails
     # (anti hollow mark_done thrash — exec_13167).
 
+    # Paperwork: selection restamp must not leave omit_ledger_order_lock_stale
+    # as a structural ship fail (rebuild is not a seat mutation).
+    try:
+        from interview_mux.omit_ledger import sync_stale_omit_order_lock
+
+        sync_stale_omit_order_lock(ctx)
+    except Exception:
+        pass
+
     delight_exc: BaseException | None = None
     if ctx.artifact_exists("master/master.wav"):
         try:

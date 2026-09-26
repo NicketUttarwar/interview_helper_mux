@@ -66,12 +66,14 @@ def test_enda_allowlist_membership() -> None:
         "junction_incomplete_cut_omit",
         "edl_overlap_repair_omit",
         "segment_id_remap_omit",
+        "orphaned_cta_child_omit",
         "sdp_duration_band_repair",
         "soundscape_bed_trim",
         "opening_adjacency_suppress_duplicate",
         "opening_adjacency_drop_orphan",
         "sdp_theme_outro_rebind",
         "bridge_completeness_mint",
+        "music_palette_compose",
         "nugget_layup_gap_publish",
     ):
         assert action in HARD_FREEZE_ALLOWLIST_ACTIONS

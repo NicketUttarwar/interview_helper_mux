@@ -85,6 +85,24 @@ _SHARED_PATH_LAND_CO_PRODUCERS: dict[str, frozenset[str]] = {
             "artifact_sanitize.selection",
         }
     ),
+    # IPP / layup may rewrite mastering_plan after a clean air-contract sync
+    # (episode close, VO seats). Exact-match-only unpaid then blocks sanitize
+    # mark_done (exec_002 information_package_plan producer). air_script_compose
+    # stays unpaid so first-pass sanitize still runs (thin-matrix wrong producer).
+    "air_contract_sanitize": frozenset(
+        {
+            "air_contract_sanitize",
+            "information_package_plan",
+            "nugget_layup_compose",
+        }
+    ),
+    # Palette compose places theme cues on the shared SDP primary (exec_002).
+    "sound_design_plan": frozenset(
+        {
+            "sound_design_plan",
+            "music_palette_compose",
+        }
+    ),
 }
 
 # Stages that must not look complete under nugget_layup_authority without a plan.
@@ -116,7 +134,16 @@ def primary_disk_present(ctx: RunContext, stage: str) -> bool:
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
         if not rel:
             return True
-        return bool(ctx.artifact_exists(str(rel)))
+        if ctx.artifact_exists(str(rel)):
+            return True
+        if sid == "audio_preclean" and ctx.artifact_exists("preclean/skip.json"):
+            return True
+        # Pass-2 skip copy is a finished recompose outcome (same as skip.json).
+        if sid == "gap_framing_recompose" and ctx.artifact_exists(
+            "understanding/refinement_skip_copy.json"
+        ):
+            return True
+        return False
     except Exception:
         return False
 

@@ -1,6 +1,38 @@
 # Full-auto forensics end report
 
-Current campaign: **`exec_13159_d19c15b58ab4_20260918T235157Z`** (2026-09-18/19). Prior campaigns archived below.
+Current campaign: **`exec_002_d19c15b58ab4_20260925T213831Z`** (2026-09-25/26) — [full write-up](full_auto_forensics_end_report_exec_002.md). Prior campaigns archived below.
+
+---
+
+## What happened
+
+INPUT `mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3` → **ship** (local episode package) on run_id
+`exec_002_d19c15b58ab4_20260925T213831Z`.
+
+- `fresh_launches = 1` (one `MUX_FRESH=1` kickoff; every fix continued this same run_id)
+- **20 interventions** (i1–i20); 20 driver restarts on the same run_id
+- `MUX_SKIP_PRECLEAN=1`; master `master/master.wav` 242,577,102 B (~42:07); `publish/audio.mp3` + cover
+- Window: 2026-09-25T21:38:31Z → 2026-09-26T01:47:27Z
+- Per-intervene log: [full_auto_forensics_state.md](full_auto_forensics_state.md)
+
+## Ship verification (§2)
+
+| Gate | Result |
+|------|--------|
+| `master/master.wav` | yes (242577102 B) |
+| `tools/verify_master.py` | **OK** LUFS −16.00 / TP −1.00 / 48 kHz |
+| listen delight | overall **0.969**, failed_dims=[] |
+| PMQ `publish_allowed` | **true** (structural=[]) |
+| Local package | `publish/package_ready.json`, `audio.mp3`, `cover.jpg` |
+| S3 upload | deferred — quality advisories need G-Publish consent |
+
+## Daemon / nudge
+
+Stopped after ship (`full_auto_daemon_launch stop` + killed §3.0a nudge PID 60040).
+
+---
+
+## Archived: exec_13159 (2026-09-18/19)
 
 ---
 

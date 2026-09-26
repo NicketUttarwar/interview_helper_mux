@@ -566,21 +566,46 @@ def repair_opening_tape_integrity(
     if not late:
         return out, actions
     to_drop: list[str] = []
-    for v in late:
-        family = [str(s) for s in (v.get("segment_ids") or []) if s]
-        if mode == "drop_if_guest_first" and guest_first:
-            to_drop.extend(family)
-        else:
-            # Prefer native host intro at front (default); company-pitch tape may
-            # follow even when topics overlap across speakers.
+
+    def _family_sorted(family: list[str]) -> list[str]:
+        return sorted(
+            family,
+            key=lambda s: (
+                resolved_source_start_ms(s, starts) or 0,
+                ordered.index(s) if s in ordered else 0,
+            ),
+        )
+
+    if mode == "drop_if_guest_first" and guest_first:
+        for v in late:
+            to_drop.extend(str(s) for s in (v.get("segment_ids") or []) if s)
+    elif guest_first:
+        # One-shot: earliest-tape host intro to front. Prepending every late
+        # family leaves the last cluster first and guest_first stays true
+        # (exec_002 late_opening_cluster ×4 on consecutive opening tape).
+        host_parent = ""
+        host_start: int | None = None
+        for sid in opening_ids:
+            start = resolved_source_start_ms(sid, starts)
+            if start is None:
+                continue
+            parent = _parent_seg_id(sid)
+            if host_start is None or int(start) < host_start:
+                host_start = int(start)
+                host_parent = parent
+        family = [s for s in ordered if _parent_seg_id(s) == host_parent] if host_parent else []
+        if family and _parent_seg_id(ordered[0]) != host_parent:
             rest = [s for s in ordered if s not in set(family)]
-            family_sorted = sorted(
-                family,
-                key=lambda s: (
-                    resolved_source_start_ms(s, starts) or 0,
-                    ordered.index(s) if s in ordered else 0,
-                ),
-            )
+            family_sorted = _family_sorted(family)
+            ordered = family_sorted + rest
+            actions.append({"action": "prepend_opening_family", "ids": family_sorted[:12]})
+    else:
+        for v in late:
+            family = [str(s) for s in (v.get("segment_ids") or []) if s]
+            if not family:
+                continue
+            rest = [s for s in ordered if s not in set(family)]
+            family_sorted = _family_sorted(family)
             ordered = family_sorted + rest
             actions.append({"action": "prepend_opening_family", "ids": family_sorted[:12]})
     if to_drop:

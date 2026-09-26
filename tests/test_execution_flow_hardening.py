@@ -651,6 +651,25 @@ def test_chapter_contiguity_at_ranking() -> None:
     assert any("contiguous" in err for err in errors)
 
 
+def test_chapter_span_contiguous_ignores_stored_list_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): source-sorted chapter ids still span-contiguous."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    from interview_mux.narrative_qc import _validate_chapters
+
+    selection = {
+        "ordered_segment_ids": ["seg_002", "seg_007", "seg_005", "seg_004"],
+        "chapters": [
+            {
+                "title": "Why Precision Oncology Needs Better Information",
+                "segment_ids": ["seg_002", "seg_004", "seg_005", "seg_007"],
+            }
+        ],
+    }
+    assert _validate_chapters(selection) == []
+
+
 def test_dispatch_preflight_blocks_expensive(ctx: RunContext) -> None:
     from interview_mux.homunculus.runtime import dispatch_stage
     from interview_mux.stage_input_checks import StageInputError

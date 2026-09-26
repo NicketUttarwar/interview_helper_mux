@@ -65,3 +65,33 @@ def test_repair_reseats_omitted_line_with_wav(ctx: RunContext) -> None:
     assert "vo_layup_seg_003b" in (seats.get("seated_line_ids") or [])
     assert "vo_layup_seg_003b" not in (seats.get("omitted_line_ids") or [])
     assert not any("lacks skip/omit" in i for i in validate_vo_contract(ctx))
+
+
+def test_omit_notes_air_script_omit_sync_satisfies_vo_contract(ctx: RunContext) -> None:
+    """Air-script omit-sync notes count as durable omit flags (forensics i3)."""
+    gap = minimal_gap_report(
+        minimal_gap_line(
+            line_id="vo_preface_seg_019",
+            text="Preface introducing the guest and episode stakes.",
+            targets_segment_id="seg_019",
+            delivery="synthesize",
+        )
+    )
+    gap["interviewer_lines"][0]["required"] = True
+    gap["interviewer_lines"][0]["omit_notes"] = ["vo_contract:air_script_omit_sync"]
+    ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_ctx_seg_039"],
+                    "omitted_line_ids": ["vo_preface_seg_019"],
+                    "orientation_id": None,
+                }
+            }
+        },
+        skip_handoff=True,
+    )
+    issues = validate_vo_contract(ctx)
+    assert not any("lacks skip/omit" in i for i in issues)

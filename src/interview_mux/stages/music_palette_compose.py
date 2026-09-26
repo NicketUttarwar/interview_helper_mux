@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.config import merged_config
 from interview_mux.music_motif import (
     analysis_palette_counts,
@@ -90,7 +89,7 @@ def _default_cues(
 
         hunted = cues_from_sonic_plan(plan, assets_by_kind=by_kind)
         if hunted:
-            return hunted
+            return _with_required_close_bed(sdp, list(hunted), ordered=ordered)
 
     cues: list[dict[str, Any]] = []
     first = ordered[0] if ordered else None
@@ -181,17 +180,64 @@ def _default_cues(
         assets
     )
     if close_bed and last:
-        cues.append(
-            {
-                "cue_id": "compose_close_bed",
-                "asset_id": str(close_bed["asset_id"]),
-                "role": str(close_bed.get("role") or "theme_outro"),
-                "placement": "after_segment",
-                "after_segment_id": last,
-                "level_db": -10,
-            }
-        )
+        cues.append(_compose_close_bed_cue(close_bed, last))
     return cues
+
+
+def _looks_like_outro_cue(cue: dict[str, Any]) -> bool:
+    if not isinstance(cue, dict) or cue.get("skip"):
+        return False
+    role = str(cue.get("role") or cue.get("kind") or cue.get("music_role") or "")
+    cid = str(cue.get("cue_id") or "")
+    return role == "theme_outro" or "outro" in cid.lower() or "close_bed" in cid.lower()
+
+
+def _compose_close_bed_cue(close_bed: dict[str, Any], last_id: str) -> dict[str, Any]:
+    return {
+        "cue_id": "compose_close_bed",
+        "asset_id": str(close_bed.get("asset_id") or ""),
+        "role": "theme_outro",
+        "placement": "after_segment",
+        "after_segment_id": last_id,
+        "segment_id": last_id,
+        "level_db": -10,
+    }
+
+
+def _with_required_close_bed(
+    sdp: dict[str, Any],
+    cues: list[dict[str, Any]],
+    *,
+    ordered: list[str],
+) -> list[dict[str, Any]]:
+    """Union compose_close_bed when a theme_outro asset exists but no close cue."""
+    last = str(ordered[-1]) if ordered else ""
+    if not last:
+        return cues
+    if any(_looks_like_outro_cue(c) for c in cues):
+        return cues
+    from interview_mux.music_lane import pick_theme_outro_asset
+
+    assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
+    close_bed = pick_theme_outro_asset(assets)
+    if not close_bed or not close_bed.get("asset_id"):
+        return cues
+    return list(cues) + [_compose_close_bed_cue(close_bed, last)]
+
+
+def ensure_required_close_bed(
+    sdp: dict[str, Any],
+    *,
+    ordered: list[str],
+) -> dict[str, Any]:
+    """Persist-time: mint compose_close_bed onto SDP when the LLM/sonic hunt omitted it."""
+    flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    cues = [c for c in (podcast.get("cues") or []) if isinstance(c, dict)]
+    merged = _with_required_close_bed(sdp, cues, ordered=ordered)
+    if merged is cues or merged == cues:
+        return sdp
+    return _apply_cues(sdp, merged)
 
 
 def _arrangement_config() -> dict[str, int]:
@@ -700,6 +746,7 @@ def run_music_palette_compose(ctx: RunContext) -> None:
         from interview_mux.sdp_cross_validate import validate_post_sound_plan
 
         sdp, repair_notes = repair_sound_design_plan(c, sdp)
+        sdp = ensure_required_close_bed(sdp, ordered=ordered)
         if repair_notes:
             c.log(
                 f"music_palette_compose: density repair applied ({len(repair_notes)} notes)",
@@ -755,8 +802,13 @@ def run_music_palette_compose(ctx: RunContext) -> None:
                 )
 
         selection_set = {str(s) for s in (ordered or []) if s}
-        write_validated_artifact(
-            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="music_palette_compose"
+        from interview_mux.artifact_sanitize.one_writer import commit_sound_design_plan_doc
+
+        commit_sound_design_plan_doc(
+            c,
+            sdp,
+            stage_key="music_palette_compose",
+            reason="music_palette_compose",
         )
         # i14b: if ownership/sanitize reintroduced off-selection anchors, force commit.
         if selection_set and _sdp_has_off_selection_anchors(c, selection_set):
@@ -771,13 +823,31 @@ def run_music_palette_compose(ctx: RunContext) -> None:
                 c,
                 sdp,
                 stage_key="music_palette_compose",
-                reason="i14b_prune_persist",
+                reason="music_palette_compose",
             )
         from interview_mux.artifact_lifecycle import restamp_committed_artifact
 
         restamp_committed_artifact(
             c, _SOUND_DESIGN_PLAN_REL, producer_stage="sound_design_plan"
         )
+        landed = (
+            c.read_json(_SOUND_DESIGN_PLAN_REL)
+            if c.artifact_exists(_SOUND_DESIGN_PLAN_REL)
+            else {}
+        )
+        disk_cues = (
+            (((landed.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+            if isinstance(landed, dict)
+            else []
+        )
+        mem_cues = (((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+        if not disk_cues and (mem_cues or any(
+            isinstance(a, dict) and a.get("asset_id") for a in (sdp.get("assets") or [])
+        )):
+            raise RuntimeError(
+                "music_palette_compose: SDP persist refused under seat freeze "
+                f"(disk_cues=0, minted={len(mem_cues)})"
+            )
         compose_out = {
             "version": 1,
             "palette_counts": counts,

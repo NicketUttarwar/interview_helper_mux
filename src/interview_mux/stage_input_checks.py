@@ -62,11 +62,20 @@ def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInpu
         from interview_mux.artifact_sanitize.preflight import sanitary_preflight_errors
 
         for err in sanitary_preflight_errors(ctx, stage_id):
+            related = None
+            low = str(err).lower()
+            if "air_contract" in low:
+                related = "air_contract_sanitize"
+            elif "selection" in low:
+                related = "selection_order_sanitize"
+            elif "gap" in low:
+                related = "gap_report_sanitize"
             issues.append(
                 StageInputIssue(
                     err,
                     "Run the matching sanitize stage (selection/gap/air_contract) before continuing.",
                     kind="sanitize",
+                    related_stage=related,
                 )
             )
     except Exception:

@@ -226,6 +226,64 @@ def test_selection_commit_stamps_producer_stage_clears_unpaid(
     assert unpaid_land_blocks_promote(ctx, "selection_order_sanitize") is False
 
 
+def test_sanitize_noop_restamps_ranking_producer_pays_land(
+    ctx: RunContext,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): ranking producer + unchanged order still pays.
+
+    Ranking is the thin-matrix wrong producer for sanitize. A no-op sanitize
+    commit must restamp selection_order_sanitize so heal_or_raise can land.
+    """
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
+    assert rel
+    ctx.path("segments").mkdir(parents=True, exist_ok=True)
+    import json
+
+    (ctx.path("segments") / "boundaries.json").write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {"segment_id": "seg_001", "start_ms": 0, "end_ms": 1000},
+                    {"segment_id": "seg_002", "start_ms": 1000, "end_ms": 2000},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    ranking_doc = {
+        "ordered_segment_ids": ["seg_001", "seg_002"],
+        "excluded_segment_ids": [],
+        "chapters": [],
+        "_meta": {
+            "producer_stage": "full_master_ranking",
+            "sanitize": {"ok": True, "source": "fixture", "actions": 0},
+        },
+    }
+    ctx._one_writer_raw = True
+    ctx.write_json(str(rel), ranking_doc, skip_handoff=True)
+    reason = unpaid_land_reason(ctx, "selection_order_sanitize") or ""
+    assert "full_master_ranking" in reason
+    commit_selection_mutation(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [],
+            "chapters": [],
+        },
+        producer="artifact_sanitize.selection",
+        stage_key="selection_order_sanitize",
+        checkpoint_mode="detect",
+        skip_checkpoint=True,
+        write_committed=True,
+    )
+    disk = ctx.read_json(str(rel))
+    assert (disk.get("_meta") or {}).get("producer_stage") == "selection_order_sanitize"
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
+
+
 def test_gap_report_sanitize_stamps_producer_stage_clears_unpaid(
     ctx: RunContext,
 ) -> None:
@@ -275,6 +333,51 @@ def test_promote_refuses_all_unpaid_mix_cases(
     promoted = promote_complete_orphan_stage_done(ctx, ("mix", "junction_snip_qa"))
     assert "mix" not in promoted
     assert "junction_snip_qa" not in promoted
+
+def test_sdp_palette_compose_co_producer_is_paid_land(ctx: RunContext) -> None:
+    """Cascade (MUX_FORENSICS=0): palette compose stamp on SDP is paid land."""
+    import json
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("sound_design_plan")
+    assert rel
+    path = ctx.path(*str(rel).split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "assets": [{"asset_id": "theme_motif"}],
+                "flow_plans": {"podcast": {"cues": [{"asset_id": "theme_motif"}]}},
+                "_meta": {"producer_stage": "music_palette_compose"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert unpaid_land_reason(ctx, "sound_design_plan") is None
+
+
+def test_air_contract_ipp_co_producer_is_paid_land(ctx: RunContext) -> None:
+    """IPP stamp on mastering_plan is paid for air_contract (forensics i6)."""
+    import json
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("air_contract_sanitize")
+    assert rel
+    path = ctx.path(*str(rel).split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "air_script": {"vo_seats": {"seated_line_ids": []}},
+                "_meta": {"producer_stage": "information_package_plan"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert unpaid_land_reason(ctx, "air_contract_sanitize") is None
+
 
 def test_selection_edl_narrative_co_producer_is_paid_land(ctx: RunContext) -> None:
     """edl_narrative_audit stamp on selection is paid for sanitize (exec_13198)."""

@@ -724,6 +724,8 @@ def commit_selection_mutation(
         # unpaid → incomplete-after-conductor thrash (exec_13196).
         # S4: when ordered_segment_ids are unchanged, preserve prior producer_stage
         # so metadata-align does not flip ownership vs sanitize.
+        # Sanitize itself must restamp even on a no-op — ranking's producer_stage
+        # is intentionally unpaid for sanitize (thin matrix) until this stage pays.
         sk_stamp = str(write_sk or stage_key or "").strip()
         if sk_stamp:
             meta = (
@@ -747,7 +749,9 @@ def commit_selection_mutation(
             prev_producer = ""
             if isinstance(prev_meta, dict):
                 prev_producer = str(prev_meta.get("producer_stage") or "").strip()
-            if (
+            if sk_stamp == "selection_order_sanitize":
+                meta["producer_stage"] = sk_stamp
+            elif (
                 prev_ids_stamp
                 and prev_ids_stamp == cur_ids_stamp
                 and prev_producer

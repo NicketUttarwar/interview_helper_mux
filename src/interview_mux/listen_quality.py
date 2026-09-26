@@ -463,7 +463,11 @@ def place_episode_close_cue(ctx: Any, *, allow_create: bool = True) -> list[str]
             return False
         role = str(cue.get("role") or cue.get("kind") or cue.get("music_role") or "")
         cid = str(cue.get("cue_id") or "")
-        return role == "theme_outro" or "outro" in cid.lower()
+        return (
+            role == "theme_outro"
+            or "outro" in cid.lower()
+            or "close_bed" in cid.lower()
+        )
 
     flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}

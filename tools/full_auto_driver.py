@@ -2016,6 +2016,11 @@ def maybe_refresh_fuse_after_manifest_change(ctx: Any, *, reason: str) -> None:
         log(f"connector fuse refresh failed ({reason}): {exc}")
 
 
+def skip_preclean_requested() -> bool:
+    """True when ``MUX_SKIP_PRECLEAN=1`` — dismiss DeepFilterNet before ingest."""
+    return _env_flag("MUX_SKIP_PRECLEAN") is True
+
+
 def skip_preclean_due_to_runtime(reason: str) -> None:
     """Finalize audio_preclean as skipped when DeepFilterNet runtime is unavailable."""
     from interview_mux.run_context import RunContext
@@ -2050,6 +2055,21 @@ def deepfilter_runtime_ok() -> bool:
         return False
 
 
+def _post_preclean_offer(*, action: str, reason: str) -> None:
+    api(
+        "POST",
+        f"/api/runs/{RUN_ID}/preclean-offer",
+        {"checkpoint": "before_ingest", "action": action, "scope": "full_source"},
+    )
+    log(f"preclean {action} ({reason})")
+    log_decision(
+        "minor",
+        stage="audio_preclean",
+        action="gate_auto_dismiss" if action == "dismiss" else "gate_auto_accept",
+        reason=reason,
+    )
+
+
 def accept_preclean() -> None:
     try:
         from interview_mux.run_context import RunContext
@@ -2059,6 +2079,18 @@ def accept_preclean() -> None:
         # Never re-POST accept on resume — invalidate_after_preclean_accept wipes downstream.
         if ctx.is_done("audio_preclean") or preclean_was_skipped(ctx):
             log("preclean already finalized — skip re-offer")
+            return
+        if skip_preclean_requested():
+            try:
+                _post_preclean_offer(action="dismiss", reason="mux_skip_preclean")
+            except Exception as exc:
+                ensure_preclean_skipped(
+                    ctx,
+                    checkpoint="before_ingest",
+                    scope="full_source",
+                    reason="mux_skip_preclean",
+                )
+                log(f"preclean skipped locally after offer fail: {exc}")
             return
         if not deepfilter_runtime_ok():
             skip_preclean_due_to_runtime("e2e_deepfilter_runtime_unavailable")
@@ -2087,18 +2119,7 @@ def accept_preclean() -> None:
             )
             log("preclean skipped (ingest already done)")
             return
-        api(
-            "POST",
-            f"/api/runs/{RUN_ID}/preclean-offer",
-            {"checkpoint": "before_ingest", "action": "accept", "scope": "full_source"},
-        )
-        log("preclean accepted (default run)")
-        log_decision(
-            "minor",
-            stage="audio_preclean",
-            action="gate_auto_accept",
-            reason="preclean_accept",
-        )
+        _post_preclean_offer(action="accept", reason="preclean_accept")
     except RuntimeError as exc:
         log(f"preclean note: {exc}")
     except Exception as exc:
@@ -2110,7 +2131,7 @@ def dismiss_preclean() -> None:
     if is_partial_auto() and not g0_complete():
         log("partial-auto: defer preclean until after G0 transcript review")
         return
-    # Happy path: run DeepFilterNet before ingest (PREPARE_STAGES starts with audio_preclean).
+    # Default: accept DeepFilterNet before ingest. MUX_SKIP_PRECLEAN=1 dismisses instead.
     # If ingest already finished, accept_preclean heals by skipping.
     accept_preclean()
 
@@ -10254,6 +10275,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         heal_layup_spoken_copy()
                     except Exception as exc:
                         log(f"host repair spoken-copy: {exc}")
+                    chapter_or_cta = any(
+                        needle in low_err
+                        for needle in (
+                            "orphaned media-ip",
+                            "chapter map",
+                            "chapter membership",
+                            "listener-facing ending",
+                            "cta-tail",
+                        )
+                    )
+                    vo_needles = (
+                        "coverage=missing",
+                        "wav_stale",
+                        "script_match",
+                        "script-matched vo",
+                        "required high-severity",
+                    )
+                    if chapter_or_cta and not any(n in low_err for n in vo_needles):
+                        log(
+                            "host repair chapter/CTA close — skip G1, resume narrative audit"
+                        )
+                        execute(
+                            {
+                                "mode": "delivery",
+                                "from_stage": "edl_narrative_audit",
+                            }
+                        )
+                        continue
                     if not synthesize_g1():
                         log("host repair G1 synth incomplete (error) — wait/retry, not edl")
                         continue

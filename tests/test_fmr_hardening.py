@@ -21,6 +21,7 @@ from run_fixtures import (
     minimal_manifest,
     minimal_manifest_segment,
     minimal_narrative_plan,
+    write_fixture_json,
 )
 
 
@@ -248,6 +249,62 @@ def test_cover_ranking_manifest_membership_excludes_orphans(
         if isinstance(s, dict) and s.get("segment_id")
     }
     assert manifest_ids <= covered
+
+
+def test_cover_ranking_drops_ordered_ids_absent_from_manifest(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stale hitch/framing ids must leave ordered before ranking flush."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "fmr_drop_ghost")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_010"),
+            minimal_manifest_segment("seg_039", start_ms=1000, end_ms=2000),
+        ),
+        skip_handoff=True,
+    )
+    from interview_mux.open_shape_repair import cover_ranking_manifest_membership
+
+    arts = cover_ranking_manifest_membership(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_010", "seg_039", "seg_041", "seg_047"],
+            "chapters": [{"title": "Tail", "segment_ids": ["seg_039", "seg_041"]}],
+            "excluded_segment_ids": [],
+        },
+    )
+    ordered = [str(s) for s in (arts.get("ordered_segment_ids") or [])]
+    assert ordered == ["seg_010", "seg_039"]
+    ch_ids = (arts.get("chapters") or [{}])[0].get("segment_ids")
+    assert ch_ids == ["seg_039"]
+
+
+def test_ranking_ghost_ordered_is_incomplete(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "fmr_ghost_inc")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_010"),
+            minimal_manifest_segment("seg_039", start_ms=1000, end_ms=2000),
+        ),
+        skip_handoff=True,
+    )
+    write_fixture_json(
+        ctx,
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_039", "seg_041"]},
+    )
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    reason = stage_artifact_incompleteness(ctx, "full_master_ranking")
+    assert reason and "seg_041" in reason and "not in manifest" in reason
 
 
 def test_hard_freeze_skips_cta_child_invent(

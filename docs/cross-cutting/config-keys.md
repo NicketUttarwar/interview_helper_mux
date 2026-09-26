@@ -20,6 +20,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
 | `MUX_DETACH_SERVE` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` starts serve in its own session so Full-auto survives shell exit |
 | `MUX_KEEPALIVE` | `0` | `./scripts/run.sh`, GUI Full-auto, `full_auto_daemon_launch.py` | `1` starts the crash-restart watchdog (`full_auto_keepalive_loop.py`). Off by default so killing the GUI cannot resurrect serve. Equivalent: `--keepalive` or `python tools/full_auto_daemon_launch.py keepalive` |
+| `MUX_SKIP_PRECLEAN` | unset | `full_auto_driver.py`, `full_auto_daemon_launch.py` | `1` dismisses `audio_preclean` before ingest (writes `preclean/skip.json`; no DeepFilterNet). Unset / `0` keeps the Full-auto default accept. Set at launch and on every driver restart so keepalive cannot re-accept. |
 
 ---
 

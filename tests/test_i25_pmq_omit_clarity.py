@@ -109,3 +109,54 @@ def test_i25_omit_order_lock_rebuild_under_freeze(
     assert out.get("healed") is True
     assert "rebuilt_stale_order_lock" in (out.get("notes") or [])
     assert "omit_ledger_order_lock_stale" not in air_contract_errors(ctx)
+
+
+def test_pmq_sync_stale_omit_order_lock_under_hard_freeze(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): PMQ paperwork rebuilds omit lock before evaluate."""
+    import inspect
+
+    from interview_mux.omit_ledger import sync_stale_omit_order_lock
+    from interview_mux.post_master_quality import run_post_master_quality
+
+    monkeypatch.setattr(
+        "interview_mux.seat_authority.hard_freeze_active",
+        lambda _ctx: True,
+    )
+    sel = bump_order_lock(
+        {"ordered_segment_ids": ["seg_002", "seg_005"], "version": 1},
+        source="i20",
+    )
+    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    dest = ctx.final_path(*OMIT_LEDGER_REL.split("/", 1))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        __import__("json").dumps(
+            {
+                "version": 1,
+                "order_content_hash": "deadbeefdeadbeef",
+                "order_lock": {
+                    "version": 1,
+                    "revision": 1,
+                    "authority": "master/selection.json",
+                    "ordered_segment_ids": ["seg_002"],
+                    "order_content_hash": "deadbeefdeadbeef",
+                    "created_by": "test",
+                },
+                "entries": [],
+                "summary": {
+                    "active_count": 0,
+                    "by_kind": {},
+                    "unresolved_high_salience": 0,
+                    "compensated_count": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert "omit_ledger_order_lock_stale" in air_contract_errors(ctx)
+    assert sync_stale_omit_order_lock(ctx) is True
+    assert "omit_ledger_order_lock_stale" not in air_contract_errors(ctx)
+    src = inspect.getsource(run_post_master_quality)
+    assert "sync_stale_omit_order_lock" in src

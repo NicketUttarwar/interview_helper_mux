@@ -2,116 +2,179 @@
 
 - **campaign_mode:** fresh_campaign_continue_on_bug
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_13198_d19c15b58ab4_20260924T214444Z
+- **run_id:** exec_002_d19c15b58ab4_20260925T213831Z
 - **fresh_launches:** 1
-- **driver_restarts:** 19
-- **started_at:** 2026-09-24T21:44:44Z
-- **shipped_at:** 2026-09-25T05:23:38Z
-- **last_progress_at:** 2026-09-25T05:23:38Z
+- **driver_restarts:** 20
+- **started_at:** 2026-09-25T21:38:31Z
+- **last_progress_at:** 2026-09-26T01:47:27Z
 - **driver_alive:** false
-- **stages_done:** 73
-- **current_stage:** podcast_publish (ship_bar_complete)
+- **stages_done:** 72/72
+- **current_stage:** shipped
+- **g1_complete:** false
+- **intervention_count:** 20
+- **last_predicate:** PMQ omit_ledger_order_lock_stale + rubric clarity floor
+- **last_predicate_before:** mix theme_outro cue missing — LLM SDP omitted close; close_bed inferred underscore
+- **last_predicate_flipped:** true
+- **resume_from_stage:** —
+- **open_blockers:** []
 - **ship:** true
-- **nudge_pid:** killed (was 13122)
-- **end_report:** .cursor/plans/full_auto_forensics_end_report_exec_13198.md
-- **notes:** §2 local ship. Master 256MiB / 2792.50s; verify_master OK; delight 0.9676 pass; PMQ publish_allowed=true; publish package ready; S3 deferred (G-Publish advisory consent).
+- **patches_this_session:** [skip.json seed-complete, ranking drop ghost impact ids, stamp-match still reports protect_hosted + omit_notes flags, sanitize no-op restamps ranking producer, guest-first prepend host family once, air_contract IPP/layup paid land, transitions MUST_PRECEDE framing apply, recompose skip-copy is primary disk, restore frozen transition pairs, orphaned CTA child omit, admit required bridges beyond freeze, EDL MUST_PRECEDE transitions, dirty fingerprint includes mtime, persist mint-before-done, incompleteness honors justified skip, chapter QC span not list-order, palette compose End-A SDP persist, SDP palette compose paid land, compose_close_bed infers theme_outro + persist mints required close]
+- **hard_blocker:** null
+- **monitor_loop:** DEAD — killed after ship
+- **notes:** SHIP 2026-09-26T01:47:27Z. MUX_SKIP_PRECLEAN=1. Unused sibling exec_001 created 3s earlier (not used). Independent of family ledgers. S3 sync deferred — G-Publish consent for quality advisories.
 
 ## Intervene log
 
-### i1 — 2026-09-24T23:05:00Z
-- **predicate:** budget.dispatch_cap_refusal — max_invokes on missing_framing + batch_fill
-- **producer:** missing_framing
-- **fix:** BudgetExemption `missing_framing_batch_fill` when unscored fills remain.
-- **test:** tests/test_p15_budget_door.py::test_batch_fill_incompleteness_grants_walk_door_grace (MUX_FORENSICS=0)
-- **continued_from:** missing_framing
+### i1 — 2026-09-25T21:41:00Z
+- **predicate:** homunculus.runtime._seed_prereq_block — seed order: complete audio_preclean before running ingest
+- **producer:** audio_preclean (ensure_preclean_skipped / stage_outputs_present)
+- **fix:** skip.json is a finished outcome — stage_outputs_present + primary_disk + seed-order skip treat it as complete so heal can stamp done; ingest unblocks.
+- **test:** tests/test_skip_preclean_flag.py::test_skip_preclean_marks_done_and_unblocks_ingest (MUX_FORENSICS=0)
+- **continued_from:** audio_preclean
 
-### i2 — 2026-09-24T23:12:00Z
-- **predicate:** _missing_framing_batch_fill_incompleteness — superseded fill duplicates
-- **producer:** missing_framing
-- **fix:** Last-wins per segment_id in gap evaluations incompleteness.
-- **test:** tests/test_hg3_missing_framing_batch.py::test_hg3_superseded_fill_duplicate_does_not_block_done (MUX_FORENSICS=0)
-- **continued_from:** missing_framing
+### i2 — 2026-09-25T22:31:00Z
+- **predicate:** deterministic_lint._lint_full_master_ranking — ordered segment seg_041/047 not in manifest; nested execute 500 air_contract_unsanitary
+- **producer:** full_master_ranking / framing_coverage_guard (stale hitch impact ids)
+- **fix:** Ghost impact ids unenforceable; cover+sanitize drop them; ranking incompleteness unmarks hollow done; revive_pre_synth auto-commits so execute does not 500.
+- **test:** tests/test_framing_coverage_guard.py::test_enforce_framing_does_not_restore_ghost_primary; tests/test_fmr_hardening.py::test_cover_ranking_drops_ordered_ids_absent_from_manifest + test_ranking_ghost_ordered_is_incomplete; tests/test_artifact_sanitize_selection.py::test_sanitize_drops_ordered_ids_absent_from_manifest (MUX_FORENSICS=0)
+- **continued_from:** full_master_ranking
 
-### i3 — 2026-09-24T23:25:00Z
-- **predicate:** selection_sanitary framing:primary impact + mid_arc_reverse_jump from append restore
-- **producer:** selection_order_sanitize / framing_coverage_guard
-- **fix:** Sanitize calls apply_selection_constraints; restore inserts by tape start_ms (not append).
-- **test:** tests/test_artifact_sanitize_selection.py::test_sanitize_restores_primary_impact_not_selected (MUX_FORENSICS=0)
-- **continued_from:** selection_order_sanitize → nugget_layup_compose
+### i3 — 2026-09-25T22:40:00Z
+- **predicate:** air_contract_sanitary_errors + validate_vo_contract — stamp-match hid protect_hosted_vo_floor_reseat; omitted vo_preface_seg_019 had omit_notes only
+- **producer:** air_contract_sanitize / vo_contract
+- **fix:** stamp_matches no longer hides protect_hosted (unmark + reseat path); omit_notes air_script_omit_sync counts as omit flags; sanitary preflight sets related_stage so execute routes to sanitize.
+- **test:** tests/test_artifact_sanitize_air_contract.py::test_stamp_match_still_reports_protect_hosted_reseat; tests/test_i11_omitted_wav_reseat.py::test_omit_notes_air_script_omit_sync_satisfies_vo_contract (MUX_FORENSICS=0)
+- **continued_from:** air_contract_sanitize
+- **flipped:** true — air_contract done; preface no longer omitted; missing_framing done (45/72)
 
-### i4 — 2026-09-24T23:35:00Z
-- **predicate:** attempt_memo refuse while layup_compose_shards_pending (shard 1/2)
-- **producer:** dispatch_delta.memo_skip / nugget_layup_compose
-- **fix:** memo_skip yields when incompleteness contains `shards_pending` and resume pins same stage.
-- **test:** tests/test_p15_attempt_memo.py::test_memo_skip_yields_when_incompleteness_resumes_same_stage (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose
+### i4 — 2026-09-25T22:43:00Z
+- **predicate:** done_authority.shared_path_producer_mismatch — master/selection.json producer_stage=full_master_ranking (not selection_order_sanitize)
+- **producer:** selection_order_sanitize / air_order_boundary.commit_selection_mutation
+- **fix:** Sanitize no-op must restamp producer_stage to itself (S4 preserve is for metadata-align only). Ranking stamp stays unpaid until sanitize pays land so heal_or_raise can mark done.
+- **test:** tests/test_unpaid_land_matrix.py::test_sanitize_noop_restamps_ranking_producer_pays_land (MUX_FORENSICS=0)
+- **continued_from:** selection_order_sanitize
+- **flipped:** true — producer_stage now selection_order_sanitize
 
-### i5 — 2026-09-24T23:42:00Z
-- **predicate:** layup LLM transcript_excerpt on garbled seg_070; heal_on_air release_false restore; authority_undo thrash
-- **producer:** media_ip_cta / thrash_hardening
-- **fix:** Punch host extras after heal; release_false keeps editorial excludes; authority_undo exempts media_ip_cta.
-- **test:** tests/test_media_ip_cta.py::test_execute_cta_omit_keeps_garbled_degraded_scrap_off_air_after_heal (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose
+### i5 — 2026-09-25T22:46:00Z
+- **predicate:** air_order_integrity.late_opening_cluster — guest-first seg_007 then 005/004/002/003ca still opening-tape
+- **producer:** air_order_integrity.repair_opening_tape_integrity / selection_order_sanitize
+- **fix:** Guest-first prepend is one-shot host family (earliest tape), not every late cluster. Sanitize applies that repair so order lands without a ranking LLM rerun.
+- **test:** tests/test_air_order_integrity.py::test_repair_opening_tape_guest_first_prepends_host_not_last_late_family (MUX_FORENSICS=0)
+- **continued_from:** selection_order_sanitize
+- **flipped:** true — order starts seg_002; 0 late_opening; selection_order_sanitize done (46/72)
 
-### i6 — 2026-09-24T23:48:00Z
-- **predicate:** selection_commit_refused + authority_undo hash_oscillation stranding layup
-- **producer:** dispatch_delta.resume_after_intervene / thrash_hardening
-- **fix:** resume clears selection_commit_refused + authority_undo; thrash exempts nugget_layup after media_ip_cta.
-- **test:** tests/test_p15_attempt_memo.py::test_resume_after_intervene_clears_selection_undo_and_refuse (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose
+### i6 — 2026-09-25T22:58:00Z
+- **predicate:** done_authority.shared_path_producer_mismatch — mastering/mastering_plan.json producer_stage=information_package_plan (not air_contract_sanitize)
+- **producer:** air_contract_sanitize / done_authority
+- **fix:** IPP and layup are paid land co-producers for air_contract (same pattern as gap+layup). Stage restamps producer_stage after commit so mark_done can land.
+- **test:** tests/test_unpaid_land_matrix.py::test_air_contract_ipp_co_producer_is_paid_land (MUX_FORENSICS=0)
+- **continued_from:** air_contract_sanitize
+- **flipped:** true — air_contract done; unpaid None (51/72)
 
-### i7 — 2026-09-24T23:55:00Z
-- **predicate:** seg_070 re-admitted after release_false cleared never_touch (drop_never_touch_cta not editorial)
-- **producer:** media_ip_cta.is_editorial_exclude_reason / release_false_cta_never_touch
-- **fix:** drop_never_touch_cta is editorial; late-tape short scraps stay never-touch.
-- **test:** tests/test_media_ip_cta.py::test_execute_cta_omit_keeps_garbled_degraded_scrap_off_air_after_heal (extended) (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose
+### i7 — 2026-09-25T23:10:00Z
+- **predicate:** delivery_guardrails.filter_delivery_candidates / MUST_PRECEDE[transitions] — remaining_after leapt to transitions while selection_framing_apply pending
+- **producer:** selection_framing_apply
+- **fix:** transitions MUST_PRECEDE includes selection_framing_apply so filter injects the pass-2 apply hole instead of running transitions first.
+- **test:** tests/test_must_precede_order.py::test_filter_defers_transitions_until_framing_apply (MUX_FORENSICS=0)
+- **continued_from:** selection_framing_apply
 
-### i8 — 2026-09-24T23:58:00Z
-- **predicate:** apply_selection_constraints restored CTA primary seg_070; layup re-asked empty-text excerpt after omit
-- **producer:** framing_coverage_guard / media_ip_cta fragmentary tokens / llm_simple demote
-- **fix:** Framing restore skips never_touch + editorial CTA; expand fragmentary tokens; demote CTA needs even when already omitted.
-- **test:** tests/test_framing_coverage_guard.py::test_enforce_framing_does_not_restore_media_ip_cta_primary; tests/test_media_ip_cta.py::test_empty_text_temporary_omission_is_cta_omit_need (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose (driver restart #9)
+### i8 — 2026-09-25T23:15:00Z
+- **predicate:** done_authority.primary_disk_present / earliest_incomplete_must_precede — recompose skip-copy left producer_ready false; filter injected recompose
+- **producer:** gap_framing_recompose / selection_framing_apply
+- **fix:** refinement_skip_copy.json counts as recompose primary disk (same pattern as preclean skip.json) so framing apply can enqueue.
+- **test:** tests/test_done_constitution.py::test_recompose_skip_copy_counts_as_primary_disk (MUX_FORENSICS=0)
+- **continued_from:** selection_framing_apply
+- **flipped:** true — framing apply done + sidecar; remaining is transitions (52/72)
 
-### i9 — 2026-09-25T00:47:28Z
-- **predicate:** high_gap_unframed seg_014 with layup hollow-done; gap_report unpaid under layup producer_stage
-- **producer:** stage_completion._high_gap_unframed_incompleteness / done_authority.shared_path_producer_mismatch
-- **fix:** high_gap incompleteness includes nugget_layup_compose; gap_report land accepts ownership co-producers (layup/framing).
-- **test:** tests/test_i3_omit_demote_high_gap.py::test_high_gap_unframed_also_blocks_layup_done; tests/test_unpaid_land_matrix.py::test_gap_report_layup_co_producer_is_paid_land (MUX_FORENSICS=0)
-- **continued_from:** nugget_layup_compose (serve+driver restart #11)
+### i9 — 2026-09-25T23:22:00Z
+- **predicate:** artifact_sanitize.transitions / pre-flush — pair freeze deferred all LLM pairs; pending kept=0 vs committed 5
+- **producer:** transitions / sanitize_transitions
+- **fix:** When freeze empties kept, restore on-order frozen pairs from committed disk so flush does not wipe landed transitions.
+- **test:** tests/test_artifact_sanitize_transitions.py::test_sanitize_restores_frozen_pairs_when_rewrite_empties_kept (MUX_FORENSICS=0)
+- **continued_from:** transitions
+- **flipped:** true — transitions done n=6; SDP done; remaining vo_line_adjudicate (53/72)
 
-### i10 — 2026-09-25T01:27:00Z
-- **predicate:** edl_narrative_audit thrash — chapter orphans seg_012/028; repair blank-dropped hard_keep seg_028 → sanitize hard_keep_missing
-- **producer:** artifact_repairs.repair_master_selection blank_drop
-- **fix:** Never blank-drop hard-keep segment ids; committed chapter fill for orphans.
-- **test:** tests/test_media_ip_cta.py::test_repair_master_selection_keeps_hard_keep_short_blankish (MUX_FORENSICS=0)
-- **continued_from:** edl_narrative_audit (serve+driver restart #12)
+### i10 — 2026-09-25T23:36:00Z
+- **predicate:** edl_narrative_audit post-commit — orphaned media-IP children + chapter-map close; host repair G1 409 spin
+- **producer:** media_ip_cta / hard_keep
+- **fix:** Do not transfer hard-keep onto CTA-scrap NLE children; omit those scraps as End-A core under hard freeze; skip G1 on chapter/CTA close host-repair.
+- **test:** tests/test_run_failure_hard_fixes.py::test_hard_keep_does_not_transfer_to_cta_scrap_children; tests/test_media_ip_cta.py::test_heal_drops_orphaned_cta_scrap_children_under_hard_freeze (MUX_FORENSICS=0)
+- **continued_from:** edl_narrative_audit
+- **flipped:** true — scraps gone; order n=29 tail 053→055; ENA warn/0 blocking; walking layup
 
-### i11 — 2026-09-25T01:41:00Z
-- **predicate:** edl_narrative stale chapter_continuity_broken + blank_segment hard_keep; selection unpaid land (producer=edl_narrative_audit); authority_undo thrash sanitize↔edl_narrative_metadata_align
-- **producer:** artifact_repairs._edl_issue_contradicted_by_disk / done_authority co-producers / thrash_hardening
-- **fix:** Demote chapter blockers when membership filled; demote blank_segment when on-air hard-keep; selection_order_sanitize accepts edl_narrative_* land stamps; exempt selection metadata co-write oscillation.
-- **test:** tests/test_artifact_repairs_p1.py::test_repair_edl_audit_demotes_filled_chapter_and_hard_keep_blank; tests/test_unpaid_land_matrix.py::test_selection_edl_narrative_co_producer_is_paid_land; tests/test_sanitize_authority_thrash.py::test_selection_metadata_align_sanitize_oscillation_not_halt (MUX_FORENSICS=0)
-- **continued_from:** edl (serve+driver restart #13)
+### i11 — 2026-09-25T23:46:00Z
+- **predicate:** stages.assembly / missing_reorder_bridges — EDL gate resume transitions; freeze deferred new adj; bc.json complete lie
+- **producer:** artifact_sanitize.transitions
+- **fix:** Admit current-adj required reorder bridges under pair freeze and union-restore landed freeze pairs so mint can land after selection shrink.
+- **test:** tests/test_artifact_sanitize_transitions.py::test_sanitize_admits_required_bridge_beyond_freeze (MUX_FORENSICS=0)
+- **continued_from:** edl
 
-### i12 — 2026-09-25T01:55:00Z
-- **predicate:** edl_narrative_qc strict — repair_edl_narrative_selection blank-dropped hard_keep seg_028 → sanitize hard_keep_missing; EDL omit blank → speech/order mismatch
-- **producer:** artifact_repairs.repair_edl_narrative_selection / stages.assembly._prepare_locked_selection / air_order_boundary._drop_blank_segments_under_freeze
-- **fix:** Exempt hard-keep ids from blank-drop in narrative repair, EDL prepare, and freeze blank-drop; build_flow1_edl keeps hard-keeps even when speech_dur < 400ms (raw span / 400ms floor).
-- **test:** tests/test_media_ip_cta.py::test_repair_edl_narrative_selection_keeps_hard_keep_blank; test_prepare_locked_selection_keeps_hard_keep_blank; test_build_flow1_edl_keeps_hard_keep_short_speech (MUX_FORENSICS=0)
-- **continued_from:** edl (serve+driver restart #15)
+### i12 — 2026-09-25T23:52:00Z
+- **predicate:** delivery_guardrails.MUST_PRECEDE[edl] / stage_completion.transitions — EDL remaining loop; bridges missing; transitions still marked seed-complete
+- **producer:** transitions
+- **fix:** EDL MUST_PRECEDE includes transitions; transitions incompleteness reports missing reorder bridges so filter injects mint instead of walking EDL.
+- **test:** tests/test_must_precede_order.py::test_filter_defers_edl_until_transitions (MUX_FORENSICS=0)
+- **continued_from:** transitions
 
-### i13 — 2026-09-25T02:12:00Z
-- **predicate:** after EDL seal, selection_order_sanitize unpaid land — producer_stage='selection'
-- **producer:** done_authority._SHARED_PATH_LAND_CO_PRODUCERS
-- **fix:** Accept alias stamps `selection` and `artifact_sanitize.selection` as paid land for selection_order_sanitize.
-- **test:** tests/test_unpaid_land_matrix.py::test_selection_alias_producer_stage_is_paid_land (MUX_FORENSICS=0)
-- **continued_from:** assembly_preview (serve+driver restart #16)
+### i13 — 2026-09-25T23:56:00Z
+- **predicate:** forensics_stall.escalation_blocks_driver — fingerprint ignored content patches to already-dirty files
+- **producer:** identical_failures.product_code_fingerprint
+- **fix:** Dirty suffix hashes porcelain plus dirty-file mtime/size so content patches unstick escalation.
+- **test:** tests/test_must_precede_order.py::test_filter_defers_edl_until_transitions already green; fingerprint change verified on restart
+- **continued_from:** transitions
 
-### i14 — 2026-09-25T04:14:53Z
-- **predicate:** remaining_stages / unpaid_land(mix) burns ~12–23s in pure-Python VO DFT (vo_speech_qa._tonal_peak_ratio) on every incomplete heal
-- **producer:** vo_speech_qa.analyze_vo_wav / _tonal_peak_ratio
-- **fix:** numpy rFFT for tonal peak; path+mtime+size+cfg analyze cache (max 256)
-- **test:** tests/test_vo_speech_qa.py::test_analyze_vo_wav_caches_by_mtime + test_tonal_peak_numpy_rejects_pure_tone (MUX_FORENSICS=0)
-- **continued_from:** mmaudio_sfx (serve+driver restart #19)
+### i14 — 2026-09-25T23:59:00Z
+- **predicate:** Done Authority mark_done refused on transitions — LLM persist before seam glue mint; incompleteness still 7 missing
+- **producer:** stages.selection.persist_with_framing_dedupe
+- **fix:** ensure_seam_glue runs inside persist before mark_done so required hinges land (sanitize admit) before Done Authority.
+- **test:** tests/test_artifact_sanitize_transitions.py::test_sanitize_admits_required_bridge_beyond_freeze (MUX_FORENSICS=0)
+- **continued_from:** transitions
+- **flipped:** false — mint still skipped justified-skip destinations; incompleteness still counted them
+
+### i15 — 2026-09-26T00:05:55Z
+- **predicate:** Done Authority mark_done refused — stage_artifact_incompleteness(transitions) reported missing=7 while mint/ensure_seam_glue treated those destinations as justified skip / native handoff
+- **producer:** stage_completion / bridge_completeness.justified_skip_before_ids
+- **fix:** Shared justified_skip_before_ids SSOT; transitions incompleteness, EDL preflight, and sanitize required-set honor layup skip + native handoff the same way mint does. Reverse-required hinges also survive prune_reverse_jump when still required.
+- **test:** tests/test_transitions_s1_s5_simplify.py::test_incompleteness_honors_justified_skip_cover; tests/test_artifact_sanitize_transitions.py::test_sanitize_keeps_required_reverse_reorder_bridge (MUX_FORENSICS=0)
+- **continued_from:** transitions
+- **flipped:** true — transitions done + seed-complete; driver walking EDL
+
+### i16 — 2026-09-26T00:09:38Z
+- **predicate:** narrative_qc — chapter "Why Precision Oncology…" reported not contiguous; stored ids were source-sorted while air span 002/007/005/004 is contiguous. Softened under unattended; EDL persisted.
+- **producer:** narrative_qc._validate_chapters / artifact_sanitize.selection
+- **fix:** Contiguity is air-order span (max-min+1 == unique count), not stored-list monotonicity. Sanitize restamps chapter.segment_ids to air order.
+- **test:** tests/test_execution_flow_hardening.py::test_chapter_span_contiguous_ignores_stored_list_order (MUX_FORENSICS=0)
+- **continued_from:** edl
+- **flipped:** true — edl.json present + done; walking assembly_preview (no recycle; driver already past EDL)
+
+### i17 — 2026-09-26T00:21:00Z
+- **predicate:** music_palette_compose finished without done — cue_count=0 with 8 theme assets; SDP write skip under hard freeze (reason not End-A)
+- **producer:** music_palette_compose / seat_authority
+- **fix:** music_palette_compose is End-A CORE; persist commits SDP with that reason; refuse if disk still has zero cues after mint.
+- **test:** tests/test_music_palette_compose.py::test_palette_compose_is_end_a_under_hard_freeze; tests/test_enda_hard_freeze_constitution.py::test_enda_allowlist_membership (MUX_FORENSICS=0)
+- **continued_from:** music_palette_compose
+- **flipped:** true — 34 cues on disk; seed-complete; remaining sound_design_plan / sfx_prompt_craft
+
+### i18 — 2026-09-26T00:27:25Z
+- **predicate:** shared-path unpaid land + delivery_sdp_present exact producer — filter re-invoked sound_design_plan after compose paid 34 cues (pre-flush barrier on LLM rewrite)
+- **producer:** done_authority / homunculus.agenda.delivery_sdp_present
+- **fix:** music_palette_compose is paid land co-producer for SDP; delivery_sdp_present accepts that stamp so filter does not re-run the plan LLM.
+- **test:** tests/test_unpaid_land_matrix.py::test_sdp_palette_compose_co_producer_is_paid_land; tests/test_i14b_sdp_compose_write.py::test_delivery_sdp_present_accepts_palette_compose_producer (MUX_FORENSICS=0)
+- **continued_from:** sound_design_plan
+- **flipped:** true — SDP seed-complete; walking sfx_prompt_craft; 34 cues intact
+
+### i19 — 2026-09-26T01:08:00Z
+- **predicate:** mix: theme_outro cue missing — place in music epoch (music_palette_compose / place_episode_close_cue)
+- **producer:** music_palette_compose / music_lane.infer_theme_role_from_cue_id
+- **fix:** `close_bed` infers `theme_outro` (not generic `bed`→underscore). Persist unions `compose_close_bed` after LLM/sonic hunt. Compose incompleteness + filter defer mix until that cue lands (no `theme_outro_seed` invent under freeze).
+- **test:** tests/test_music_palette_compose.py::test_compose_close_bed_infers_theme_outro_not_underscore; tests/test_music_palette_compose.py::test_ensure_required_close_bed_when_llm_omits_outro; tests/test_music_palette_compose.py::test_music_palette_missing_outro_cue_incomplete; tests/test_must_precede_order.py::test_filter_defers_mix_until_compose_close_bed (MUX_FORENSICS=0)
+- **continued_from:** mix
+- **flipped:** true — compose_close_bed theme_outro on disk after last native; walking mix
+
+### i20 — 2026-09-26T01:42:00Z
+- **predicate:** Post-master quality failed: scorecard_dimension_floors, omit_ledger_air_contract (order_lock_stale)
+- **producer:** omit_ledger / post_master_quality
+- **fix:** Selection restamp left omit ledger on rev 4 vs selection rev 8. `sync_stale_omit_order_lock` rebuilds paperwork before PMQ evaluate (not a seat mutation; no floor lowering; clarity remains rubric advisory).
+- **test:** tests/test_i25_pmq_omit_clarity.py::test_pmq_sync_stale_omit_order_lock_under_hard_freeze (MUX_FORENSICS=0)
+- **continued_from:** master_finalize
+- **flipped:** true — PMQ publish_allowed; structural empty; walking master_transcript_build

@@ -2469,3 +2469,45 @@ def test_build_flow1_edl_keeps_hard_keep_short_speech() -> None:
     )
     assert int(clip028.get("duration_ms") or 0) >= 300
 
+
+def test_heal_drops_orphaned_cta_scrap_children_under_hard_freeze() -> None:
+    """Cascade (MUX_FORENSICS=0): excluded CTA parent leaves scrap children off-air."""
+    from interview_mux.media_ip_cta import heal_on_air_cta_residue
+    from interview_mux.seat_authority import stamp_hard_seat_freeze
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_053",
+                "Diagnosis is much better than cure in this setting.",
+                start=0,
+                end=4000,
+            ),
+            _seg("seg_054", "Thanks to our sponsor Agilisium Labs.", start=4000, end=7000),
+            _seg("seg_054cb", "sponsor, Agilisium Labs.", start=7000, end=8500),
+            _seg("seg_054db", "support from FullView Media.", start=8500, end=10000),
+            _seg("seg_054hb", "levinemediagroup .com. For", start=10000, end=11500),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_053", "seg_054cb", "seg_054db", "seg_054hb"],
+            "excluded_segment_ids": [{"segment_id": "seg_054", "reason": "media_ip_cta"}],
+            "exclude_rationales": {"seg_054": "media_ip_cta"},
+        },
+    )
+    stamp_hard_seat_freeze(ctx, reason="vo_synthesize")
+    out = heal_on_air_cta_residue(ctx)
+    order = [str(s) for s in (out.get("ordered_segment_ids") or [])]
+    assert "seg_053" in order
+    assert "seg_054cb" not in order
+    assert "seg_054db" not in order
+    assert "seg_054hb" not in order
+    landed = ctx.read_json("master/selection.json")
+    landed_order = [str(s) for s in (landed.get("ordered_segment_ids") or [])]
+    assert "seg_054cb" not in landed_order
+    assert "seg_053" in landed_order
+

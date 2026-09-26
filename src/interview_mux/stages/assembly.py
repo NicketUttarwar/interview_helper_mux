@@ -1400,6 +1400,7 @@ def run_edl(ctx: RunContext) -> None:
         try:
             from interview_mux.bridge_completeness import (
                 assert_bridges_complete,
+                justified_skip_before_ids,
                 missing_reorder_bridges,
             )
 
@@ -1408,10 +1409,12 @@ def run_edl(ctx: RunContext) -> None:
                 if ctx.artifact_exists("understanding/reorder_bridges.json")
                 else {"pairs": []}
             )
+            skip_before = justified_skip_before_ids(ctx)
             missing = missing_reorder_bridges(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
                 gap_report=gap_report if isinstance(gap_report, dict) else None,
                 transitions=transitions if isinstance(transitions, dict) else None,
+                justified_skip_before_ids=skip_before,
             )
             if missing:
                 raise SystemExit(
@@ -1422,6 +1425,7 @@ def run_edl(ctx: RunContext) -> None:
                 bridges if isinstance(bridges, dict) else {"pairs": []},
                 gap_report=gap_report if isinstance(gap_report, dict) else None,
                 transitions=transitions if isinstance(transitions, dict) else None,
+                justified_skip_before_ids=skip_before,
                 soft=False,
             )
         except SystemExit:

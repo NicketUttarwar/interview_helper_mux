@@ -1475,6 +1475,10 @@ def stage_artifact_incompleteness(
         hitch = _hitch_layup_adopt_incompleteness(ctx)
         if hitch:
             return hitch
+    if stage_id == "full_master_ranking":
+        ghost = _ranking_ghost_ordered_incompleteness(ctx)
+        if ghost:
+            return ghost
     if stage_id in {"air_script_compose", "nugget_layup_compose"}:
         try:
             from interview_mux.air_order_boundary import selection_commit_refused_reason
@@ -2107,6 +2111,9 @@ def stage_artifact_incompleteness(
         hollow_cues = _music_palette_hollow_cues_incompleteness(ctx)
         if hollow_cues:
             return hollow_cues
+        missing_outro = _music_palette_missing_outro_incompleteness(ctx)
+        if missing_outro:
+            return missing_outro
     if stage_id == "mmaudio_sfx":
         try:
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
@@ -2119,6 +2126,39 @@ def stage_artifact_incompleteness(
                 "SDP theme WAVs missing: "
                 + ", ".join(str(a) for a in missing_wavs[:4])
             )
+    if stage_id == "transitions":
+        if not ctx.artifact_exists("master/transitions.json"):
+            return "master/transitions.json is pending"
+        try:
+            from interview_mux.bridge_completeness import (
+                justified_skip_before_ids,
+                missing_reorder_bridges,
+            )
+
+            bridges = (
+                ctx.read_json("understanding/reorder_bridges.json")
+                if ctx.artifact_exists("understanding/reorder_bridges.json")
+                else {"pairs": []}
+            )
+            gap = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else None
+            )
+            tr = ctx.read_json("master/transitions.json")
+            miss = missing_reorder_bridges(
+                bridges if isinstance(bridges, dict) else {"pairs": []},
+                gap_report=gap if isinstance(gap, dict) else None,
+                transitions=tr if isinstance(tr, dict) else None,
+                justified_skip_before_ids=justified_skip_before_ids(ctx),
+            )
+            if miss:
+                return (
+                    "bridge_completeness incomplete — resume transitions "
+                    f"(missing={len(miss)})"
+                )
+        except Exception:
+            pass
     if stage_id == "edl":
         try:
             from interview_mux.gates import check_g1_vo
@@ -2361,6 +2401,40 @@ def _vo_seed_hollow_seats_incompleteness(ctx: RunContext) -> str | None:
     )
 
 
+def _ranking_ghost_ordered_incompleteness(ctx: RunContext) -> str | None:
+    """Hollow ranking done when locked order cites ids hitch remapped away."""
+    if not ctx.artifact_exists("master/selection.json"):
+        return None
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return None
+    try:
+        sel = ctx.read_json("master/selection.json")
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return None
+    if not isinstance(sel, dict) or not isinstance(man, dict):
+        return None
+    live = {
+        str(row.get("segment_id") or "")
+        for row in (man.get("segments") or [])
+        if isinstance(row, dict)
+    }
+    live.discard("")
+    if not live:
+        return None
+    ghosts = [
+        str(s)
+        for s in (sel.get("ordered_segment_ids") or [])
+        if s and str(s) not in live
+    ]
+    if not ghosts:
+        return None
+    return (
+        "full_master_ranking incomplete — resume full_master_ranking: "
+        f"ordered segment {', '.join(ghosts[:4])} not in manifest"
+    )
+
+
 def _hitch_layup_adopt_incompleteness(ctx: RunContext) -> str | None:
     """HR-1 3A: hitch is not complete while post-remap adopt_layup failed."""
     if not ctx.artifact_exists("mastering/chapter_close_hitch.json"):
@@ -2516,6 +2590,45 @@ def _music_palette_hollow_cues_incompleteness(ctx: RunContext) -> str | None:
     return (
         "music_palette_compose hollow cues — resume music_palette_compose: "
         "cue_count=0 with theme assets present"
+    )
+
+
+def _music_palette_missing_outro_incompleteness(ctx: RunContext) -> str | None:
+    """Required episode close: theme_outro asset without a close cue is incomplete."""
+    try:
+        from interview_mux.theme_slot_integrity import episode_close_music_required
+
+        if not episode_close_music_required(ctx):
+            return None
+    except Exception:
+        return None
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return None
+    try:
+        sdp = ctx.read_json("understanding/sound_design_plan.json")
+    except Exception:
+        return None
+    if not isinstance(sdp, dict):
+        return None
+    has_outro_asset = any(
+        isinstance(a, dict) and str(a.get("role") or "") == "theme_outro" and a.get("asset_id")
+        for a in (sdp.get("assets") or [])
+    )
+    if not has_outro_asset:
+        return None
+    flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    cues = [c for c in (podcast.get("cues") or []) if isinstance(c, dict)]
+    for cue in cues:
+        if cue.get("skip"):
+            continue
+        role = str(cue.get("role") or cue.get("kind") or cue.get("music_role") or "")
+        cid = str(cue.get("cue_id") or "")
+        if role == "theme_outro" or "outro" in cid.lower() or "close_bed" in cid.lower():
+            return None
+    return (
+        "music_palette_compose missing theme_outro cue — resume music_palette_compose: "
+        "place compose_close_bed"
     )
 
 
@@ -3381,6 +3494,7 @@ def producer_pin_for_token(
         or "never_exclude_primary_impact" in key
         or "framing:primary impact" in key
         or "primary impact segment" in key
+        or "ordered segment" in key
     ):
         return "full_master_ranking"
     if "gap_unsanitary" in key:

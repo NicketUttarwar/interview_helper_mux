@@ -105,7 +105,11 @@ def _validate_chapters(selection: dict[str, Any]) -> list[str]:
                 f"{missing[:4]}"
             )
             continue
-        if idxs != sorted(idxs):
+        # Membership span in air order — not the stored list order. After
+        # guest-first / opening repair, chapter.segment_ids may still be
+        # source-sorted while the span is contiguous (exec_002 002/007/005/004).
+        uniq = sorted(set(idxs))
+        if uniq and uniq[-1] - uniq[0] + 1 != len(uniq):
             errors.append(
                 f'Chapter "{label}" segments are not contiguous in ordered_segment_ids'
             )

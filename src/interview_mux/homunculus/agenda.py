@@ -698,10 +698,15 @@ def _sdp_producer_stage(ctx: RunContext) -> str:
 
 
 def delivery_sdp_present(ctx: RunContext) -> bool:
-    """True only after sound_design_plan itself wrote SDP and transitions exist."""
+    """True after SDP exists on disk with a paid writer and transitions exist.
+
+    ``music_palette_compose`` is a paid land co-writer (theme cues). Exact-match
+    ``sound_design_plan`` only would re-invoke the LLM and wipe landed cues
+    (exec_002).
+    """
     if not ctx.artifact_exists("master/transitions.json"):
         return False
-    return _sdp_producer_stage(ctx) == "sound_design_plan"
+    return _sdp_producer_stage(ctx) in {"sound_design_plan", "music_palette_compose"}
 
 
 def _pre_ranking_rounds_present(ctx: RunContext) -> bool:
@@ -839,6 +844,10 @@ def _package_ready_true(ctx: RunContext) -> bool:
 
 
 def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
+    if stage == "audio_preclean":
+        # Skip is a finished outcome (HP-3). Isolated wav / provider / lineage
+        # still count. Do not demand isolated.wav after operator dismiss.
+        return prepare_outputs_present(ctx, stage)
     if stage == "gap_framing_recompose":
         return ctx.artifact_exists(
             "understanding/gap_framing_recompose.json"

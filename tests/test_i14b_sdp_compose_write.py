@@ -60,6 +60,26 @@ def test_delivery_sdp_present_requires_producer_restamp(ctx: RunContext) -> None
     assert delivery_sdp_present(ctx)
 
 
+def test_delivery_sdp_present_accepts_palette_compose_producer(
+    ctx: RunContext,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): compose stamp still counts as delivery SDP."""
+    _write(ctx, "master", "transitions.json", payload={"transitions": []})
+    _write(
+        ctx,
+        "understanding",
+        "sound_design_plan.json",
+        payload={
+            "version": 1,
+            "palettes": [],
+            "assets": [{"asset_id": "a", "role": "theme_underscore", "path": "a.wav"}],
+            "flow_plans": {"podcast": {"profile": "podcast", "cues": [{"asset_id": "a"}]}},
+            "_meta": {"producer_stage": "music_palette_compose"},
+        },
+    )
+    assert delivery_sdp_present(ctx)
+
+
 def test_compose_refuse_does_not_poison_prior_sdp(ctx: RunContext) -> None:
     """Validate-before-write: density refuse must not replace a good on-disk SDP."""
     good = {

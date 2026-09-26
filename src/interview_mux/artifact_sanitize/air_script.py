@@ -43,6 +43,7 @@ _AUTO_COMMIT_ACTIONS = frozenset(
         "dedupe_seated",
         "drop_seated_intersect_omitted",
         "reseated_active_hosted_vo_for_wav",
+        "revive_pre_synth_floor_soft_omit",
     }
 )
 
@@ -859,9 +860,11 @@ def air_contract_sanitary_errors(ctx: Any) -> list[str]:
         return [f"artifact_unreadable:{PLAN_REL}:{exc}"]
     if not isinstance(plan, dict):
         return [f"artifact_unreadable:{PLAN_REL}:invalid_type"]
-    if stamp_matches(plan):
-        return []
     result = sanitize_air_contract(ctx)
+    if stamp_matches(plan):
+        names = {str(a.get("action") or "") for a in (result.actions or [])}
+        if result.ok and "protect_hosted_vo_floor_reseat" not in names:
+            return []
     if result.ok and not result.actions:
         return []
     if not result.ok:
@@ -1099,6 +1102,29 @@ def run_air_contract_sanitize(ctx: Any) -> None:
         )
 
     from interview_mux.stage_completion import heal_or_refuse_mark
+
+    # Pay shared-path land when commit wrote seats but a later ALLOW writer
+    # (IPP/layup) still owns producer_stage — restamp before mark_done.
+    try:
+        if ctx.artifact_exists(PLAN_REL):
+            plan_pay = ctx.read_json(PLAN_REL)
+            if isinstance(plan_pay, dict):
+                meta_pay = (
+                    dict(plan_pay.get("_meta") or {})
+                    if isinstance(plan_pay.get("_meta"), dict)
+                    else {}
+                )
+                if str(meta_pay.get("producer_stage") or "") != "air_contract_sanitize":
+                    meta_pay["producer_stage"] = "air_contract_sanitize"
+                    plan_pay["_meta"] = meta_pay
+                    ctx.write_json(
+                        PLAN_REL,
+                        plan_pay,
+                        stage_key="air_contract_sanitize",
+                        skip_handoff=True,
+                    )
+    except Exception:
+        pass
 
     out = heal_or_refuse_mark(ctx, "air_contract_sanitize")
     if out.get("refused") or not (

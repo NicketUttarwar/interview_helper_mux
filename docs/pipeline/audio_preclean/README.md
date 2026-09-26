@@ -4,7 +4,7 @@
 
 Reduce steady background noise so speech is clearer for STT, review clips, VO pickup, and the final mix. This is **noise reduction**, not voice isolation — operator copy should not promise “stem separation.”
 
-**Always optional** — never auto-enabled without operator consent. Under **first-try**, readiness green may **auto-dismiss** the offer (never auto-accept). See [`journey_ui.first_try_mode`](../../cross-cutting/config-keys.md#top-level).
+**Always optional** — never auto-enabled without operator consent. Under **first-try**, readiness green may **auto-dismiss** the offer (never auto-accept). See [`journey_ui.first_try_mode`](../../cross-cutting/config-keys.md#top-level). Full-auto defaults to run; set **`MUX_SKIP_PRECLEAN=1`** to dismiss before ingest (`preclean/skip.json`).
 
 ## When to use
 
@@ -121,6 +121,7 @@ Default: `enabled: false`.
 
 | Path | Description |
 |------|-------------|
+| `preclean/skip.json` | Written when the offer is dismissed (`MUX_SKIP_PRECLEAN=1` or operator dismiss) |
 | `preclean/isolated.wav` | Full-source enhanced track (ingest input) |
 | `vo_pickup/clean/*.wav` | Optional cleaned pickup files |
 | `preclean/provider.json` | Provider + `scope` |

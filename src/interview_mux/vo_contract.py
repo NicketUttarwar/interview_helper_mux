@@ -364,12 +364,20 @@ def validate_vo_contract(ctx: RunContext) -> list[str]:
             continue
         if lid in seated:
             issues.append(f"line {lid} is both seated and omitted")
-        elif not (row.get("skipped_optional") or row.get("air_script_omit")):
+        elif not _gap_row_has_omit_flags(row):
             issues.append(f"omitted {lid} lacks skip/omit flags in gap_report")
     missing = seated_vo_missing_ids(ctx)
     for lid in missing:
         issues.append(f"seated synthesize {lid} missing WAV")
     return issues
+
+
+def _gap_row_has_omit_flags(row: dict[str, Any]) -> bool:
+    """True when gap row is durably off-air (flags or omit-sync notes)."""
+    if row.get("skipped_optional") or row.get("air_script_omit"):
+        return True
+    notes = row.get("omit_notes") or []
+    return any("air_script_omit_sync" in str(n) for n in notes if n)
 
 
 def _count_active_hosted_synth(rows: list[dict[str, Any]]) -> int:

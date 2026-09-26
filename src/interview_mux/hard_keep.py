@@ -217,8 +217,34 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
                 ]
                 for parent in sorted(ids & banned):
                     kids = {c for c in ordered if _is_nle_child(c, parent)}
-                    if kids:
-                        story |= kids
+                    story_kids: set[str] = set()
+                    for child in kids:
+                        try:
+                            from interview_mux.media_ip_cta import (
+                                looks_like_orphaned_cta_scrap,
+                            )
+
+                            text = ""
+                            if ctx.artifact_exists("segments/manifest.json"):
+                                man = ctx.read_json("segments/manifest.json")
+                                rows = (man or {}).get("segments") or []
+                                if isinstance(rows, dict):
+                                    text = str((rows.get(child) or {}).get("text") or "")
+                                else:
+                                    for row in rows:
+                                        if (
+                                            isinstance(row, dict)
+                                            and str(row.get("segment_id") or "") == child
+                                        ):
+                                            text = str(row.get("text") or "")
+                                            break
+                            if looks_like_orphaned_cta_scrap(text):
+                                continue
+                        except Exception:
+                            pass
+                        story_kids.add(child)
+                    if story_kids:
+                        story |= story_kids
             except Exception:
                 pass
         # Parent hard-keep transfers onto the keepable recut remainder —

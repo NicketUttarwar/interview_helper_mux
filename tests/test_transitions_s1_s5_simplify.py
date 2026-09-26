@@ -74,6 +74,64 @@ def test_s3a_layup_on_always_demotes_without_llm(
     assert plan.get("demoted") is True
 
 
+def test_incompleteness_honors_justified_skip_cover(
+    ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): justified skip / native handoff is complete glue."""
+    from interview_mux.nugget_layup import PLAN_REL
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_001",
+                    "before_segment_id": "seg_002",
+                    "text": "Landed hinge.",
+                    "type": "chapter",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        {
+            "pairs": [
+                {"after_segment_id": "seg_002", "before_segment_id": "seg_003", "kind": "reorder"},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002", "seg_003"],
+            "layups": [
+                {
+                    "target_segment_id": "seg_003",
+                    "skip": True,
+                    "skip_reason_code": "listener_already_oriented",
+                    "compensating_path": "The preceding native already names the next beat.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert stage_artifact_incompleteness(ctx, "transitions") is None
+
+
+def test_persist_mints_required_glue_before_mark_done() -> None:
+    """Cascade (MUX_FORENSICS=0): persist mints hinges before Done Authority."""
+    src = inspect.getsource(selection.run_transitions)
+    first_mint = src.find("ensure_seam_glue")
+    persist_call = src.find("persist(c, artifacts)")
+    assert first_mint != -1 and persist_call != -1
+    assert first_mint < persist_call
+
+
 def test_s4_incomplete_glue_raises_systemexit(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
     src = inspect.getsource(selection.run_transitions)
     assert "bridge_completeness incomplete after glue mint" in src

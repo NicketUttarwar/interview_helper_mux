@@ -152,7 +152,23 @@ def product_code_fingerprint(*, repo_root: Path | None = None) -> str:
                 )
                 suffix = ""
                 if dirty.returncode == 0 and dirty.stdout.strip():
-                    suffix = "+" + hashlib.sha256(dirty.stdout.encode()).hexdigest()[:8]
+                    # Porcelain filenames alone do not flip when already-dirty
+                    # files are patched (exec_002 forensics resume). Hash contents.
+                    payload = dirty.stdout.encode()
+                    for line in dirty.stdout.splitlines():
+                        rel = line[3:].strip() if len(line) > 3 else ""
+                        if " -> " in rel:
+                            rel = rel.split(" -> ", 1)[-1]
+                        rel = rel.strip().strip('"')
+                        path = root / rel
+                        if not path.is_file():
+                            continue
+                        try:
+                            st = path.stat()
+                            payload += f"{rel}:{st.st_mtime_ns}:{st.st_size}\n".encode()
+                        except OSError:
+                            continue
+                    suffix = "+" + hashlib.sha256(payload).hexdigest()[:8]
                 return (head + suffix)[:48]
     except Exception:
         pass

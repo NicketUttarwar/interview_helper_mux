@@ -103,6 +103,43 @@ def test_repair_opening_tape_guest_first_prepends_cluster():
     assert any(a.get("action") == "prepend_opening_family" for a in actions)
 
 
+def test_repair_opening_tape_guest_first_prepends_host_not_last_late_family():
+    """Multiple opening families: prepend earliest host, not the last late cluster."""
+    ctx = _FakeCtx(
+        {
+            "seg_002": 26_119,
+            "seg_003": 83_780,
+            "seg_003ca": 97_970,
+            "seg_004": 124_840,
+            "seg_005": 151_600,
+            "seg_007": 168_310,
+            "seg_008": 185_780,
+        }
+    )
+    selection = {
+        "ordered_segment_ids": [
+            "seg_007",
+            "seg_005",
+            "seg_004",
+            "seg_002",
+            "seg_003ca",
+            "seg_008",
+        ],
+        "excluded_segment_ids": [],
+    }
+    before = late_opening_cluster_violations(
+        ctx, selection["ordered_segment_ids"]
+    )
+    assert len(before) >= 2
+    repaired, actions = repair_opening_tape_integrity(ctx, selection)
+    ordered = [str(s) for s in (repaired.get("ordered_segment_ids") or [])]
+    assert ordered[0] == "seg_002"
+    assert "seg_007" in ordered
+    assert "seg_003ca" in ordered
+    assert not late_opening_cluster_violations(ctx, ordered)
+    assert any(a.get("action") == "prepend_opening_family" for a in actions)
+
+
 def test_repair_opening_tape_drop_override_still_excludes():
     ctx = _FakeCtx(
         {

@@ -50,6 +50,8 @@ END_A_CORE_ACTIONS: frozenset[str] = frozenset(
         "junction_incomplete_cut_omit",
         "edl_overlap_repair_omit",
         "segment_id_remap_omit",
+        # Orphaned NLE children of already-excluded CTA parents (exec_002 close).
+        "orphaned_cta_child_omit",
         # Progress floors: reactivate existing soft-omitted host lines (never invent).
         "revive_discarded_floor_candidate",
         # A′′ must-land under freeze (shrink / reattach / synth-fail unseat — never expand).
@@ -65,6 +67,8 @@ END_A_CORE_ACTIONS: frozenset[str] = frozenset(
         "sdp_theme_outro_rebind",
         # Fill uncovered reorder seams after layup VO waive (no new hosted seats).
         "bridge_completeness_mint",
+        # Place existing theme palette WAVs into SDP cues (no new hosted VO).
+        "music_palette_compose",
         # Republish layup→gap_report under hard freeze (narrative remutate recompose).
         "nugget_layup_gap_publish",
         # Reseat gap-active synth lines stripped by WAV clamp so vo_synthesize can

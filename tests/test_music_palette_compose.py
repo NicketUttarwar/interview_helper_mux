@@ -24,6 +24,7 @@ from interview_mux.stages.music_palette_compose import (
     _apply_cues,
     _default_cues,
     _normalize_arrangement,
+    ensure_required_close_bed,
 )
 
 
@@ -485,6 +486,97 @@ def test_default_cues_prefers_placement_hint_close_bed() -> None:
     assert close["after_segment_id"] == "seg_b"
 
 
+def test_ensure_required_close_bed_when_llm_omits_outro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): LLM/sonic hunt without close still lands outro."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    sdp = {
+        "assets": [
+            {
+                "asset_id": "show_theme_v1_full_bed_close",
+                "role": "theme_outro",
+                "palette_kind": "full_bed",
+                "placement_hint": "close",
+            },
+            {
+                "asset_id": "show_theme_v1_underscore_loop",
+                "role": "theme_underscore",
+                "palette_kind": "underscore_loop",
+            },
+        ],
+        "flow_plans": {
+            "podcast": {
+                "cues": [
+                    {
+                        "cue_id": "arrange_scene_01_01",
+                        "asset_id": "show_theme_v1_underscore_loop",
+                        "role": "theme_underscore",
+                        "placement": "under_segment",
+                        "segment_id": "seg_b",
+                    }
+                ]
+            }
+        },
+    }
+    out = ensure_required_close_bed(sdp, ordered=["seg_a", "seg_b"])
+    cues = list(((out.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    close = next(c for c in cues if c.get("cue_id") == "compose_close_bed")
+    assert close["role"] == "theme_outro"
+    assert close["asset_id"] == "show_theme_v1_full_bed_close"
+    assert close["after_segment_id"] == "seg_b"
+
+
+def test_compose_close_bed_infers_theme_outro_not_underscore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): close_bed must not bind as theme_underscore."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    from interview_mux.music_lane import bind_cues_to_theme_assets, infer_theme_role_from_cue_id
+
+    assert infer_theme_role_from_cue_id("compose_close_bed") == "theme_outro"
+    assert infer_theme_role_from_cue_id("compose_open_bed") == "theme_cold_open"
+    cues, notes = bind_cues_to_theme_assets(
+        [
+            {
+                "cue_id": "compose_close_bed",
+                "asset_id": "show_theme_v1_full_bed_close",
+                "role": "theme_outro",
+            }
+        ],
+        [
+            {
+                "asset_id": "show_theme_v1_full_bed_close",
+                "role": "theme_outro",
+            },
+            {
+                "asset_id": "show_theme_v1_underscore_loop",
+                "role": "theme_underscore",
+            },
+        ],
+    )
+    assert cues[0]["role"] == "theme_outro"
+    assert cues[0]["asset_id"] == "show_theme_v1_full_bed_close"
+    assert not any(
+        n.get("to_asset_id") == "show_theme_v1_underscore_loop" for n in notes
+    )
+
+
+def test_palette_compose_is_end_a_under_hard_freeze(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cascade (MUX_FORENSICS=0): theme cue persist is End-A, not a skip-write."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    from interview_mux.seat_authority import (
+        HARD_FREEZE_ALLOWLIST_ACTIONS,
+        frozen_seat_write_allowed,
+        hard_freeze_action_permitted,
+    )
+
+    assert "music_palette_compose" in HARD_FREEZE_ALLOWLIST_ACTIONS
+    assert hard_freeze_action_permitted("music_palette_compose")
+
+
 def test_music_palette_hollow_cues_with_assets_incomplete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -513,6 +605,59 @@ def test_music_palette_hollow_cues_with_assets_incomplete(
     assert reason is not None
     assert "hollow cues" in reason
     assert "cue_count=0" in reason
+
+
+def test_music_palette_missing_outro_cue_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): 34 beds without theme_outro is not seed-complete."""
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from run_fixtures import isolated_run_ctx, sound_design_plan_with
+
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    ctx = isolated_run_ctx(tmp_path, "mpc_missing_outro")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "show_theme_v1_full_bed_close",
+                    "role": "theme_outro",
+                    "palette_kind": "full_bed",
+                },
+                {
+                    "asset_id": "show_theme_v1_underscore_loop",
+                    "role": "theme_underscore",
+                    "palette_kind": "underscore_loop",
+                },
+            ],
+            flow_plans={
+                "podcast": {
+                    "profile": "podcast",
+                    "cues": [
+                        {
+                            "cue_id": "arrange_scene_01_01",
+                            "role": "theme_underscore",
+                            "asset_id": "show_theme_v1_underscore_loop",
+                            "placement": "under_segment",
+                            "segment_id": "seg_b",
+                        }
+                    ],
+                }
+            },
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "sound_design/music_palette_compose.json",
+        {"version": 1, "cue_count": 1, "asset_ids_used": ["show_theme_v1_underscore_loop"]},
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "music_palette_compose")
+    assert reason is not None
+    assert "theme_outro" in reason
 
 
 def test_music_palette_zero_cues_without_assets_ok(

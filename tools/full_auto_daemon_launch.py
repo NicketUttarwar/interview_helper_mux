@@ -296,6 +296,9 @@ def _driver_env(
         env["MUX_FULL_AUTO"] = "1"
     if keep_gui_server:
         env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"
+    skip_preclean = str(os.environ.get("MUX_SKIP_PRECLEAN") or "").strip()
+    if skip_preclean:
+        env["MUX_SKIP_PRECLEAN"] = skip_preclean
     return env
 
 
@@ -457,6 +460,9 @@ def ensure_keepalive(*, keep_gui_server: bool = False, force_restart: bool = Fal
             pass
     port = web_port()
     env = {"MUX_WEB_PORT": str(port)}
+    skip_preclean = str(os.environ.get("MUX_SKIP_PRECLEAN") or "").strip()
+    if skip_preclean:
+        env["MUX_SKIP_PRECLEAN"] = skip_preclean
     if keep_gui_server or str(os.environ.get("MUX_FULL_AUTO_KEEP_SERVER") or "").strip().lower() in {
         "1",
         "true",

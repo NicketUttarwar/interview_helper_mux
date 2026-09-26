@@ -4879,6 +4879,14 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
         if ctx.artifact_exists("master/selection.json"):
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict):
+                try:
+                    from interview_mux.media_ip_cta import on_air_orphaned_cta_scrap_ids
+
+                    # Filling chapters does not hide leftover CTA children (exec_002).
+                    if on_air_orphaned_cta_scrap_ids(ctx, sel):
+                        return False
+                except Exception:
+                    pass
                 ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
                 owned: set[str] = set()
                 for ch in sel.get("chapters") or []:

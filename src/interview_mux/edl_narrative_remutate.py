@@ -16,6 +16,7 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
         "dedupe_transitions_by_adjacency",
         "repair_mid_sentence_transition_openers",
         "upgrade_fail_audit_after_clean_occupancy",
+        "orphaned_cta_child_omit",
     }
 )
 
@@ -696,6 +697,18 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     """
     meta = apply_edl_narrative_metadata_align(ctx)
     notes: list[str] = list(meta.get("notes") or [])
+    try:
+        from interview_mux.media_ip_cta import (
+            heal_on_air_cta_residue,
+            on_air_orphaned_cta_scrap_ids,
+        )
+
+        scraps = on_air_orphaned_cta_scrap_ids(ctx)
+        if scraps:
+            heal_on_air_cta_residue(ctx)
+            notes.append("orphaned_cta_child_omit")
+    except Exception as exc:
+        notes.append(f"orphaned_cta_child_omit:{exc}")
     notes.extend(_dedupe_framing_transitions_under_freeze(ctx))
     try:
         prior = (

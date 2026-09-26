@@ -115,6 +115,29 @@ def test_gate_marker_only_primary_exempt() -> None:
     assert "transcript_review" in GATE_MARKER_ONLY
 
 
+def test_recompose_skip_copy_counts_as_primary_disk(ctx) -> None:
+    """Cascade (MUX_FORENSICS=0): skip-copy pays recompose so framing apply can enqueue."""
+    from interview_mux.delivery_guardrails import (
+        earliest_incomplete_must_precede,
+        filter_delivery_candidates,
+    )
+
+    assert primary_disk_present(ctx, "gap_framing_recompose") is False
+    ctx.path("understanding").mkdir(parents=True, exist_ok=True)
+    (ctx.path("understanding") / "refinement_skip_copy.json").write_text(
+        '{"skipped": true}', encoding="utf-8"
+    )
+    mark_done_raw(ctx, "gap_framing_recompose")
+    assert primary_disk_present(ctx, "gap_framing_recompose") is True
+    assert producer_ready(ctx, "gap_framing_recompose") is True
+    assert earliest_incomplete_must_precede(ctx, "selection_framing_apply") == ""
+    filtered = filter_delivery_candidates(
+        ctx, ["selection_framing_apply", "transitions"]
+    )
+    assert "gap_framing_recompose" not in filtered
+    assert "selection_framing_apply" in filtered
+
+
 def test_census_pack_and_modules_mention_apis() -> None:
     root = Path(__file__).resolve().parents[1]
     src = root / "src" / "interview_mux"

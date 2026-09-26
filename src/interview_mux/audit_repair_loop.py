@@ -31,6 +31,24 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
 
     notes: list[dict[str, Any]] = []
     if ctx.artifact_exists("master/selection.json"):
+        try:
+            from interview_mux.media_ip_cta import (
+                heal_on_air_cta_residue,
+                on_air_orphaned_cta_scrap_ids,
+            )
+
+            scraps = on_air_orphaned_cta_scrap_ids(ctx)
+            if scraps:
+                heal_on_air_cta_residue(ctx)
+                notes.append(
+                    {
+                        "action": "orphaned_cta_child_omit",
+                        "ids": scraps[:12],
+                    }
+                )
+        except Exception:
+            pass
+    if ctx.artifact_exists("master/selection.json"):
         skip_sel_write = False
         try:
             from interview_mux.seat_authority import hard_freeze_active

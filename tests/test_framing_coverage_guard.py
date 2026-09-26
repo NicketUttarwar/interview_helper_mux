@@ -160,3 +160,45 @@ def test_enforce_framing_does_not_restore_media_ip_cta_primary(
     out = enforce_framing_ranking(ctx, selection)
     assert "seg_070" not in [str(s) for s in (out.get("ordered_segment_ids") or [])]
     assert "seg_010" in (out.get("ordered_segment_ids") or [])
+
+
+def test_enforce_framing_does_not_restore_ghost_primary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hitch-stale impact ids absent from the live manifest must not re-enter order."""
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_framing_ghost_primary", create=True)
+    init_run_meta_for_test(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_010", "seg_039"),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {"source_segment_ids": ["seg_039", "seg_041"]},
+                    ],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_010"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_039", "reason": "pacing"},
+            {"segment_id": "seg_041", "reason": "pacing"},
+        ],
+    }
+    issues = validate_framing_ranking(ctx, selection)
+    assert not any("seg_041" in i and "never_exclude_primary_impact" in i for i in issues)
+    out = enforce_framing_ranking(ctx, selection)
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or [])]
+    assert "seg_041" not in ordered
+    assert "seg_039" in ordered

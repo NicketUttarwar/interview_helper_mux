@@ -909,6 +909,14 @@ def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
     return {"changed": changed, "notes": notes, "line_id": oid}
 
 
+def sync_stale_omit_order_lock(ctx: RunContext) -> bool:
+    """Rebuild omit ledger when selection order_lock drifted (paperwork, not a seat)."""
+    if "omit_ledger_order_lock_stale" not in air_contract_errors(ctx):
+        return False
+    rebuild_and_write_omit_ledger(ctx)
+    return "omit_ledger_order_lock_stale" not in air_contract_errors(ctx)
+
+
 def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
     """Align gap report + EDL with the omit ledger before post-master QC."""
     notes: list[str] = []

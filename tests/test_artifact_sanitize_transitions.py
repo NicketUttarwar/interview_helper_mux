@@ -79,6 +79,102 @@ def test_sanitize_transitions_does_not_overwrite_existing_freeze() -> None:
     assert on_disk["source"] == "prior_authority"
 
 
+def test_sanitize_restores_frozen_pairs_when_rewrite_empties_kept() -> None:
+    """Cascade (MUX_FORENSICS=0): freeze + new-only LLM rewrite restores disk pairs."""
+    ctx = RunContext(create=True)
+    _write_selection(ctx, ["seg_001", "seg_002", "seg_003"])
+    ctx.write_json(
+        FREEZE_REL,
+        {
+            "version": 1,
+            "pairs": ["seg_001->seg_002"],
+            "count": 1,
+            "source": "prior_authority",
+        },
+        skip_handoff=True,
+    )
+    landed = {
+        "after_segment_id": "seg_001",
+        "before_segment_id": "seg_002",
+        "text": "Landed host intro bridge.",
+        "type": "chapter",
+    }
+    ctx.write_json(
+        "master/transitions.json",
+        {"transitions": [landed]},
+        skip_handoff=True,
+    )
+    result = sanitize_transitions(
+        ctx,
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_002",
+                    "before_segment_id": "seg_003",
+                    "text": "New pair after reorder.",
+                    "type": "light_bridge",
+                }
+            ]
+        },
+    )
+    assert result.ok
+    kept = [
+        (r.get("after_segment_id"), r.get("before_segment_id"))
+        for r in result.doc["transitions"]
+    ]
+    assert kept == [("seg_001", "seg_002")]
+    assert any(a.get("action") == "restore_frozen_pair" for a in result.actions)
+
+
+
+def test_sanitize_restores_frozen_pairs_when_rewrite_empties_kept() -> None:
+    """Cascade (MUX_FORENSICS=0): freeze + new-only LLM rewrite restores disk pairs."""
+    ctx = RunContext(create=True)
+    _write_selection(ctx, ["seg_001", "seg_002", "seg_003"])
+    ctx.write_json(
+        FREEZE_REL,
+        {
+            "version": 1,
+            "pairs": ["seg_001->seg_002"],
+            "count": 1,
+            "source": "prior_authority",
+        },
+        skip_handoff=True,
+    )
+    landed = {
+        "after_segment_id": "seg_001",
+        "before_segment_id": "seg_002",
+        "text": "Landed host intro bridge.",
+        "type": "chapter",
+    }
+    ctx.write_json(
+        "master/transitions.json",
+        {"transitions": [landed]},
+        skip_handoff=True,
+    )
+    result = sanitize_transitions(
+        ctx,
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_002",
+                    "before_segment_id": "seg_003",
+                    "text": "New pair after reorder.",
+                    "type": "light_bridge",
+                }
+            ]
+        },
+    )
+    assert result.ok
+    kept = [
+        (r.get("after_segment_id"), r.get("before_segment_id"))
+        for r in result.doc["transitions"]
+    ]
+    assert kept == [("seg_001", "seg_002")]
+    assert any(a.get("action") == "restore_frozen_pair" for a in result.actions)
+
+
+
 def test_sanitize_transitions_framing_dedupe_drops_frozen_redundant() -> None:
     """Frozen pair still covered by layup VO must leave kept + freeze (exec_11630)."""
     ctx = RunContext(create=True)
@@ -308,3 +404,173 @@ def test_heal_redundant_framing_transitions_strips_pair_freeze() -> None:
     assert ("seg_018", "seg_020") not in pairs
     freeze = ctx.read_json(FREEZE_REL)
     assert "seg_018->seg_020" not in (freeze.get("pairs") or [])
+
+
+def test_sanitize_admits_required_bridge_beyond_freeze() -> None:
+    """Cascade (MUX_FORENSICS=0): new current-adj required hinge lands under freeze."""
+    ctx = RunContext(create=True)
+    _write_selection(ctx, ["seg_001", "seg_002", "seg_003"])
+    ctx.write_json(
+        FREEZE_REL,
+        {
+            "version": 1,
+            "pairs": ["seg_001->seg_002"],
+            "count": 1,
+            "source": "prior_authority",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_001",
+                    "before_segment_id": "seg_002",
+                    "text": "Landed host intro bridge.",
+                    "type": "chapter",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        {
+            "pairs": [
+                {"after_segment_id": "seg_001", "before_segment_id": "seg_002"},
+                {"after_segment_id": "seg_002", "before_segment_id": "seg_003"},
+            ]
+        },
+        skip_handoff=True,
+    )
+    result = sanitize_transitions(
+        ctx,
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_002",
+                    "before_segment_id": "seg_003",
+                    "text": "Required hinge after omit shrink.",
+                    "type": "light_bridge",
+                }
+            ]
+        },
+    )
+    assert result.ok
+    kept = [
+        (r.get("after_segment_id"), r.get("before_segment_id"))
+        for r in result.doc["transitions"]
+    ]
+    assert ("seg_002", "seg_003") in kept
+    assert ("seg_001", "seg_002") in kept
+    assert any(a.get("action") == "admit_required_bridge" for a in result.actions)
+    assert any(a.get("action") == "restore_frozen_pair" for a in result.actions)
+
+
+def test_sanitize_keeps_required_reverse_reorder_bridge() -> None:
+    """Cascade (MUX_FORENSICS=0): required reverse-time reorder hinge survives prune."""
+    ctx = RunContext(create=True)
+    _write_selection(ctx, ["seg_005", "seg_004", "seg_008"])
+    ctx.write_json(
+        FREEZE_REL,
+        {
+            "version": 1,
+            "pairs": ["seg_004->seg_008"],
+            "count": 1,
+            "source": "prior_authority",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_004",
+                    "before_segment_id": "seg_008",
+                    "text": "Landed forward hinge.",
+                    "type": "chapter",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        {
+            "pairs": [
+                {
+                    "after_segment_id": "seg_005",
+                    "before_segment_id": "seg_004",
+                    "kind": "reorder",
+                    "source_gap_ms": -40000,
+                },
+                {"after_segment_id": "seg_004", "before_segment_id": "seg_008"},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_005",
+                    "text": "Thanks for that question.",
+                    "start_ms": 80000,
+                    "end_ms": 90000,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                },
+                {
+                    "segment_id": "seg_004",
+                    "text": "What are you hoping to hear today?",
+                    "start_ms": 40000,
+                    "end_ms": 50000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                },
+                {
+                    "segment_id": "seg_008",
+                    "text": "The biopsy problem is rare cells.",
+                    "start_ms": 100000,
+                    "end_ms": 120000,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    result = sanitize_transitions(
+        ctx,
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_005",
+                    "before_segment_id": "seg_004",
+                    "text": "After the thanks, the question that opened the hour.",
+                    "type": "light_bridge",
+                    "source_gap_ms": -40000,
+                }
+            ]
+        },
+    )
+    assert result.ok
+    kept = [
+        (r.get("after_segment_id"), r.get("before_segment_id"))
+        for r in result.doc["transitions"]
+    ]
+    assert ("seg_005", "seg_004") in kept
+    assert any(
+        a.get("action")
+        in {"admit_required_bridge", "restore_required_after_reverse_prune"}
+        for a in result.actions
+    )

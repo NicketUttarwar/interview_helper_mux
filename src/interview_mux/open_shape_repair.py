@@ -151,7 +151,37 @@ def cover_ranking_manifest_membership(
         for s in (man.get("segments") or [])
         if isinstance(s, dict) and s.get("segment_id")
     }
-    ordered = {str(s) for s in (out.get("ordered_segment_ids") or []) if s}
+    ordered_list = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    ghosts = [s for s in ordered_list if s not in manifest_ids]
+    if ghosts:
+        ordered_list = [s for s in ordered_list if s in manifest_ids]
+        out["ordered_segment_ids"] = ordered_list
+        chapters = out.get("chapters")
+        if isinstance(chapters, list):
+            cleaned_ch: list[Any] = []
+            for ch in chapters:
+                if not isinstance(ch, dict):
+                    cleaned_ch.append(ch)
+                    continue
+                row = dict(ch)
+                row["segment_ids"] = [
+                    str(s)
+                    for s in (row.get("segment_ids") or [])
+                    if str(s) in manifest_ids
+                ]
+                cleaned_ch.append(row)
+            out["chapters"] = cleaned_ch
+        try:
+            ctx.log(
+                f"ranking_membership_cover: dropped {len(ghosts)} ordered id(s) "
+                "absent from live manifest",
+                level="info",
+                stage="full_master_ranking",
+                detail={"ghosts": ghosts[:24]},
+            )
+        except Exception:
+            pass
+    ordered = set(ordered_list)
     excl = list(out.get("excluded_segment_ids") or [])
     excl_ids: set[str] = set()
     for row in excl:

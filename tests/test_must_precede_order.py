@@ -25,6 +25,154 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return isolated_run_ctx(tmp_path, "must_precede")
 
 
+def test_transitions_must_precede_includes_framing_apply() -> None:
+    """Pass-2 apply is a transitions producer so filter cannot leapfrog it."""
+    assert "selection_framing_apply" in MUST_PRECEDE["transitions"]
+
+
+def test_filter_defers_transitions_until_framing_apply(
+    ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): air_contract+layup done must not enqueue transitions."""
+    done = {
+        "air_contract_sanitize",
+        "nugget_layup_compose",
+        "gap_framing_recompose",
+        "air_script_seams",
+    }
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _c, sid: sid in done,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _c: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _c: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _c: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.ship_path_ready",
+        lambda _c: (False, "no_master"),
+    )
+    filtered = filter_delivery_candidates(
+        ctx, ["gap_framing_recompose", "selection_framing_apply", "transitions"]
+    )
+    assert "transitions" not in filtered
+    assert "selection_framing_apply" in filtered
+
+
+def test_filter_defers_edl_until_transitions(
+    ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): EDL waits while required bridges are open."""
+    done = {
+        "edl_narrative_audit",
+        "vo_synthesize",
+        "sound_design_vo_finalize",
+        "nugget_layup_compose",
+        "air_contract_sanitize",
+        "selection_framing_apply",
+        "gap_framing_recompose",
+        "air_script_seams",
+    }
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _c, sid: sid in done,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _c: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _c: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _c: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.ship_path_ready",
+        lambda _c: (False, "no_master"),
+    )
+    filtered = filter_delivery_candidates(ctx, ["edl", "transitions"])
+    assert "edl" not in filtered
+    assert "transitions" in filtered
+
+
+def test_filter_defers_mix_until_compose_close_bed(
+    ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cascade (MUX_FORENSICS=0): mix waits while required theme_outro cue is missing."""
+    from run_fixtures import sound_design_plan_with
+
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "show_theme_v1_full_bed_close",
+                    "role": "theme_outro",
+                    "palette_kind": "full_bed",
+                }
+            ],
+            flow_plans={
+                "podcast": {
+                    "cues": [
+                        {
+                            "cue_id": "arrange_scene_01_01",
+                            "role": "theme_underscore",
+                            "asset_id": "loop",
+                        }
+                    ]
+                }
+            },
+        ),
+        skip_handoff=True,
+    )
+    done = {
+        "edl",
+        "edl_narrative_audit",
+        "assembly_preview",
+        "listen_delight_audit",
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+    }
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _c, sid: sid in done,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _c: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _c: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.phase_a_sealed",
+        lambda _c: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.ship_path_ready",
+        lambda _c: (False, "no_master"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.edl_ready",
+        lambda _c: True,
+    )
+    filtered = filter_delivery_candidates(ctx, ["mix", "junction_snip_qa"])
+    assert "mix" not in filtered
+    assert "music_palette_compose" in filtered
+
+
 @pytest.mark.parametrize("consumer", sorted(EDL_CONSUMERS))
 def test_edl_consumers_deferred_without_seed_complete_edl(
     ctx, monkeypatch: pytest.MonkeyPatch, consumer: str
@@ -104,6 +252,7 @@ def test_must_precede_table_covers_edl_spine() -> None:
     assert "edl" in MUST_PRECEDE["assembly_preview"]
     assert "edl" in MUST_PRECEDE["listen_delight_audit"]
     assert "vo_synthesize" in MUST_PRECEDE["edl"]
+    assert "transitions" in MUST_PRECEDE["edl"]
     assert producer_ready is seed_stage_complete or callable(producer_ready)
     # Always-HAU: beds are not producers of mix (exec_13170 follow-through).
     assert MUST_PRECEDE["mix"] == ("edl",)
@@ -517,6 +666,7 @@ def test_clamp_resume_transitions_stale_from_layup(
         "sound_design_plan",
         "vo_line_adjudicate",
         "air_contract_sanitize",
+        "selection_framing_apply",
     }
     monkeypatch.setattr(
         "interview_mux.delivery_guardrails.seed_stage_complete",

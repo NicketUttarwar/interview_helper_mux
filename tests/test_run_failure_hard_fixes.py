@@ -383,3 +383,47 @@ def test_hard_keep_cta_parent_via_selection_exclude_without_cta_artifact():
     keeps = hard_keep_segment_ids(ctx)
     assert "seg_001" not in keeps
     assert "seg_001c" in keeps
+
+
+def test_hard_keep_does_not_transfer_to_cta_scrap_children():
+    """Cascade (MUX_FORENSICS=0): sponsor-scrap NLE children do not inherit keep."""
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {
+                "must_keep_segment_ids": ["seg_054"],
+                "cuts": [{"segment_id": "seg_054", "must_keep": True}],
+            },
+            "segments/manifest.json": {
+                "segments": [
+                    {
+                        "segment_id": "seg_054",
+                        "text": "Thanks to our sponsor Agilisium Labs.",
+                        "start_ms": 0,
+                        "end_ms": 4000,
+                    },
+                    {
+                        "segment_id": "seg_054cb",
+                        "text": "sponsor, Agilisium Labs.",
+                        "start_ms": 4000,
+                        "end_ms": 5500,
+                    },
+                    {
+                        "segment_id": "seg_053",
+                        "text": "Diagnosis is much better than cure in this setting.",
+                        "start_ms": 8000,
+                        "end_ms": 14000,
+                    },
+                ]
+            },
+            "master/selection.json": {
+                "ordered_segment_ids": ["seg_053", "seg_054cb"],
+                "excluded_segment_ids": [
+                    {"segment_id": "seg_054", "reason": "media_ip_cta"}
+                ],
+                "exclude_rationales": {"seg_054": "media_ip_cta"},
+            },
+        }
+    )
+    keeps = hard_keep_segment_ids(ctx)
+    assert "seg_054" not in keeps
+    assert "seg_054cb" not in keeps

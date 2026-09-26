@@ -920,6 +920,28 @@ def run_transitions(ctx: RunContext) -> None:
             }
             if decision["text"]:
                 seen_texts.append(str(decision["text"]))
+        # Mint required reorder hinges before mark_done. Otherwise Done Authority
+        # refuses auto_complete on missing bridges and the post-LLM glue pass
+        # never runs (exec_002).
+        if sel_order:
+            try:
+                from interview_mux.nle_state import segments_by_id_with_nle
+                from interview_mux.seam_glue import ensure_seam_glue
+
+                _bridges, minted, _comp = ensure_seam_glue(
+                    c,
+                    ordered=sel_order,
+                    segments_by_id=segments_by_id_with_nle(c),
+                    gap_report=gap_report if isinstance(gap_report, dict) else None,
+                    transitions=artifacts if isinstance(artifacts, dict) else None,
+                    soft=False,
+                )
+                if isinstance(minted, dict):
+                    artifacts = minted
+            except SystemExit:
+                raise
+            except Exception:
+                pass
         try:
             from interview_mux.speaker_delivery_plan import stamp_episode_vo_identity
 

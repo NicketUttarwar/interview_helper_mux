@@ -212,7 +212,13 @@ MUST_PRECEDE: dict[str, tuple[str, ...]] = {
     "selection_framing_apply": ("gap_framing_recompose",),
     "air_script_seams": ("selection_framing_apply",),
     "air_contract_sanitize": ("air_script_seams",),
-    "transitions": ("air_contract_sanitize", "nugget_layup_compose"),
+    "transitions": (
+        "air_contract_sanitize",
+        "nugget_layup_compose",
+        # Pass-2 apply sits before transitions; without it, filter leaps to
+        # transitions while framing apply is still pending (exec_002).
+        "selection_framing_apply",
+    ),
     "sound_design_plan": ("transitions",),
     # DP-LAYUP-ADJ A: VO seal chain lists upstream producers so leapfrog pins
     # resolve to the earliest hole (not only the immediate predecessor).
@@ -229,7 +235,7 @@ MUST_PRECEDE: dict[str, tuple[str, ...]] = {
     ),
     "sound_design_vo_finalize": ("vo_synthesize",),
     "edl_narrative_audit": ("vo_synthesize", "sound_design_vo_finalize"),
-    "edl": ("edl_narrative_audit", "vo_synthesize"),
+    "edl": ("edl_narrative_audit", "vo_synthesize", "transitions"),
     "assembly_preview": ("edl",),
     "listen_delight_audit": ("edl", "assembly_preview"),
     "music_palette_compose": (
@@ -465,6 +471,24 @@ def defer_until_producers_ready(
             out.append(hole)
         deferred.append(sid)
         return True
+    # Mix fail-closes on missing theme_outro; do not walk mix until compose lands it.
+    # Not a MUST_PRECEDE row (HAU: beds are not mix producers) — music-epoch hole only.
+    if sid in {"mix", "junction_snip_qa"}:
+        try:
+            from interview_mux.stage_completion import (
+                _music_palette_missing_outro_incompleteness,
+            )
+
+            if _music_palette_missing_outro_incompleteness(ctx):
+                if (
+                    "music_palette_compose" not in out
+                    and "music_palette_compose" not in deferred
+                ):
+                    out.append("music_palette_compose")
+                deferred.append(sid)
+                return True
+        except Exception:
+            pass
     # Leapfrog B+: Admit Constitution schedule gate (clamp + checklist).
     try:
         from interview_mux.heal_pin_authority import admit_schedule

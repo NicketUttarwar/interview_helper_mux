@@ -374,6 +374,34 @@ def test_sanitize_refuses_primary_impact_not_selected_pins_ranking(
     assert sealed_result.ok, sealed_result.errors
 
 
+def test_sanitize_drops_ordered_ids_absent_from_manifest() -> None:
+    """Hitch-stale ordered ids must leave the lock so ranking flush can succeed."""
+    ctx = RunContext(create=True)
+    ctx.path("segments").mkdir(parents=True, exist_ok=True)
+    (ctx.path("segments") / "manifest.json").write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {"segment_id": "seg_010", "start_ms": 0, "end_ms": 1000, "text": "a"},
+                    {"segment_id": "seg_039", "start_ms": 2000, "end_ms": 3000, "text": "b"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = sanitize_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_010", "seg_039", "seg_041", "seg_047"],
+            "excluded_segment_ids": [],
+            "chapters": [{"title": "Tail", "segment_ids": ["seg_039", "seg_041"]}],
+        },
+    )
+    assert result.ok, result.errors
+    assert result.doc.get("ordered_segment_ids") == ["seg_010", "seg_039"]
+    assert any(a.get("action") == "drop_orphan_ref" for a in result.actions)
+
+
 def test_sos_contract_has_no_llm_execute() -> None:
     """S3: process-only stage — contract must not claim llm_execute."""
     from interview_mux.stage_contract import load_contract

@@ -99,11 +99,12 @@ Homunculus / driver heals are **not** diagnosis. The parent agent patches root c
 
 ### Session opener (paste exactly — always starts FRESH)
 
-Do **not** add env vars to the user message. Agent reads §1 and launches with `MUX_FORENSICS=1` + `MUX_KEEPALIVE=1` + **`MUX_FRESH=1`**.
+Do **not** add extra env vars to the user message. Agent reads §1 and launches with `MUX_FORENSICS=1` + `MUX_KEEPALIVE=1` + **`MUX_FRESH=1`**. When the opener says skip `audio_preclean`, also set **`MUX_SKIP_PRECLEAN=1`** at kickoff and every §3.4.1 restart.
 
 ```
 Follow .cursor/plans/full_auto_forensics_run.plan.md.
 INPUT_FILE = <basename under ASSETS/input/>
+Skip audio_preclean: set MUX_SKIP_PRECLEAN=1 at launch and on every driver restart (dismiss before ingest; do not run DeepFilterNet).
 Always start FRESH (MUX_FRESH=1): new exec_* only — do not use any previous execution folders or files.
 On every bug in THIS run: diagnose → patch producer root cause into code → add/extend a cascade pytest with MUX_FORENSICS=0 (not pin-only) → continue the SAME run_id (MUX_FRESH=0) from producer.
 Do not soft-complete sealed consumers (edl/mix/master_finalize) or rely on e2e quality waivers.
@@ -119,6 +120,7 @@ Enter the continuous loop (§3) immediately after launch. Do not end the chat un
 ```
 Follow .cursor/plans/full_auto_forensics_run.plan.md.
 INPUT_FILE = mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
+Skip audio_preclean: set MUX_SKIP_PRECLEAN=1 at launch and on every driver restart (dismiss before ingest; do not run DeepFilterNet).
 Always start FRESH (MUX_FRESH=1): new exec_* only — do not use any previous execution folders or files.
 On every bug in THIS run: diagnose → patch producer root cause into code → add/extend a cascade pytest with MUX_FORENSICS=0 (not pin-only) → continue the SAME run_id (MUX_FRESH=0) from producer.
 Do not soft-complete sealed consumers (edl/mix/master_finalize) or rely on e2e quality waivers.
@@ -137,6 +139,7 @@ Use only when **this** campaign’s state file still points at an **incomplete**
 Follow .cursor/plans/full_auto_forensics_run.plan.md.
 Continue the locked campaign in .cursor/plans/full_auto_forensics_state.md (this chat’s run_id only).
 MUX_FRESH=0 — do not create a new execution; do not switch to any older exec_*.
+Keep MUX_SKIP_PRECLEAN=1 on driver restart if this campaign skipped audio_preclean.
 Re-arm §3.0a AGENT_LOOP_TICK_forensics if the nudge shell is dead.
 On every bug: diagnose → cascade pytest (MUX_FORENSICS=0) → patch producer → continue this run_id.
 Do not map to predicate-family / End-* ledgers — log intervenes plainly for later review.
@@ -168,11 +171,14 @@ MUX_RUN_MODE=full-auto \
 MUX_FRESH=1 \
 MUX_FORENSICS=1 \
 MUX_KEEPALIVE=1 \
+MUX_SKIP_PRECLEAN=1 \
 MUX_INPUT_AUDIO=ASSETS/input/<INPUT_FILE> \
 ./scripts/run.sh --full-auto --input ASSETS/input/<INPUT_FILE>
 ```
 
 Replace `<INPUT_FILE>` with the basename only. **Do not** pass `MUX_RUN_ID` at kickoff. **Do not** point at an existing `ASSETS/executions/exec_*` from a prior campaign.
+
+**`MUX_SKIP_PRECLEAN=1`:** include when the opener says skip `audio_preclean` (default for the Mohan example). Driver dismisses the offer (`preclean/skip.json`); ingest uses the raw file. Omit the env only when the operator wants DeepFilterNet on this campaign.
 
 **Brain (homunculus version):** do **not** set `MUX_HOMUNCULUS_VERSION` unless the operator explicitly pins a registered brain. Unset → product default (`mastering.homunculus.default_version` = `latest` → currently **0.2.0**). Never hardcode `0.1.0` (legacy resume-only; hidden from Start).
 
@@ -191,6 +197,7 @@ Replace `<INPUT_FILE>` with the basename only. **Do not** pass `MUX_RUN_ID` at k
 |-----|---------|
 | `MUX_FORENSICS=1` | Identical-failure ×3 is telemetry; clears halt counters on restart / product fingerprint change. **After 3× same predicate without a product patch**, driver writes `operator/forensics_escalation.json` and **exits** so parent must patch + **continue this run**. |
 | `MUX_KEEPALIVE=1` | Restarts driver **process** after crash — not a substitute for parent §3; does **not** detect heal-spins alone. |
+| `MUX_SKIP_PRECLEAN=1` | Dismiss `audio_preclean` before ingest (`preclean/skip.json`; no DeepFilterNet). Repeat on every driver restart. Omit only when this campaign should run full-source clean. |
 
 Monitor surfaces:
 
@@ -391,6 +398,7 @@ MUX_RUN_MODE=full-auto \
 MUX_FRESH=0 \
 MUX_FORENSICS=1 \
 MUX_KEEPALIVE=1 \
+MUX_SKIP_PRECLEAN=1 \
 MUX_RUN_ID=<this_campaign_run_id> \
 MUX_INPUT_AUDIO=ASSETS/input/<INPUT_FILE> \
 ./scripts/run.sh --full-auto --input ASSETS/input/<INPUT_FILE>
@@ -399,7 +407,7 @@ MUX_INPUT_AUDIO=ASSETS/input/<INPUT_FILE> \
 Or attach driver only if server already up:
 
 ```bash
-MUX_RUN_ID=<this_campaign_run_id> MUX_FRESH=0 MUX_FULL_AUTO=1 MUX_FORENSICS=1 MUX_KEEPALIVE=1 \
+MUX_RUN_ID=<this_campaign_run_id> MUX_FRESH=0 MUX_FULL_AUTO=1 MUX_FORENSICS=1 MUX_KEEPALIVE=1 MUX_SKIP_PRECLEAN=1 \
   .venv/bin/python -u tools/full_auto_driver.py
 ```
 

@@ -15,6 +15,7 @@ _COSMETIC_SANITIZE_ACTIONS = frozenset({"bump_order_lock"})
 _EXCLUDE_REASON_BY_ACTION: dict[str, str] = {
     "dedupe_exact": "dedupe_exact",
     "drop_never_touch_cta": "drop_never_touch_cta",
+    "drop_orphan_ref": "drop_orphan_ref",
     "collapse_fragment_depth": "collapse_fragment_depth",
     "sanitize_duplicate_source_span": "sanitize_duplicate_source_span",
     "cap_same_family_on_air": "cap_same_family_on_air",
@@ -314,6 +315,16 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             for sid in drop:
                 drop_reasons.setdefault(sid, "drop_never_touch_cta")
 
+    # 2b. hitch-stale / framing ghosts — never keep ordered ids off the live tape
+    live_ids = set(_segment_starts(ctx))
+    if live_ids:
+        ghost = [s for s in ordered if s not in live_ids]
+        if ghost:
+            ordered = [s for s in ordered if s in live_ids]
+            actions.append({"action": "drop_orphan_ref", "ids": ghost[:24]})
+            for sid in ghost:
+                drop_reasons.setdefault(sid, "drop_orphan_ref")
+
     # 3. fragment depth budget — never drop hard-keeps; refuse if they exceed
     depth_drop: list[str] = []
     kept_depth: list[str] = []
@@ -516,6 +527,16 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             if not isinstance(ch, dict):
                 continue
             ids = [str(s) for s in (ch.get("segment_ids") or []) if str(s) in order_set]
+            pos = {sid: idx for idx, sid in enumerate(ordered)}
+            air_ids = sorted(ids, key=lambda sid: pos.get(sid, 10**9))
+            if air_ids != ids:
+                actions.append(
+                    {
+                        "action": "restamp_chapter_ids_to_air_order",
+                        "title": str(ch.get("title") or "")[:80],
+                    }
+                )
+            ids = air_ids
             row = dict(ch)
             row["segment_ids"] = ids
             if not ids:
@@ -608,10 +629,21 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     if over and not any(e.startswith("hard_keep_same_family_over_budget:") for e in errors):
         errors.append(f"same_family_budget_exceeded:{sorted(over.items())[:4]}")
 
-    # Integrity criticals: metrics only (repair/pin belongs to ranking)
+    # Integrity: apply opening-tape repair (host intro first) then record leftovers.
     try:
-        from interview_mux.air_order_integrity import collect_violations, critical_violations
+        from interview_mux.air_order_integrity import (
+            collect_violations,
+            critical_violations,
+            repair_opening_tape_integrity,
+        )
 
+        repaired, integ_actions = repair_opening_tape_integrity(ctx, out)
+        if integ_actions:
+            out = repaired
+            ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+            actions.extend(integ_actions)
+            after_n = len(ordered)
+            metrics["after_count"] = after_n
         viol = collect_violations(ctx, out)
         crit = critical_violations(viol)
         if crit:
