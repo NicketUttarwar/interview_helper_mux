@@ -2154,6 +2154,36 @@ def _constrain_delivery_walk_for_sticky(
 _SEED_ORDER_RE = re.compile(r"seed order: complete (\S+) before running (\S+)")
 
 
+def _seed_prereq_needs_run(ctx: RunContext, prereq: str) -> bool:
+    """A named prerequisite is worth one run unless it is genuinely complete.
+
+    ``dispatch_stage`` raised because ``prereq`` is not seed-complete. When a
+    ``.stage_done`` marker exists anyway (a refused commit left it behind),
+    the marker is the lie, not the check: drop it so the rerun is a real run.
+    """
+    if not ctx.is_done(prereq):
+        return True
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if seed_stage_complete(ctx, prereq):
+            return False
+    except Exception:
+        return False
+    ctx.log(
+        f"seed walk: {prereq} is marked done but not seed-complete; "
+        "dropping the stale marker before rerunning it",
+        level="warning",
+        stage=prereq,
+        detail={"event": "seed_prereq_stale_marker"},
+    )
+    try:
+        unmark_stage_only(ctx, prereq)
+    except Exception:
+        return False
+    return True
+
+
 def _seed_order_prereq_from(exc: BaseException) -> str:
     """Prerequisite named by a seed-order RuntimeError, or "" when not one."""
     if not isinstance(exc, RuntimeError):
@@ -2392,11 +2422,14 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 # stalls the whole walk on a prerequisite the walk is perfectly
                 # able to satisfy, and recovery_controller has already worked out
                 # the same answer (resume=<prereq>). Run it and retry once.
+                # The seed-order check judges completeness, not the marker: a
+                # prerequisite whose commit was refused can still carry a stale
+                # .stage_done (ISSUES 86). Treat that marker as hollow and rerun.
                 if (
                     prereq
                     and prereq not in seed_prereq_retried
                     and prereq != stage
-                    and not ctx.is_done(prereq)
+                    and _seed_prereq_needs_run(ctx, prereq)
                 ):
                     seed_prereq_retried.add(prereq)
                     ctx.log(

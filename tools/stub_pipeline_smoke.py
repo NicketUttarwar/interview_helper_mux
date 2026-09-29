@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import struct
 import sys
@@ -37,13 +36,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-#: Cap resumes so a gate that never clears cannot spin forever. Resumes also
-#: fire on progress (more stages marked than the previous pass), with an early
-#: stop on same-error-no-progress, so a healthy run can spend all of these
-#: usefully: the 6-minute real run used four and was still advancing.
-# A one-hour source needed 9+ progressing delivery passes (exec_052/054); the
-# cap only stops passes that keep making progress, stalls still stop early.
-MAX_GATE_RESUMES = 16
 sys.path.insert(0, str(ROOT / "src"))
 
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -59,33 +51,9 @@ def _default_stub_env() -> None:
     os.environ.setdefault("MUX_STUB_LLM", "1")
 
 
-_RESUME_RE = re.compile(r"resume[= ]+([a-z][a-z0-9_]+)")
-
-
-_SEED_ORDER_RE = re.compile(r"seed order: complete ([A-Za-z0-9_]+) before")
-_AT_FIRST_RE = re.compile(r"\bat ([a-z][a-z0-9_]+) first\b")
-
-
-def resume_hint(error: str) -> str | None:
-    """The stage a failure names as its own remedy, if any.
-
-    The conductor writes "resume=mix" or "resume mix" into its errors, then
-    on the next pass names the same stage as remaining without dispatching it.
-    Three stops on the 6-minute real run were exactly that (vo_line_adjudicate,
-    mix twice), and each cleared the moment the stage was dispatched directly.
-    """
-    text = str(error or "")
-    m = _RESUME_RE.search(text)
-    if m:
-        return m.group(1)
-    # "seed order: complete X before running Y" names X the same way: the
-    # walk wants X first and, on exec_050, kept saying so without running it.
-    m = _SEED_ORDER_RE.search(text)
-    if m:
-        return m.group(1)
-    # "... recut/fuse/omit at junction_snip_qa first" (a stage's own refusal).
-    m = _AT_FIRST_RE.search(text)
-    return m.group(1) if m else None
+# The resume-hint parser and the resume cap live in the engine; the linear
+# walk and tests/test_driver_resume_hint.py reach them through this module.
+from interview_mux.orchestrator import MAX_GATE_RESUMES, resume_hint  # noqa: E402,F401
 
 
 def write_synthetic_wav(path: Path, *, seconds: float = 12.0, rate: int = 16000) -> Path:
@@ -469,165 +437,16 @@ def main() -> int:
     print("-" * 78)
 
     if args.orchestrated:
-        from interview_mux.pipeline import run_analysis, run_delivery
-        from interview_mux.v2.config import ANALYSIS_ORDER
+        # One engine for every entry point (ISSUES 88): the GUI's full-auto
+        # run, ``python -m interview_mux orchestrate`` and this smoke all drive
+        # interview_mux.orchestrator. The tool used to carry its own copy of
+        # the loop, which stopped after a single failed hop where the engine
+        # keeps resuming and dispatching the named remedy.
+        from interview_mux.orchestrator import Orchestrator
 
-        hops = 0
-
-        summary: list[dict[str, Any]] = []
-        for phase, fn in (("analysis", run_analysis), ("delivery", run_delivery)):
-            t0 = time.perf_counter()
-            row: dict[str, Any] = {"phase": phase}
-            try:
-                fn(ctx)
-                row["status"] = "ok"
-            except SystemExit as exc:
-                row["status"] = "halt"
-                row["error"] = f"SystemExit: {str(exc)[:500]}"
-            except BaseException as exc:  # noqa: BLE001 - diagnostic tool
-                row["status"] = "fail"
-                row["error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
-                row["traceback"] = traceback.format_exc()[-2500:]
-            row["seconds"] = round(time.perf_counter() - t0, 2)
-            print(f"{phase:9} {row['status'].upper():5} {row['seconds']:8.1f}s")
-            if row.get("error"):
-                print(f"      {row['error'][:300]}")
-
-            # An operator gate halting the phase is the gate doing its job. Sign
-            # it off and re-enter, which is what an operator does; otherwise the
-            # first gate always looks like a failed execution.
-            gates = clear_operator_gates(ctx)
-            for name in gates:
-                print(f"      gate cleared: {name}")
-            attempts = 0
-            # Resuming is only worth it while the error keeps changing. Four
-            # resumes against an identical message cost about 16 minutes and
-            # taught nothing, because signing the gates again cannot fix a
-            # failure that is not about the gates.
-            last_error: str | None = None
-            direct_dispatched: set[str] = set()
-
-            def _done_count() -> int:
-                dd = Path(ctx.run_dir) / ".stage_done"
-                return len(list(dd.glob("*"))) if dd.is_dir() else 0
-
-            # A pass can fail and still have moved the run forward: the recovery
-            # path heals after a stage raises (seed, mark), so the next pass
-            # skips straight through. Retry on progress, not only on gates, so
-            # a run is not abandoned one pass short with the fix already landed.
-            progressed = _done_count()
-            before_done = progressed
-            while (
-                (gates or progressed > 0)
-                and row["status"] != "ok"
-                and attempts < MAX_GATE_RESUMES
-            ):
-                attempts += 1
-                t1 = time.perf_counter()
-                try:
-                    fn(ctx)
-                    row["status"] = "ok"
-                    row.pop("error", None)
-                    row.pop("traceback", None)
-                except SystemExit as exc:
-                    row["status"] = "halt"
-                    row["error"] = f"SystemExit: {str(exc)[:500]}"
-                except BaseException as exc:  # noqa: BLE001
-                    row["status"] = "fail"
-                    row["error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
-                    row["traceback"] = traceback.format_exc()[-2500:]
-                row["seconds"] = round(row["seconds"] + time.perf_counter() - t1, 2)
-                row["gate_resumes"] = attempts
-                print(f"  resume {attempts}: {phase} -> {row['status'].upper()}"
-                      f" ({row['seconds']:.1f}s total)")
-                if row.get("error"):
-                    print(f"      {row['error'][:300]}")
-                current_error = str(row.get("error") or "")
-                now_done = _done_count()
-                progressed = now_done - (progressed if attempts == 1 else before_done)
-                before_done = now_done
-                if current_error and progressed <= 0:
-                    # A pass that failed without moving anything, naming its own
-                    # remedy: dispatch that stage once, directly, then let the
-                    # phase try again. This must run before the loop guard sees
-                    # "no progress, no gates" and gives up, which is exactly how
-                    # the hands-off 6-minute run stopped at 53 of 72.
-                    hint = resume_hint(current_error)
-                    if hint and hint not in direct_dispatched:
-                        from interview_mux.pipeline import run_single_stage
-
-                        # Follow a short remedy chain: a dispatched stage may
-                        # refuse and name another stage to run first (exec_052:
-                        # mix -> "recut ... at junction_snip_qa first").
-                        for _hop in range(3):
-                            if not hint or hint in direct_dispatched:
-                                break
-                            direct_dispatched.add(hint)
-                            print(f"      dispatching {hint} directly (named as resume, walk did not run it)")
-                            try:
-                                run_single_stage(ctx, hint)
-                                landed = bool(ctx.is_done(hint))
-                                print(f"      {hint} -> done={landed}")
-                                if landed:
-                                    progressed = 1  # keep the loop alive for one more pass
-                                break
-                            except BaseException as exc:  # noqa: BLE001
-                                print(f"      {hint} direct dispatch failed: {type(exc).__name__}: {str(exc)[:200]}")
-                                hint = resume_hint(str(exc))
-                        last_error = None
-                        gates = clear_operator_gates(ctx)
-                        continue
-                    if current_error == last_error:
-                        print("      same error as the previous resume and no progress, stopping early")
-                        break
-                if progressed > 0:
-                    print(f"      progress: {progressed} more stage(s) marked complete, retrying")
-                last_error = current_error
-                gates = clear_operator_gates(ctx)
-                for name in gates:
-                    print(f"      gate cleared: {name}")
-
-            summary.append(row)
-            if row["status"] != "ok":
-                # Delivery can invalidate an analysis stage: chapter_close_hitch
-                # re-runs missing_framing, the evaluations change, and the
-                # homunculus correctly clears gap_framing_compose's marker. The
-                # product then says "analysis incomplete" and waits for someone
-                # to run analysis again. Full-auto loops; this driver resumed
-                # only the current phase, so it stopped one hop short. Hop back
-                # to analysis (which skips everything still complete) and retry
-                # delivery, bounded like the gate resumes.
-                err = str(row.get("error") or "")
-                hop_back = phase == "delivery" and (
-                    "analysis incomplete" in err
-                    or ("seed order: complete " in err and any(
-                        f"complete {s} " in err for s in ANALYSIS_ORDER
-                    ))
-                )
-                if hop_back and hops < MAX_GATE_RESUMES:
-                    hops += 1
-                    print(f"  hop {hops}: delivery invalidated analysis, re-running analysis then delivery")
-                    for hop_phase, hop_fn in (("analysis", run_analysis), ("delivery", run_delivery)):
-                        t2 = time.perf_counter()
-                        hop_row = {"phase": hop_phase, "status": "ok", "seconds": 0.0, "hop": hops}
-                        try:
-                            hop_fn(ctx)
-                        except SystemExit as exc:
-                            hop_row["status"] = "halt"; hop_row["error"] = f"SystemExit: {str(exc)[:500]}"
-                        except BaseException as exc:  # noqa: BLE001
-                            hop_row["status"] = "fail"; hop_row["error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
-                            hop_row["traceback"] = traceback.format_exc()[-2500:]
-                        hop_row["seconds"] = round(time.perf_counter() - t2, 2)
-                        print(f"  hop {hops}: {hop_phase} -> {hop_row['status'].upper()} ({hop_row['seconds']:.1f}s)")
-                        if hop_row.get("error"):
-                            print(f"      {hop_row['error'][:300]}")
-                        summary.append(hop_row)
-                        if hop_row["status"] != "ok":
-                            break
-                    if summary[-1]["status"] == "ok" and summary[-1]["phase"] == "delivery":
-                        row = summary[-1]
-                        continue
-                break
+        engine = Orchestrator(ctx, mode="full-auto", log=print)
+        rc = engine.run()
+        summary = list(engine.summary)
 
         done_dir = Path(ctx.run_dir) / ".stage_done"
         marked = sorted(p.name for p in done_dir.iterdir()) if done_dir.is_dir() else []
@@ -645,7 +464,7 @@ def main() -> int:
                 encoding="utf-8",
             )
             print(f"report: {args.json_out}")
-        return 0 if all(r["status"] == "ok" for r in summary) else 1
+        return rc
 
     results: list[dict[str, Any]] = []
     for idx in range(start, end):

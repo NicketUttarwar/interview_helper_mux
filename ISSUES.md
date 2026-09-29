@@ -2857,6 +2857,97 @@ assembly still is; `filter([mix])` returns `[mix]` in the exec_062 shape).
 
 ---
 
+## [86] PRODUCT: a prerequisite with a stale `.stage_done` was never rerun, so the seed walk looped on it
+
+**Stage / area:** `homunculus.agenda.walk_seed_agenda` (prerequisite
+autorun); reported from macOS exec_005, platform independent
+**Status:** fixed.
+
+Upstream exec_005 (one-hour source, real key): `full_master_ranking` ran,
+the pre-flush commit barrier refused its staged `selection.json`
+(`heal_success:pre_flush_soft_refused`, see entry 89 for the order itself),
+and dispatch recorded the stage as failed. A `.stage_done` marker for it was
+on disk anyway. Every later pass then raised "seed order: complete
+full_master_ranking before running refinement_agenda": `dispatch_stage`
+judges the prerequisite by seed completeness, which was false, but the
+walk's prerequisite autorun only reruns a prerequisite whose marker is
+absent (`not ctx.is_done(prereq)`), so it never reran ranking. The
+identical-failure counter on `refinement_agenda` then halted the run.
+
+Fix: `_seed_prereq_needs_run` decides whether the named prerequisite is
+worth a run. Marker absent: yes. Marker present and seed-complete: no.
+Marker present but not seed-complete: drop the marker (it is the lie, the
+check is right) and rerun. One rerun per prerequisite per walk, as before.
+
+Tests: `tests/test_seed_prereq_stale_marker.py`.
+
+---
+
+## [87] PRODUCT: a courtesy rewrite of `content_brief.json` inside ranking was logged as an authority denial, and two of those halt the run
+
+**Stage / area:** `artifact_repairs.propagate_nle_split_segment_refs`, called
+from CTA child materialize and NLE splits during `full_master_ranking`
+**Status:** fixed.
+
+Same exec_005. While ranking materialised split children it remapped the
+parent segment id in `understanding/content_brief.json`, which in the
+`pre_soft_freeze` epoch belongs to `content_brief_reanchor`. The write was
+wrapped in try/except, so the stage did not fail on it. But the ownership
+layer had already logged `authority_denied:persist:understanding/content_brief.json:full_master_ranking:pre_soft_freeze:content_brief_reanchor`,
+recorded an identical failure, and on the second occurrence stamped
+`authority_denied_halted` into `run_meta.json`. That stamp is a sticky halt
+the conductor honours, so a write nobody needed became a stop.
+
+Fix: the remap asks `write_permitted` first and skips the brief with an
+info line when the running stage may not touch it; the owner rewrites the
+brief on its next pass anyway (the segment-id sync at approve time already
+covers `content_brief_reanchor` and `segment_classification`).
+
+Tests: `tests/test_seed_prereq_stale_marker.py` (denied remap: no denial
+logged, brief untouched; permitted remap: rewritten as before).
+
+---
+
+## [88] STRUCTURAL: `tools/stub_pipeline_smoke.py --orchestrated` now runs the engine instead of its own copy of the loop
+
+**Status:** fixed.
+
+The maintainer runs the pipeline with this tool. It carried the resume loop
+the orchestrator was promoted from (entry 79), minus what the engine gained
+since: after a hop back to analysis it ran delivery once with no resumes and
+no remedy dispatch, and stopped. exec_005 ended exactly there ("hop 1:
+delivery -> FAIL, seed order: complete full_master_ranking ...") where the
+engine would have dispatched `full_master_ranking` directly and carried on.
+
+`--orchestrated` now constructs `interview_mux.orchestrator.Orchestrator`
+in full-auto mode and prints the same phase table; the linear walk is
+unchanged. `resume_hint` and `MAX_GATE_RESUMES` are imported from the
+engine so the tool cannot drift again.
+
+---
+
+## [89] OPEN: `full_master_ranking` produced an order the commit barrier refused (macOS exec_005)
+
+**Status:** open, needs the run directory.
+
+The ranking model returned a partial order that violated a narrative
+ordering constraint and parked an early-chapter segment after the finale.
+`finalize_selection_order` repairs both classes (`repair_selection_order`
+runs three times, with a finale-tail pass), and an offline reproduction on
+the one-hour exec_055 data with random partial, shuffled rankings (three
+seeds, 30 percent of segments dropped) commits cleanly every time. So the
+refusal depends on exec_005's plan and manifest: most likely a constraint
+that conflicts with the protected closing ids or with a chapter span, which
+the topological repair cannot satisfy and the barrier then refuses. Entries
+86 to 88 make the run recover from the refusal (rerun ranking, no false
+halt, engine keeps going). To fix the refusal itself the following files
+from `ASSETS/executions/exec_005_20260929T213649Z` are needed:
+`master/narrative_plan.json`, `segments/manifest.json`,
+`.pending_writes/full_master_ranking/`, `operator/resilience_report.json`,
+`operator/forensics_errors.json`, `run_meta.json`, and the run log.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

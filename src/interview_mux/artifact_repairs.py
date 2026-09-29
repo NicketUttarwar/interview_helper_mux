@@ -4352,6 +4352,38 @@ def _rewrite_segment_id_list(ids: list[Any], parent: str, children: list[str]) -
     return out
 
 
+def _brief_remap_permitted(ctx: Any) -> bool:
+    """May the running stage rewrite content_brief.json for a segment-id remap?
+
+    The remap is a courtesy to later readers, not this stage's output. Asking
+    the ownership table first keeps a refused courtesy write from being logged
+    as an authority denial, which after two occurrences halts the run
+    (ISSUES 87: full_master_ranking under pre_soft_freeze).
+    """
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage = str(active_stage_id() or "").strip()
+        ok, reason = write_permitted(
+            ctx, "understanding/content_brief.json", stage or None, verb="persist"
+        )
+    except Exception:
+        return True
+    if ok:
+        return True
+    try:
+        ctx.log(
+            "segment-id remap skipped for understanding/content_brief.json: "
+            f"{reason} (owner rewrites it on its next pass)",
+            level="info",
+            stage=stage or "artifact_repairs",
+        )
+    except Exception:
+        pass
+    return False
+
+
 def propagate_nle_split_segment_refs(
     ctx: Any,
     parent_id: str,
@@ -4366,7 +4398,7 @@ def propagate_nle_split_segment_refs(
         return []
     updated: list[str] = []
 
-    if ctx.artifact_exists("understanding/content_brief.json"):
+    if ctx.artifact_exists("understanding/content_brief.json") and _brief_remap_permitted(ctx):
         brief = ctx.read_json("understanding/content_brief.json")
         if isinstance(brief, dict):
             changed = False
