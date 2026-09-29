@@ -105,7 +105,15 @@ def sanitary_preflight_errors(ctx: Any, stage_id: str) -> list[str]:
             out.extend(_prefix("gap", gap_sanitary_errors(ctx)))
         out.extend(_prefix("vo", vo_sanitary_errors(ctx)))
         if ctx.artifact_exists("master/edl.json"):
-            out.extend(_prefix("edl", edl_sanitary_errors(ctx)))
+            # edl rebuilds edl.json from the selection, so the old file drifting
+            # from the selection is the reason to run it, not a reason to refuse
+            # (exec_052 after the junction retires, ISSUES entry 65).
+            out.extend(
+                _prefix(
+                    "edl",
+                    [e for e in edl_sanitary_errors(ctx) if "order_drift" not in str(e)],
+                )
+            )
         return out
 
     if sid in {"vo_line_adjudicate", "nugget_intro_compose"}:

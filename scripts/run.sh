@@ -40,6 +40,21 @@ cd "$ROOT"
 
 export PYTHONUNBUFFERED=1
 export MUX_LAUNCHED_VIA=run.sh
+# Windows prints cp1252 by default and the pipeline logs non-ASCII (→, ✓);
+# UTF-8 mode keeps subprocess stdout decodable on every platform.
+export PYTHONUTF8=1
+
+# Put the core .venv first on PATH so every bare `python` below is the venv
+# interpreter without the caller having to activate it. bin/ on POSIX,
+# Scripts/ on Windows (Git Bash / MSYS).
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  export PATH="$ROOT/.venv/bin:$PATH"
+elif [[ -x "$ROOT/.venv/Scripts/python.exe" ]]; then
+  export PATH="$ROOT/.venv/Scripts:$PATH"
+else
+  echo "ERROR: core .venv missing — run ./scripts/bootstrap_venv.sh first" >&2
+  exit 1
+fi
 
 CLI_MODE=0
 SERVE_ARGS=()
@@ -190,7 +205,11 @@ fi
 if [[ "${MUX_REFRESH_DEPS:-0}" == "1" ]]; then
   bash "$ROOT/scripts/lib/install_core_venv.sh"
   # shellcheck source=/dev/null
-  source "$ROOT/.venv/bin/activate"
+  if [[ -f "$ROOT/.venv/bin/activate" ]]; then
+    source "$ROOT/.venv/bin/activate"
+  else
+    source "$ROOT/.venv/Scripts/activate"
+  fi
 fi
 
 if [[ "${MUX_REBUILD_GUI:-0}" == "1" ]]; then
@@ -219,27 +238,27 @@ if ! _is_full_auto_cli_launch; then
   python "$ROOT/tools/full_auto_daemon_launch.py" stop || true
 fi
 
-if command -v lsof >/dev/null 2>&1; then
-  stale_pids="$(lsof -ti "tcp:${WEB_PORT}" 2>/dev/null || true)"
-  if [[ -n "${stale_pids}" ]]; then
-    kill ${stale_pids} 2>/dev/null || true
-    sleep 1
-  fi
+# Stale server on the port, orphaned stage workers, and a stale keepalive that
+# would otherwise resurrect serve right after this launch. Regular launches
+# stopped the keepalive above; Full-auto still needs the sweep.
+#
+# This was inline `lsof -ti tcp:PORT` and `ps -ax -o pid=,command= | grep`. Both
+# were guarded by `command -v`, so on Windows the port sweep was skipped and a
+# stale server on 8765 had to be killed by hand before every launch. The `ps`
+# sweep was worse than skipped: Git Bash ships a `ps`, so the guard passed, but
+# it does not report native Windows command lines, so the greps matched nothing
+# and the block looked like it had run. proc_compat still tries lsof and pgrep
+# first on POSIX, so macOS behaviour is unchanged.
+cleanup_out="$(python "$ROOT/tools/cleanup_stale_processes.py" \
+  --port "${WEB_PORT}" \
+  --pattern 'interview_mux\.stage_worker' \
+  --pattern 'full_auto_keepalive_loop\.py|baba_keepalive_loop\.py' 2>&1 || true)"
+if [[ -n "${cleanup_out}" ]]; then
+  echo "${cleanup_out}" >&2
 fi
-
-if command -v ps >/dev/null 2>&1; then
-  orphan_workers="$(ps -ax -o pid=,command= 2>/dev/null | grep 'interview_mux\.stage_worker' | awk '{print $1}' | tr '\n' ' ' || true)"
-  if [[ -n "${orphan_workers// /}" ]]; then
-    kill ${orphan_workers} 2>/dev/null || true
-    sleep 1
-  fi
-  # Stale keepalive will resurrect serve after this launch otherwise.
-  # Regular launches already stopped it above; Full-auto still needs this.
-  orphan_ka="$(ps -ax -o pid=,command= 2>/dev/null | grep -E 'full_auto_keepalive_loop\.py|baba_keepalive_loop\.py' | grep -v grep | awk '{print $1}' | tr '\n' ' ' || true)"
-  if [[ -n "${orphan_ka// /}" ]]; then
-    kill ${orphan_ka} 2>/dev/null || true
-    sleep 1
-  fi
+# Only pay the settle when something was actually terminated.
+if [[ "${cleanup_out}" == *acted* ]]; then
+  sleep 1
 fi
 
 if [[ "${MUX_SKIP_ASSETS_CLEANUP:-0}" != "1" ]]; then

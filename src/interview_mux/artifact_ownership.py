@@ -853,6 +853,28 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
         mode="operational",
         end="ops",
     ),
+    # The approved reference itself. Without these two rows the candidates and
+    # the manifest survive a staged flush but the WAV the manifest points at is
+    # dropped as unknown_path, leaving an approval that names a file which does
+    # not exist. approve_voice_reference builds and duration-checks the WAV, so
+    # the failure only appears later, as voice_reference_unusable, and nothing
+    # reopens the gate because the approval stamp is already recorded.
+    _row(
+        "understanding/speaker_samples/*.wav",
+        "source_topology_build",
+        "missing_framing",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "understanding/speaker_samples/*.json",
+        "source_topology_build",
+        "missing_framing",
+        "ops",
+        mode="operational",
+        end="ops",
+    ),
     # Per-stage LLM telemetry / volley inputs (exec_11871 missing_framing unknown_path).
     _row(
         "understanding/stage_runs/**/*.json",
@@ -2261,6 +2283,21 @@ def _gap_line_text_map(doc: Any) -> dict[str, str]:
 def gap_report_body_text_changed(prior: Any, new: Any) -> bool:
     """True when interviewer_lines[].text set differs (by line_id / target)."""
     return _gap_line_text_map(prior) != _gap_line_text_map(new)
+
+
+def gap_report_body_owner(prior: Any) -> str:
+    """The stage that may write the gap report body right now.
+
+    Mirrors assert_gap_report_body_sole_writer and the catalog row: after
+    ``nugget_layup_authority`` layup is the sole writer; before it, compose.
+    Keyed off the prior on-disk doc because that is what both checks read.
+    Four stops came from legitimate repairs presenting their own stage key
+    here (the recovery playbook, the hitch's id remap, the VO contract drift
+    repair); this is the one answer they all need.
+    """
+    if isinstance(prior, dict) and prior.get("nugget_layup_authority"):
+        return GAP_REPORT_SOLE_BODY_WRITER
+    return "gap_framing_compose"
 
 
 def assert_gap_report_body_sole_writer(

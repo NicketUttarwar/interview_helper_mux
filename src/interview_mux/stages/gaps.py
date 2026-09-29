@@ -1777,7 +1777,44 @@ def _heal_gap_framing_compose_if_complete(ctx: RunContext) -> None:
             level="warning",
             stage="gap_framing_compose",
         )
+    _seed_uncovered_high_gaps_before_heal(ctx)
     heal_or_raise(ctx, "gap_framing_compose")
+
+
+def _seed_uncovered_high_gaps_before_heal(ctx: RunContext) -> None:
+    """Apply the high-gap remedy inside the stage, before it can fail on it.
+
+    The prompt tells the model not to force lines into a monologue; the
+    completion check refuses while any high gap lacks an interviewer line.
+    The designed remedy is deterministic seeding (playbook_high_gap_unframed),
+    but it only ran from the recovery path after the stage had already raised,
+    so every orchestrated pass ended here even though the seed then landed and
+    the next pass would have skipped straight through. Seeding first turns
+    that into one pass. If seeding cannot clear it, heal_or_raise still raises
+    exactly as before.
+    """
+    try:
+        from interview_mux.stage_completion import _high_gap_unframed_incompleteness
+
+        if not _high_gap_unframed_incompleteness(ctx, "gap_framing_compose"):
+            return
+        from interview_mux.recovery_controller import playbook_high_gap_unframed
+
+        written = playbook_high_gap_unframed(ctx)
+        still = _high_gap_unframed_incompleteness(ctx, "gap_framing_compose")
+        ctx.log(
+            "gap_framing_compose: high gaps without an interviewer line seeded "
+            f"deterministically before completion ({'cleared' if not still else still})",
+            level="info" if not still else "warn",
+            stage="gap_framing_compose",
+            detail={"event": "high_gap_inline_seed", "written": written, "remaining": still},
+        )
+    except Exception as exc:  # noqa: BLE001 - seeding is a courtesy; the check below is the authority
+        ctx.log(
+            f"gap_framing_compose: inline high-gap seed skipped: {exc}",
+            level="warning",
+            stage="gap_framing_compose",
+        )
 
 
 def compose_authority_gate(ctx: RunContext) -> ComposeAuthorityGate:

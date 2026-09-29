@@ -138,7 +138,14 @@ def _drop_blank_unusable_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
     return {s for s in ids if s not in drop}
 
 
-def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
+def hard_keep_segment_ids(
+    ctx: RunContext,
+    *,
+    overrides: dict[str, Any] | None = None,
+    on_air: list[str] | None = None,
+) -> set[str]:
+    """Ids that must air. ``overrides`` / ``on_air`` judge a proposed write
+    (NLE overrides, air order) before it lands; disk state otherwise."""
     ids: set[str] = set()
     try:
         from interview_mux.gap_framing import load_gap_framing_plan
@@ -256,6 +263,24 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
         pass
     ids = _drop_blank_unusable_keeps(ctx, {s for s in ids if s})
     ids = _drop_orphan_keeps_not_in_manifest(ctx, ids)
+    # A keep whose tape a fuse union folded into an on-air survivor is kept:
+    # its audio airs under the survivor's id. Junction and overlap repair both
+    # retire such ids; without this every consumer of the keep list refused the
+    # retire and the EDL and selection diverged (exec_052 seg_060, ISSUES 64).
+    try:
+        from interview_mux.edl_overlap_repair import (
+            consumed_carrier_ids,
+            consumed_segment_ids,
+        )
+
+        consumed = consumed_segment_ids(ctx, overrides=overrides, on_air=on_air) & ids
+        ids -= consumed
+        # The carrier inherits the keep: it is the only way the kept tape
+        # still airs (exec_055 seg_059 carrying seg_060, ISSUES 73).
+        if consumed:
+            ids |= consumed_carrier_ids(ctx, consumed, overrides=overrides, on_air=on_air)
+    except Exception:
+        pass
     return _collapse_overlapping_keeps(ctx, ids)
 
 

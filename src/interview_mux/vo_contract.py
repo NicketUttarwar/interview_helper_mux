@@ -1006,7 +1006,7 @@ def clamp_hosted_seats_to_rendered_wavs(ctx: RunContext) -> list[str]:
     out, unseated = clamp_hosted_seats_docs(ctx, gap, apply_freeze_gate=True)
     if not unseated:
         return []
-    ctx.write_json("understanding/gap_report.json", out)
+    ctx.write_json("understanding/gap_report.json", out, stage_key=_gap_report_owner(ctx))
     try:
         from interview_mux.execution_contract import reconcile_execution_contract
 
@@ -1310,10 +1310,13 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
                 out,
                 reason="stamp_gap_omit_flags",
                 skip_handoff=True,
+                stage_key=_gap_report_owner(ctx),
             ):
-                ctx.write_json("understanding/gap_report.json", out)
+                ctx.write_json(
+                    "understanding/gap_report.json", out, stage_key=_gap_report_owner(ctx)
+                )
         except Exception:
-            ctx.write_json("understanding/gap_report.json", out)
+            ctx.write_json("understanding/gap_report.json", out, stage_key=_gap_report_owner(ctx))
     if reseat_wav and ctx.artifact_exists("mastering/mastering_plan.json"):
         from interview_mux.mastering_plan_loader import load_plan_raw
         from interview_mux.seat_authority import persist_frozen_seat_doc
@@ -1379,3 +1382,14 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
     except Exception:
         pass
     return list(dict.fromkeys(x for x in changed if x))
+
+
+def _gap_report_owner(ctx: RunContext) -> str:
+    """Stage key the gap report accepts for a repair write right now (see entry 36)."""
+    from interview_mux.artifact_ownership import gap_report_body_owner
+
+    try:
+        prior = ctx.read_json("understanding/gap_report.json") if ctx.artifact_exists("understanding/gap_report.json") else None
+    except Exception:
+        prior = None
+    return gap_report_body_owner(prior)

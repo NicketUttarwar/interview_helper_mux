@@ -146,6 +146,9 @@ def test_post_ranking_orphan_segment_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "cv_rank_hard")
     ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"), stage_key="segment_classification")
+    # Bypass one-writer sanitize: it strips the orphan id and then refuses the
+    # write for leaving ordered_segment_ids empty, so the validator never sees it.
+    ctx._one_writer_raw = True
     ctx.write_json(
         "master/selection.json",
         {"ordered_segment_ids": ["seg_999"]},
@@ -259,6 +262,9 @@ def test_maybe_cross_validate_ranking_raises_system_exit(tmp_path, monkeypatch):
         json_mod.dumps(minimal_manifest("seg_001")),
         encoding="utf-8",
     )
+    # Bypass one-writer sanitize: it strips the orphan id and then refuses the
+    # write for leaving ordered_segment_ids empty, so the validator never sees it.
+    ctx._one_writer_raw = True
     ctx.write_json(
         "master/selection.json",
         {"ordered_segment_ids": ["seg_999"]},

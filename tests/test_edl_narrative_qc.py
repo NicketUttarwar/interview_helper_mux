@@ -511,10 +511,38 @@ def test_validate_transition_after_incomplete_thought_fails() -> None:
     for tok in hanging.split():
         words.append({"text": tok, "start_ms": t, "end_ms": t + 80, "speaker_id": "spk_0"})
         t += 90
+    # The tape does finish the thought a moment later, so the EDL could have
+    # reached a legal close and the transition must still be refused.
+    for tok in "That would change how we treat patients.".split():
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 80, "speaker_id": "spk_0"})
+        t += 90
     ctx.write_json("transcript/full.json", {"words": words})
     edl = _good_edl()
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("incomplete thought" in e for e in errors)
+
+
+def test_transition_after_unrecoverable_trail_off_is_a_warning() -> None:
+    """ISSUES entry 59: the tape never completes the thought within reach."""
+    ctx = RunContext("run_edl_trail_off_vo", create=True)
+    _write_story_artifacts(ctx)
+    hanging = "So early prediction of a reoccurrence, if I could do through cell biopsy."
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=0, end_ms=1000, text="Complete setup."),
+            minimal_manifest_segment("seg_b", start_ms=1000, end_ms=2000, text=hanging),
+            minimal_manifest_segment("seg_c", start_ms=2000, end_ms=3000, text="Complete payoff."),
+        ),
+    )
+    words = []
+    t = 1000
+    for tok in hanging.split():
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 80, "speaker_id": "spk_0"})
+        t += 90
+    ctx.write_json("transcript/full.json", {"words": words})
+    errors = validate_flow1_edl_narrative(ctx, _good_edl())
+    assert not any("incomplete thought" in e for e in errors)
 
 
 def test_unaired_ordering_constraint_is_skipped(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

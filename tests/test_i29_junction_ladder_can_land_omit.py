@@ -1127,9 +1127,12 @@ def test_i43_omit_still_refuses_hard_keeps_without_a_neighbor(
         hard_keeps={"seg_014"},
         applied=applied,
     )
-    assert changed is False
-    assert [a.get("status") for a in applied] == ["skipped_no_recommendation"]
+    # ISSUES 72: the keep stays on air and the accepted hang is recorded, so
+    # detection does not re-raise it forever. Still no omit.
+    assert [a.get("status") for a in applied] == ["accepted_hard_keep_hang"]
+    assert changed is True
     assert "seg_014" not in excluded
+    assert [c["segment_id"] for c in _out] == ["seg_014"]
 
 
 def test_i43b_chapter_bleed_fuses_into_source_adjacent_next_chapter(
@@ -1201,8 +1204,11 @@ def test_i43b_distant_next_chapter_neighbor_is_not_fused(ctx: RunContext) -> Non
         hard_keeps={"seg_013", "seg_014", "seg_015"},
         applied=applied,
     )
-    assert changed is False
-    assert applied[0]["status"] == "skipped_no_recommendation"
+    # Distant next-chapter neighbour is still not fused (ISSUES 72: the hang
+    # on the hard keep is recorded as accepted instead of re-raised).
+    assert applied[0]["status"] == "accepted_hard_keep_hang"
+    assert changed is True
+    assert "seg_015" in [c["segment_id"] for c in _out]
 
 
 # --- i44: sealed SDP must not abort the junction commitment remaster ----------
@@ -1602,10 +1608,23 @@ def test_i54_master_finalize_declares_its_ship_verdicts() -> None:
         assert operator_visible_staging_path("master_finalize", rel), rel
 
 
-def test_i54_dropped_owned_staging_path_is_logged(
+def test_i54_undeclared_owned_staging_path_is_committed_not_dropped(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The silent-drop class must announce itself instead of losing bytes quietly."""
+    """An owned-but-undeclared staged write must land, and say it was undeclared.
+
+    This previously asserted the *drop* plus a warning, on the reasoning that the
+    silent-drop class should at least announce itself. Announcing it is not
+    enough: operator_visible_staging_path answers "does the GUI list this?", and
+    using it as the commit gate deleted every artifact a stage legitimately owns
+    but does not surface. exec_11871 lost this very file that way, and a full
+    traversal dropped 26 paths including every understanding/llm_calls/** record
+    and every volley pack, which is the forensic trail needed to debug a run.
+
+    Ownership decides persistence now, so the bytes survive and the undeclared
+    status is still reported. The original intent, not losing bytes quietly, is
+    what this asserts.
+    """
     from interview_mux import write_staging
 
     logged: list[str] = []
@@ -1629,8 +1648,10 @@ def test_i54_dropped_owned_staging_path_is_logged(
     finally:
         write_staging.exit_stage_staging()
 
-    assert "mastering/listen_delight_audit.json" not in flushed
-    assert any("does not declare it" in m for m in logged), logged
+    # Owned, so it must be committed rather than discarded.
+    assert "mastering/listen_delight_audit.json" in flushed, flushed
+    # Still reported, so a missing StageInfo declaration stays visible.
+    assert any("undeclared" in m for m in logged), logged
 
 
 def test_missing_framing_may_write_flow_adaptation(

@@ -47,6 +47,11 @@ def check_timeline_optimizer_pending(ctx: RunContext) -> bool:
     state = load_optimizer_state(ctx)
     if state.get("operator_took_best") or state.get("auto_promoted_once"):
         return False
+    # A promote the run's own authority refused leaves nothing for the
+    # operator to take: the seat is sealed. Waiting on that gate held
+    # master_finalize forever on an unattended run (ISSUES entry 53).
+    if state.get("auto_promote_attempted"):
+        return False
     return is_optimizer_running(ctx.run_id) or state.get("status") == "running"
 
 

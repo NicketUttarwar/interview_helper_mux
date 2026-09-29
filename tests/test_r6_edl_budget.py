@@ -100,6 +100,10 @@ def test_r6_order_drift_fingerprint_flip_recovers_then_budget(
     edl = _edl(["a", "b"])
     before_token = edl_content_authority_token(edl)
     before_hash = str(sel.get("order_content_hash") or "")
+    # The synthetic ids a/b/c are not in the fixture manifest, so one-writer
+    # sanitize drops them all as orphan refs and then refuses the empty write.
+    # This test is about the order-drift fingerprint, so keep the ids verbatim.
+    ctx._one_writer_raw = True
     ctx.write_json("master/selection.json", sel, skip_handoff=True)
     ctx.write_json("master/edl.json", edl, skip_handoff=True)
     exc = SystemExit("selection_edl_order_drift: speech clip order diverges")

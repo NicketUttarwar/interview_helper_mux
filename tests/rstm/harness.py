@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -291,7 +292,23 @@ def run_cell(ctx: RunContext, cell: dict[str, Any]) -> CellResult:
 
 def persist_result(result: CellResult) -> Path:
     CELLS_DIR.mkdir(parents=True, exist_ok=True)
-    safe = re.sub(r"[^\w.\-+]+", "_", result.cell_id)[:180]
+    safe = re.sub(r"[^\w.\-+]+", "_", result.cell_id)
+    # Cell ids run to ~150 chars. A flat 180-char truncation still overflows
+    # the Windows 260-char path limit once CELLS_DIR is deep (a checkout in a
+    # user profile or a synced folder is enough), and a FileNotFoundError out
+    # of write_text is an unhelpful way to discover that. Budget against the
+    # real directory length, and append a digest whenever the readable part is
+    # cut so two distinct cells cannot collide on one file. cell_id is stored
+    # inside the JSON, so shortening the name loses nothing.
+    # Cap at the original 180 where the path allows it, so existing (macOS)
+    # filenames are untouched, and only shorten further when 260 would overflow.
+    stem_budget = min(180, 250 - len(str(CELLS_DIR)) - len(".json"))
+    if stem_budget < 24:
+        stem_budget = 24
+    if len(safe) > stem_budget:
+        digest = hashlib.sha1(result.cell_id.encode("utf-8")).hexdigest()[:10]
+        keep = max(8, stem_budget - len(digest) - 1)
+        safe = f"{safe[:keep]}-{digest}"
     path = CELLS_DIR / f"{safe}.json"
-    path.write_text(json.dumps(result.to_dict(), indent=2) + "\n")
+    path.write_text(json.dumps(result.to_dict(), indent=2) + "\n", encoding="utf-8")
     return path

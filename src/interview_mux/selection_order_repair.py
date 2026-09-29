@@ -134,6 +134,7 @@ def topo_satisfy_order(
     selection_chapters: list[dict[str, Any]] | None = None,
     source_start_ms: dict[str, int] | None = None,
     membership_ceiling: set[str] | None = None,
+    protect_final_ids: set[str] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Return a repaired order that prefers chapter spans and satisfies constraints.
 
@@ -270,7 +271,9 @@ def topo_satisfy_order(
     from interview_mux.air_order_integrity import pull_mid_arc_reverse_jumps
 
     mid_pulled, mid_moved, mid_drop = pull_mid_arc_reverse_jumps(
-        new_order, source_start_ms=source_start_ms
+        new_order,
+        source_start_ms=source_start_ms,
+        protect_final_ids=protect_final_ids,
     )
     if mid_drop:
         applied.append(
@@ -482,6 +485,7 @@ def repair_selection_order(
     source_start_ms: dict[str, int] | None = None,
     *,
     banned_readmit_ids: set[str] | None = None,
+    protect_final_ids: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Apply topo repair to selection.ordered_segment_ids.
 
@@ -521,6 +525,7 @@ def repair_selection_order(
         selection_chapters=chapters if isinstance(chapters, list) else None,
         source_start_ms=source_start_ms,
         membership_ceiling=set(ordered) if ordered else None,
+        protect_final_ids=protect_final_ids,
     )
     applied.extend(topo_applied)
     # Topo must not grow past the post-ban membership set.

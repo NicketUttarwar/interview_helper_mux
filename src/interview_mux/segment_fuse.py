@@ -350,6 +350,17 @@ def words_in_span(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> li
     return [w for w in words if _ms(w, "start_ms") < int(end_ms) and _ms(w, "end_ms") > int(start_ms)]
 
 
+_FRAME_ROLES = frozenset({"interviewer", "moderator", "co_host", "host"})
+_HOST_FRAME_TYPES = frozenset({"interviewer_question", "interviewer_prompt", "host_turn"})
+
+
+def _is_host_frame_row(seg: dict[str, Any]) -> bool:
+    """A frame-role speaker's question or prompt: the row missing_framing needs."""
+    role = str(seg.get("speaker_role") or "").strip().lower()
+    typ = str(seg.get("type") or "").strip().lower()
+    return role in _FRAME_ROLES and typ in _HOST_FRAME_TYPES
+
+
 def _speaker_of(seg: dict[str, Any]) -> str:
     return str(seg.get("speaker_id") or seg.get("speaker") or "") or "spk_unknown"
 
@@ -995,6 +1006,19 @@ def apply_connector_fuses(
         hints = verdict.get("deterministic_hints") or {}
         forced = str(verdict.get("forced_by") or "")
         if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(target) != _speaker_of(later):
+            # A broken sentence may be fused across speakers, but never by
+            # swallowing the host's framing. On a 6-minute source three
+            # island_straddle fuses absorbed every interviewer_question row into
+            # the guest's slabs; the manifest kept one 0.5-second reaction for
+            # the host, missing_framing refused with starved_host_packet, and
+            # delivery cascaded. diarization_yes_same is the one exception: it
+            # asserts the two labels are the same person, so there is no host
+            # row to protect.
+            if forced != "diarization_yes_same" and (
+                _is_host_frame_row(target) or _is_host_frame_row(later)
+            ):
+                skipped.append({"pair_id": verdict.get("pair_id"), "reason": "host_frame_protected"})
+                continue
             if not incomplete_thought_hints(hints) and forced not in {
                 "diarization_yes_same",
                 "micro_other_absorb",
@@ -1232,12 +1256,15 @@ def rerun_air_bounds_on_fused(
                 level="warning",
                 stage=writer,
             )
-        _write_boundaries(
-            ctx,
-            [s for s in (manifest.get("segments") or []) if isinstance(s, dict)],
-            consumed=set(),
-            pass_id=pass_id or "air_bounds_after_fuse",
-        )
+        # The keeper trim is an on-air decision about the fused slab and belongs
+        # in the manifest. It must not be pushed into segments/boundaries.json:
+        # that file is the source segmentation, the thing boundary quality is
+        # measured on, and ideal_cuts binds it from source cuts for the same
+        # reason. Writing the trim there replaced a fused 0..90s row with its
+        # 16-second keeper window (a whole tape's 0..357s with a 90-second one
+        # on a 6-minute source), coverage fell to 25%, and every delivery stage
+        # refused the map as unsafe cuts. The fuse's own write above already
+        # left the boundary rows spanning the union with fused_from stamped.
     return {"trimmed": changed, "segment_ids": ids}
 
 

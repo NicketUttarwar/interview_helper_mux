@@ -93,7 +93,8 @@ def test_full_auto_circuit_breaker_writes_decision_brief(monkeypatch) -> None:
 
 
 def _seed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
+    from run_fixtures import copy_shipped_config
+    copy_shipped_config(tmp_path)
     monkeypatch.setenv("INTERVIEW_MUX_ROOT", str(tmp_path))
     assets = tmp_path / "ASSETS"
     (assets / "input").mkdir(parents=True)

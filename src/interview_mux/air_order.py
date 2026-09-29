@@ -575,7 +575,42 @@ def mix_wav_fresh_versus_edl(ctx: RunContext) -> bool:
         edl_m = edl.stat().st_mtime
     except OSError:
         return False
-    return asm_m + 1.0 >= edl_m
+    if asm_m + 1.0 >= edl_m:
+        return True
+    # The EDL file is newer, but was its content changed? A denied promote or
+    # a stamp rewrite touches edl.json with the same order; unseating the mix
+    # on mtime alone sent exec_049 into a mix -> unseated -> mix loop
+    # (ISSUES entry 52). Trust the render commitment only when the render
+    # ledger still describes this EDL clip for clip and the assembly matches.
+    try:
+        from interview_mux.seam_autopsy import verify_commitment
+
+        if not _render_ledger_matches_edl(ctx):
+            return False
+        return str(verify_commitment(ctx).get("status") or "") == "committed"
+    except Exception:
+        return False
+
+
+def _clip_signature(clips: Any) -> list[tuple[str, str, str]]:
+    return [
+        (str(c.get("type") or ""), str(c.get("segment_id") or ""), str(c.get("line_id") or ""))
+        for c in (clips or [])
+        if isinstance(c, dict)
+    ]
+
+
+def _render_ledger_matches_edl(ctx: RunContext) -> bool:
+    """True when the render ledger's clip sequence equals the live EDL's.
+
+    A stamp rewrite of edl.json keeps the clips; a real re-cut changes them.
+    No ledger, or a ledger without clips, never counts as a match.
+    """
+    ledger = _read_dict(ctx, RENDER_LEDGER_REL) or {}
+    edl = _read_dict(ctx, EDL_REL) or {}
+    want = _clip_signature(ledger.get("clips"))
+    have = _clip_signature(edl.get("clips"))
+    return bool(want) and want == have
 
 
 def ensure_assembly_mtime_seats_edl(ctx: RunContext) -> None:
@@ -743,8 +778,12 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             "selection_edl_order_drift: speech clip order diverges from "
             f"ordered_segment_ids (heal={action}) — sealed commit required before {stage}"
         )
-    # A5-1 / seat authority: skip generation/commitment only when assembly is missing
-    # (first recut), not whenever junction precedes mix (stale-only would skip).
+    # A5-1 / seat authority: skip generation/commitment when assembly is missing
+    # (first recut). Also when the ordering authority seats junction ahead of
+    # mix (a recut is owed): the assembly then predates the EDL by design and
+    # mix re-renders it after junction. Verifying it here halted the resume
+    # with no legal producer (exec_055, ISSUES 76). A stale assembly with no
+    # owed recut still verifies (A5).
     skip_pre_mix_commitment = False
     if stage == "junction_snip_qa":
         try:
@@ -753,6 +792,15 @@ def assert_consumer(ctx: RunContext, stage: str) -> None:
             skip_pre_mix_commitment = not must_verify_commitment(ctx)
         except Exception:
             skip_pre_mix_commitment = not ctx.artifact_exists("master/assembly.wav")
+        if not skip_pre_mix_commitment:
+            try:
+                from interview_mux.ordering_authority import ordering_exempt
+
+                skip_pre_mix_commitment = bool(
+                    ordering_exempt(ctx, "junction_snip_qa", "mix")
+                )
+            except Exception:
+                pass
     if (
         stage in {"mix", "junction_snip_qa", "master_finalize"}
         and not skip_pre_mix_commitment

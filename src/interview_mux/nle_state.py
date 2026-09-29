@@ -90,6 +90,12 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
             raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
         ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="full_master_ranking")
 
+    # Removal authority (ISSUES 74): an NLE exclude on a segment that must
+    # air is refused before it lands, whoever set it.
+    from interview_mux.removal_authority import refuse_nle_excludes
+
+    data = refuse_nle_excludes(ctx, data, producer="nle_save")
+
     incomplete = incomplete_trim_ends(ctx, data)
     if incomplete:
         nle_cfg = merged_config().get("nle_edits") or {}

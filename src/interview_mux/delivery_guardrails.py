@@ -861,6 +861,16 @@ def mix_epoch_block(ctx: RunContext, stage: str | None = None) -> str | None:
             if ensure_speech_first_remaster(ctx):
                 if sid == "mix":
                     return None
+                # The remaster mix refuses until junction recuts live residuals,
+                # so the ordering authority's junction exception applies here
+                # too, not only while music is incomplete (exec_052, entry 62).
+                try:
+                    from interview_mux.ordering_authority import ordering_exempt
+
+                    if sid and ordering_exempt(ctx, sid, None):
+                        return None
+                except Exception:
+                    pass
                 return "speech_first_remaster_pending"
         except Exception:
             pass
@@ -873,6 +883,14 @@ def mix_epoch_block(ctx: RunContext, stage: str | None = None) -> str | None:
                 return None
         except Exception:
             pass
+    # Ordering exceptions live in one place (ISSUES entries 61, 62).
+    try:
+        from interview_mux.ordering_authority import ordering_exempt
+
+        if sid and ordering_exempt(ctx, sid, None):
+            return None
+    except Exception:
+        pass
     try:
         from interview_mux.homunculus.agenda import assembly_stale_versus_edl
 
@@ -1096,7 +1114,17 @@ def upstream_stale_blockers(ctx: RunContext, stage: str) -> list[str]:
                 "master_finalize",
                 "mmaudio_sfx",
             }:
-                blockers.append("assembly_stale_versus_edl")
+                # Junction that owes a recut runs ahead of mix by the ordering
+                # authority (entry 62); mix then re-renders the assembly. Holding
+                # junction on the stale assembly while mix holds on junction's
+                # residual deadlocked exec_055 (ISSUES 75).
+                from interview_mux.ordering_authority import ordering_exempt
+
+                if not (
+                    stage == "junction_snip_qa"
+                    and ordering_exempt(ctx, "junction_snip_qa", "mix")
+                ):
+                    blockers.append("assembly_stale_versus_edl")
         except Exception:
             pass
     if stage in _TRANSITIONS_STALE_CONSUMERS:

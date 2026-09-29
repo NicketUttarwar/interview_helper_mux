@@ -15,7 +15,8 @@ pytestmark = pytest.mark.real_executions_root
 
 
 def _seed_assets(tmp_path, monkeypatch) -> TestClient:
-    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
+    from run_fixtures import copy_shipped_config
+    copy_shipped_config(tmp_path)
     monkeypatch.setenv("INTERVIEW_MUX_ROOT", str(tmp_path))
 
     assets = tmp_path / "ASSETS"

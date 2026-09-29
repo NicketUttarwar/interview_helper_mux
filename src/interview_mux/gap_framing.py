@@ -782,6 +782,16 @@ def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
             for sid in line.get("replaces_source_segments") or []:
                 if sid:
                     out.add(str(sid))
+    # A hard keep stays on air even when a framing line covers it. Removing it
+    # here keeps every consumer (framing apply, ranking, framing guard, EDL QC)
+    # on the same answer; entry 55 fixed only the apply side and edl QC then
+    # failed seg_059 as "framing-covered but on air" (ISSUES entry 57).
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        out -= {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+    except Exception:
+        pass
     return out
 
 

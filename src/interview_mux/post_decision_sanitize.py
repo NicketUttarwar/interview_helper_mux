@@ -156,13 +156,37 @@ def after_shared_path_write(
     if not prev_hash:
         return {"ok": True, "fingerprint_initial": True, "cleared": []}
 
-    to_clear = [s for s in writers if s != stage]
+    # Only co-producers *downstream* of the writer are stale. A later writer
+    # (sound_design_plan, content_brief_reanchor, boundary_topic_resplit) never
+    # invalidates the earlier producer of the same path: unmarking it makes the
+    # analysis walk re-run it, which rewrites the path under its own producer
+    # stamp and unmarks the later writer again. That loop cost one LLM call per
+    # cycle and stalled the 6-minute run at 53 of 72 (ISSUES entry 46).
+    to_clear = [s for s in _downstream_co_producers(writers, stage)]
+    if not to_clear:
+        return {"ok": True, "cleared": [], "upstream_protected": True}
     return post_decision_sanitize(
         ctx,
         f"shared_restamp_{stage}",
         implicated_stages=to_clear,
         reason=f"A-05 co-producer reconcile after {stage} wrote {path}",
     )
+
+
+def _downstream_co_producers(writers: tuple[str, ...], stage: str) -> list[str]:
+    """Co-producers that run after ``stage`` in pipeline order (unknown → after)."""
+    try:
+        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+        order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    except Exception:
+        order = []
+
+    def _idx(sid: str) -> int:
+        return order.index(sid) if sid in order else len(order)
+
+    mine = _idx(stage)
+    return [s for s in writers if s != stage and _idx(s) >= mine]
 
 
 def co_producers_for(rel: str) -> tuple[str, ...]:
@@ -175,6 +199,43 @@ def _music_blocks(ctx: RunContext, stage_id: str, *, source: str) -> bool:
         from interview_mux.delivery_guardrails import music_clear_blocked
 
         return bool(music_clear_blocked(ctx, stage_id, source=source))
+    except Exception:
+        return False
+
+
+def _rewind_locked(ctx: RunContext, stage_id: str) -> bool:
+    """True when clearing ``stage_id`` would create an unsatisfiable prerequisite.
+
+    After G0, ``_refuse_delivery_timeline_rewind`` refuses to re-run a protected
+    core stage whose artifacts already exist, so that the classified tape is not
+    rewound. Unmarking such a stage therefore produces a prerequisite that can
+    never be satisfied: downstream dispatch raises "seed order: complete <stage>",
+    the stage itself refuses to run, and recovery_controller loops on
+    resume=<stage>.
+
+    That is exactly what a shared artifact triggers. content_context and
+    content_brief_reanchor both own understanding/content_brief.json, so when
+    boundary_topic_resplit nests content_brief_reanchor and rewrites that file,
+    after_shared_path_write lands here and clears content_context, which had
+    legitimately completed and cannot be re-run. The refinement did not
+    invalidate the upstream producer's work, so its marker must stand.
+    """
+    try:
+        from interview_mux.homunculus.agenda import (
+            DELIVERY_LOCKED_TIMELINE_STAGES,
+            PROTECTED_CORE_STAGES,
+        )
+        from interview_mux.homunculus.packer import g0_closed
+
+        if stage_id not in DELIVERY_LOCKED_TIMELINE_STAGES:
+            return False
+        if not g0_closed(ctx):
+            return False
+        needed = PROTECTED_CORE_STAGES.get(stage_id) or ()
+        if not needed:
+            return False
+        # Only locked while the artifacts that make the re-run refusable exist.
+        return all(ctx.artifact_exists(rel) for rel in needed)
     except Exception:
         return False
 
@@ -225,6 +286,7 @@ def post_decision_sanitize(
 
     cleared: list[str] = []
     blocked: list[str] = []
+    blocked_rewind: list[str] = []
     profile = str(profile_id or "").strip()
     if profile:
         from interview_mux.execution_invalidation_profiles import apply_bounded_invalidation
@@ -243,6 +305,10 @@ def post_decision_sanitize(
             if _music_blocks(ctx, sid, source=f"post_decision:{did}"):
                 blocked.append(sid)
                 continue
+            if _rewind_locked(ctx, sid):
+                # Clearing this would demand a re-run the rewind guard refuses.
+                blocked_rewind.append(sid)
+                continue
             marker = ctx.run_dir / ".stage_done" / sid
             if marker.is_file():
                 marker.unlink()
@@ -250,6 +316,20 @@ def post_decision_sanitize(
 
     inventory["cleared"] = cleared
     inventory["blocked_music"] = blocked
+    inventory["blocked_rewind_locked"] = blocked_rewind
+    if blocked_rewind:
+        try:
+            ctx.log(
+                "post_decision_sanitize kept "
+                + ", ".join(blocked_rewind)
+                + " marked: the post-G0 rewind guard refuses to re-run them, so "
+                "clearing would leave an unsatisfiable seed-order prerequisite",
+                level="info",
+                stage=str(producer_stage or "") or None,
+                detail={"event": "rewind_locked_keep", "stages": list(blocked_rewind)},
+            )
+        except Exception:
+            pass
 
     rel = f"{GAP_INVENTORY_DIR}/{did}.json"
     try:

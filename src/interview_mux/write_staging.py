@@ -994,23 +994,32 @@ def _staging_lock(ctx: RunContext, stage_id: str) -> FileLock:
 _LARGE_FLUSH_BYTES = 8 << 20  # 8 MiB
 
 
-def _warn_dropped_owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> None:
-    """Log when the flush filter drops a path this stage is permitted to write."""
+def _owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> bool:
+    """True when ``stage_id`` is permitted to persist ``rel``.
+
+    Ownership, not GUI visibility, decides whether a staged write may land. On
+    any error this returns False so an undecidable path keeps the old, stricter
+    behaviour rather than committing something unowned.
+    """
     try:
         from interview_mux.artifact_ownership import write_permitted
 
         allowed, _reason = write_permitted(
             ctx, rel, stage_id, role="producer", verb="persist"
         )
+        return bool(allowed)
     except Exception:
-        return
-    if not allowed:
-        return
+        return False
+
+
+def _log_undeclared_owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> None:
+    """Note an owned path that no StageInfo declares, so the GUI will not list it."""
     try:
         ctx.log(
-            f"staged write {rel} dropped — {stage_id} owns it but does not declare it "
-            "as a stage output (add it to web/stages.py StageInfo)",
-            level="warning",
+            f"staged write {rel} committed but undeclared — {stage_id} owns it and it "
+            "is no longer dropped; declare it in web/stages.py StageInfo to surface "
+            "it to the operator",
+            level="info",
             stage=stage_id,
             action_id="write_staging.flush",
             detail={"event": "undeclared_owned_staging_path", "path": rel},
@@ -1036,11 +1045,22 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             if is_vo_pickup_rel(rel) and stage_id not in VO_PICKUP_OWNER_STAGES:
                 continue
             if not operator_visible_staging_path(stage_id, rel):
-                # A staged write the stage is *allowed* to own but never declared is
-                # silently discarded here — exec_11871 lost publish/episode.json and
-                # the ship-time listen_delight_audit this way. Say so out loud.
-                _warn_dropped_owned_staging_path(ctx, stage_id, rel)
-                continue
+                # operator_visible_staging_path answers "does the GUI list this?",
+                # which is the wrong question for persistence. Using it as the
+                # commit gate silently deleted every artifact a stage legitimately
+                # owns but does not surface: exec_11871 lost publish/episode.json
+                # and the ship-time listen_delight_audit, exec_13177 needed a
+                # vo_pickup special case above for the same reason, and a full
+                # traversal here dropped 26 paths including every
+                # understanding/llm_calls/** record and every volley pack, which is
+                # exactly the forensic trail needed to debug a failing run.
+                #
+                # Ownership is the right authority for whether a write may land.
+                # Commit anything this stage is permitted to own, and only discard
+                # what it is not.
+                if not _owned_staging_path(ctx, stage_id, rel):
+                    continue
+                _log_undeclared_owned_staging_path(ctx, stage_id, rel)
             if _should_preserve_committed_transcript(ctx, rel, src):
                 ctx.log(
                     f"Keeping operator-corrected {rel} — skipped stale staged copy from {stage_id}.",

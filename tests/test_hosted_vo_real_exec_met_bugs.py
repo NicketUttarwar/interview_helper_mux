@@ -297,6 +297,14 @@ def test_real_exec_hosted_vo_sufficiency_report() -> None:
             f"missing={list(p.missing)} note={p.note!r}"
         )
     report = "\n".join(rows)
+    if all(r.endswith("ABSENT") for r in rows):
+        import pytest
+
+        pytest.skip(
+            "no candidate execution artifacts on this machine: this asserts over the "
+            "operator's own gitignored ASSETS/executions run data "
+            f"({', '.join(CANDIDATE_RUN_IDS)}). Present but insufficient still fails."
+        )
     assert met >= 1, (
         "Previous execution files are NOT sufficient: need ≥1 run with "
         "hosted VO MET (have≥need, have≥1, warranted, EDL+topology).\n" + report

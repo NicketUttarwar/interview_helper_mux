@@ -9,7 +9,7 @@ from typing import Any
 from interview_mux.config import merged_config, repo_root
 from filelock import FileLock
 
-from interview_mux.file_store import lock_path_for
+from interview_mux.file_store import write_lock, lock_path_for
 
 
 def _consent_path() -> Path:
@@ -24,7 +24,7 @@ def load_persisted_consents() -> dict[str, bool]:
     path = _consent_path()
     if not path.is_file():
         return {}
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         data = json.loads(path.read_text(encoding="utf-8"))
     grants = data.get("grants") or {}
     return {str(k): bool(v) for k, v in grants.items()}
@@ -32,7 +32,7 @@ def load_persisted_consents() -> dict[str, bool]:
 
 def save_persisted_consent(provider: str, granted: bool) -> dict[str, bool]:
     path = _consent_path()
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         data: dict[str, Any] = {}
         if path.is_file():
             data = json.loads(path.read_text(encoding="utf-8"))

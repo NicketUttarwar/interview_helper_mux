@@ -1,8 +1,12 @@
-"""Local MLX STT + diarization (replaces AWS Transcribe on Apple Silicon)."""
+"""Local STT + diarization (replaces AWS Transcribe).
+
+Backend is chosen by tools/stt_transcribe.py: mlx-audio on Apple Silicon,
+faster-whisper (CTranslate2, CUDA or CPU) elsewhere. Both satisfy the same
+words contract, so this stage does not care which one ran.
+"""
 
 from __future__ import annotations
 
-from interview_mux.hardware_detect import is_apple_silicon
 from interview_mux.operator_trace import logged_step
 from interview_mux.operator_subprocess import touch_job_message
 from interview_mux.run_context import RunContext
@@ -12,15 +16,16 @@ from interview_mux.transcript_normalize import normalize_local_stt
 
 
 def run_transcribe(ctx: RunContext) -> None:
-    if not is_apple_silicon():
-        raise RuntimeError(
-            "Local MLX transcription requires Apple Silicon. "
-            "Run on arm64 macOS after ./scripts/bootstrap_venv.sh"
-        )
+    # Gate on the runtime actually being installed, not on the hardware. This
+    # used to refuse anything but Apple Silicon, which blocked the stage on a
+    # host where the faster-whisper backend was present and working.
+    # speech_available() resolves the configured local_speech venv, and
+    # tools/stt_transcribe.py picks mlx-audio or faster-whisper inside it.
     if not speech_available():
         raise RuntimeError(
-            "Local speech venv missing. Re-run ./scripts/bootstrap_venv.sh "
-            "(step 4/5 local_speech)."
+            "Local speech runtime missing. Run ./scripts/bootstrap_venv.sh on "
+            "Apple Silicon, or ./scripts/bootstrap_venv_windows.sh on a "
+            "Windows/Linux CUDA host."
         )
 
     ctx.artifact_exists_required(

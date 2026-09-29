@@ -270,6 +270,18 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
         raise RuntimeError(f"Incomplete loudnorm output from ffmpeg (missing {missing_keys}).")
     return data
 
+def _optimizer_skipped(ctx: RunContext) -> bool:
+    """True when the operator (or the unattended driver) answered Skip."""
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    except Exception:
+        return False
+    return bool(
+        isinstance(meta, dict)
+        and (meta.get("timeline_optimizer_skipped") or meta.get("timeline_optimizer_cleared"))
+    )
+
+
 def run_master_finalize(ctx: RunContext) -> Path:
     from interview_mux.air_order import assert_consumer
     from interview_mux.gates import require_g_listen_clear, require_timeline_optimizer_clear
@@ -290,7 +302,16 @@ def run_master_finalize(ctx: RunContext) -> Path:
 
         state = load_optimizer_state(ctx)
         best = load_best(ctx)
-        if best and best.get("score") is not None and not state.get("finalize_applied_best"):
+        # A best candidate the run's authority refused to promote, or one the
+        # operator skipped, is advisory: demanding it here can never be paid
+        # (exec_049 sat at 65 of 72, ISSUES entry 53).
+        best_waived = bool(state.get("auto_promote_attempted")) or _optimizer_skipped(ctx)
+        if (
+            best
+            and best.get("score") is not None
+            and not state.get("finalize_applied_best")
+            and not best_waived
+        ):
             sel_order = []
             sel = None
             if ctx.artifact_exists("master/selection.json"):

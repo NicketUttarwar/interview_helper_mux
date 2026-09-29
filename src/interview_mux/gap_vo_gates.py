@@ -407,7 +407,10 @@ def vo_path_ready(
     if gate_blocks("voice_clone") and check_clone_consent_pending(ctx):
         return False, "clone_consent_pending"
     if resolve_gap_vo_delivery(ctx) == "chatterbox" and not approved_voice_reference_usable(ctx):
-        return False, "voice_reference_unusable"
+        # Approved but the WAV is gone: rebuild once rather than dead-ending. The
+        # approval stamp means no gate will reopen to fix this by itself.
+        if not repair_unusable_voice_reference(ctx):
+            return False, "voice_reference_unusable"
     if for_synthesize and resolve_gap_vo_delivery(ctx) == "chatterbox":
         if _intended_synthesize_line_count(ctx) < 1:
             try:
@@ -618,6 +621,61 @@ def nested_synth_may_mint(
         return True, ""
     code = reason or "vo_path_not_ready"
     return False, f"nested_synth_skipped:vo_path_not_ready:{code}"
+
+
+def repair_unusable_voice_reference(ctx: RunContext) -> bool:
+    """Rebuild an approved voice reference whose WAV is gone. True when usable after.
+
+    ``voice_reference_unusable`` was a dead end: the approval stamp keeps
+    ``check_voice_reference_pending`` False, so no gate reopens and no playbook
+    covers it, and the run can only hard-stop. The inputs the approval was built
+    from (the candidates manifest and its clips) are separate artifacts that
+    normally survive, so the reference can be rebuilt without the operator and
+    without the model.
+
+    Attempted once per run; a second failure is a real stop, not a retry loop.
+    """
+    if approved_voice_reference_usable(ctx):
+        return True
+    speaker_id = pickup_eligible_speaker_id(ctx)
+    if not speaker_id:
+        return False
+    # The attempt is stamped in run_meta rather than a sidecar artifact: this can
+    # run inside a staged stage, and a sidecar under understanding/ would be a
+    # new unowned path, i.e. the very failure being repaired. run_meta is
+    # operational and already carries the gate stamps.
+    meta = _run_meta(ctx)
+    if meta.get("voice_reference_repair_attempted_at"):
+        return False
+
+    def _stamp(doc: dict[str, Any]) -> None:
+        doc["voice_reference_repair_attempted_at"] = datetime.now(timezone.utc).isoformat()
+        doc["voice_reference_repair_speaker_id"] = speaker_id
+
+    try:
+        ctx.mutate_run_meta(_stamp)
+    except Exception:
+        return False
+    try:
+        from interview_mux.voice_reference import approve_voice_reference
+
+        approve_voice_reference(ctx, speaker_id)
+    except Exception as exc:
+        ctx.log(
+            f"Voice reference repair failed for {speaker_id}: {exc}",
+            level="warn",
+            action_id="auto.voice_reference.repair",
+            detail={"kind": "gate", "event": "voice_reference_repair_failed"},
+        )
+        return False
+    ok = approved_voice_reference_usable(ctx)
+    ctx.log(
+        f"Voice reference rebuilt for {speaker_id} (approved sample was missing)",
+        level="info" if ok else "warn",
+        action_id="auto.voice_reference.repair",
+        detail={"kind": "gate", "event": "voice_reference_repaired", "usable": ok},
+    )
+    return ok
 
 
 def require_vo_path_ready(

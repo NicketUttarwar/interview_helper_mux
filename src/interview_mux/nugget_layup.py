@@ -5347,6 +5347,32 @@ def ensure_deterministic_floor_before_refuse(
     if not qc.get("ok") and _craft_error_targets(qc):
         out, spine_notes = apply_craft_spine_or_skip(ctx, out, qc=qc)
         notes.extend(spine_notes)
+        qc = evaluate_layup_qc(ctx, out)
+    # Open high-salience nuggets were a structural refuse with no heal in this
+    # pass; the recovery that attaches them to an aired layup (or unskips a
+    # native to carry them) existed but was never called (exec_052 nug_009,
+    # ISSUES entry 66). Still one deterministic pass, no ladder.
+    if not qc.get("ok") and any(
+        str(e).startswith("open_high_salience_nuggets=") for e in (qc.get("errors") or [])
+    ):
+        try:
+            out, rec_notes = recover_open_high_salience_nuggets(ctx, out)
+            notes.extend(f"recover_high:{n}" for n in rec_notes)
+        except Exception as exc:
+            notes.append(f"recover_high_failed:{type(exc).__name__}")
+        qc = evaluate_layup_qc(ctx, out)
+    # Same gap for must-keep talking points: the recovery that attaches an open
+    # id to a layup already carrying it, or discharges it when selected native
+    # text already covers it, was never called (exec_050 tp_001/tp_002,
+    # exec_052 tp_002). It invents no VO.
+    if not qc.get("ok") and any(
+        str(e).startswith("open_must_keep_talking_points=") for e in (qc.get("errors") or [])
+    ):
+        try:
+            out, tp_notes = recover_open_must_keep_talking_points(ctx, out)
+            notes.extend(f"recover_tp:{n}" for n in tp_notes)
+        except Exception as exc:
+            notes.append(f"recover_tp_failed:{type(exc).__name__}")
     return out, notes
 
 

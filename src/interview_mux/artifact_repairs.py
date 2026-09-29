@@ -1594,6 +1594,7 @@ def repair_master_selection(
             plan,
             source_start_ms=starts or None,
             banned_readmit_ids=ban_grow,
+            protect_final_ids=_closing_ids_safe(ctx, out),
         )
         applied.extend(order_notes)
     except Exception:
@@ -4613,6 +4614,32 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
             )
             blocking = kept_blocking
 
+    # Selection frozen after VO: complaints whose only remedy is a re-rank can
+    # never be acted on (the seat freeze refuses the rewrite), so blocking on
+    # them stops the run for good (exec_055, ISSUES entry 70). Record them as
+    # warnings for the operator instead.
+    blocking = out.get("blocking_issues")
+    if isinstance(blocking, list) and blocking and _order_frozen(ctx):
+        kept_blocking = []
+        demoted_frozen: list[dict[str, Any]] = []
+        for row in blocking:
+            if isinstance(row, dict) and _issue_needs_rerank(row):
+                demoted_frozen.append(row)
+            else:
+                kept_blocking.append(row)
+        if demoted_frozen:
+            warnings = [dict(r) for r in (out.get("warnings") or []) if isinstance(r, dict)]
+            for row in demoted_frozen:
+                warning = dict(row)
+                warning["issue"] = (
+                    str(warning.get("issue") or "order")
+                    + " (demoted: selection frozen after VO; needs operator re-rank)"
+                )
+                warnings.append(warning)
+            out["warnings"] = warnings
+            out["blocking_issues"] = kept_blocking
+            applied.append({"action": "demote_rerank_under_freeze", "count": len(demoted_frozen)})
+
     if out.get("blocking_issues"):
         out["verdict"] = "fail"
     elif str(out.get("verdict") or "").lower() == "fail":
@@ -4847,9 +4874,100 @@ def _duplicate_vo_transition_resolved(ctx: Any, row: dict[str, Any]) -> bool:
     )
 
 
+_RERANK_RE = re.compile(
+    r"\b(re-?run|redo) full_master_ranking\b|\bre-?rank\b|\breorder the selection\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _issue_needs_rerank(row: dict[str, Any]) -> bool:
+    """True when the audit's own remedy for this issue is a selection re-rank."""
+    text = " ".join(
+        str(x) for x in (row.get("recommended_action"), row.get("issue")) if x
+    )
+    return bool(_RERANK_RE.search(text))
+
+
+def _order_frozen(ctx: Any) -> bool:
+    try:
+        from interview_mux.seat_authority import hard_freeze_active
+
+        return bool(hard_freeze_active(ctx))
+    except Exception:
+        return False
+
+
+def _ordering_constraints_satisfied(ctx: Any) -> bool:
+    """True when every committed narrative ordering constraint holds on air.
+
+    A constraint naming a segment that is not on air is vacuous. False when
+    the plan or the selection is missing, so nothing is demoted on guesswork.
+    """
+    if not (
+        ctx.artifact_exists("master/narrative_plan.json")
+        and ctx.artifact_exists("master/selection.json")
+    ):
+        return False
+    plan = ctx.read_json("master/narrative_plan.json")
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(plan, dict) or not isinstance(sel, dict):
+        return False
+    ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+    if not ordered:
+        return False
+    pos = {sid: i for i, sid in enumerate(ordered)}
+    for row in plan.get("ordering_constraints") or []:
+        if not isinstance(row, dict):
+            continue
+        before = str(row.get("before_segment_id") or "")
+        after = str(row.get("after_segment_id") or "")
+        if before in pos and after in pos and pos[before] >= pos[after]:
+            return False
+    return True
+
+
+def _deferred_pair_keys(ctx: Any) -> set[tuple[str, str]]:
+    """Deferred transition pairs with spoken text (synthesized at mix last-chance)."""
+    if not ctx.artifact_exists("master/transitions.json"):
+        return set()
+    try:
+        doc = ctx.read_json("master/transitions.json")
+    except Exception:
+        return set()
+    out: set[tuple[str, str]] = set()
+    for tr in (doc or {}).get("deferred_transition_pairs") or [] if isinstance(doc, dict) else []:
+        if not isinstance(tr, dict):
+            continue
+        a = str(tr.get("after_segment_id") or "")
+        b = str(tr.get("before_segment_id") or "")
+        if a and b and str(tr.get("text") or tr.get("spoken_text") or "").strip():
+            out.add((a, b))
+    return out
+
+
 def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
     """True when the audit issue no longer matches current gap/transitions/VO."""
     code = str(row.get("code") or "").strip().lower()
+    # A deferred transition pair is by design synthesized at mix last-chance,
+    # after this audit runs. "transition missing" for such a pair is premature,
+    # the same shape as the VO-placement demotion (exec_055 seg_037->seg_041,
+    # ISSUES entry 71).
+    if code == "transition_missing":
+        import re as _re
+
+        blob = " ".join(
+            str(x)
+            for x in (
+                row.get("issue"),
+                row.get("recommended_action"),
+                " ".join(str(e) for e in (row.get("evidence") or [])),
+            )
+            if x
+        )
+        ids = _re.findall(r"seg_[0-9]+[a-z]*", blob)
+        deferred = _deferred_pair_keys(ctx)
+        if deferred and any((ids[i], ids[i + 1]) in deferred for i in range(len(ids) - 1)):
+            return True
     if code == "duplicate_spoken_seam" and ctx.artifact_exists(
         "master/seam_occupancy.json"
     ):
@@ -4895,6 +5013,16 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
                     owned.update(str(x) for x in (ch.get("segment_ids") or []) if x)
                 if ordered and all(sid in owned for sid in ordered):
                     return True
+    # Ordering complaints are checked against the plan actually on disk. The
+    # audit runs after align_narrative_plan_to_selection rewrote the plan's
+    # constraints to the air order, so a complaint about the constraints the
+    # ranking was shown (cyclic, from the narrative_arc_plan model) is stale
+    # once every committed constraint holds (exec_049, ISSUES entry 48).
+    if code == "ordering_constraint_broken" or (
+        "ordering constraint" in text or "ordering_constraint" in text
+    ):
+        if _ordering_constraints_satisfied(ctx):
+            return True
     # Blank scraps kept by hard-keep stay on-air by policy (exec_13198 seg_028).
     if code == "blank_segment" or (
         "blank" in text and "segment" in text and ("drop" in text or "backchannel" in text)
@@ -6812,6 +6940,16 @@ def reconcile_ordered_vs_excluded(selection: dict[str, Any] | None) -> dict[str,
     out["excluded_segment_ids"] = excl_kept
     out, _pruned = prune_stale_exclude_rationales(out)
     return out
+
+
+def _closing_ids_safe(ctx: Any, selection: dict[str, Any]) -> set[str]:
+    try:
+        from interview_mux.air_order_integrity import closing_segment_ids
+
+        ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
+        return closing_segment_ids(ctx, ordered)
+    except Exception:
+        return set()
 
 
 def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:

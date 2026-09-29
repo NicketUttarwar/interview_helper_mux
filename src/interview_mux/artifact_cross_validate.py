@@ -70,15 +70,25 @@ def _overlay_pending_path(ctx: RunContext, rel: str) -> Any | None:
     return candidate if candidate.is_file() else None
 
 def _committed_json(ctx: RunContext, rel: str) -> Any | None:
-    """Read committed artifact JSON; overlay pending writes during write approval."""
+    """Read artifact JSON, with the stage's pending write winning during approval.
+
+    The overlay is only active while a stage's writes are being approved, and
+    only for paths that stage has staged, so it is exactly "what is about to
+    land". It must take precedence over the committed copy: when a stage
+    replaces an existing artifact, validating the old committed file instead
+    judged a first-pass narrative plan against a manifest that a re-split had
+    since shrunk, refused the flush, and so the clean replacement could never
+    land. That stranded delivery on "narrative segment seg_004 not in
+    manifest" with the fix already written and sitting in staging.
+    """
     from interview_mux.file_store import read_json as fs_read_json
 
-    p = ctx.final_path(*rel.split("/"))
-    if p.is_file():
-        return fs_read_json(p)
     overlay = _overlay_pending_path(ctx, rel)
     if overlay is not None:
         return fs_read_json(overlay)
+    p = ctx.final_path(*rel.split("/"))
+    if p.is_file():
+        return fs_read_json(p)
     return None
 
 def _committed_exists(ctx: RunContext, rel: str) -> bool:

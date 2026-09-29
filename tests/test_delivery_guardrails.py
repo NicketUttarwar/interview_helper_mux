@@ -311,7 +311,9 @@ def test_premature_cap_keeps_music_palette_not_edl_narrative(
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "g7_music_vs_narrative")
     plant_seed_complete_through(ctx, "edl")
-    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_1"]})
+    # seg_001 is what plant_seed_complete_through seeds into the manifest; "seg_1"
+    # is an orphan, which sanitize drops and then refuses for leaving it empty.
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]})
     preview = ctx.final_path("master", "assembly_preview.wav")
     preview.parent.mkdir(parents=True, exist_ok=True)
     preview.write_bytes(b"RIFF....WAVEfmt ")

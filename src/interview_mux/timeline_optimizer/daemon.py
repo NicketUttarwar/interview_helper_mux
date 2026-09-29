@@ -90,6 +90,12 @@ def start_optimizer_daemon(
     return {"ok": True, "started": True, "run_id": run_id}
 
 
+def auto_promote_allowed(state: dict[str, Any] | None) -> bool:
+    """False once the daemon promoted, or once a promote attempt failed."""
+    st = state if isinstance(state, dict) else {}
+    return not (st.get("auto_promoted_once") or st.get("auto_promote_attempted"))
+
+
 def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
     ctx = RunContext(run_id, create=False)
     cfg = optimizer_cfg()
@@ -222,7 +228,7 @@ def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
         if (
             cfg.get("auto_promote_on_plateau")
             and (plateau >= plateau_limit or gen >= soft_max)
-            and not state.get("auto_promoted_once")
+            and auto_promote_allowed(state)
         ):
             try:
                 # A promoted order is not live until its EDL and mix agree.
@@ -253,6 +259,15 @@ def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
                     stage="timeline_optimizer",
                 )
             except Exception as exc:
+                # One attempt per run. Retrying a denied promote every
+                # generation logged 113 identical failures on exec_049 and each
+                # attempt rewrote edl/selection, which unseated a good mix
+                # (ISSUES entry 52). The daemon keeps exploring; the operator
+                # can still take the best candidate by hand.
+                state = load_optimizer_state(ctx)
+                state["auto_promote_attempted"] = True
+                state["auto_promote_error"] = str(exc)[:300]
+                save_optimizer_state(ctx, state)
                 ctx.log(f"auto-promote failed: {exc}", level="warning", stage="timeline_optimizer")
 
         time.sleep(sleep_s)

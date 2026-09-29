@@ -96,6 +96,14 @@ def _succinct_prompts(*, role: str, palette_kind: str) -> tuple[str, str]:
 
 def test_shipped_defaults_gpu_large_first_ladder() -> None:
     """Regression lock: large-first on GPU (not the 1765 CPU+tight-timeout combo)."""
+    from interview_mux.hardware_detect import is_apple_silicon
+
+    if not is_apple_silicon():
+        pytest.skip(
+            "asserts effective_musicgen_device() == 'mps', which is Apple-Silicon "
+            "only; on CUDA/CPU hosts the device and the VRAM-appropriate model "
+            "ladder differ by design"
+        )
     cfg = musicgen_cfg()
     assert str(cfg.get("device") or "") == "auto"
     assert "musicgen-large" in str(cfg.get("model_id") or "")

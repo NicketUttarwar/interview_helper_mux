@@ -646,12 +646,46 @@ def repair_opening_tape_integrity(
     return out, actions
 
 
+# A closing line the episode is allowed to end on even when it sits earlier on
+# the tape than the material before it (exec_054 seg_063 "Mohan, thank you
+# very much", ISSUES entry 68).
+_FAREWELL_RE = re.compile(
+    r"\b(thank you (very |so )?much|thanks (so much )?for (joining|coming|being|talking|your time)"
+    r"|all (our|the) best|goodbye|good bye|see you next)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def is_farewell_text(text: str) -> bool:
+    """True when the closing words of ``text`` read as a sign-off."""
+    words = str(text or "").split()
+    return bool(words) and bool(_FAREWELL_RE.search(" ".join(words[-60:])))
+
+
+def closing_segment_ids(ctx: Any, ordered: list[str]) -> set[str]:
+    """The final on-air id when its own text is a farewell, else empty."""
+    ids = [str(s) for s in ordered if str(s).strip()]
+    if not ids or not ctx.artifact_exists("segments/manifest.json"):
+        return set()
+    try:
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return set()
+    rows = (manifest or {}).get("segments") or [] if isinstance(manifest, dict) else []
+    last = ids[-1]
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("segment_id") or "") == last:
+            return {last} if is_farewell_text(str(row.get("text") or "")) else set()
+    return set()
+
+
 def pull_mid_arc_reverse_jumps(
     ordered: list[str],
     source_start_ms: dict[str, int] | None,
     *,
     guest_first: bool | None = None,
     margin_ms: int | None = None,
+    protect_final_ids: set[str] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     """Scan all adjacent pairs; prepend earlier-tape families on reverse jump.
 
@@ -676,6 +710,14 @@ def pull_mid_arc_reverse_jumps(
             before_id = new_order[i + 1]
             gap = pair_source_gap_ms(after_id, before_id, source_start_ms)
             if gap is None or gap >= -margin:
+                continue
+            # A farewell deliberately placed last is an ending, not a mid-arc
+            # reverse jump; moving it forward left material after the goodbye.
+            if (
+                protect_final_ids
+                and before_id in protect_final_ids
+                and i + 1 == len(new_order) - 1
+            ):
                 continue
             family = letter_split_family(before_id, new_order)
             # Always prepend earlier-tape family before the later clip.
@@ -709,7 +751,10 @@ def repair_air_order_integrity(
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     margin = reverse_jump_margin_ms(ctx=ctx, policy=pol)
     pulled, moved, dropped = pull_mid_arc_reverse_jumps(
-        ordered, starts or None, margin_ms=margin
+        ordered,
+        starts or None,
+        margin_ms=margin,
+        protect_final_ids=closing_segment_ids(ctx, ordered),
     )
     if moved or dropped or pulled != ordered:
         if dropped:

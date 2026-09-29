@@ -1640,6 +1640,11 @@ def note_authority_undo_attempt(
             and actions[-1] == actions[-3]
             and actions[-1] != actions[-2]
             and hashes[-1] == hashes[-3]
+            # An undo war needs the middle writer to have changed something.
+            # compose, layup, compose all writing identical bytes is a pair of
+            # no-op rewrites under different keys, not one writer reverting
+            # the other; it halted a real run at 51 of 72 with nothing undone.
+            and hashes[-2] != hashes[-1]
         ):
             halt = True
             reason = f"action_oscillation:{actions[-1]}↔{actions[-2]}"

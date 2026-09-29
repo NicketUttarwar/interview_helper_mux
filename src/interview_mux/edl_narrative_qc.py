@@ -66,6 +66,43 @@ def _end_text_for_clip(
     return text, end_ms_i
 
 
+def qc_text_before(words: list[dict[str, Any]], end_ms: int) -> str:
+    """The closing text QC judges at ``end_ms`` (last 24 words in 12 s)."""
+    toks = [
+        str(w.get("text") or "").strip()
+        for w in words
+        if isinstance(w, dict)
+        and int(w.get("end_ms") or 0) <= end_ms + 20
+        and int(w.get("end_ms") or 0) >= end_ms - 12_000
+    ]
+    return " ".join(t for t in toks[-24:] if t)
+
+
+def qc_hinge_at(words: list[dict[str, Any]], end_ms: int) -> bool:
+    """Single definition of "ends on a complete thought" for EDL build and QC."""
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    text = qc_text_before(words, int(end_ms))
+    return bool(text) and bool(is_legal_conceptual_hinge(text, words=words or None, end_ms=int(end_ms)))
+
+
+def first_qc_hinge_between(
+    words: list[dict[str, Any]], after_ms: int, until_ms: int
+) -> int | None:
+    """First word end in (after_ms, until_ms] where QC accepts the close."""
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        end = int(w.get("end_ms") or 0)
+        if after_ms < end <= until_ms and qc_hinge_at(words, end):
+            return end
+    return None
+
+
+# How far a hanging close may look for a complete thought, either direction.
+HINGE_SEARCH_MS = 12_000
+
+
 def _validate_vo_after_legal_hinge(
     ctx: Any,
     edl: dict[str, Any],
@@ -110,10 +147,39 @@ def _validate_vo_after_legal_hinge(
             continue
         if is_legal_conceptual_hinge(text, words=words or None, end_ms=end_ms):
             continue
+        # The tape may never finish this thought: no legal close inside the
+        # clip and none within reach after it (the speaker trails off, as
+        # exec_052 seg_060 did into 22 s of silence). Nothing in the pipeline
+        # can satisfy the demand then, so it is a warning, not a stop
+        # (ISSUES entry 59). A reachable close still makes it an error,
+        # because the EDL build extends or trims to it.
+        if words and end_ms is not None and not _hinge_reachable(speech, words, end_ms):
+            try:
+                ctx.log(
+                    f'{ctype} after "{after}": source never completes the thought '
+                    "within reach (tape trail-off); allowed",
+                    level="warning",
+                    stage="edl",
+                )
+            except Exception:
+                pass
+            continue
         errors.append(
             f'master/edl.json: {ctype} after "{after}" lands on an incomplete thought. '
             "Fuse or recut to a complete-thought hinge before inserting VO."
         )
+
+
+def _hinge_reachable(speech: dict[str, Any], words: list[dict[str, Any]], end_ms: int) -> bool:
+    """True when a QC-legal close exists inside the clip or shortly after it."""
+    try:
+        start = int(speech.get("source_start_ms") or 0)
+    except (TypeError, ValueError):
+        start = 0
+    lo = max(start, end_ms - HINGE_SEARCH_MS)
+    if first_qc_hinge_between(words, lo, end_ms - 1) is not None:
+        return True
+    return first_qc_hinge_between(words, end_ms, end_ms + HINGE_SEARCH_MS) is not None
 
 
 def _speech_order(edl: dict[str, Any]) -> list[str]:
@@ -1060,8 +1126,37 @@ def _validate_speaker_volley_integrity(ctx: Any, speech: list[str], errors: list
         if not isinstance(volleys, list) or not volleys:
             return
         ok, flags = check_speaker_volley_integrity(list(speech), volleys)
-        if not ok:
-            for f in flags[:8]:
-                errors.append(f"speaker_volley_integrity:{f}")
+        if ok:
+            return
+        # Selection is the air-order authority. A volley the *selection* already
+        # splits or reorders is not the EDL's defect: the EDL is required to
+        # follow the selection, and neither the frozen selection nor the sealed
+        # episode structure can be rewritten here. Report those as warnings and
+        # keep only violations the EDL introduced on its own (ISSUES entry 50).
+        inherited: set[str] = set()
+        try:
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                sel_order = [
+                    str(x) for x in ((sel or {}).get("ordered_segment_ids") or []) if x
+                ]
+                if sel_order:
+                    _sel_ok, sel_flags = check_speaker_volley_integrity(sel_order, volleys)
+                    inherited = set(sel_flags)
+        except Exception:
+            inherited = set()
+        for f in flags[:8]:
+            if f in inherited:
+                try:
+                    ctx.log(
+                        f"speaker_volley_integrity:{f} inherited from selection order "
+                        "(air-order authority); not an EDL defect",
+                        level="warning",
+                        stage="edl",
+                    )
+                except Exception:
+                    pass
+                continue
+            errors.append(f"speaker_volley_integrity:{f}")
     except Exception:
         return

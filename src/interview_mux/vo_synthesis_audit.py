@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import wave
 from pathlib import Path
 from typing import Any
@@ -27,8 +28,24 @@ class VoScriptWavRebindError(ValueError):
     """
 
 
+# (path, size, mtime_ns) -> digest. The completeness checks hash the same few
+# WAVs hundreds of times per conductor pass; a changed file changes its size or
+# mtime, so the key can never serve stale bytes (ISSUES entry 60).
+_SHA_CACHE: dict[tuple[str, int, int], str] = {}
+_SHA_CACHE_MAX = 4096
+
+
 def wav_content_sha256(path: Path) -> str:
     """SHA-256 of WAV file bytes — binds audit script_hash to audible content."""
+    try:
+        st = os.stat(path)
+        key = (os.path.normcase(os.path.abspath(path)), int(st.st_size), int(st.st_mtime_ns))
+    except OSError:
+        key = None
+    if key is not None:
+        hit = _SHA_CACHE.get(key)
+        if hit is not None:
+            return hit
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while True:
@@ -36,7 +53,12 @@ def wav_content_sha256(path: Path) -> str:
             if not chunk:
                 break
             digest.update(chunk)
-    return digest.hexdigest()
+    out = digest.hexdigest()
+    if key is not None:
+        if len(_SHA_CACHE) >= _SHA_CACHE_MAX:
+            _SHA_CACHE.clear()
+        _SHA_CACHE[key] = out
+    return out
 
 
 def committed_rel_for_wav(ctx: RunContext, out_wav: Path) -> str:
@@ -467,14 +489,34 @@ def _audited_wav_path(
     seen: set[str] = set()
 
     def _add(cand: Path) -> None:
-        try:
-            key = str(cand.resolve())
-        except Exception:
-            key = str(cand)
-        if key in seen or not cand.is_file():
+        # Existence first, then a lexical identity. Path.resolve() walks every
+        # component through the filesystem on Windows (OneDrive paths make it
+        # worse) and was 76 % of the conductor's time between stages on the
+        # one-hour run (ISSUES entry 60). Run paths carry no symlinks, so
+        # abspath + normcase names the same file.
+        if not cand.is_file():
+            return
+        key = os.path.normcase(os.path.abspath(str(cand)))
+        if key in seen:
             return
         seen.add(key)
         candidates.append(cand)
+
+    # Stage shadow dirs that exist, listed once per call. Probing every stage
+    # dir x every sub-path cost hundreds of stat() calls per VO line on a run
+    # with ~70 staging dirs (ISSUES entry 60).
+    try:
+        pending_root = ctx.path(".pending_writes")
+        pending_dirs = (
+            [e.path for e in os.scandir(pending_root) if e.is_dir()]
+            if pending_root.is_dir()
+            else []
+        )
+    except OSError:
+        pending_dirs = []
+
+    def _pending_with(first: str) -> list[Path]:
+        return [Path(d) for d in pending_dirs if os.path.isdir(os.path.join(d, first))]
 
     rel = str(entry.get("out_wav") or "").strip()
     for candidate_rel in _candidate_rels_for_out_wav(rel):
@@ -491,11 +533,9 @@ def _audited_wav_path(
         # promote stale bytes into committed vo_pickup/ while the sha-bound take
         # remains under .pending_writes/vo_synthesize/… (exec_11165 seated_bind_stale).
         try:
-            pending_root = ctx.path(".pending_writes")
-            if pending_root.is_dir() and candidate_rel:
-                for stage_dir in pending_root.iterdir():
-                    if not stage_dir.is_dir():
-                        continue
+            if candidate_rel:
+                first = candidate_rel.split("/", 1)[0]
+                for stage_dir in _pending_with(first):
                     _add(stage_dir.joinpath(*candidate_rel.split("/")))
         except Exception:
             pass
@@ -517,11 +557,8 @@ def _audited_wav_path(
             _add(base / f"{key}.wav")
     # Pending vo_pickup shadows by line id (covers audits with blank/odd out_wav).
     try:
-        pending_root = ctx.path(".pending_writes")
-        if pending_root.is_dir() and lid:
-            for stage_dir in pending_root.iterdir():
-                if not stage_dir.is_dir():
-                    continue
+        if lid:
+            for stage_dir in _pending_with("vo_pickup"):
                 for sub in ("matched", "synthesized", "clean", "normalized", ""):
                     base = (
                         stage_dir / "vo_pickup" / sub

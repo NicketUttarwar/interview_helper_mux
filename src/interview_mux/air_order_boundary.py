@@ -482,6 +482,12 @@ def commit_selection_mutation(
     try:
         previous = _previous_selection(ctx)
         out = dict(selection)
+        # Removal authority (ISSUES 74): a segment that must air cannot leave
+        # the order, whoever the producer is. Judged here, once, on every
+        # selection write.
+        from interview_mux.removal_authority import refuse_selection_removals
+
+        out = refuse_selection_removals(ctx, previous, out, producer=producer)
         # §4A: co-writer silent shrink outside omit ledger is refused (restore prior
         # membership for unexplained drops; omit-ledger / CTA drops stay).
         try:

@@ -259,9 +259,30 @@ def rewrite_artifact_segment_refs(
             }
             if stage_key:
                 kwargs["stage_key"] = stage_key
+            if rel == "understanding/gap_report.json":
+                # The gap report body has a sole-writer rule. An id remap that
+                # only relabels targets passes on mutation_class alone, but a
+                # remap after a merge can fold two lines onto one target, and
+                # that counts as a body change: the hitch's own key was refused
+                # with "gap_body_writers:gap_framing_compose|nugget_layup_compose"
+                # and delivery cascaded. Name the owner the check itself
+                # suggests, keyed off the prior doc exactly as it keys.
+                kwargs["stage_key"] = gap_report_remap_owner(doc)
             ctx.write_json(rel, rewritten, **kwargs)
             updated.append(rel)
     return updated
+
+
+def gap_report_remap_owner(prior: Any) -> str:
+    """The stage assert_gap_report_body_sole_writer accepts for a remap write.
+
+    After ``nugget_layup_authority`` layup is the sole body writer; before it,
+    compose is the writer the check suggests. Mirrors the check rather than
+    guessing, and keys off the prior on-disk doc because that is what it reads.
+    """
+    from interview_mux.artifact_ownership import gap_report_body_owner
+
+    return gap_report_body_owner(prior)
 
 
 def apply_full_segment_id_remap(

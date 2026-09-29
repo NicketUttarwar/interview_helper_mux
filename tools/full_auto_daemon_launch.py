@@ -21,7 +21,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
-VENV_PY = ROOT / ".venv" / "bin" / "python"
+
+def _venv_python(venv_dir: Path) -> Path:
+    """Interpreter inside a venv, cross-platform (Scripts/ on Windows, bin/ elsewhere)."""
+    bin_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    for name in (("python.exe", "python3.exe") if os.name == "nt" else ("python", "python3")):
+        cand = bin_dir / name
+        if cand.is_file():
+            return cand
+    return bin_dir / ("python.exe" if os.name == "nt" else "python")
+
+VENV_PY = _venv_python(ROOT / ".venv")
 E2E_CONSOLE = ASSETS / "full_auto_console.log"
 RUN_POINTER = ASSETS / "full_auto_current_run.txt"
 FRESH_PENDING = ASSETS / "full_auto_fresh_pending.json"
@@ -201,6 +211,8 @@ def _popen(cmd: list[str], log_path: Path, env: dict[str, str] | None = None) ->
             full_env.pop("MUX_RUN_ID", None)
     for key in _MUSICGEN_SKIP_ENV:
         full_env.pop(key, None)
+    from interview_mux.proc_compat import detach_kwargs
+
     proc = subprocess.Popen(
         cmd,
         cwd=str(ROOT),
@@ -208,8 +220,8 @@ def _popen(cmd: list[str], log_path: Path, env: dict[str, str] | None = None) ->
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         env=full_env,
-        start_new_session=True,
         close_fds=True,
+        **detach_kwargs(),
     )
     return int(proc.pid)
 
@@ -225,11 +237,9 @@ def server_alive() -> bool:
 
 
 def e2e_alive() -> bool:
-    try:
-        out = subprocess.check_output(["pgrep", "-f", _DRIVER_PGREP], text=True)
-        return bool(out.strip())
-    except subprocess.CalledProcessError:
-        return False
+    from interview_mux.proc_compat import process_alive
+
+    return process_alive(_DRIVER_PGREP)
 
 
 automation_driver_alive = e2e_alive
@@ -242,14 +252,16 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
         return None
     # Recycle listeners so Python module edits load. SIGTERM first, then SIGKILL
     # leftovers (a second serve can bind while an old worker keeps synthesizing).
-    subprocess.run(["pkill", "-f", "interview_mux serve"], check=False)
+    from interview_mux.proc_compat import kill_matching
+
+    kill_matching("interview_mux serve")
     time.sleep(1.0)
-    subprocess.run(["pkill", "-9", "-f", "interview_mux serve"], check=False)
+    kill_matching("interview_mux serve")
     # Orphan MusicGen workers survive serve recycle (PPID 1) and starve the
     # current clip on MPS. Kill them with the listener.
-    subprocess.run(["pkill", "-f", "tools/musicgen_generate.py"], check=False)
+    kill_matching(r"musicgen_generate\.py")
     time.sleep(0.4)
-    subprocess.run(["pkill", "-9", "-f", "tools/musicgen_generate.py"], check=False)
+    kill_matching(r"musicgen_generate\.py")
     _kill_pids_on_port(port)
     time.sleep(1.5)
     pid = _popen(
@@ -452,12 +464,10 @@ def ensure_keepalive(*, keep_gui_server: bool = False, force_restart: bool = Fal
         _pkill_pattern(_KEEPALIVE_PGREP)
         time.sleep(0.3)
     else:
-        try:
-            out = subprocess.check_output(["pgrep", "-f", _KEEPALIVE_PGREP], text=True)
-            if out.strip():
-                return None
-        except subprocess.CalledProcessError:
-            pass
+        from interview_mux.proc_compat import process_alive
+
+        if process_alive(_KEEPALIVE_PGREP):
+            return None
     port = web_port()
     env = {"MUX_WEB_PORT": str(port)}
     skip_preclean = str(os.environ.get("MUX_SKIP_PRECLEAN") or "").strip()
@@ -479,11 +489,9 @@ def ensure_keepalive(*, keep_gui_server: bool = False, force_restart: bool = Fal
 
 
 def g1_resynth_alive() -> bool:
-    try:
-        out = subprocess.check_output(["pgrep", "-f", "_g1_resynth_missing.py"], text=True)
-        return bool(out.strip())
-    except subprocess.CalledProcessError:
-        return False
+    from interview_mux.proc_compat import process_alive
+
+    return process_alive(r"_g1_resynth_missing\.py")
 
 
 def ensure_g1_resynth(*, run_id: str | None = None, force: bool = False) -> int | None:
@@ -516,56 +524,16 @@ def _kill_pids_on_port(port: int | None = None) -> list[int]:
     """SIGTERM anything listening on the GUI serve port."""
     if port is None:
         port = web_port()
-    killed: list[int] = []
-    try:
-        out = subprocess.check_output(
-            ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return killed
-    self_pid = os.getpid()
-    for tok in out.split():
-        try:
-            pid = int(tok.strip())
-        except ValueError:
-            continue
-        if pid <= 1 or pid == self_pid:
-            continue
-        try:
-            os.kill(pid, 15)
-            killed.append(pid)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            subprocess.run(["kill", "-15", str(pid)], check=False)
-            killed.append(pid)
-    return killed
+    from interview_mux.proc_compat import pids_listening_on_port, terminate_pids
+
+    return terminate_pids(pids_listening_on_port(int(port)))
 
 
 def _pkill_pattern(pattern: str, *, exclude_pid: int | None = None) -> None:
     """Best-effort pkill for a process pattern, optionally skipping one pid."""
-    try:
-        out = subprocess.check_output(["pgrep", "-f", pattern], text=True)
-    except subprocess.CalledProcessError:
-        return
-    self_pid = os.getpid()
-    for tok in out.split():
-        try:
-            pid = int(tok.strip())
-        except ValueError:
-            continue
-        if pid <= 1 or pid == self_pid:
-            continue
-        if exclude_pid is not None and pid == exclude_pid:
-            continue
-        try:
-            os.kill(pid, 15)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            subprocess.run(["kill", "-15", str(pid)], check=False)
+    from interview_mux.proc_compat import kill_matching
+
+    kill_matching(pattern, exclude_pid=exclude_pid)
 
 
 def shutdown_full_auto_stack(
