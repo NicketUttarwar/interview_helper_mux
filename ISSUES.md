@@ -2818,6 +2818,45 @@ the timeout with its stderr tail kept) and
 
 ---
 
+## [85] PRODUCT: the delivery conductor handed `mix` to music and music back to `mix`, and ran neither
+
+**Stage / area:** `delivery_guardrails.defer_until_producers_ready` (the
+candidate filter every delivery walk goes through); platform independent
+**Status:** fixed.
+
+exec_062, delivery resumes 4 and 5: the conductor pinned the seed front to
+`mix`, walked it, and returned "Delivery incomplete after conductor,
+remaining stages: mix; resume=mix" twice in a row without running anything.
+The legacy driver could not get past this (exec_060 halted here at 62 of 72);
+the orchestrator escaped only because it dispatches the named remedy stage
+directly when a resume makes no progress, which bypasses the filter.
+
+The walk log shows the loop. `walk_seed_agenda([mix])` runs
+`filter_delivery_candidates`, which asks `defer_until_producers_ready` about
+`mix`. The sound design plan (written at stage `sound_design_plan`) already
+lists a `theme_outro` asset but no close cue, because the cue is placed by
+`music_palette_compose`, which has not run yet. The filter's outro rule
+("mix fail-closes on a missing theme_outro; do not walk mix until compose
+lands it") therefore replaced `mix` with `music_palette_compose`. The walk
+then applied the HAU speech-first rule: with only `assembly_preview.wav` on
+disk, music may not spend, so `music_palette_compose` was refused and the
+walk asked for `mix` again, which the filter turned into
+`music_palette_compose` again, which was skipped as "already in speech-first
+walk". Each rule deferred to the other's stage. Direct dispatch of `mix`
+proved the outro rule is moot in this state: speech-first mix seats the
+assembly with beds deferred, and compose places the close cue afterwards.
+
+Fix: the outro reinjection is skipped while `hold_speech_first_mix` holds
+for `mix` (music cannot admit until mix has seated the assembly). Once music
+may admit, the rule behaves as before. A helper `_speech_first_holds` keeps
+the predicate next to the HAU exception table it belongs to.
+
+Tests: `tests/test_speech_first_outro_deadlock.py` (speech-first mix is not
+deferred to compose for the outro cue; the same state with an admitting
+assembly still is; `filter([mix])` returns `[mix]` in the exec_062 shape).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
