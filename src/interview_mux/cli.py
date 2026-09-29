@@ -414,7 +414,7 @@ def _create_run_for_input(input_audio: str, *, run_mode: str) -> RunContext:
     stamp_podcast_meta(ctx)
     _stamp_run_mode(ctx, run_mode)
     try:
-        from interview_mux.web.session import set_active_execution
+        from interview_mux.application_session import set_active_execution
 
         set_active_execution(ctx.run_id, input_audio_path=str(raw), source_locked=True)
     except Exception:
