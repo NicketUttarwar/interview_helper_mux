@@ -2575,6 +2575,136 @@ Output quality: unchanged. These are scheduling gates; the audio decisions
 
 ---
 
+## [77] PLATFORM: the job API crashed creating a run when executions_root is outside the repo
+
+**Stage / area:** `web/server.py` `create_run` and the existing-run branch
+**Status:** fixed.
+
+First thing the GUI path did on this machine: `POST /api/runs` returned 500,
+`ValueError: 'C:\mux-local\executions\exec_056_...' is not in the subpath of
+'<repo>'`. Both run-creation responses built their `run_dir` field with
+`run_dir.relative_to(root)`, which assumes executions live under the repo.
+`config/app.local.json` puts them at `C:\mux-local` here (path-length and
+cloud-sync reasons, see docs/cross-cutting/windows-cuda-setup.md), and any
+macOS checkout that sets `executions_root` elsewhere would hit the same. The
+CLI driver never touched this code, which is why 72-of-72 runs passed
+without it.
+
+Fix: `_run_dir_label()` returns the relative path when the run is under the
+repo and the absolute path otherwise. The field is informational.
+
+Found while reproducing the reported serve wedge through the GUI path
+(serve + full-auto driver over the job API) rather than the CLI driver.
+
+---
+
+## [78] PLATFORM: the full-auto driver never saw G0 accepted when executions live outside the repo
+
+**Stage / area:** `tools/full_auto_driver.py` `bind_run`, `tools/full_auto_daemon_launch.py`
+**Status:** fixed.
+
+Second GUI-path finding on this machine. After auto-accepting G0 the driver
+logged `no pending stages but pipeline incomplete, waiting` forever (twice,
+exec_058). `g0_complete()` looks for `.stage_done/transcript_review` under
+`MASTER.parent.parent`, and `bind_run` built `MASTER` from a hard-coded
+`REPO/ASSETS/executions/<run_id>`. With `executions_root` at `C:/mux-local`
+that directory does not exist, so G0 never read as complete, `build_bodies`
+returned nothing, and the driver waited. The server, reading the real run
+dir, reported the gate closed the whole time.
+
+Fix: `bind_run` resolves the run dir through `RunContext`, falling back to
+the repo path; the daemon launcher's newest-run discovery uses the config
+`executions_root` the same way. exec_060 passed G0 into analysis on the
+first try after the fix.
+
+Same class as entry 77 (and, for the CLI, entry 27): code outside
+`RunContext` guessing where runs live. A macOS checkout with the default
+`ASSETS/executions` never hits either.
+
+---
+
+## [79] STRUCTURAL: one in-process engine drives full-auto and partially-accelerated runs; the GUI keeps two gates
+
+**Stage / area:** new `interview_mux/orchestrator.py`, `cli.py orchestrate`,
+`web/server.py /execute`, `tools/full_auto_daemon_launch.py`
+**Status:** phase 1 landed (engine + launch); phase 2 (prune) after one GUI-path run.
+
+Requested by the maintainer after the stalled run on macOS: the GUI and the
+job API are only needed at G0 (transcript review) and at a final listen and
+cover sign-off before publish. Everything else should run in one process.
+
+What was there: `tools/full_auto_driver.py` (15,010 lines) drove every stage
+by calling `POST /execute`, so stages executed inside the web server, with the
+driver polling `/job` and healing by HTTP. `run_analysis` / `run_delivery`
+raise "resume=<stage>" and stop; the only in-process re-entry loop in the
+project was `tools/stub_pipeline_smoke.py --orchestrated`, the loop behind
+every 72-of-72 run on this machine. Nothing gated `podcast_publish`: the
+`require_g_publish_clear` helper is documented as dead, and partial-auto
+waited for the operator *after* publish.
+
+Phase 1:
+
+- `interview_mux/orchestrator.py`: that loop, promoted. Analysis, then
+  delivery; re-enter a phase while gates clear or stages progress; dispatch a
+  stage a failure names as its own remedy; hop back to analysis when
+  delivery invalidates one; stop early on the same error with no progress.
+  In `partially-accelerated` mode it waits at G0 (polls the transcript
+  review marker the GUI page writes) and, new, before `podcast_publish`
+  (polls `g_publish_cleared` / `g_publish_skipped`, written by the GUI's
+  g-publish page); delivery runs with `until_stage` one short of publish and
+  resumes after sign-off. In `full-auto` it signs both off itself. The consent
+  chain (framing, gap VO delivery, voice reference, clone consent, timeline
+  optimizer) is signed off through the real functions in both modes, as the
+  CLI loop always did. The run lock is held only while a phase executes,
+  never while waiting, so the GUI's gate POSTs get through.
+- `python -m interview_mux orchestrate --mode M (--run-id R | --input A)`.
+- `POST /execute` returns `deferred` while a live orchestrator owns the run
+  (`run_meta.orchestrator`, pid checked). The GUI posts there after every
+  gate it completes; a second walk inside the server next to the engine is
+  the dual-driver problem the job API had.
+- The launcher spawns the orchestrator instead of the driver. The driver is
+  reachable behind `MUX_LEGACY_DRIVER=1` for one release.
+- `gui_job.json` is written by the engine (running / gate / done / error) so
+  the GUI's job poll keeps showing progress.
+
+Phase 2, after the engine has done one run through `run.sh` on the GUI path:
+delete `full_auto_driver.py`, the keepalive loop, the daemon's driver paths,
+and the server's in-process execute modes the driver alone used. The map of
+what the driver did that `src/` does not (a survey is in the branch notes) is
+short and none of it was needed for 72 of 72.
+
+Tests: `tests/test_orchestrator.py` (full-auto never waits; partial waits at
+G0 and before publish and never signs G0 off itself; remedy dispatch; gate
+timeout; ownership only while the process lives; the three remedy shapes).
+
+---
+
+## [80] PLATFORM: the pid liveness probe was TerminateProcess on Windows
+
+**Stage / area:** `process_cleanup.worker_pid_alive`, `driver_singleton._pid_alive`,
+`thrash_hardening` (driver claim check)
+**Status:** fixed.
+
+Three places asked "is this pid alive?" with `os.kill(pid, 0)`. That is a
+probe on POSIX. On Windows, `os.kill` with any signal other than the CTRL
+events calls `TerminateProcess`: with the right to do so, the probe kills the
+process it asks about; without it, `OSError` reads as "dead". On this machine
+it read the live orchestrator (pid 21212, 1.5 GB resident) as dead, so
+`orchestrator_owns_run` returned None and `POST /execute` was not deferred.
+The same probe guards the driver claim (`thrash_hardening`) and the
+dual-driver refusal, so on Windows those were either blind or dangerous.
+
+Fix: one read-only implementation. Windows uses `OpenProcess` with
+`PROCESS_QUERY_LIMITED_INFORMATION` and `GetExitCodeProcess == STILL_ACTIVE`;
+POSIX keeps `os.kill(pid, 0)`. The two other sites call it; the
+`driver_singleton` fallback to `os.kill` is gone. A test asserts `os.kill` is
+never called on win32 and that the helper sees its own process and not a
+bogus pid.
+
+Found while proving the orchestrator through the GUI path (exec_061).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

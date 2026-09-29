@@ -2858,17 +2858,12 @@ def enforce_job_complete_honesty(ctx: RunContext, job: dict[str, Any]) -> dict[s
 
         claim = read_driver_claim(ctx)
         if isinstance(claim, dict):
-            import os as _os
+            from interview_mux.process_cleanup import worker_pid_alive
 
             pid = int(claim.get("pid") or 0)
-            if pid > 0:
-                try:
-                    _os.kill(pid, 0)
-                    alive = True
-                except OSError:
-                    alive = False
-                if alive:
-                    return job
+            # Read-only probe; os.kill(pid, 0) is TerminateProcess on Windows.
+            if pid > 0 and worker_pid_alive(pid):
+                return job
     except Exception:
         pass
     try:

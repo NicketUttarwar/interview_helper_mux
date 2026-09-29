@@ -39,7 +39,7 @@ _DRIVER_BIND_POLL_SEC = 1.0
 _DRIVER_BIND_TIMEOUT_SEC = 120.0
 
 # Legacy process patterns (pre-rename) — still matched for stop/status during transition.
-_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
+_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py|interview_mux orchestrate"
 _KEEPALIVE_PGREP = r"full_auto_keepalive_loop\.py|baba_keepalive_loop\.py"
 
 
@@ -109,10 +109,33 @@ def _pipeline_complete(run_dir: Path) -> bool:
     return (pub / "audio.mp3").is_file()
 
 
+def _executions_dirs() -> list[Path]:
+    """Where runs may live, most specific first.
+
+    The config ``executions_root`` when a machine sets one (ISSUES 78: it need
+    not be under the repo), then the repo's ``ASSETS/executions`` (module
+    ``ASSETS``, which tests redirect).
+    """
+    out: list[Path] = []
+    try:
+        from interview_mux.config import merged_config
+
+        raw = str(merged_config().get("executions_root") or "").strip()
+    except Exception:
+        raw = ""
+    if raw:
+        path = Path(raw)
+        out.append(path if path.is_absolute() else ROOT / path)
+    default = ASSETS / "executions"
+    if all(default.resolve() != p.resolve() for p in out if p.exists()) and default not in out:
+        out.append(default)
+    return out
+
+
 def newest_incomplete_run() -> str | None:
     """Newest execution that has not reached the ship bar, else newest execution."""
     execs = sorted(
-        (p for p in (ASSETS / "executions").glob("exec_*") if p.is_dir()),
+        (p for d in _executions_dirs() for p in d.glob("exec_*") if p.is_dir()),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -144,7 +167,7 @@ def driver_run_bound() -> str | None:
     for pointer in (RUN_POINTER, ASSETS / "baba_current_run.txt"):
         if pointer.is_file():
             rid = pointer.read_text(encoding="utf-8").strip()
-            if rid and (ASSETS / "executions" / rid).is_dir():
+            if rid and any((d / rid).is_dir() for d in _executions_dirs()):
                 return rid
     if not E2E_CONSOLE.is_file():
         return None
@@ -375,11 +398,19 @@ def ensure_e2e(
             raise RuntimeError("no existing execution to resume — pass --fresh")
         env["MUX_FRESH"] = "0"
         env["MUX_RUN_ID"] = rid
-    pid = _popen(
-        [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")],
-        E2E_CONSOLE,
-        env=env,
-    )
+    # The in-process orchestrator drives the run; stages never execute inside
+    # serve. The job-API driver stays reachable behind MUX_LEGACY_DRIVER=1 for
+    # one release, then goes.
+    if str(os.environ.get("MUX_LEGACY_DRIVER") or "").strip() == "1":
+        cmd = [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")]
+    else:
+        run_mode = "partially-accelerated" if partial_auto else "full-auto"
+        cmd = [str(VENV_PY), "-m", "interview_mux", "orchestrate", "--mode", run_mode]
+        if fresh:
+            cmd += ["--input", audio]
+        else:
+            cmd += ["--run-id", str(env.get("MUX_RUN_ID") or "")]
+    pid = _popen(cmd, E2E_CONSOLE, env=env)
     (ASSETS / "full_auto.pid").write_text(str(pid))
     return pid
 

@@ -347,6 +347,82 @@ def serve_cmd(
     uvicorn.run(create_app(), host=host, port=chosen_port, **serve_uvicorn_options())
 
 
+@app.command("orchestrate")
+def orchestrate_cmd(
+    run_id: str | None = typer.Option(None, "--run-id", help="Existing run to drive"),
+    mode: str = typer.Option("full-auto", "--mode", help="full-auto | partially-accelerated"),
+    input_audio: str | None = typer.Option(
+        None, "--input", help="Create a new run from this audio (under ASSETS/input/)"
+    ),
+    poll_sec: float = typer.Option(5.0, "--poll-sec", help="Gate poll interval in seconds"),
+) -> None:
+    """Drive a run in this process; the GUI is used only at G0 and the final sign-off.
+
+    Replaces the job-API driver (tools/full_auto_driver.py): stages never run
+    inside the web server. See interview_mux.orchestrator.
+    """
+    from interview_mux.full_auto_launch import normalize_run_mode
+    from interview_mux.orchestrator import MODES, orchestrate
+
+    run_mode = normalize_run_mode(mode)
+    if run_mode not in MODES:
+        console.print(f"[red]--mode must be one of {sorted(MODES)}[/red]")
+        raise typer.Exit(2)
+    if run_id and input_audio:
+        console.print("[red]Pass --run-id or --input, not both[/red]")
+        raise typer.Exit(2)
+    if run_id:
+        ctx = _open_run(run_id)
+        _stamp_run_mode(ctx, run_mode)
+    elif input_audio:
+        ctx = _create_run_for_input(input_audio, run_mode=run_mode)
+    else:
+        console.print("[red]--input is required to create a run[/red]")
+        raise typer.Exit(2)
+    raise typer.Exit(orchestrate(ctx.run_id, mode=run_mode, poll_sec=poll_sec))
+
+
+def _stamp_run_mode(ctx: RunContext, run_mode: str) -> None:
+    def _mode(meta: dict) -> None:
+        meta["run_mode"] = run_mode
+        meta["full_auto"] = run_mode == "full-auto"
+        meta["partial_auto"] = run_mode == "partially-accelerated"
+
+    ctx.mutate_run_meta(_mode)
+
+
+def _create_run_for_input(input_audio: str, *, run_mode: str) -> RunContext:
+    raw = Path(input_audio)
+    if not raw.is_absolute():
+        raw = repo_root() / raw
+    if not raw.is_file():
+        console.print(f"[red]Input audio not found:[/red] {raw}")
+        raise typer.Exit(1)
+    wav = pipeline_wav_path(raw)
+    full_hash, short_hash = source_audio_hash_pair(wav)
+    new_id = RunContext.allocate_run_id(source_hash=short_hash)
+    ctx = RunContext(new_id, create=True)
+    ctx.init_run_meta(
+        str(raw.relative_to(repo_root())),
+        source_audio_hash=full_hash,
+        source_audio_hash_short=short_hash,
+    )
+    from interview_mux.homunculus.version import stamp_run_meta
+    from interview_mux.podcast_rss.settings import stamp_podcast_meta
+
+    stamp_run_meta(ctx)
+    stamp_podcast_meta(ctx)
+    _stamp_run_mode(ctx, run_mode)
+    try:
+        from interview_mux.web.session import set_active_execution
+
+        set_active_execution(ctx.run_id, input_audio_path=str(raw), source_locked=True)
+    except Exception:
+        pass
+    _emit(ctx, f"Allocated run {ctx.run_id} ({run_mode})", level="info", stage="cli")
+    return ctx
+
+
 @app.command("run")
 def run_cmd(
     run_id: str | None = typer.Option(None, "--run-id"),

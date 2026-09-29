@@ -28,13 +28,48 @@ def clear_tracked_workers() -> None:
 
 
 def worker_pid_alive(pid: object | None) -> bool:
+    """True when ``pid`` is a live process. Read-only on every platform.
+
+    ``os.kill(pid, 0)`` is a probe on POSIX only. On Windows ``os.kill`` with
+    any signal other than the CTRL events is ``TerminateProcess``: the probe
+    kills what it asks about when it has the right, and reports "dead" for a
+    live process when it does not (ISSUES 80: the orchestrator's ownership
+    stamp read as stale while the engine ran).
+    """
     if pid is None:
         return False
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, TypeError, ValueError):
+        pid_i = int(pid)
+    except (TypeError, ValueError):
         return False
+    if pid_i <= 0:
+        return False
+    if sys.platform == "win32":
+        return _win_pid_alive(pid_i)
+    try:
+        os.kill(pid_i, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _win_pid_alive(pid: int) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, wintypes.DWORD(pid))
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == STILL_ACTIVE
+    finally:
+        k32.CloseHandle(handle)
 
 
 def _list_mux_pids(*markers: str) -> list[int]:

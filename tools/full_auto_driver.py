@@ -946,8 +946,18 @@ MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
 def bind_run(run_id: str) -> None:
     global RUN_ID, MASTER, LOG
     RUN_ID = run_id
-    MASTER = REPO / "ASSETS" / "executions" / RUN_ID / "master" / "master.wav"
-    LOG = REPO / "ASSETS" / "executions" / RUN_ID / "operator_e2e.log"
+    # The run dir comes from config executions_root, which need not be under the
+    # repo (ISSUES 78: a hard-coded ASSETS/executions never saw the G0 stamp on a
+    # machine that keeps runs elsewhere, so the driver waited forever).
+    run_dir = REPO / "ASSETS" / "executions" / RUN_ID
+    try:
+        from interview_mux.run_context import RunContext
+
+        run_dir = Path(RunContext(RUN_ID, create=False).run_dir)
+    except Exception:
+        pass
+    MASTER = run_dir / "master" / "master.wav"
+    LOG = run_dir / "operator_e2e.log"
     # Authoritative pointer for the keepalive watchdog — log scraping races a fresh start.
     try:
         pointer = REPO / "ASSETS" / "full_auto_current_run.txt"
