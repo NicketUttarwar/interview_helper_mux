@@ -7206,7 +7206,7 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
                     es["segment_order"] = list(order)
                     changed = True
                 if changed:
-                    ctx.write_json("understanding/episode_structure.json", es)
+                    ctx.write_json("understanding/episode_structure.json", es, optional=True)
                     notes.append({"action": "unlock_speaker_volleys_for_reorder"})
         except Exception:
             notes.append({"action": "episode_structure_repair_skipped"})

@@ -1163,7 +1163,8 @@ def _unseat_ineligible_plan_seats(ctx: RunContext) -> list[str]:
     seats["omitted_line_ids"] = [o for o in omitted if o not in set(new_seated)]
     script["vo_seats"] = seats
     plan["air_script"] = script
-    ctx.write_json("mastering/mastering_plan.json", plan)
+    # Seat hygiene from a non-owner: the sanitizer re-derives seats on its pass.
+    ctx.write_json("mastering/mastering_plan.json", plan, optional=True)
     return drop
 
 
@@ -1365,7 +1366,7 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
         seats["omitted_line_ids"] = [o for o in cur_omitted if o not in set(new_seated)]
         script["vo_seats"] = seats
         plan["air_script"] = script
-        ctx.write_json("mastering/mastering_plan.json", plan)
+        ctx.write_json("mastering/mastering_plan.json", plan, optional=True)
     # Rebuild vo_seats from gap so omitted lines are not synthesized downstream.
     # Catastrophe reason unlocks freeze; explicit unseat covers freeze fail-closed.
     try:

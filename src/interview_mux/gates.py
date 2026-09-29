@@ -880,6 +880,19 @@ def check_g_publish_pending(ctx: RunContext) -> bool:
         return False
     if meta.get("g_publish_skipped") or meta.get("g_publish_cleared"):
         return False
+    # While the full-auto engine owns the run it signs this gate off itself
+    # after podcast_publish; showing "needs your input" meanwhile invites a
+    # click that the engine then refuses (ISSUES 92).
+    try:
+        from interview_mux.automation_run import is_full_auto_run
+
+        engine = meta.get("orchestrator") if isinstance(meta.get("orchestrator"), dict) else {}
+        if is_full_auto_run(meta) and (
+            engine.get("active") or meta.get("partial_auto_driver_active")
+        ):
+            return False
+    except Exception:
+        pass
     # PPUB-B2: Full-auto local-done + honest remote refuse must not hang journey.
     if meta.get("g_publish_remote_refused") and ctx.is_done("podcast_publish"):
         try:

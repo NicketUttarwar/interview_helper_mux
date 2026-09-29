@@ -353,6 +353,18 @@ class Orchestrator:
             self.log(f"      gate cleared: {name}")
         return cleared
 
+    def _sign_off_publish_gate(self) -> None:
+        """Stamp the G-Publish sign-off as prepared (full-auto only)."""
+        if not final_signoff_pending(self.ctx):
+            return
+        try:
+            from interview_mux.gates import clear_g_publish
+
+            clear_g_publish(self.ctx, skipped=False)
+            self.log("      gate cleared: g_publish (full-auto, package prepared)")
+        except Exception as exc:  # noqa: BLE001 - reporting only
+            self.log(f"      g_publish sign-off failed: {type(exc).__name__}: {str(exc)[:120]}")
+
     def _final_signoff(self) -> bool:
         """Partial mode: hold before podcast_publish until the operator signs off."""
         if not self.partial:
@@ -516,6 +528,11 @@ class Orchestrator:
                 # then run what remains (podcast_publish, or nothing after Skip).
                 if self._final_signoff():
                     row = self._phase("delivery", run_delivery)
+            if not self.partial and self.ctx.is_done("podcast_publish"):
+                # Full-auto signs the final gate off itself: the package was
+                # prepared by podcast_publish, so the GUI must not keep asking
+                # for a sign-off nobody is waiting for (ISSUES 92).
+                self._sign_off_publish_gate()
             complete = False
             try:
                 complete = bool(pipeline_complete(self.ctx))

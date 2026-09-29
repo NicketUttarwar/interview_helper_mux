@@ -1331,7 +1331,7 @@ def apply_orientation(
                     plan = dict(plan)
                     plan["air_script"] = script
                     ctx.write_json(
-                        "mastering/mastering_plan.json", plan, skip_handoff=True
+                        "mastering/mastering_plan.json", plan, skip_handoff=True, optional=True
                     )
                     actions = list(actions) + [
                         {"action": "republish_vo_seats", "disposition": decision.disposition}

@@ -2948,6 +2948,107 @@ from `ASSETS/executions/exec_005_20260929T213649Z` are needed:
 
 ---
 
+## [90] PRODUCT: seven tolerated writes were logged as authority denials, and three of the same one halt a run
+
+**Stage / area:** `RunContext.write_json` and the ownership layer; sites in
+`split_plan_apply`, `gap_framing_recompose`, `air_contract_sanitize`,
+`vo_line_adjudicate`, `edl`, and the flush fingerprint restamp
+**Status:** fixed.
+
+exec_062 (72 of 72) still carried 11 error-level lines. Every one was an
+`authority_denied:persist:...` from a stage writing an artifact another
+stage owns in the current epoch: `split_plan_apply` enriching
+`segments/boundaries.json`, `gap_framing_recompose` and
+`vo_line_adjudicate` republishing VO seats into `mastering_plan.json`, the
+flush fingerprint restamp touching `gap_report.json`, `edl` unlocking
+`episode_structure.json` and stamping `transitions_pair_freeze.json`, and
+the air-contract sanitizer carrying its VO flags into `gap_report.json`. In
+every case the caller already caught the exception and went on ("split_plan
+skipped", "transitions pair freeze skipped"), so the pipeline was right to
+continue. But the ownership layer had already logged an error, written
+`forensics_errors.json`, and recorded an identical-failure signature. Three
+of the same one set `halt=True` (`gap_framing_recompose` reached 3 of 3 in
+this run), and two of them stamp `authority_denied_halted` into run_meta
+(that is what stopped the maintainer's exec_005, entry 87). The sanitizer's
+case was worse: its refused gap write failed the whole stage once.
+
+Fix: `write_json(..., optional=True)` marks a courtesy write. The ownership
+table is asked first; a refused optional write is skipped with one info
+line and nothing else (no error, no signature, no halt, no forensics row).
+The seven sites pass the flag. The sanitizer's gap write is optional too;
+its dry re-sanitize still refuses a stale contract, so nothing is hidden.
+
+Tests: `tests/test_optional_write.py`.
+
+---
+
+## [91] GUI: outputs a stage never produces show as pending after the stage is done
+
+**Stage / area:** `artifact_lifecycle.build_outputs_view`
+**Status:** fixed.
+
+`junction_snip_qa` declares seven artifacts and writes three of them only on
+some paths (thought-complete recut, failure review, remediation plan). On
+exec_062 it finished in 15 seconds with nothing to recut, and the outputs
+panel listed `master/junction_thought_complete.json` as pending; the T1
+reconcile in `ui_truth` turned that into a red "Junction snip QA incomplete"
+card on a stage that was done. Same shape as entry 83.
+
+Fix: once a stage is done and its primary artifact is committed, declared
+rows still pending are marked `n_a` ("not produced on this run"). The
+primary artifact is never touched, so a hollow stage still reads hollow.
+
+---
+
+## [92] PRODUCT: a finished full-auto run kept asking for the G-Publish sign-off
+
+**Stage / area:** `orchestrator` (full-auto), `gates.check_g_publish_pending`
+**Status:** fixed.
+
+Full-auto ran `podcast_publish` and reported "Run complete", and the GUI
+banner still read "Package episode needs your input". `g_publish_pending`
+is stamped when the master commits and is only cleared by the operator's
+Continue or Skip; the engine signs that gate off in partial mode by waiting
+for it, and in full-auto by running publish, which never stamped anything.
+During the run the same banner showed too, inviting a click the engine
+would then refuse.
+
+Fix: after `podcast_publish` lands in full-auto the engine stamps
+`g_publish_cleared` through the real `clear_g_publish` (package prepared),
+and while a full-auto engine is alive the gate check answers "not pending".
+Partial mode is unchanged: the operator still signs off.
+
+Tests: `tests/test_orchestrator.py` (two sign-off cases),
+`tests/test_g_publish_full_auto_engine.py`.
+
+---
+
+## [93] PERFORMANCE: transcription and the audio probes re-ran on every rerun of the same file
+
+**Stage / area:** `transcribe`, `audio_probe_build`; new `stage_cache.py`
+**Status:** fixed.
+
+Per-stage timings from the two complete runs: on the one-hour source
+`audio_probe_build` took 8.4 minutes and `transcribe` 6.1; on the 6-minute
+clip 7.9 and 2.5 (the probes are dominated by model start-up). Both are
+pure functions of bytes already on disk (the normalized audio, the
+transcript) and configuration, and both ran again on every rerun of the
+same file, which is the normal development loop.
+
+Fix: a content-addressed stage cache beside the executions directory
+(`<executions_root>/../stage_cache`, or `stage_cache.root`). The key is the
+SHA-256 of the input files plus the model ids and the config block that
+shape the output; the value is the stage's JSON outputs. On a hit the stage
+writes the cached documents through `write_json` as if it had produced
+them, so staging, ownership and completion are unchanged, and logs one
+info line. `MUX_STAGE_CACHE=0` disables it; a changed model or config is a
+miss. Nothing else is cached: every later stage depends on operator input
+or a model call.
+
+Tests: `tests/test_stage_cache.py`.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

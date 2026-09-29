@@ -494,7 +494,9 @@ def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[st
             doc = ctx.read_json(rel)
             if isinstance(doc, dict):
                 fp = fingerprint_artifact(doc, stage_key)
-                ctx.write_json(rel, fp, stage_key=stage_key, skip_handoff=True)
+                # A restamp of an artifact this stage may not own in the current
+                # epoch is a courtesy; the owner restamps on its own flush.
+                ctx.write_json(rel, fp, stage_key=stage_key, skip_handoff=True, optional=True)
                 h = (fp.get("_meta") or {}).get("content_hash")
                 if h:
                     _record_fingerprint(ctx, rel, str(h), stage_key)
@@ -865,6 +867,40 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
                 "sufficiency_status": suff,
             }
         )
+    return _settle_unproduced_rows(ctx, stage_id, rows)
+
+
+def _settle_unproduced_rows(ctx: Any, stage_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A finished stage's outputs it never produced are not pending work.
+
+    Several stages declare artifacts they write only on some paths (junction's
+    thought-complete recut, failure review, remediation plan). Once the stage
+    is done and its primary artifact is committed, a row still "pending" reads
+    to the operator as unfinished work and to the T1 reconcile as a failure.
+    Mark those rows n_a instead (ISSUES 91).
+    """
+    try:
+        if not ctx.is_done(stage_id):
+            return rows
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        primary = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+        by_path = {str(r.get("path")): r for r in rows}
+        if primary:
+            head = by_path.get(primary)
+            if not head or head.get("status") != "complete":
+                return rows
+        elif not any(r.get("status") == "complete" for r in rows):
+            return rows
+        for row in rows:
+            if row.get("path") == primary:
+                continue
+            if row.get("phase") == "pending" and row.get("status") == "pending":
+                row["phase"] = "n_a"
+                row["status"] = "n_a"
+                row["note"] = "not produced on this run"
+    except Exception:
+        return rows
     return rows
 
 

@@ -1037,7 +1037,9 @@ def stamp_transitions_pair_freeze(ctx: RunContext, *, generation: int | None = N
         "pairs": sorted(set(pairs)),
         "stamped_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    ctx.write_json(PAIR_FREEZE_REL, doc, skip_handoff=True)
+    # edl stamps this on the first green write; under hard_freeze the owner
+    # (transitions) holds the pen and the stamp waits for its pass.
+    ctx.write_json(PAIR_FREEZE_REL, doc, skip_handoff=True, optional=True)
     _sync_deferred_transition_pairs(ctx)
     return doc
 

@@ -203,3 +203,31 @@ def test_engine_declares_driver_ownership_in_both_modes(ctx, monkeypatch) -> Non
         assert ctx.read_json("run_meta.json")["partial_auto_driver_active"] is True
         o._stamp(False)
         assert ctx.read_json("run_meta.json")["partial_auto_driver_active"] is False
+
+
+def test_full_auto_signs_off_the_publish_gate_it_ran(ctx, monkeypatch) -> None:
+    """A finished full-auto run must not leave G-Publish reading as pending (ISSUES 92)."""
+    from run_fixtures import mark_done_raw
+
+    phases = _Phases(analysis=[None], delivery=[None])
+    _wire(monkeypatch, phases, complete=lambda c: True)
+    ctx.mutate_run_meta(lambda m: m.__setitem__("g_publish_pending", True))
+    mark_done_raw(ctx, "podcast_publish")
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lambda s: None, sleep=lambda s: None)
+    assert o.run() == 0
+    meta = ctx.read_json("run_meta.json")
+    assert meta.get("g_publish_cleared") is True
+    assert not meta.get("g_publish_pending")
+    assert orch.final_signoff_pending(ctx) is False
+
+
+def test_partial_leaves_the_publish_sign_off_to_the_operator(ctx, monkeypatch) -> None:
+    from run_fixtures import mark_done_raw
+
+    phases = _Phases(analysis=[None], delivery=[None])
+    _wire(monkeypatch, phases, complete=lambda c: True)
+    mark_done_raw(ctx, "podcast_publish")
+    o = orch.Orchestrator(ctx, mode="partially-accelerated", log=lambda s: None, sleep=lambda s: None)
+    assert o.run() == 0
+    meta = ctx.read_json("run_meta.json")
+    assert not meta.get("g_publish_cleared")
