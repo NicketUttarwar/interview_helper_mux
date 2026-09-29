@@ -2705,6 +2705,37 @@ Found while proving the orchestrator through the GUI path (exec_061).
 
 ---
 
+## [81] PRODUCT: narrative_arc_plan cited segments that connector fusion had retired, and the write barrier refused the whole plan
+
+**Stage / area:** `artifact_repairs.repair_narrative_plan` (delivery stage 38 `narrative_arc_plan`, then `chapter_close_hitch`)
+**Status:** fixed.
+
+Reported from the maintainer's macOS run (exec_004, one-hour source, CLI
+orchestrated with a real key): `WriteApprovalBlockedError: Pre-flush commit
+barrier failed: ordering_constraint segment seg_052 not in manifest;
+heal_success:pre_flush_soft_refused`, identical failure x3, halt at 38 of
+72. The LLM wrote ordering constraints citing seg_052 and seg_057. After
+connector fuse and resplit the live manifest had 26 rows ending at seg_046;
+the ids came from the content brief the prompt also carries. The lint is
+right to refuse an id that does not exist, but refusing the whole plan for
+one bad constraint leaves no legal producer: re-running the stage asks the
+same model the same question.
+
+Fix: the narrative plan repair, which already runs before the write,
+resolves every constraint to the live manifest. A retired id that a
+manifest row's `fused_from` names is remapped to that survivor (its tape
+still airs there); an id nothing accounts for drops the constraint; a
+constraint whose two ends collapse onto one survivor is dropped. Logged as
+`resolve_constraint_refs_to_manifest {remapped, dropped}`. Chapter refs were
+already filtered this way; constraints were not.
+
+Resume on the affected run: `--from narrative_arc_plan`.
+
+Tests: `tests/test_narrative_plan_orphan_constraints.py` (remap, drop, keep;
+collapse; the lint accepts the repaired plan).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
