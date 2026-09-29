@@ -405,7 +405,7 @@ def ensure_e2e(
         cmd = [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")]
     else:
         run_mode = "partially-accelerated" if partial_auto else "full-auto"
-        cmd = [str(VENV_PY), "-m", "interview_mux", "orchestrate", "--mode", run_mode]
+        cmd = [str(VENV_PY), "-u", "-m", "interview_mux", "orchestrate", "--mode", run_mode]
         if fresh:
             cmd += ["--input", audio]
         else:

@@ -253,9 +253,14 @@ class Orchestrator:
         mode: str,
         poll_sec: float = 5.0,
         gate_timeout_sec: float = 0.0,
-        log: Callable[[str], None] = print,
+        log: Callable[[str], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if log is None:
+            # The console log is a file; block-buffered prints vanish on a
+            # hard kill, which is exactly when they are needed.
+            def log(line: str) -> None:
+                print(line, flush=True)
         if mode not in MODES:
             raise ValueError(f"mode must be one of {sorted(MODES)}, got {mode!r}")
         self.ctx = ctx
