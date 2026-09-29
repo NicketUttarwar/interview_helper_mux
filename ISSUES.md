@@ -2679,6 +2679,32 @@ timeout; ownership only while the process lives; the three remedy shapes).
 
 ---
 
+## [80] PLATFORM: the pid liveness probe was TerminateProcess on Windows
+
+**Stage / area:** `process_cleanup.worker_pid_alive`, `driver_singleton._pid_alive`,
+`thrash_hardening` (driver claim check)
+**Status:** fixed.
+
+Three places asked "is this pid alive?" with `os.kill(pid, 0)`. That is a
+probe on POSIX. On Windows, `os.kill` with any signal other than the CTRL
+events calls `TerminateProcess`: with the right to do so, the probe kills the
+process it asks about; without it, `OSError` reads as "dead". On this machine
+it read the live orchestrator (pid 21212, 1.5 GB resident) as dead, so
+`orchestrator_owns_run` returned None and `POST /execute` was not deferred.
+The same probe guards the driver claim (`thrash_hardening`) and the
+dual-driver refusal, so on Windows those were either blind or dangerous.
+
+Fix: one read-only implementation. Windows uses `OpenProcess` with
+`PROCESS_QUERY_LIMITED_INFORMATION` and `GetExitCodeProcess == STILL_ACTIVE`;
+POSIX keeps `os.kill(pid, 0)`. The two other sites call it; the
+`driver_singleton` fallback to `os.kill` is gone. A test asserts `os.kill` is
+never called on win32 and that the helper sees its own process and not a
+bogus pid.
+
+Found while proving the orchestrator through the GUI path (exec_061).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

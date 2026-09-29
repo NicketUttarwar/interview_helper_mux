@@ -24,11 +24,8 @@ def _pid_alive(pid: int) -> bool:
 
         return bool(worker_pid_alive(pid))
     except Exception:
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
+        # Never fall back to os.kill here: on Windows that is TerminateProcess.
+        return False
 
 
 def read_driver_claim(ctx: RunContext) -> dict[str, Any] | None:
