@@ -193,3 +193,13 @@ def test_resume_hint_reads_the_three_remedy_shapes() -> None:
     )
     assert orch.resume_hint("recut/fuse/omit at junction_snip_qa first") == "junction_snip_qa"
     assert orch.resume_hint("nothing here") is None
+
+
+def test_engine_declares_driver_ownership_in_both_modes(ctx, monkeypatch) -> None:
+    """ISSUES 82: an explicit False here makes the GUI offer a manual Run button."""
+    for mode in ("full-auto", "partially-accelerated"):
+        o = orch.Orchestrator(ctx, mode=mode, log=lambda s: None, sleep=lambda s: None)
+        o._stamp(True)
+        assert ctx.read_json("run_meta.json")["partial_auto_driver_active"] is True
+        o._stamp(False)
+        assert ctx.read_json("run_meta.json")["partial_auto_driver_active"] is False

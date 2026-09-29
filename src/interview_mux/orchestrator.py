@@ -283,8 +283,11 @@ class Orchestrator:
             row.update({"active": active, "pid": os.getpid(), "mode": self.mode})
             row["started_at" if active else "ended_at"] = _utc_now()
             meta[ORCHESTRATOR_META_KEY] = row
-            # The GUI's partial-auto views key off this flag (driver owns resume).
-            meta["partial_auto_driver_active"] = bool(active and self.partial)
+            # The GUI reads this flag in both modes as "a driver owns the run":
+            # an explicit False makes it offer the manual Run button next to a
+            # stage the engine is executing (ISSUES 82). True while the engine
+            # lives, False once it has finished.
+            meta["partial_auto_driver_active"] = bool(active)
 
         try:
             self.ctx.mutate_run_meta(_mut)

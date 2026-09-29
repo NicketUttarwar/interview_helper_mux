@@ -2736,6 +2736,50 @@ collapse; the lint accepts the repaired plan).
 
 ---
 
+## [82] PRODUCT: the GUI did not see an engine-driven run, then offered a manual Run button beside a running stage
+
+**Stage / area:** `cli.py orchestrate` (run creation), `orchestrator._stamp`
+**Status:** fixed.
+
+Two GUI-facing gaps in the engine's first real run (exec_062):
+
+1. The Executions tab showed "No runs yet". The engine's create path
+   imported the session setter from `interview_mux.web.session`, a module
+   that does not exist; the import was inside a try/except and failed
+   quietly, so serve never learned about the run. It is
+   `interview_mux.application_session.set_active_execution`, which writes
+   the state file serve reads. The legacy driver did this over HTTP.
+2. With the run visible, the stage workbench showed "Complete this stage:
+   Run Generate theme audio" above a card that said the same stage was
+   running. The engine stamped `partial_auto_driver_active = False` for
+   full-auto runs (the name suggests partial only). The GUI reads that flag
+   in both modes as "a driver owns this run", and an explicit False makes
+   it offer manual actions. The legacy driver's claim set it True in both
+   modes. The engine now sets it True while alive and False when it exits.
+   Clicking the button would have been harmless (`/execute` is deferred
+   while the engine owns the run, entry 79), but the prompt was wrong.
+
+Tests: `test_engine_declares_driver_ownership_in_both_modes`.
+
+---
+
+## [83] GUI: a deliberately skipped optional step shows as FAILED
+
+**Stage / area:** stage workbench card for `missing_framing` / Fill gaps
+**Status:** open, cosmetic.
+
+On a run whose pipeline mode is native-only (`gap_fill_mode: skipped`,
+reason "pipeline_mode native_only, skip gap-fill VO"), the Fill gaps step
+shows a red FAILED card: "Interviewer script incomplete,
+understanding/gap_framing_plan.json is pending". The stage was skipped on
+purpose and every downstream stage completed; the card reads a missing
+optional artifact as a failure. The maintainer's macOS run showed the same
+card at the same step. The stage row should report skipped with the reason.
+Not fixed here: it needs the stage-status builder to know the skip reason,
+and no run output is affected.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
