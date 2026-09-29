@@ -2598,6 +2598,31 @@ Found while reproducing the reported serve wedge through the GUI path
 
 ---
 
+## [78] PLATFORM: the full-auto driver never saw G0 accepted when executions live outside the repo
+
+**Stage / area:** `tools/full_auto_driver.py` `bind_run`, `tools/full_auto_daemon_launch.py`
+**Status:** fixed.
+
+Second GUI-path finding on this machine. After auto-accepting G0 the driver
+logged `no pending stages but pipeline incomplete, waiting` forever (twice,
+exec_058). `g0_complete()` looks for `.stage_done/transcript_review` under
+`MASTER.parent.parent`, and `bind_run` built `MASTER` from a hard-coded
+`REPO/ASSETS/executions/<run_id>`. With `executions_root` at `C:/mux-local`
+that directory does not exist, so G0 never read as complete, `build_bodies`
+returned nothing, and the driver waited. The server, reading the real run
+dir, reported the gate closed the whole time.
+
+Fix: `bind_run` resolves the run dir through `RunContext`, falling back to
+the repo path; the daemon launcher's newest-run discovery uses the config
+`executions_root` the same way. exec_060 passed G0 into analysis on the
+first try after the fix.
+
+Same class as entry 77 (and, for the CLI, entry 27): code outside
+`RunContext` guessing where runs live. A macOS checkout with the default
+`ASSETS/executions` never hits either.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

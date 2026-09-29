@@ -109,10 +109,21 @@ def _pipeline_complete(run_dir: Path) -> bool:
     return (pub / "audio.mp3").is_file()
 
 
+def _executions_dir() -> Path:
+    """Config executions_root; need not be under the repo (ISSUES 78)."""
+    try:
+        from interview_mux.config import merged_config
+        from interview_mux.run_context import RunContext
+
+        return Path(RunContext._executions_root(merged_config()))
+    except Exception:
+        return ASSETS / "executions"
+
+
 def newest_incomplete_run() -> str | None:
     """Newest execution that has not reached the ship bar, else newest execution."""
     execs = sorted(
-        (p for p in (ASSETS / "executions").glob("exec_*") if p.is_dir()),
+        (p for p in _executions_dir().glob("exec_*") if p.is_dir()),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -144,7 +155,7 @@ def driver_run_bound() -> str | None:
     for pointer in (RUN_POINTER, ASSETS / "baba_current_run.txt"):
         if pointer.is_file():
             rid = pointer.read_text(encoding="utf-8").strip()
-            if rid and (ASSETS / "executions" / rid).is_dir():
+            if rid and (_executions_dir() / rid).is_dir():
                 return rid
     if not E2E_CONSOLE.is_file():
         return None
