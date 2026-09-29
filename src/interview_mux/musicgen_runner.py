@@ -134,6 +134,45 @@ def e2e_musicgen_timeout_sec(default: int) -> int:
         return int(default)
 
 
+def _hub_model_cached(cache: Path, model_id: str) -> bool:
+    slug = "models--" + str(model_id or "").replace("/", "--")
+    root = cache / "hub" / slug / "snapshots"
+    try:
+        return root.is_dir() and any(p.is_dir() for p in root.iterdir())
+    except OSError:
+        return False
+
+
+def hub_env_for_request(req: Path, cache: Path) -> dict[str, str]:
+    """Hugging Face Hub environment for one generation subprocess.
+
+    A model that is already in the local cache is loaded offline: the Hub
+    client otherwise contacts huggingface.co to check for updates on every
+    load, and a hung connection there (a 6 s stinger sat 15 minutes on a
+    CLOSE_WAIT socket, exec_062, ISSUES 84) stalls the whole run for the
+    length of the generation timeout. When the model is not cached, the
+    fetch is allowed but with bounded timeouts. Platform neutral: MLX/MPS on
+    macOS and CUDA on Windows use the same client.
+    """
+    out: dict[str, str] = {
+        "HF_HUB_ETAG_TIMEOUT": "10",
+        "HF_HUB_DOWNLOAD_TIMEOUT": "30",
+    }
+    model_ids: list[str] = []
+    try:
+        doc = json.loads(Path(req).read_text(encoding="utf-8"))
+        for key in ("model_id", "melody_model_id"):
+            value = str((doc or {}).get(key) or "").strip()
+            if value:
+                model_ids.append(value)
+    except Exception:
+        return out
+    if model_ids and all(_hub_model_cached(cache, m) for m in model_ids):
+        out["HF_HUB_OFFLINE"] = "1"
+        out["TRANSFORMERS_OFFLINE"] = "1"
+    return out
+
+
 def musicgen_timeouts_for_duration(
     duration_sec: float,
     *,
@@ -525,6 +564,8 @@ def _spawn_musicgen(
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(cache / "hub"))
     # Soft ops fallback when an op is missing on Metal (does not override device=cpu).
     env.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    for key, value in hub_env_for_request(req, cache).items():
+        env.setdefault(key, value)
     if extra_env:
         env.update(extra_env)
     from interview_mux.gpu_exclusive import gpu_exclusive

@@ -2766,7 +2766,7 @@ Tests: `test_engine_declares_driver_ownership_in_both_modes`.
 ## [83] GUI: a deliberately skipped optional step shows as FAILED
 
 **Stage / area:** stage workbench card for `missing_framing` / Fill gaps
-**Status:** open, cosmetic.
+**Status:** fixed (the output view reports skipped gap-fill outputs as skipped; the card is gone).
 
 On a run whose pipeline mode is native-only (`gap_fill_mode: skipped`,
 reason "pipeline_mode native_only, skip gap-fill VO"), the Fill gaps step
@@ -2775,8 +2775,36 @@ understanding/gap_framing_plan.json is pending". The stage was skipped on
 purpose and every downstream stage completed; the card reads a missing
 optional artifact as a failure. The maintainer's macOS run showed the same
 card at the same step. The stage row should report skipped with the reason.
-Not fixed here: it needs the stage-status builder to know the skip reason,
-and no run output is affected.
+Fix: `artifact_lifecycle.build_outputs_view` reports the outputs of the five
+gap-fill stages as `skipped` when gap fill was skipped, and
+`stage_output_mode` returns `optional_skipped` for all five (it did for
+three). The GUI treats a skipped output as satisfied. No run output changes.
+
+---
+
+## [84] PRODUCT: MusicGen hung for the whole generation timeout on a Hub connection for a model already on disk
+
+**Stage / area:** `musicgen_runner` subprocess environment (macOS and Windows alike)
+**Status:** fixed.
+
+exec_062, `mmaudio_sfx`: a 6-second stinger on `facebook/musicgen-small`
+showed "MusicGen generating" for 15 minutes. The GPU sat at 5 percent and
+536 MB; the generation child had used 116 CPU-seconds in that time and
+held one `CLOSE_WAIT` socket to huggingface.co. The model was fully cached
+locally. The Hub client contacts huggingface.co on every `from_pretrained`
+to check for updates, and a connection that dies mid-handshake leaves it
+waiting; the parent only gives up at the generation timeout (900 s here),
+then steps down the ladder, which loads a model the same way. Nothing
+platform-specific: macOS loads through the same client.
+
+Fix: `hub_env_for_request` sets `HF_HUB_OFFLINE=1` and
+`TRANSFORMERS_OFFLINE=1` for the subprocess when every model the request
+names has a snapshot in the local cache, and always bounds
+`HF_HUB_ETAG_TIMEOUT` (10 s) and `HF_HUB_DOWNLOAD_TIMEOUT` (30 s) so an
+uncached model can still be fetched but never hangs. Explicit values in the
+caller's environment win (`setdefault`).
+
+Tests: `tests/test_hub_offline_and_skipped_outputs.py`.
 
 ---
 

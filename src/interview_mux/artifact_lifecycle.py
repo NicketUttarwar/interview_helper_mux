@@ -799,12 +799,37 @@ def split_artifact_lists(
     return committed, staged, lifecycle
 
 
+#: Stages whose outputs exist only when gap-fill VO is active. A run that
+#: skipped gap fill (native-only pipeline mode) reports them as skipped, not
+#: pending: the GUI showed "Interviewer script incomplete, gap_framing_plan.json
+#: is pending" as FAILED over a step it had deliberately skipped (ISSUES 83).
+GAP_FILL_STAGES: tuple[str, ...] = (
+    "missing_framing",
+    "optimal_questions",
+    "g1_vo_pickup",
+    "gap_framing_compose",
+    "gap_framing_recompose",
+)
+
+
+def _gap_fill_skipped(ctx: Any, stage_id: str) -> bool:
+    if stage_id not in GAP_FILL_STAGES:
+        return False
+    try:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        return bool(gap_fill_was_skipped(ctx))
+    except Exception:
+        return False
+
+
 def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
     from interview_mux.web.stages import STAGE_BY_ID
 
     info = STAGE_BY_ID.get(stage_id)
     if not info:
         return []
+    skipped = _gap_fill_skipped(ctx, stage_id)
     rows: list[dict[str, Any]] = []
     for rel in info.artifacts or []:
         if not rel or rel.endswith("/"):
@@ -827,11 +852,14 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
                     suff = "blocking" if blocking else "ok"
             except Exception:
                 suff = "unknown"
+        status = artifact_status_for_stage(rel, ctx, stage_id)
+        if skipped and phase == "pending":
+            phase, status = "skipped", "skipped"
         rows.append(
             {
                 "path": rel,
                 "label": rel.split("/")[-1],
-                "status": artifact_status_for_stage(rel, ctx, stage_id),
+                "status": status,
                 "phase": phase,
                 "kind": "artifact",
                 "sufficiency_status": suff,
@@ -857,7 +885,7 @@ def stage_output_mode(ctx: Any, stage_id: str) -> str:
         if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
             return "optional_skipped"
 
-    if stage_id in ("missing_framing", "optimal_questions", "g1_vo_pickup"):
+    if stage_id in GAP_FILL_STAGES:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
         if gap_fill_was_skipped(ctx):
