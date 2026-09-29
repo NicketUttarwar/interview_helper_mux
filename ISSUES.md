@@ -2623,6 +2623,62 @@ Same class as entry 77 (and, for the CLI, entry 27): code outside
 
 ---
 
+## [79] STRUCTURAL: one in-process engine drives full-auto and partially-accelerated runs; the GUI keeps two gates
+
+**Stage / area:** new `interview_mux/orchestrator.py`, `cli.py orchestrate`,
+`web/server.py /execute`, `tools/full_auto_daemon_launch.py`
+**Status:** phase 1 landed (engine + launch); phase 2 (prune) after one GUI-path run.
+
+Requested by the maintainer after the stalled run on macOS: the GUI and the
+job API are only needed at G0 (transcript review) and at a final listen and
+cover sign-off before publish. Everything else should run in one process.
+
+What was there: `tools/full_auto_driver.py` (15,010 lines) drove every stage
+by calling `POST /execute`, so stages executed inside the web server, with the
+driver polling `/job` and healing by HTTP. `run_analysis` / `run_delivery`
+raise "resume=<stage>" and stop; the only in-process re-entry loop in the
+project was `tools/stub_pipeline_smoke.py --orchestrated`, the loop behind
+every 72-of-72 run on this machine. Nothing gated `podcast_publish`: the
+`require_g_publish_clear` helper is documented as dead, and partial-auto
+waited for the operator *after* publish.
+
+Phase 1:
+
+- `interview_mux/orchestrator.py`: that loop, promoted. Analysis, then
+  delivery; re-enter a phase while gates clear or stages progress; dispatch a
+  stage a failure names as its own remedy; hop back to analysis when
+  delivery invalidates one; stop early on the same error with no progress.
+  In `partially-accelerated` mode it waits at G0 (polls the transcript
+  review marker the GUI page writes) and, new, before `podcast_publish`
+  (polls `g_publish_cleared` / `g_publish_skipped`, written by the GUI's
+  g-publish page); delivery runs with `until_stage` one short of publish and
+  resumes after sign-off. In `full-auto` it signs both off itself. The consent
+  chain (framing, gap VO delivery, voice reference, clone consent, timeline
+  optimizer) is signed off through the real functions in both modes, as the
+  CLI loop always did. The run lock is held only while a phase executes,
+  never while waiting, so the GUI's gate POSTs get through.
+- `python -m interview_mux orchestrate --mode M (--run-id R | --input A)`.
+- `POST /execute` returns `deferred` while a live orchestrator owns the run
+  (`run_meta.orchestrator`, pid checked). The GUI posts there after every
+  gate it completes; a second walk inside the server next to the engine is
+  the dual-driver problem the job API had.
+- The launcher spawns the orchestrator instead of the driver. The driver is
+  reachable behind `MUX_LEGACY_DRIVER=1` for one release.
+- `gui_job.json` is written by the engine (running / gate / done / error) so
+  the GUI's job poll keeps showing progress.
+
+Phase 2, after the engine has done one run through `run.sh` on the GUI path:
+delete `full_auto_driver.py`, the keepalive loop, the daemon's driver paths,
+and the server's in-process execute modes the driver alone used. The map of
+what the driver did that `src/` does not (a survey is in the branch notes) is
+short and none of it was needed for 72 of 72.
+
+Tests: `tests/test_orchestrator.py` (full-auto never waits; partial waits at
+G0 and before publish and never signs G0 off itself; remedy dispatch; gate
+timeout; ownership only while the process lives; the three remedy shapes).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

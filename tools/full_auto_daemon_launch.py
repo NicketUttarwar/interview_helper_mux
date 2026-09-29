@@ -39,7 +39,7 @@ _DRIVER_BIND_POLL_SEC = 1.0
 _DRIVER_BIND_TIMEOUT_SEC = 120.0
 
 # Legacy process patterns (pre-rename) — still matched for stop/status during transition.
-_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
+_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py|interview_mux orchestrate"
 _KEEPALIVE_PGREP = r"full_auto_keepalive_loop\.py|baba_keepalive_loop\.py"
 
 
@@ -386,11 +386,19 @@ def ensure_e2e(
             raise RuntimeError("no existing execution to resume — pass --fresh")
         env["MUX_FRESH"] = "0"
         env["MUX_RUN_ID"] = rid
-    pid = _popen(
-        [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")],
-        E2E_CONSOLE,
-        env=env,
-    )
+    # The in-process orchestrator drives the run; stages never execute inside
+    # serve. The job-API driver stays reachable behind MUX_LEGACY_DRIVER=1 for
+    # one release, then goes.
+    if str(os.environ.get("MUX_LEGACY_DRIVER") or "").strip() == "1":
+        cmd = [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")]
+    else:
+        run_mode = "partially-accelerated" if partial_auto else "full-auto"
+        cmd = [str(VENV_PY), "-m", "interview_mux", "orchestrate", "--mode", run_mode]
+        if fresh:
+            cmd += ["--input", audio]
+        else:
+            cmd += ["--run-id", str(env.get("MUX_RUN_ID") or "")]
+    pid = _popen(cmd, E2E_CONSOLE, env=env)
     (ASSETS / "full_auto.pid").write_text(str(pid))
     return pid
 

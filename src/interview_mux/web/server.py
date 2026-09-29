@@ -2972,6 +2972,24 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/execute")
     def execute(run_id: str, body: ExecuteBody) -> dict[str, Any]:
+        # An in-process orchestrator owns the walk for this run. The GUI posts
+        # here after every gate it completes; starting a second walk inside the
+        # server next to the engine is the dual-driver problem the job API had.
+        # The gate itself already landed (its own endpoint stamped it); the
+        # engine picks it up on its next poll.
+        try:
+            from interview_mux.orchestrator import orchestrator_owns_run
+
+            owner = orchestrator_owns_run(_ctx(run_id))
+        except Exception:
+            owner = None
+        if owner:
+            return {
+                "status": "deferred",
+                "reason": "orchestrator_owns_run",
+                "orchestrator": owner,
+                "message": "The run is driven by the orchestrator; it resumes on its own.",
+            }
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
             stage = body.stage or body.from_stage
