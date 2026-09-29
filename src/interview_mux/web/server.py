@@ -96,6 +96,20 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm", ".mp4"}
 
 
+def _run_dir_label(run_dir: Path, root: Path) -> str:
+    """Run dir for API payloads: relative to the repo when it lives there.
+
+    ``executions_root`` may sit outside the repo (config/app.local.json on a
+    machine that keeps runs off a synced or path-length-limited drive), and
+    ``relative_to`` raises for that. The label is informational; an absolute
+    path is the honest value then (ISSUES entry 77).
+    """
+    try:
+        return str(run_dir.relative_to(root))
+    except ValueError:
+        return str(run_dir)
+
+
 @contextmanager
 def _guarded_run(run_id: str):
     """Serialize mutating API calls with background jobs (HTTP 409 on busy)."""
@@ -647,7 +661,7 @@ def create_app() -> FastAPI:
                     )
                     return {
                         "run_id": body.run_id,
-                        "run_dir": str(existing.run_dir.relative_to(existing.root)),
+                        "run_dir": _run_dir_label(existing.run_dir, existing.root),
                         "execution_number": meta_exist.get("execution_number")
                         if isinstance(meta_exist, dict)
                         else None,
@@ -719,7 +733,7 @@ def create_app() -> FastAPI:
         )
         payload: dict[str, Any] = {
             "run_id": ctx.run_id,
-            "run_dir": str(ctx.run_dir.relative_to(ctx.root)),
+            "run_dir": _run_dir_label(ctx.run_dir, ctx.root),
             "execution_number": meta.get("execution_number"),
             "input_audio_path": meta.get("input_audio_path"),
             "source_audio_hash": meta.get("source_audio_hash"),

@@ -2575,6 +2575,29 @@ Output quality: unchanged. These are scheduling gates; the audio decisions
 
 ---
 
+## [77] PLATFORM: the job API crashed creating a run when executions_root is outside the repo
+
+**Stage / area:** `web/server.py` `create_run` and the existing-run branch
+**Status:** fixed.
+
+First thing the GUI path did on this machine: `POST /api/runs` returned 500,
+`ValueError: 'C:\mux-local\executions\exec_056_...' is not in the subpath of
+'<repo>'`. Both run-creation responses built their `run_dir` field with
+`run_dir.relative_to(root)`, which assumes executions live under the repo.
+`config/app.local.json` puts them at `C:\mux-local` here (path-length and
+cloud-sync reasons, see docs/cross-cutting/windows-cuda-setup.md), and any
+macOS checkout that sets `executions_root` elsewhere would hit the same. The
+CLI driver never touched this code, which is why 72-of-72 runs passed
+without it.
+
+Fix: `_run_dir_label()` returns the relative path when the run is under the
+repo and the absolute path otherwise. The field is informational.
+
+Found while reproducing the reported serve wedge through the GUI path
+(serve + full-auto driver over the job API) rather than the CLI driver.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
