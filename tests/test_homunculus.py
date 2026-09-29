@@ -51,7 +51,22 @@ def _mark_analysis_prefix(ctx: RunContext, upto_stage: str) -> None:
         if not wav.is_file():
             wav.write_bytes(b"RIFF" + b"\x00" * 64)
     if "audio_preclean" in prefix:
-        # unmark_hollow_prepare_stages requires any preclean output present.
+        # Two different authorities judge preclean completeness and they do not
+        # agree: prepare_outputs_present() accepts *any* preclean/* artifact,
+        # but done_authority / reconcile_stage_done_marker only accept
+        # preclean/isolated.wav or preclean/skip.json. Writing provider.json
+        # alone satisfied the first and was then judged hollow by the second,
+        # which unlinked the done marker mid-dispatch and tripped the seed-order
+        # gate on the next call. skip.json is what a real operator skip writes
+        # (see stages/audio_preclean.ensure_preclean_skipped), so use that.
+        skip = ctx.final_path("preclean", "skip.json")
+        skip.parent.mkdir(parents=True, exist_ok=True)
+        if not skip.is_file():
+            skip.write_text(
+                '{"status":"skipped","checkpoint":"fixture",'
+                '"scope":"full","reason":"fixture"}',
+                encoding="utf-8",
+            )
         prov = ctx.path("preclean", "provider.json")
         prov.parent.mkdir(parents=True, exist_ok=True)
         if not prov.is_file():
@@ -612,7 +627,8 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     from interview_mux.config import repo_root as real_repo_root
     from interview_mux.web.server import create_app
 
-    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
+    from run_fixtures import copy_shipped_config
+    copy_shipped_config(tmp_path)
     monkeypatch.setenv("INTERVIEW_MUX_ROOT", str(tmp_path))
     assets = tmp_path / "ASSETS"
     (assets / "input").mkdir(parents=True)
@@ -2801,7 +2817,8 @@ def test_homunculus_skip_stage_api_hollow_done(tmp_path, monkeypatch) -> None:
     from interview_mux.config import repo_root as real_repo_root
     from interview_mux.web.server import create_app
 
-    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
+    from run_fixtures import copy_shipped_config
+    copy_shipped_config(tmp_path)
     monkeypatch.setenv("INTERVIEW_MUX_ROOT", str(tmp_path))
     assets = tmp_path / "ASSETS"
     (assets / "input").mkdir(parents=True)

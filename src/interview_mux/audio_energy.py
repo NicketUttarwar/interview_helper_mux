@@ -9,6 +9,8 @@ import numpy as np
 import soundfile as sf
 
 DEFAULT_WINDOW_SEC = 0.4
+# Frames per streamed read (8 MiB of float64 mono).
+_BLOCK_FRAMES = 1 << 20
 
 
 @lru_cache(maxsize=8)
@@ -21,17 +23,34 @@ def _energy_windows_cached(
     wav_path = Path(resolved)
     if not wav_path.is_file():
         return None
-    audio, sample_rate = sf.read(str(wav_path), always_2d=True)
-    mono = audio.mean(axis=1).astype(np.float64)
-    if mono.size == 0 or sample_rate <= 0:
+    # Streamed in blocks: a whole-file float64 read plus copies was several GB
+    # for a one-hour tape and got the edl stage killed (ISSUES entry 58).
+    with sf.SoundFile(str(wav_path)) as handle:
+        sample_rate = int(handle.samplerate)
+    if sample_rate <= 0:
         return None
-    peak = float(np.max(np.abs(mono))) or 1.0
     win_size = max(1, int(sample_rate * window_sec))
-    usable = (len(mono) // win_size) * win_size
-    if usable <= 0:
+    block = max(win_size, (_BLOCK_FRAMES // win_size) * win_size)
+    rms_parts: list[np.ndarray] = []
+    peak = 0.0
+    total = 0
+    carry = np.zeros((0,), dtype=np.float64)
+    for chunk in sf.blocks(str(wav_path), blocksize=block, always_2d=True, dtype="float64"):
+        mono = chunk.mean(axis=1)
+        total += len(mono)
+        if mono.size:
+            peak = max(peak, float(np.max(np.abs(mono))))
+        if carry.size:
+            mono = np.concatenate([carry, mono])
+        usable = (len(mono) // win_size) * win_size
+        if usable:
+            windows = mono[:usable].reshape(-1, win_size)
+            rms_parts.append(np.sqrt(np.mean(np.square(windows), axis=1)))
+        carry = mono[usable:]
+    if total == 0 or not rms_parts:
         return None
-    windows = mono[:usable].reshape(-1, win_size)
-    rms = np.sqrt(np.mean(np.square(windows), axis=1))
+    peak = peak or 1.0
+    rms = np.concatenate(rms_parts)
     times_ms = (np.arange(len(rms)) * win_size / float(sample_rate) * 1000.0).astype(np.float64)
     # Store as tuples so the cache value is hashable/immutable.
     return tuple(float(x) for x in rms), tuple(float(x) for x in times_ms), peak

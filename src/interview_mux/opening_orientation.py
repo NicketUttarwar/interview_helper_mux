@@ -520,7 +520,30 @@ def ensure_episode_orientation_body(
         from interview_mux.gap_vo_gates import gap_framing_enabled
 
         if not gap_framing_enabled(ctx):
-            return gap_report, []
+            # No stage may mint hosted VO in this run (gap fill skipped, e.g.
+            # native_only posture), yet the publishability contract still
+            # asked for exactly one orientation line and pinned mix forever
+            # (exec_049, ISSUES entry 51). Record the omit durably so every
+            # consumer reads the same answer: orientation is not required.
+            if orientation_omitted(gap_report):
+                return gap_report, []
+            ordered = [str(x) for x in ordered_segment_ids if x]
+            hook = None
+            try:
+                hook = native_cold_open_segment_id(ctx, ordered)
+            except Exception:
+                hook = None
+            out = dict(gap_report)
+            out["opening_orientation"] = _omit_orientation_payload(
+                first=ordered[0], hook=hook, reason="gap_framing_disabled"
+            )
+            return out, [
+                {
+                    "action": "omit_episode_orientation",
+                    "reason": "gap_framing_disabled",
+                    "segment_id": ordered[0],
+                }
+            ]
     except Exception:
         pass
 

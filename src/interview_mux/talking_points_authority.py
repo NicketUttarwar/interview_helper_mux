@@ -128,9 +128,22 @@ def narrative_from_talking_points(
     *,
     mastering_plan: dict[str, Any] | None = None,
     coverage: dict[str, Any] | None = None,
+    manifest_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Build a minimal narrative_plan from talking-point order + optional Shape plan."""
+    """Build a minimal narrative_plan from talking-point order + optional Shape plan.
+
+    ``manifest_ids``, when given, is the set of segments that currently exist.
+    The materialized cuts and the Shape plan can both predate a re-split that
+    merged segments away (chapter_close_hitch re-runs boundary_topic_resplit,
+    which honours seams locked since the first pass). Copying their ids
+    verbatim then yields an ordering constraint on a segment that is no longer
+    in the manifest, and the pre-flush barrier refuses the plan. A merged-away
+    id simply drops out here; relative order of the survivors is unchanged.
+    """
     by_tp = _cuts_by_tp(materialized)
+
+    def _live(sid: str) -> bool:
+        return not manifest_ids or sid in manifest_ids
     through = str(talking_points.get("through_line") or "").strip()
     strategy = str(talking_points.get("strategy_summary") or "").strip()
     mode = ""
@@ -162,7 +175,7 @@ def narrative_from_talking_points(
         seg_ids: list[str] = []
         for cut in cuts:
             sid = str(cut.get("segment_id") or "").strip()
-            if sid and sid not in seg_ids:
+            if sid and sid not in seg_ids and _live(sid):
                 seg_ids.append(sid)
         if not seg_ids:
             continue
@@ -189,7 +202,9 @@ def narrative_from_talking_points(
 
     # Prefer Shape-declared air order when present (append as soft constraints).
     if isinstance(mastering_plan, dict):
-        plan_order = [str(s) for s in (mastering_plan.get("ordered_segment_ids") or []) if s]
+        plan_order = [
+            str(s) for s in (mastering_plan.get("ordered_segment_ids") or []) if s and _live(str(s))
+        ]
         for i in range(len(plan_order) - 1):
             pair = {
                 "before_segment_id": plan_order[i],
@@ -325,7 +340,18 @@ def try_deterministic_narrative(ctx: RunContext) -> dict[str, Any] | None:
     if ctx.artifact_exists("master/coverage_audit.json"):
         cov = ctx.read_json("master/coverage_audit.json")
         coverage = cov if isinstance(cov, dict) else None
-    return narrative_from_talking_points(tp, mat, mastering_plan=plan, coverage=coverage)
+    manifest_ids: set[str] | None = None
+    if ctx.artifact_exists("segments/manifest.json"):
+        man = ctx.read_json("segments/manifest.json")
+        if isinstance(man, dict):
+            manifest_ids = {
+                str(seg.get("segment_id"))
+                for seg in (man.get("segments") or [])
+                if isinstance(seg, dict) and seg.get("segment_id")
+            } or None
+    return narrative_from_talking_points(
+        tp, mat, mastering_plan=plan, coverage=coverage, manifest_ids=manifest_ids
+    )
 
 
 def synthesize_narrative_from_coverage(ctx: RunContext) -> dict[str, Any] | None:

@@ -1133,12 +1133,42 @@ def playbook_post_master_quality_missing(ctx: RunContext) -> list[str]:
 
 
 def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
-    """HG-5: repair + deterministic seed (compose persist no longer covers)."""
+    """HG-5: repair + deterministic seed (compose persist no longer covers).
+
+    The write must name its owner. ``assert_gap_report_body_sole_writer`` accepts
+    only ``gap_framing_compose`` or ``nugget_layup_compose`` as body writers, and
+    seeding high-gap lines changes body text, so an unnamed write is refused with
+    ``AuthorityDenied (gap_body_writers:empty_stage_key)``. handle_stage_failure
+    calls this playbook with no staging context and does not guard it, so that
+    denial propagated out of the recovery path: the designed remedy for
+    high_gap_unframed crashed instead of repairing, and the run could not
+    self-heal past it. high_gap_heal_resume_stage returns exactly the stage that
+    owns the repair and will be resumed, which is the correct key.
+    """
     from interview_mux.artifact_repairs import repair_gap_report
     from interview_mux.high_gap_vo import (
         resolve_seats,
         seed_uncovered_high_gaps_deterministic,
     )
+    from interview_mux.stage_completion import high_gap_heal_resume_stage
+
+    def _body_owner(prior_doc: Any) -> str:
+        """The stage assert_gap_report_body_sole_writer will accept for this write.
+
+        Mirrors that check rather than guessing, and keys off the **prior**
+        on-disk doc because that is what the check reads
+        (``prior.get("nugget_layup_authority")``). That matters for the orphan
+        stamp case: the repair's job is to clear the stamp, but the write is still
+        judged against the stamp that is on disk, so layup has to own it even
+        though the repaired body no longer carries the authority. Meanwhile
+        high_gap_heal_resume_stage deliberately pins compose for an orphan stamp,
+        so the two disagree exactly here.
+        """
+        from interview_mux.artifact_ownership import GAP_REPORT_SOLE_BODY_WRITER
+
+        if isinstance(prior_doc, dict) and prior_doc.get("nugget_layup_authority"):
+            return GAP_REPORT_SOLE_BODY_WRITER
+        return high_gap_heal_resume_stage(ctx) or "gap_framing_compose"
 
     written: list[str] = []
     repaired: dict[str, Any] | None = None
@@ -1155,13 +1185,44 @@ def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
                 applied=applied,
                 origin="high_gap_vo_seed_playbook",
             )
-            ctx.write_json("understanding/gap_report.json", repaired)
+            ctx.write_json(
+                "understanding/gap_report.json",
+                repaired,
+                stage_key=_body_owner(doc),
+            )
             written.append("understanding/gap_report.json")
     if repaired is None:
         return written
     resolution = resolve_seats(ctx, intent="playbook", gap_report=repaired)
     if resolution.demoted and ctx.artifact_exists("understanding/gap_evaluations.json"):
         written.append("understanding/gap_evaluations.json")
+    # Seeding alone is not a repair the walk can use. The pinned resume stage
+    # is re-dispatched, and may_skip_as_complete is land_honest, which needs a
+    # seed-complete marker. The stage had just failed, so there is none, the
+    # walk re-runs compose, and the model's fresh body has no line for the
+    # high gap either: the seed is overwritten, the failure repeats, and the
+    # playbook seeds again. Observed as identical_failure x2 with the seeded
+    # line sitting on disk the whole time. heal_or_refuse_mark marks only when
+    # the body now satisfies completion and refuses otherwise, so it cannot
+    # fake a landing; it turns the seed into something the resume can accept.
+    try:
+        from interview_mux.stage_completion import heal_or_refuse_mark
+
+        resume = high_gap_heal_resume_stage(ctx) or "gap_framing_compose"
+        verdict = heal_or_refuse_mark(ctx, resume)
+        ctx.log(
+            f"high_gap_unframed playbook: {resume} "
+            f"{'marked complete' if verdict.get('marked') else 'still incomplete'} after seeding",
+            level="info" if verdict.get("marked") else "warn",
+            stage=resume,
+            detail={"event": "high_gap_seed_mark", **{k: v for k, v in verdict.items() if k != "stage"}},
+        )
+    except Exception as exc:  # noqa: BLE001 - marking is best effort; seeding already landed
+        ctx.log(
+            f"high_gap_unframed playbook: could not reconcile marker: {exc}",
+            level="warn",
+            stage="gap_framing_compose",
+        )
     return written
 
 

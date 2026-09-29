@@ -20,6 +20,17 @@ def test_hydrate_cue_segments_from_cue_ids(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_hydrate_cues")
     seed_analysis_ready_artifacts(ctx)
+    # seed_analysis_ready_artifacts only seeds seg_001, so seg_002 / seg_003 are
+    # orphans that sanitize drops, collapsing the order to [seg_001] and making
+    # every cue hydrate to the first selected segment. Seed the segments this
+    # test actually orders.
+    from run_fixtures import minimal_manifest
+
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_001", "seg_002", "seg_003"),
+        stage_key="segment_classification",
+    )
     ctx.write_json(
         "master/selection.json",
         {

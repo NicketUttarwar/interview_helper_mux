@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,7 @@ from interview_mux.assets_audio import ensure_wav_asset, repo_relative_path
 from interview_mux.config import merged_config, repo_root
 from filelock import FileLock
 
-from interview_mux.file_store import lock_path_for
+from interview_mux.file_store import write_lock, lock_path_for
 from interview_mux.file_store import read_json as fs_read_json
 from interview_mux.file_store import write_json as fs_write_json
 from interview_mux.session_log import append_log
@@ -81,7 +82,7 @@ class RunContext:
         cfg = merged_config()
         executions = cls._executions_root(cfg)
         counter_path = executions / ".execution_counter"
-        with FileLock(lock_path_for(counter_path)):
+        with write_lock(counter_path):
             if counter_path.is_file():
                 try:
                     n = int(counter_path.read_text(encoding="utf-8").strip()) + 1
@@ -126,6 +127,12 @@ class RunContext:
         role: str | None = None,
         mutation_class: str | None = None,
     ) -> Path:
+        if os.environ.get("MUX_TRACE_WRITES") and str(rel) in (
+            "segments/manifest.json",
+            "segments/boundaries.json",
+            "understanding/gap_report.json",
+        ):
+            _trace_segment_write(self, str(rel), data, kwargs_stage=stage_key)
         prior_gap: Any = None
         prior_transitions: Any = None
         # Ownership constitution — refuse illegal writers before any mutate.
@@ -486,7 +493,16 @@ class RunContext:
             full, short = source_audio_hash_pair(wav_input)
             meta["source_audio_hash"] = full
             meta["source_audio_hash_short"] = short
-        meta["storage_root"] = str(self.run_dir.relative_to(self.root))
+        # executions_root is a config key, so the run dir need not live under the
+        # repo. relative_to() raises for an absolute root elsewhere, which made
+        # the key unusable for its main purpose (moving heavy run artifacts off
+        # the repo volume, or onto a shorter path on Windows). Prefer the tidy
+        # relative form, fall back to absolute.
+        try:
+            storage_root = str(self.run_dir.relative_to(self.root))
+        except ValueError:
+            storage_root = str(self.run_dir)
+        meta["storage_root"] = storage_root
         try:
             from interview_mux.artifact_ownership import MATRIX_VERSION_META_KEY, matrix_version
 
@@ -506,7 +522,7 @@ class RunContext:
         """Locked read-modify-write for run_meta.json (avoids concurrent field loss)."""
         meta_path = self.final_path("run_meta.json")
         meta_path.parent.mkdir(parents=True, exist_ok=True)
-        with FileLock(lock_path_for(meta_path)):
+        with write_lock(meta_path):
             meta: dict[str, Any] = {}
             if meta_path.is_file():
                 raw = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -1064,3 +1080,38 @@ class RunContext:
             "podcast_id": meta.get("podcast_id"),
             "podcast_title": meta.get("podcast_title"),
         }
+
+
+def _trace_segment_write(ctx: Any, rel: str, data: Any, *, kwargs_stage: Any = None) -> None:
+    """Diagnostic only (MUX_TRACE_WRITES=1): who rewrote the segment map, with what.
+
+    Appends one line per manifest/boundaries write to <run_dir>/write_trace.log:
+    the declared stage key, row count, first and last row spans, and the six
+    nearest caller frames. Used to find which writer shrank a fused 0..357s
+    survivor to a 90-second window inside one stage.
+    """
+    try:
+        import traceback
+
+        rows = []
+        if isinstance(data, dict):
+            rows = [
+                r
+                for r in (data.get("segments") or data.get("boundaries") or [])
+                if isinstance(r, dict)
+            ]
+        spans = [(r.get("segment_id"), r.get("start_ms"), r.get("end_ms")) for r in rows]
+        frames = [
+            f"{Path(f.filename).name}:{f.lineno}:{f.name}"
+            for f in traceback.extract_stack(limit=14)[:-2]
+        ][-7:]
+        line = (
+            f"{datetime.now(timezone.utc).isoformat()} rel={rel} stage_key={kwargs_stage} "
+            f"rows={len(rows)} first={spans[0] if spans else None} "
+            f"last={spans[-1] if spans else None} frames={' < '.join(reversed(frames))}"
+            + chr(10)
+        )
+        with open(Path(ctx.run_dir) / "write_trace.log", "a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass

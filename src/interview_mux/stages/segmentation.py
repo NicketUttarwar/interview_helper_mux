@@ -195,6 +195,34 @@ def run_boundaries(ctx: RunContext) -> None:
     _assert_boundary_quality(ctx)
 
 
+#: A full episode must have at least this many boundaries to count as
+#: fine-grained. Below the full-episode length the floor scales down with the
+#: tape, so a short source is judged against what it could plausibly contain.
+BOUNDARY_SEGMENT_FLOOR_FULL = 8
+BOUNDARY_FULL_EPISODE_MS = 10 * 60 * 1000
+
+
+def _boundary_segment_floor(duration_ms: int, sc: dict[str, Any] | None = None) -> int:
+    """Minimum boundary count for a tape of ``duration_ms``.
+
+    The floor was a flat 8 regardless of length, which no tape under several
+    minutes can meet: a 6-minute two-speaker excerpt with 5 sensible
+    boundaries covering 79% was rejected as coarse, and a 2-minute one with 3
+    could never pass. That blocked every delivery stage on any short source,
+    so an end-to-end check needed a full episode and its full token cost.
+
+    At and above the full-episode length nothing changes: the floor is still 8.
+    Below it the floor scales proportionally and never drops under 2, so a
+    short tape still has to be cut at least once to count as segmented.
+    """
+    sc = sc or {}
+    full = int(sc.get("boundary_quality_segment_floor") or BOUNDARY_SEGMENT_FLOOR_FULL)
+    full_ms = int(sc.get("boundary_quality_full_episode_ms") or BOUNDARY_FULL_EPISODE_MS)
+    if duration_ms <= 0 or duration_ms >= full_ms:
+        return full
+    return max(2, round(full * duration_ms / full_ms))
+
+
 def evaluate_boundary_quality(
     doc: dict,
     *,
@@ -234,11 +262,12 @@ def evaluate_boundary_quality(
     if duration_ms <= 0:
         duration_ms = last_end
     coarse_heuristic_ms = int(sc.get("boundary_quality_coarse_heuristic_ms") or 120_000)
+    floor = _boundary_segment_floor(duration_ms, sc)
     if duration_ms:
         if max_ms is not None:
-            expected_min_segments = max(8, int(duration_ms / max_ms) + 1)
+            expected_min_segments = max(floor, int(duration_ms / max_ms) + 1)
         else:
-            expected_min_segments = max(8, int(duration_ms / coarse_heuristic_ms) + 1)
+            expected_min_segments = max(floor, int(duration_ms / coarse_heuristic_ms) + 1)
     else:
         expected_min_segments = 0
     covered_ms = 0
@@ -262,7 +291,7 @@ def evaluate_boundary_quality(
     critical_coverage = float(sc.get("boundary_quality_critical_coverage_ratio") or 0.70)
     fine_grained = bool(
         durs_ms
-        and len(durs_ms) >= max(8, expected_min_segments or 8)
+        and len(durs_ms) >= max(floor, expected_min_segments or floor)
         and (
             max_ms is None
             or (mean_ms < max_ms * 0.55 and near_ceiling_ratio < 0.20)

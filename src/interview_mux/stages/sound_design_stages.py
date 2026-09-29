@@ -25,6 +25,37 @@ from interview_mux.stage_completion import heal_or_refuse_mark
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
 
+# Delivery writers whose SDP body is paid work; palettes never overwrites them.
+_PAID_SDP_PRODUCERS = frozenset(
+    {"sound_design_plan", "music_palette_compose", "sfx_prompt_craft", "sound_design_vo_finalize"}
+)
+
+
+def _delivery_sdp_paid_by(ctx: RunContext) -> str:
+    """Producer of a plan that already carries delivery work, else "".
+
+    The producer stamp alone is not proof: a bare write of the scaffold is
+    stamped ``sound_design_plan`` by the one-writer default. Paid means a
+    delivery writer stamped it *and* it holds assets, cues or palettes.
+    """
+    try:
+        sdp = ctx.read_json(_SOUND_DESIGN_PLAN_REL)
+    except Exception:
+        return ""
+    if not isinstance(sdp, dict):
+        return ""
+    meta = sdp.get("_meta") if isinstance(sdp.get("_meta"), dict) else {}
+    producer = str(meta.get("producer_stage") or "")
+    if producer not in _PAID_SDP_PRODUCERS:
+        return ""
+    assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
+    palettes = [p for p in (sdp.get("palettes") or []) if isinstance(p, dict)]
+    flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    cues = [c for c in (podcast.get("cues") or []) if isinstance(c, dict)]
+    return producer if (assets or palettes or cues) else ""
+
+
 def run_sound_design_palettes(ctx: RunContext) -> None:
     if not _sound_design_enabled(ctx):
         _mark_skipped(ctx, "sound_design_palettes")
@@ -33,6 +64,19 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
     # Simplification: defer palette inventing to sound_design_plan (single musical decision site).
     sd_cfg = merged_config().get("sound_design") or {}
     if not bool(sd_cfg.get("early_palettes_llm", False)):
+        # A re-run after delivery already paid the plan must not restamp the
+        # shared path as ours: that unlands sound_design_plan and re-invokes
+        # its LLM volley (ISSUES entry 46). Keep the paid document, mark done.
+        paid_by = _delivery_sdp_paid_by(ctx)
+        if paid_by:
+            ctx.log(
+                "sound_design_palettes: delivery SDP already paid "
+                f"(producer={paid_by}); leaving it untouched",
+                level="info",
+                stage="sound_design_palettes",
+            )
+            heal_or_refuse_mark(ctx, "sound_design_palettes", force=True)
+            return
         sdp = _load_sound_design_plan(ctx)
         if not isinstance(sdp.get("palettes"), list):
             sdp["palettes"] = []

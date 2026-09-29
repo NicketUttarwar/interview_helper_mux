@@ -119,6 +119,17 @@ def commit_ranking_with_deterministic_fallback(ctx: RunContext) -> bool:
     return True
 
 
+def _closing_ids(ctx: Any, selection: dict[str, Any]) -> set[str]:
+    """Farewell the ranker placed last (air_order_integrity.closing_segment_ids)."""
+    try:
+        from interview_mux.air_order_integrity import closing_segment_ids
+
+        ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
+        return closing_segment_ids(ctx, ordered)
+    except Exception:
+        return set()
+
+
 def _source_start_ms_map(ctx) -> dict[str, int]:
     starts: dict[str, int] = {}
     for rel in ("segments/boundaries.json", "segments/segments.json", "segments/manifest.json"):
@@ -176,7 +187,8 @@ def finalize_selection_order(
     starts = _source_start_ms_map(ctx) or None
 
     artifacts, _ = repair_selection_order(
-        artifacts, plan, source_start_ms=starts
+        artifacts, plan, source_start_ms=starts,
+        protect_final_ids=_closing_ids(ctx, artifacts),
     )
     artifacts = enforce_hard_keeps(ctx, artifacts)
     artifacts, _ = repair_air_order_integrity(ctx, artifacts)
@@ -190,7 +202,8 @@ def finalize_selection_order(
         artifacts = bump_order_lock(artifacts, source=stage)
         artifacts = enforce_hard_keeps(ctx, artifacts)
         artifacts, _ = repair_selection_order(
-            artifacts, plan, source_start_ms=starts
+            artifacts, plan, source_start_ms=starts,
+            protect_final_ids=_closing_ids(ctx, artifacts),
         )
         artifacts, _ = repair_air_order_integrity(ctx, artifacts)
 
@@ -198,7 +211,8 @@ def finalize_selection_order(
     tail_errs = finale_tail_errors(final_ordered, plan)
     if tail_errs:
         artifacts, _ = repair_selection_order(
-            artifacts, plan, source_start_ms=starts
+            artifacts, plan, source_start_ms=starts,
+            protect_final_ids=_closing_ids(ctx, artifacts),
         )
         artifacts, _ = repair_air_order_integrity(ctx, artifacts)
 
@@ -477,6 +491,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         artifacts, topo_notes = repair_selection_order(
             artifacts, plan if isinstance(plan, dict) else None,
             source_start_ms=_source_start_ms_map(c) or None,
+            protect_final_ids=_closing_ids(c, artifacts),
         )
         if topo_notes:
             c.log(
@@ -825,6 +840,18 @@ def run_transitions(ctx: RunContext) -> None:
         )
         from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
+        # The model may legitimately decide no spoken bridge is needed across a
+        # locked order and return an empty list with status complete. The
+        # contract allows it (transitions min_rows 0), but the completeness
+        # gap rule only accepts an empty list through empty_ok, which nothing
+        # stamped, so the stage could never be marked done: "master/
+        # transitions.json is partial" on a real run, with the model's
+        # rationale sitting in the reply. Record the verdict when the model's
+        # own list was empty; rows that the guards below remove do not count.
+        model_returned_none = not [
+            r for r in (artifacts.get("transitions") or []) if isinstance(r, dict)
+        ]
+
         gap_report = (
             c.read_json("understanding/gap_report.json")
             if c.artifact_exists("understanding/gap_report.json")
@@ -954,6 +981,9 @@ def run_transitions(ctx: RunContext) -> None:
                     row["vo_shape"] = stamped.get("vo_shape")
         except Exception:
             pass
+        if model_returned_none and not artifacts.get("transitions"):
+            artifacts["empty_ok"] = True
+            artifacts["empty_reason"] = "model_returned_no_transitions"
         persist(c, artifacts)
 
     with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):

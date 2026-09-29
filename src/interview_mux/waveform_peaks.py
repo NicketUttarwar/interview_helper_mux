@@ -28,17 +28,34 @@ def _resolve_audio_path(ctx: RunContext, rel_path: str) -> Path:
     return p
 
 
+# Frames per read. 2^20 mono float32 frames is 4 MiB; the old whole-file read
+# held three float64 copies of a one-hour tape at once (about 4 GB) and was
+# the run's memory peak before any model had loaded (ISSUES entry 54).
+_BLOCK_FRAMES = 1 << 20
+
+
 def generate_peaks(audio_path: Path, *, window_ms: int = _WINDOW_MS) -> list[dict[str, int | float]]:
-    audio, sample_rate = sf.read(str(audio_path), always_2d=True)
-    mono = audio.mean(axis=1).astype(np.float64)
-    if mono.size == 0 or sample_rate <= 0:
+    """Per-window peak envelope, streamed so memory does not scale with tape length."""
+    with sf.SoundFile(str(audio_path)) as handle:
+        sample_rate = int(handle.samplerate)
+    if sample_rate <= 0:
         return []
     win_size = max(1, int(sample_rate * window_ms / 1000.0))
-    usable = (len(mono) // win_size) * win_size
-    if usable <= 0:
+    block = max(win_size, (_BLOCK_FRAMES // win_size) * win_size)
+    peaks_parts: list[np.ndarray] = []
+    carry = np.zeros((0,), dtype=np.float32)
+    for chunk in sf.blocks(str(audio_path), blocksize=block, always_2d=True, dtype="float32"):
+        mono = chunk.mean(axis=1, dtype=np.float32)
+        if carry.size:
+            mono = np.concatenate([carry, mono])
+        usable = (len(mono) // win_size) * win_size
+        if usable:
+            windows = mono[:usable].reshape(-1, win_size)
+            peaks_parts.append(np.max(np.abs(windows), axis=1))
+        carry = mono[usable:]
+    if not peaks_parts:
         return []
-    windows = mono[:usable].reshape(-1, win_size)
-    peaks = np.max(np.abs(windows), axis=1)
+    peaks = np.concatenate(peaks_parts).astype(np.float64)
     peak_max = float(np.max(peaks)) or 1.0
     times_ms = (np.arange(len(peaks)) * win_size / float(sample_rate) * 1000.0).astype(np.int64)
     return [

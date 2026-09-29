@@ -70,6 +70,16 @@ def test_execute_not_blocked_by_consent(tmp_path, monkeypatch) -> None:
         done.write_text("done\n", encoding="utf-8")
     patch_server_ctx(monkeypatch, ctx)
 
+    from interview_mux.config import merged_config
+
+    if not str((merged_config().get("secrets") or {}).get("OPENAI_API_KEY") or "").strip():
+        import pytest
+
+        pytest.skip(
+            "no OPENAI_API_KEY configured: the server then reports "
+            "needs_api_consent for missing credentials, which this test cannot "
+            "distinguish from consent actually blocking execution"
+        )
     client = TestClient(create_app())
     res = client.post(
         f"/api/runs/{ctx.run_id}/execute",

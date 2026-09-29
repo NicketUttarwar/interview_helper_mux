@@ -4,13 +4,15 @@ Turn a long-form interview recording into a **mastered podcast** (`master/master
 
 Details: [NORTH_STAR.md](NORTH_STAR.md) · [SETUP.md](SETUP.md) · [AGENTS.md](AGENTS.md) · [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](terraform/README.md)
 
-Pipeline: **67 stages** (34 analysis + 33 delivery) in [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
+Pipeline: **72 stages** (35 analysis + 37 delivery) in [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 ---
 
 ## Fresh environment (once per machine)
 
 Requires: macOS Apple Silicon recommended (local STT / image), Python 3.12, `ffmpeg`, Node (for GUI), Terraform `~> 1.14.7` if you will publish RSS.
+
+**Windows / Linux + NVIDIA:** MLX is Apple-only. Use `./scripts/bootstrap_venv_windows.sh`, which builds the CUDA equivalents (faster-whisper, transformers+bitsandbytes, DeepFilterNet wheel) behind the same pipeline contracts — see [docs/cross-cutting/windows-cuda-setup.md](docs/cross-cutting/windows-cuda-setup.md).
 
 ```bash
 # 1) Clone / enter repo

@@ -1008,6 +1008,48 @@ def run_analysis(
     )
 
 
+def _run_delivery_conductor_until_stalled(
+    ctx: RunContext, planned: list[str], run_phase: Any
+) -> dict[str, Any]:
+    """Re-enter the delivery conductor while each pass lands new stages.
+
+    The conductor pins itself to the seed front and walks one producer per
+    pass, then reports the rest as ``remaining_after``. Raising after every
+    single landing made a 37-stage delivery need a resume per stage
+    (ISSUES entry 47). Loop here while the done count grows and no master is
+    committed; stop on the first pass that lands nothing and let the existing
+    incomplete handling name the resume stage.
+    """
+    from interview_mux.done_authority import may_skip_as_complete
+    from interview_mux.v2.config import DELIVERY_ORDER
+
+    def _done_count() -> int:
+        # Land-honest census between passes: a hollow stamp is not progress.
+        return sum(1 for sid in DELIVERY_ORDER if may_skip_as_complete(ctx, sid))
+
+    result: dict[str, Any] = {}
+    for _pass in range(len(DELIVERY_ORDER) + 2):
+        before = _done_count()
+        result = run_phase(ctx, "delivery", planned)
+        if not isinstance(result, dict):
+            result = {}
+        if (result.get("conductor") or {}).get("blocked_on_analysis"):
+            break
+        remaining = list(result.get("remaining_after") or [])
+        if not remaining or ctx.final_path("master", "master.wav").is_file():
+            break
+        landed = _done_count() - before
+        if landed <= 0:
+            break
+        ctx.log(
+            f"delivery conductor landed {landed} stage(s); "
+            f"{len(remaining)} remaining, re-entering from {remaining[0]}",
+            level="info",
+            stage=str(remaining[0]),
+        )
+    return result
+
+
 def run_delivery(
     ctx: RunContext,
     *,
@@ -1094,7 +1136,7 @@ def _run_steps(
     ):
         from interview_mux.homunculus.agenda import run_homunculus_phase
 
-        result = run_homunculus_phase(ctx, "delivery", planned)
+        result = _run_delivery_conductor_until_stalled(ctx, planned, run_homunculus_phase)
         blocked = (result.get("conductor") or {}).get("blocked_on_analysis") if isinstance(result, dict) else None
         if blocked:
             raise RuntimeError(

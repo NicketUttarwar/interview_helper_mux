@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from interview_mux.gates import check_edl_narrative_qc, check_edl_qc, check_narrative_qc
 from interview_mux.operator_subprocess import run_command
@@ -47,6 +47,58 @@ def _commit_edl_gap_report(ctx: RunContext, gap_report: dict) -> None:
         return
 
     write_committed_json(ctx, "understanding/gap_report.json", gap_report, stage_key="edl")
+
+
+# How far past a segment's end the EDL may reach to finish a hanging thought.
+HANGING_END_EXTEND_MAX_MS = 12_000
+
+
+def extend_hanging_end_to_thought(
+    words: list[dict[str, Any]],
+    speech_end_ms: int,
+    *,
+    next_keeper_start_ms: int | None = None,
+    max_extend_ms: int = HANGING_END_EXTEND_MAX_MS,
+) -> int | None:
+    """End of the first complete thought after ``speech_end_ms``, or None.
+
+    Used only when a kept segment has no complete-thought point inside it
+    (boundary detection cut it mid-sentence), so trimming back cannot help.
+    Never runs into the next on-air segment: when that segment starts on the
+    tape inside the window, the horizon stops just before it (exec_052
+    seg_060 ended "this is going to be", ISSUES entry 57).
+    """
+    from interview_mux.edl_narrative_qc import first_qc_hinge_between
+
+    horizon = int(speech_end_ms) + int(max_extend_ms)
+    if next_keeper_start_ms is not None:
+        nxt = int(next_keeper_start_ms)
+        # Next on-air segment starts at or before this end (tape-adjacent, as
+        # seg_059 -> seg_060 on exec_052): any extension would overlap it.
+        if nxt <= int(speech_end_ms) + 40:
+            return None
+        horizon = min(horizon, nxt - 40)
+    if horizon <= speech_end_ms:
+        return None
+    # Same definition of "complete" as EDL QC: an extension QC would still
+    # reject is no fix (exec_052 seg_060, ISSUES entry 59).
+    return first_qc_hinge_between(words, int(speech_end_ms), horizon)
+
+
+def nle_committed_on_disk(
+    disk_order: list[str], nle_order: list[str], disk_selection: dict[str, Any]
+) -> bool:
+    """True when the NLE edits are already reflected in the disk selection.
+
+    The order is what matters. ``nle_applied`` is only stamped by
+    ``apply_nle_to_selection``; a later selection writer (ranking, CTA prune)
+    that lands the same order without that path drops the stamp, and edl then
+    refused forever although nothing was uncommitted (exec_052, ISSUES
+    entry 56). A differing order still refuses.
+    """
+    if nle_order != disk_order:
+        return False
+    return True
 
 
 def _segment_by_id(ctx: RunContext) -> dict[str, dict]:
@@ -816,6 +868,34 @@ def build_flow1_edl(
                 )
                 if fixed is not None and fixed - speech_start >= 400:
                     speech_end = int(fixed)
+                else:
+                    # Nearest on-air start after this end, wherever it sits in
+                    # the air order: a reordered episode can have a later tape
+                    # segment on air that is not the next clip.
+                    later_starts = [
+                        int(segments_by_id[o]["start_ms"])
+                        for o in ordered
+                        if o != sid
+                        and isinstance(segments_by_id.get(o), dict)
+                        and segments_by_id[o].get("start_ms") is not None
+                        and int(segments_by_id[o]["start_ms"]) >= speech_end
+                    ]
+                    nearest = min(later_starts) if later_starts else None
+                    if next_keeper_start is not None and (
+                        nearest is None or next_keeper_start < nearest
+                    ):
+                        nearest = next_keeper_start
+                    extended = extend_hanging_end_to_thought(
+                        words,
+                        speech_end,
+                        next_keeper_start_ms=nearest,
+                    )
+                    if extended is not None:
+                        speech_end = extended
+                        air_meta["air_bound_reason"] = (
+                            str(air_meta.get("air_bound_reason") or "")
+                            + "+hanging_end_extend"
+                        ).lstrip("+")
         speech_dur = max(0, speech_end - speech_start)
         if words and speech_dur < 5000:
             from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
@@ -1365,7 +1445,7 @@ def run_edl(ctx: RunContext) -> None:
             nle_order = [
                 str(s) for s in (preview.get("ordered_segment_ids") or []) if s
             ]
-            if nle_order != disk_order or not disk_selection.get("nle_applied"):
+            if not nle_committed_on_disk(disk_order, nle_order, disk_selection):
                 raise SystemExit(
                     "edl: NLE operator edits not committed on disk selection — "
                     "land NLE via selection owner before edl "

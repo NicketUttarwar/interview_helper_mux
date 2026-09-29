@@ -241,7 +241,7 @@ DONE_WHEN_CATALOG: dict[str, dict[str, Any]] = {
         "done_when": "Rewrite restamps producer + reconciles co-producer done",
         "proofs": [
             _pytest(
-                "tests/test_shared_path_authority.py::test_a05_reanchor_clears_content_context_done"
+                "tests/test_shared_path_authority.py::test_a05_reanchor_keeps_upstream_content_context_done"
             ),
             _pytest(
                 "tests/test_shared_path_authority.py::test_a05_same_fingerprint_no_unmark_thrash"

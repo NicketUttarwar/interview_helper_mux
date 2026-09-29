@@ -408,6 +408,28 @@ def _check_order_drift(
     ]
 
 
+def _orientation_demand_applies(
+    ctx: RunContext, gap_report: dict[str, Any] | None
+) -> bool:
+    """False when no stage may mint hosted VO and none is on the books.
+
+    With gap framing disabled (gap fill skipped, native_only posture) the
+    orientation line can never appear; demanding it pinned mix on
+    ``opening_orientation_count=0 expected=1`` with no producer able to act
+    (exec_049, ISSUES entry 51). A line that does exist is still validated.
+    """
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        if gap_framing_enabled(ctx):
+            return True
+        lines = (gap_report or {}).get("interviewer_lines") if isinstance(gap_report, dict) else []
+        return any(isinstance(x, dict) and is_episode_orientation(x) for x in (lines or []))
+    except Exception:
+        return True
+
+
 def _check_opening_orientation(
     gap_report: dict[str, Any] | None,
     edl: dict[str, Any] | None,
@@ -704,7 +726,8 @@ def validate_publishability(
         elif name == "order_drift":
             violations.extend(_check_order_drift(selection, edl))
         elif name == "opening_orientation":
-            violations.extend(_check_opening_orientation(gap_report, edl))
+            if _orientation_demand_applies(ctx, gap_report):
+                violations.extend(_check_opening_orientation(gap_report, edl))
         elif name == "pending_writes":
             violations.extend(_check_pending_writes(ctx))
         elif name == "critical_junction":

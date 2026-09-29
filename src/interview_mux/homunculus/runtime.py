@@ -121,31 +121,19 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                 pass
         # A1-1: remaster-in-flight lives in junction_recut_precedes_mix (no
         # assembly.wav short-circuit). Live residuals still bypass mix.
-        if stage == "junction_snip_qa" and earliest == "mix":
-            try:
-                from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+        # Ordering exceptions live in one place (ISSUES entry 62).
+        from interview_mux.ordering_authority import ordering_exempt
 
-                if junction_recut_precedes_mix(ctx):
-                    ctx.log(
-                        "seed order: junction_snip_qa runs before first mix — "
-                        "live incomplete-cut residuals need recut/fuse/omit",
-                        level="info",
-                        stage="junction_snip_qa",
-                    )
-                    return None
-            except Exception:
-                pass
-        # HAU speech-first: beds optional until remaster — do not pin mix
-        # behind MusicGen/MMAudio (exec_13170: seed_block → music_palette).
-        if stage == "mix":
-            try:
-                from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
-                from interview_mux.mix_junction_seat import beds_deferred_for_mix
-
-                if beds_deferred_for_mix(ctx) and earliest in MUSIC_BEFORE_MIX:
-                    return None
-            except Exception:
-                pass
+        exempt = ordering_exempt(ctx, stage, earliest)
+        if exempt:
+            if exempt == "junction_recut_precedes_mix":
+                ctx.log(
+                    "seed order: junction_snip_qa runs before first mix — "
+                    "live incomplete-cut residuals need recut/fuse/omit",
+                    level="info",
+                    stage="junction_snip_qa",
+                )
+            return None
         if earliest:
             try:
                 from interview_mux.hosted_vo_authority import seed_walk_pin_for_hollow_hosted_vo

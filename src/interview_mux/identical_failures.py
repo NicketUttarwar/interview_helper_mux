@@ -1024,7 +1024,11 @@ def sync_identical_halts_with_product(
             _restore_identical_rows(ctx, preserved)
             cleared = max(0, int(cleared) - len(preserved))
     elif product_changed:
-        cleared = clear_edl_repair_halts(ctx)
+        # Patch-and-resume: a x3 halt counted under the previous code is not
+        # evidence about this code. exec_055 inherited "complete junction
+        # before mix" x6 across two fixes and halted before either could run
+        # (ISSUES 75).
+        cleared = clear_all_halts(ctx)
     else:
         cleared = 0
     memo_cleared = 0

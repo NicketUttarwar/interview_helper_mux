@@ -316,9 +316,17 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
                 drop_reasons.setdefault(sid, "drop_never_touch_cta")
 
     # 2b. hitch-stale / framing ghosts — never keep ordered ids off the live tape
-    live_ids = set(_segment_starts(ctx))
+    starts_map = _segment_starts(ctx)
+    live_ids = set(starts_map)
     if live_ids:
-        ghost = [s for s in ordered if s not in live_ids]
+        # Letter-split children (seg_062la) are produced at runtime by the
+        # resplit stages and are never written into segments/manifest.json, so
+        # they look like ghosts here even though their parent span is on the
+        # tape. Resolve them to that ancestor first, or a legitimate split is
+        # deleted and the family collapses to its parent, which then also loses
+        # the inherited-span hints built further down from the surviving ids.
+        resolved_live = set(_inherit_letter_family_starts(starts_map, ordered))
+        ghost = [s for s in ordered if s not in resolved_live]
         if ghost:
             ordered = [s for s in ordered if s in live_ids]
             actions.append({"action": "drop_orphan_ref", "ids": ghost[:24]})
@@ -621,7 +629,23 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
 
     # Refuse thresholds
     if after_n == 0:
-        errors.append("ordered_segment_ids empty after sanitize")
+        # Say *why* it emptied. Without this the caller raises
+        # "ordered_segment_ids empty after sanitize" with the cause discarded,
+        # which forces a debugger to re-derive it from an already-failed run.
+        # drop_reasons is keyed by segment id, so summarise by reason and name a
+        # few ids per reason.
+        by_reason: dict[str, list[str]] = {}
+        for sid, why in drop_reasons.items():
+            by_reason.setdefault(str(why or "unknown"), []).append(str(sid))
+        detail = "; ".join(
+            f"{why}={sorted(ids)[:6]}" for why, ids in sorted(by_reason.items())
+        )
+        msg = f"ordered_segment_ids empty after sanitize (in={before_n}"
+        if detail:
+            msg += f", dropped: {detail}"
+        if not live_ids:
+            msg += ", no live segment ids available"
+        errors.append(msg + ")")
     fam2: dict[str, int] = {}
     for s in ordered:
         fam2[_base_family(s)] = fam2.get(_base_family(s), 0) + 1

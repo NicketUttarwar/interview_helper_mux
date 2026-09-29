@@ -334,3 +334,98 @@ def test_hg5_recovery_resumes_compose_without_layup(ctx: RunContext) -> None:
     result = handle_stage_failure(ctx, "edl", RuntimeError(_HIGH_ERR))
     assert result.resume_stage == "gap_framing_compose"
     assert result.playbook_id == "high_gap_unframed"
+
+
+def test_hg5_playbook_lands_the_seed_so_resume_accepts_it(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After seeding, the playbook must try to land the pinned stage.
+
+    Seeding alone was not a usable repair: may_skip_as_complete is land_honest,
+    which needs a seed-complete marker, and the stage had just failed. The walk
+    re-ran compose, the model's fresh body had no line for the high gap, the
+    seed was overwritten and the playbook seeded again: identical_failure x2 on
+    a real run with the seeded line on disk the whole time.
+
+    Marking goes through heal_or_refuse_mark, which judges the whole stage, so
+    this asserts the contract rather than a marker: the high-gap incompleteness
+    is cleared by the seed, and marking is consulted for the pinned stage.
+    """
+    from interview_mux import stage_completion as sc
+
+    monkeypatch.setattr(
+        "interview_mux.high_gap_vo.fill_uncovered_high_gaps", lambda *_a, **_k: 0
+    )
+    consulted: list[str] = []
+    real = sc.heal_or_refuse_mark
+
+    def spy(c, stage, **kw):
+        consulted.append(stage)
+        return real(c, stage, **kw)
+
+    monkeypatch.setattr(sc, "heal_or_refuse_mark", spy)
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report(), skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json", minimal_gap_evaluations(_HIGH_EVAL), skip_handoff=True
+    )
+    assert sc._high_gap_unframed_incompleteness(ctx, "gap_framing_compose")
+    playbook_high_gap_unframed(ctx)
+    assert sc._high_gap_unframed_incompleteness(ctx, "gap_framing_compose") is None
+    assert consulted == [high_gap_heal_resume_stage(ctx) or "gap_framing_compose"], (
+        "the playbook must ask to land the pinned stage, not leave the seed for a rerun to erase"
+    )
+
+
+def test_hg5_playbook_does_not_mark_an_incomplete_body(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Marking goes through heal_or_refuse_mark, so a body still missing its
+    high-gap line cannot be greenwashed into complete."""
+    from interview_mux.done_authority import may_skip_as_complete
+
+    monkeypatch.setattr(
+        "interview_mux.high_gap_vo.fill_uncovered_high_gaps", lambda *_a, **_k: 0
+    )
+    monkeypatch.setattr(
+        "interview_mux.high_gap_vo.seed_uncovered_high_gaps_deterministic",
+        lambda *_a, **_k: None,
+    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report(), skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json", minimal_gap_evaluations(_HIGH_EVAL), skip_handoff=True
+    )
+    playbook_high_gap_unframed(ctx)
+    assert not may_skip_as_complete(ctx, "gap_framing_compose")
+
+
+def test_hg5_compose_seeds_inline_before_it_can_fail(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The high-gap remedy runs inside compose, not only after it has raised.
+
+    On the real run the playbook seeded and marked after the failure, so the
+    next pass would have skipped through, but the orchestrated pass had already
+    stopped and three analysis stages never ran. Seeding before heal_or_raise
+    turns that into one pass.
+    """
+    from interview_mux import stage_completion as sc
+    from interview_mux.stages.gaps import _heal_gap_framing_compose_if_complete
+
+    monkeypatch.setattr(
+        "interview_mux.high_gap_vo.fill_uncovered_high_gaps", lambda *_a, **_k: 0
+    )
+    monkeypatch.setattr("interview_mux.stages.gaps._refresh_hosted_vo_after_gap_compose", lambda c: None)
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report(), skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json", minimal_gap_evaluations(_HIGH_EVAL), skip_handoff=True
+    )
+    assert sc._high_gap_unframed_incompleteness(ctx, "gap_framing_compose")
+    reason = ""
+    try:
+        _heal_gap_framing_compose_if_complete(ctx)
+    except RuntimeError as exc:  # the thin fixture may still be incomplete for other reasons
+        reason = str(exc)
+    assert "high_gap_unframed" not in reason, reason
+    assert sc._high_gap_unframed_incompleteness(ctx, "gap_framing_compose") is None
+    lines = ctx.read_json("understanding/gap_report.json").get("interviewer_lines") or []
+    assert any(str(ln.get("targets_segment_id")) == "seg_001" for ln in lines if isinstance(ln, dict))

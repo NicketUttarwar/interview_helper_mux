@@ -18,6 +18,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+def _repo_venv_python() -> Path:
+    """Repo .venv interpreter, cross-platform (Scripts/ on Windows, bin/ elsewhere)."""
+    venv = Path(__file__).resolve().parents[1] / ".venv"
+    bin_dir = venv / ("Scripts" if os.name == "nt" else "bin")
+    for name in (("python.exe", "python3.exe") if os.name == "nt" else ("python", "python3")):
+        cand = bin_dir / name
+        if cand.is_file():
+            return cand
+    return Path(sys.executable)
+
+
 
 def _e2e_soft() -> bool:
     from interview_mux.e2e_soft import e2e_soft_enabled
@@ -5379,17 +5390,17 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             except Exception:
                 stage_qc = {}
             stage_errs = [str(e) for e in (stage_qc.get("errors") or []) if e]
-            if _trip_edl_narrative_heal_loop(stage_errs or [err[:200]]):
+            if _trip_edl_narrative_heal_loop(stage_errs or [msg[:200]]):
                 log_decision(
                     "major",
                     stage="edl",
                     action="stop",
                     reason="identical_edl_narrative_qc_x3",
-                    detail=_edl_qc_heal_signature(stage_errs or [err])[:240],
+                    detail=_edl_qc_heal_signature(stage_errs or [msg])[:240],
                 )
                 log(
                     "STOP: edl_narrative_qc heal repeated ≥3 times without progress "
-                    f"({(stage_errs or [err])[:1]})"
+                    f"({(stage_errs or [msg])[:1]})"
                 )
                 return pause_needs_operator(
                     "edl_narrative_audit",
@@ -8165,7 +8176,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                 _sp.run(
                     [
-                        str(_Proot(__file__).resolve().parents[1] / ".venv" / "bin" / "python"),
+                        str(_repo_venv_python()),
                         str(_Proot(__file__).resolve().parents[1] / "tools" / "full_auto_daemon_launch.py"),
                         "server",
                         "--restart-server",
@@ -9625,7 +9636,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if ctx_r.artifact_exists("run_meta.json")
                         else {}
                     )
-                    if isinstance(meta_g, dict) and meta_g.get(
+                    if isinstance(meta_r, dict) and meta_r.get(
                         "boundary_topic_resplit_cycle_done"
                     ):
                         # Cycle already spent — rematerialize markers and continue.
@@ -11531,7 +11542,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                         ready, ready_reason = ship_path_ready(ctx)
                         if ready:
-                            _log(
+                            log(
                                 f"[DECISION major] ship_path_ready — skip junction remaster "
                                 f"({ready_reason}); pin master_finalize"
                             )
@@ -13657,7 +13668,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     import subprocess as _sp
                     from pathlib import Path as _Proot
 
-                    _py = _Proot(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+                    _py = _repo_venv_python()
                     _sp.run([str(_py), "-m", "pip", "install", "boto3>=1.35,<2"], check=False, timeout=120)
                 except Exception as exc:
                     log(f"boto3 install: {exc}")
@@ -13669,7 +13680,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     import subprocess as _sp
                     from pathlib import Path as _Proot
 
-                    _py = _Proot(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+                    _py = _repo_venv_python()
                     _sp.run([str(_py), "-m", "pip", "install", "Pillow>=10,<12"], check=False, timeout=120)
                 except Exception as exc:
                     log(f"Pillow install: {exc}")

@@ -38,6 +38,15 @@ def _impact_source_is_unenforceable(
     key = str(sid or "").strip()
     if not key:
         return True
+    # A fuse union folded this source into an on-air survivor: its tape airs,
+    # so "excluded" is only the retired id (same rule as hard keeps, ISSUES 64).
+    try:
+        from interview_mux.edl_overlap_repair import consumed_segment_ids
+
+        if key in consumed_segment_ids(ctx):
+            return True
+    except Exception:
+        pass
     try:
         if ctx.artifact_exists("segments/manifest.json"):
             man = ctx.read_json("segments/manifest.json")

@@ -1121,18 +1121,37 @@ def detect_junction_findings(
                     if extend_rec <= src_end + 20:
                         extend_rec = None
                 cut_rec = int(earlier) if can_cut and earlier is not None else None
-                _add_incomplete_repair_ladder(
-                    add,
-                    kind="on_a_roll",
-                    sid=sid,
-                    clip_index=i,
-                    end_text=end_text,
-                    extend_rec=extend_rec,
-                    cut_rec=cut_rec,
-                    can_complete=can_complete,
-                    is_micro=is_micro,
-                    evidence=f"incomplete end {end_text[-40:]!r}; same-speaker continuum",
+                # Tape trail-off: no extend, no earlier cut, and no legal close
+                # within reach either side. EDL QC accepts exactly this case
+                # (entry 59); flagging it here left only "omit", which the
+                # selection sanitizer refuses for a hard keep, so mix could
+                # never seat (exec_052 seg_060, ISSUES entry 63). Same predicate.
+                tape_trail_off = bool(
+                    extend_rec is None
+                    and cut_rec is None
+                    and isinstance(overrides.get(sid), dict)
+                    and overrides[sid].get("accepted_hanging_end")
                 )
+                if not tape_trail_off and extend_rec is None and cut_rec is None and not can_complete:
+                    try:
+                        from interview_mux.edl_narrative_qc import _hinge_reachable
+
+                        tape_trail_off = not _hinge_reachable(clip, words, src_end)
+                    except Exception:
+                        tape_trail_off = False
+                if not tape_trail_off:
+                    _add_incomplete_repair_ladder(
+                        add,
+                        kind="on_a_roll",
+                        sid=sid,
+                        clip_index=i,
+                        end_text=end_text,
+                        extend_rec=extend_rec,
+                        cut_rec=cut_rec,
+                        can_complete=can_complete,
+                        is_micro=is_micro,
+                        evidence=f"incomplete end {end_text[-40:]!r}; same-speaker continuum",
+                    )
             elif incomplete and chapter_bleed:
                 from interview_mux.chapter_close_hitch import hitch_latch_committed
 
@@ -1313,6 +1332,16 @@ def detect_junction_findings(
                 from interview_mux.theme_slot_integrity import hollow_opening_music_finding
 
                 hollow = hollow_opening_music_finding(ctx)
+                # The cold-open theme WAV comes from the music band. On the
+                # pre-mix junction pass (entry 62) music has not run yet, so a
+                # missing theme is premature, not a residual (exec_055, entry 72).
+                try:
+                    from interview_mux.delivery_guardrails import music_epoch_complete
+
+                    if hollow and not music_epoch_complete(ctx):
+                        hollow = None
+                except Exception:
+                    pass
                 if hollow:
                     add(
                         "hollow_opening_music",
@@ -1569,6 +1598,10 @@ def _fuse_or_omit_hanging_clip(
     """Fuse a hanging clip into an EDL neighbour, else omit it (F5 2C ladder)."""
     f = finding
     sid = str(f.get("segment_id") or "")
+    # The keep list from the start of the pass goes stale as this pass retires
+    # tape under carriers: ask the removal authority against the in-progress
+    # state before any omit (ISSUES 74).
+    hard_keeps = hard_keeps | _live_protected(ctx, overrides, selection, excluded)
     idx = _speech_clip_index(clips, sid)
     changed = False
     fused = False
@@ -1644,6 +1677,17 @@ def _fuse_or_omit_hanging_clip(
             )
             applied.append({**f, "status": "omitted_no_neighbor"})
             changed = True
+        elif sid and sid in hard_keeps and idx >= 0:
+            # No recut, no fuse, and omit is refused for a hard keep: the only
+            # legal outcome is to keep the clip as is. Record that decision on
+            # the NLE override so detection stops re-raising it (exec_055
+            # seg_058, ISSUES entry 72). Not a severity soften: a durable,
+            # logged decision tied to this clip.
+            ov = dict(overrides.get(sid) or {})
+            ov["accepted_hanging_end"] = "hard_keep_no_recut_no_fuse"
+            overrides[sid] = ov
+            applied.append({**f, "status": "accepted_hard_keep_hang"})
+            changed = True
         else:
             applied.append({**f, "status": "skipped_no_recommendation"})
     return clips, changed
@@ -1706,7 +1750,7 @@ def apply_junction_repairs(
         sid = str(f.get("segment_id") or "")
         if not sid or sid in excluded:
             continue
-        if sid in hard_keeps:
+        if sid in hard_keeps or sid in _live_protected(ctx, overrides, selection, excluded):
             applied.append({**f, "status": "refused_hard_keep"})
             continue
         kind = str(f.get("kind") or "exclude_micro")
@@ -1887,6 +1931,17 @@ def apply_junction_repairs(
             target_idx_i = None
 
         matched_clip = False
+        # Earlier fuses/omits in this same apply pass shift clip positions, so a
+        # stamped clip_index can point past the clip (exec_055 seg_031,
+        # skipped_clip_index_mismatch). When the id is unique among speech
+        # clips the index is not needed to disambiguate.
+        same_id = sum(
+            1
+            for c in clips
+            if str(c.get("type") or "") == "speech" and str(c.get("segment_id") or "") == sid
+        )
+        if same_id == 1:
+            target_idx_i = None
         for i, c in enumerate(clips):
             if str(c.get("type") or "") != "speech" or str(c.get("segment_id") or "") != sid:
                 continue
@@ -2316,6 +2371,26 @@ def apply_junction_repairs(
         write_live_edl(ctx, new_edl, source=STAGE_ID)
 
     return new_edl, applied, changed
+
+
+def _live_protected(
+    ctx: RunContext,
+    overrides: dict[str, Any],
+    selection: dict[str, Any],
+    excluded: set[str],
+) -> set[str]:
+    """Must-air ids under the in-progress NLE overrides and air order."""
+    try:
+        from interview_mux.removal_authority import protected_segment_ids
+
+        on_air = [
+            str(s)
+            for s in ((selection or {}).get("ordered_segment_ids") or [])
+            if s and str(s) not in excluded
+        ]
+        return protected_segment_ids(ctx, overrides=overrides, on_air=on_air or None)
+    except Exception:
+        return set()
 
 
 def _exclude_from_selection(

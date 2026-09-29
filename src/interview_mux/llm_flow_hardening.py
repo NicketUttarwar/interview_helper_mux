@@ -665,24 +665,11 @@ def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None
             pass
     earliest = _earliest_incomplete_seed_stage(ctx, stage_key)
     if earliest and earliest != stage_key:
-        if stage_key == "junction_snip_qa" and earliest == "mix":
-            try:
-                from interview_mux.junction_snip_qa import junction_recut_precedes_mix
+        # Ordering exceptions live in one place (ISSUES entry 62).
+        from interview_mux.ordering_authority import ordering_exempt
 
-                if junction_recut_precedes_mix(ctx):
-                    return
-            except Exception:
-                pass
-        # HAU speech-first: do not require MusicGen artifact before mix seats.
-        if stage_key == "mix":
-            try:
-                from interview_mux.delivery_guardrails import MUSIC_BEFORE_MIX
-                from interview_mux.mix_junction_seat import beds_deferred_for_mix
-
-                if beds_deferred_for_mix(ctx) and earliest in MUSIC_BEFORE_MIX:
-                    return
-            except Exception:
-                pass
+        if ordering_exempt(ctx, stage_key, earliest):
+            return
         require_llm_stage_progress(ctx, earliest)
         return
     upstream = resolve_llm_upstream_stage(ctx, stage_key)

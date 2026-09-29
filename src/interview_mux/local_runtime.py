@@ -9,11 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.operator_subprocess import run_command
+from interview_mux.venv_paths import venv_python
 from interview_mux.operator_trace import log_api_call, resolve_ctx, resolve_stage
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech", "chatterbox", "image"})
+RUNTIME_IDS = frozenset(
+    # "diarize" is its own runtime because NeMo/Sortformer pulls torch, while
+    # the speech venv stays lean on CTranslate2. Apple Silicon diarizes inside
+    # the speech venv via mlx_audio.vad and simply never resolves this one.
+    {"deepfilter", "mmaudio", "mlx", "llm", "speech", "chatterbox", "image", "diarize"}
+)
 
 _RUNTIME_ALIASES = {"llm": "mlx"}
 
@@ -64,6 +70,7 @@ def resolve_venv_dir(runtime_id: str) -> Path:
             "speech": "ASSETS/local_speech/venv",
             "chatterbox": "ASSETS/local_chatterbox/venv",
             "image": "ASSETS/local_image/venv",
+            "diarize": "ASSETS/local_diarize/venv",
         }
         rel = defaults.get(rid, f"ASSETS/local_{rid}/venv")
     path = Path(str(rel))
@@ -75,7 +82,7 @@ def resolve_venv_dir(runtime_id: str) -> Path:
 def resolve_venv_python(runtime_id: str) -> Path:
     if not runtime_enabled(runtime_id):
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} is disabled in config")
-    py = resolve_venv_dir(runtime_id) / "bin" / "python"
+    py = venv_python(resolve_venv_dir(runtime_id))
     if not py.is_file():
         raise LocalRuntimeUnavailable(
             f"Missing venv python for {runtime_id}: {py}. Run ./scripts/bootstrap_venv.sh"

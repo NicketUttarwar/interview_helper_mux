@@ -365,8 +365,20 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
             excluded_ids.add(str(ex))
 
     ordered = [str(x) for x in (sel.get("ordered_segment_ids") or [])]
+    # Hard-keep segments stay on air even when a framing VO covers them: the
+    # selection sanitizer refuses any order missing a hard keep, so excluding
+    # one here failed every attempt and stalled a one-hour run at 50 of 72
+    # (exec_052, ISSUES entry 55).
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        hard_keeps = {str(s) for s in (hard_keep_segment_ids(ctx) or []) if s}
+    except Exception:
+        hard_keeps = set()
     new_excludes: list[dict[str, str]] = []
     for sid in covered:
+        if sid in hard_keeps:
+            continue
         if sid and sid not in excluded_ids and sid in ordered:
             new_excludes.append({"segment_id": sid, "reason": "covered_by_framing_vo"})
             ordered = [x for x in ordered if x != sid]

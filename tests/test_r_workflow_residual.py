@@ -289,10 +289,18 @@ def test_r_wf_hitch_lattice_importable() -> None:
 
 def test_r_wf_musicgen_stub_forbidden_via_verify() -> None:
     """MusicGen stub / last-resort / waiver keys must not set-to-1 in _driver_env."""
+    import shutil
     import subprocess
 
+    import pytest
+
+    # Windows cannot exec a .sh directly (WinError 193), so go through bash.
+    # bash is present on macOS and Linux, and on Windows via Git Bash.
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available to run verify_full_auto_env.sh")
     out = subprocess.run(
-        [str(_REPO / "tools" / "verify_full_auto_env.sh")],
+        [bash, str(_REPO / "tools" / "verify_full_auto_env.sh")],
         check=False,
         capture_output=True,
         text=True,

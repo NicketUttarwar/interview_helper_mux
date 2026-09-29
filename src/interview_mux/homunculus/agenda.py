@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import json
 import shutil
 from datetime import datetime, timezone
@@ -2149,6 +2151,17 @@ def _constrain_delivery_walk_for_sticky(
     )
 
 
+_SEED_ORDER_RE = re.compile(r"seed order: complete (\S+) before running (\S+)")
+
+
+def _seed_order_prereq_from(exc: BaseException) -> str:
+    """Prerequisite named by a seed-order RuntimeError, or "" when not one."""
+    if not isinstance(exc, RuntimeError):
+        return ""
+    m = _SEED_ORDER_RE.search(str(exc))
+    return m.group(1) if m else ""
+
+
 def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None:
     """Explicit logged fallback — not a silent linear fall-through."""
     append_ledger(
@@ -2169,6 +2182,9 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
     from interview_mux.pipeline import run_single_stage
 
     setattr(ctx, "_homunculus_seed_walk", True)
+    # Each prerequisite is auto-run at most once per walk, so a genuinely broken
+    # stage cannot ping-pong the walk forever.
+    seed_prereq_retried: set[str] = set()
     try:
         from interview_mux.web.job_progress import notify_batch_plan
 
@@ -2276,6 +2292,12 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                     except Exception:
                         pass
                     raise
+                ctx.log(
+                    f"seed walk: {stage} refused for this walk and skipped: {str(exc)[:200]}",
+                    level="warning",
+                    stage=stage,
+                    detail={"event": "walk_refusal_skipped", "reason": reason},
+                )
                 continue
             if stage == "transcript_review":
                 # 3A: remainder walk must not sign G0 off. Driver owns complete_g0 / wait.
@@ -2363,6 +2385,32 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
             try:
                 run_single_stage(ctx, stage)
             except Exception as exc:
+                prereq = _seed_order_prereq_from(exc)
+                # A stage can be invalidated mid-walk by an upstream rewrite:
+                # boundary_topic_resplit rewrites segments/boundaries.json, which
+                # correctly makes framing_posture_decide stale. Raising here
+                # stalls the whole walk on a prerequisite the walk is perfectly
+                # able to satisfy, and recovery_controller has already worked out
+                # the same answer (resume=<prereq>). Run it and retry once.
+                if (
+                    prereq
+                    and prereq not in seed_prereq_retried
+                    and prereq != stage
+                    and not ctx.is_done(prereq)
+                ):
+                    seed_prereq_retried.add(prereq)
+                    ctx.log(
+                        f"seed walk: running prerequisite {prereq} before retrying {stage}",
+                        level="warning",
+                        stage=stage,
+                        detail={"event": "seed_prereq_autorun", "prereq": prereq},
+                    )
+                    try:
+                        run_single_stage(ctx, prereq)
+                        run_single_stage(ctx, stage)
+                        continue
+                    except Exception as retry_exc:
+                        exc = retry_exc
                 fp = f"{type(exc).__name__}:{str(exc)[:160]}"
                 hit = note_identical_stage_error(ctx, stage, fp)
                 if hit.get("exhausted"):

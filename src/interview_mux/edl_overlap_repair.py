@@ -478,6 +478,9 @@ def _update_nle(
             next_order.append(mapped)
         nle["sequence_order"] = next_order
     nle["segment_overrides"] = overrides
+    from interview_mux.removal_authority import refuse_nle_excludes
+
+    nle = refuse_nle_excludes(ctx, nle, producer=STAGE_KEY)
     ctx.write_json("segments/nle_edits.json", nle, skip_handoff=True, stage_key=STAGE_KEY)
 
 
@@ -511,26 +514,143 @@ def _drop_self_transitions(ctx: RunContext) -> None:
         ctx.write_json("master/transitions.json", doc, skip_handoff=True, stage_key=STAGE_KEY)
 
 
-def consumed_segment_ids(ctx: RunContext) -> set[str]:
+# Share of a retired id's tape that must stay on air for the retire to be a union.
+CONSUMED_COVERAGE = 0.9
+
+
+def _covered_by_on_air_span(ctx: RunContext, overrides: dict[str, Any]) -> set[str]:
+    """Excluded ids whose manifest span sits inside an on-air segment's span."""
+    return set(_on_air_carriers(ctx, overrides))
+
+
+def _on_air_carriers(
+    ctx: RunContext,
+    overrides: dict[str, Any],
+    *,
+    on_air: list[str] | None = None,
+) -> dict[str, str]:
+    """Map each covered excluded id to the on-air segment that carries its tape.
+
+    ``on_air`` is the proposed order when a write is being judged before it
+    lands; the selection on disk otherwise.
+    """
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return {}
+    if on_air is None and not ctx.artifact_exists("master/selection.json"):
+        return {}
+    manifest = ctx.read_json("segments/manifest.json")
+    rows = (manifest or {}).get("segments") or [] if isinstance(manifest, dict) else []
+    span: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("segment_id") and row.get("start_ms") is not None:
+            span[str(row["segment_id"])] = (int(row["start_ms"]), int(row["end_ms"]))
+    if on_air is None:
+        sel = ctx.read_json("master/selection.json")
+        on_air = (
+            [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+            if isinstance(sel, dict)
+            else []
+        )
+    on_air = [str(s) for s in on_air if s]
+
+    def _effective(sid: str) -> tuple[int, int] | None:
+        ov = overrides.get(sid) if isinstance(overrides.get(sid), dict) else {}
+        base = span.get(sid)
+        if ov and "start_ms" in ov and "end_ms" in ov:
+            return int(ov["start_ms"]), int(ov["end_ms"])
+        return base
+
+    out: dict[str, str] = {}
+    for sid, row in overrides.items():
+        if not isinstance(row, dict) or not row.get("excluded"):
+            continue
+        mine = span.get(str(sid))
+        if not mine:
+            continue
+        for other in on_air:
+            if other == sid:
+                continue
+            eff = _effective(other)
+            if not eff:
+                continue
+            length = max(1, mine[1] - mine[0])
+            overlap = max(0, min(eff[1], mine[1]) - max(eff[0], mine[0]))
+            # Thought-complete recuts move a neighbour over most of the retired
+            # tape, not always to the millisecond (exec_052 seg_024 covered 97 %
+            # of seg_025). The retire is a union when the tape essentially airs.
+            if overlap >= CONSUMED_COVERAGE * length:
+                out[str(sid)] = other
+                break
+    return out
+
+
+def _overrides_or_disk(ctx: RunContext, overrides: dict[str, Any] | None) -> dict[str, Any]:
+    if overrides is not None:
+        return overrides if isinstance(overrides, dict) else {}
+    try:
+        from interview_mux.nle_state import load_nle
+
+        got = load_nle(ctx).get("segment_overrides") or {}
+    except Exception:
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def consumed_carrier_ids(
+    ctx: RunContext,
+    ids: set[str],
+    *,
+    overrides: dict[str, Any] | None = None,
+    on_air: list[str] | None = None,
+) -> set[str]:
+    """On-air segments whose span carries the tape of a retired id in ``ids``.
+
+    A hard keep retired as covered (entry 64) airs only while its carrier airs.
+    Omitting the carrier later silently drops the keep (exec_055: seg_060
+    carried by seg_059, then junction omitted seg_059 as on_a_roll, ISSUES 73).
+    """
+    ov = _overrides_or_disk(ctx, overrides)
+    try:
+        carriers = _on_air_carriers(ctx, ov, on_air=on_air)
+    except Exception:
+        return set()
+    return {c for sid, c in carriers.items() if sid in ids}
+
+
+def consumed_segment_ids(
+    ctx: RunContext,
+    *,
+    overrides: dict[str, Any] | None = None,
+    on_air: list[str] | None = None,
+) -> set[str]:
     """Ids a fuse / overlap union absorbed into a survivor (no longer on air).
 
     Sources: NLE overrides stamped by ``_update_nle`` and ``fused_from`` on live
     manifest rows. Such an id is not a creative cut — the survivor's span already
-    covers its tape.
+    covers its tape. ``overrides`` / ``on_air`` judge a proposed write before
+    it lands (removal authority); disk state otherwise.
     """
     out: set[str] = set()
-    try:
-        from interview_mux.nle_state import load_nle
-
-        overrides = load_nle(ctx).get("segment_overrides") or {}
-    except Exception:
-        overrides = {}
+    overrides = _overrides_or_disk(ctx, overrides)
     if isinstance(overrides, dict):
         for sid, row in overrides.items():
             if not isinstance(row, dict) or not row.get("excluded"):
                 continue
-            if str(row.get("exclude_reason") or "") == STAGE_KEY:
+            reason = str(row.get("exclude_reason") or "")
+            # Junction fuse unions retire the drop id the same way
+            # ("junction_snip_qa:<kind>:fuse_<why>"); omits do not count.
+            if reason == STAGE_KEY or (
+                reason.startswith("junction_snip_qa:") and ":fuse_" in reason
+            ):
                 out.add(str(sid))
+    # Geometric truth, whatever path wrote the retire: an excluded id whose
+    # tape lies inside an on-air survivor's effective span still airs
+    # (exec_052: seg_059 extended to 3163670 covering all of seg_060, retire
+    # stamped "junction_snip_qa:on_a_roll", ISSUES entry 64).
+    try:
+        out |= set(_on_air_carriers(ctx, overrides, on_air=on_air))
+    except Exception:
+        pass
     if ctx.artifact_exists("segments/manifest.json"):
         try:
             manifest = ctx.read_json("segments/manifest.json")

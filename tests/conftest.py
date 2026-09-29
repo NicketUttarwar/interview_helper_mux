@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 from pathlib import Path
 from typing import Any
@@ -247,3 +248,34 @@ def pytest_collection_modifyitems(
     for item in items:
         if item.get_closest_marker("slow"):
             item.add_marker(skip_slow)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Fail once, clearly, when ffmpeg is missing, instead of many times obscurely.
+
+    22 call sites in the product shell out to a bare ``ffmpeg``, so without it on
+    PATH several tests die deep inside ``subprocess`` with
+
+        FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+    which names neither ffmpeg nor the test's actual subject. That is the worst
+    kind of failure to debug: it looks like the code broke when really the
+    environment did, and it stays invisible until the suite reaches an audio test.
+
+    A configure-time abort rather than a fixture, so this is one line at the top
+    of the run instead of an error stapled to every affected test. Deliberately a
+    hard failure rather than a skip: ffmpeg is not optional here, so a suite that
+    went green without it would report health it never verified.
+    """
+    missing = [exe for exe in ("ffmpeg", "ffprobe") if shutil.which(exe) is None]
+    if not missing:
+        return
+    raise pytest.UsageError(
+        "missing required binaries on PATH: "
+        + ", ".join(missing)
+        + ". The pipeline shells out to these directly, so audio tests cannot run "
+        "and neither can a real execution. Install ffmpeg (macOS: brew install "
+        "ffmpeg; Windows: winget install Gyan.FFmpeg) and make sure its bin "
+        "directory is on PATH in the shell running pytest. A shell opened before "
+        "the install will not see it."
+    )

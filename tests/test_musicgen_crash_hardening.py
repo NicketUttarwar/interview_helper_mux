@@ -27,8 +27,19 @@ def test_is_abort_returncode() -> None:
 
 
 def test_hf_home_is_local_musicgen_cache() -> None:
+    """Cache is the isolated musicgen dir, not the shared ~/.cache/huggingface.
+
+    Accepts a `musicgen.hf_cache_dir` override so the multi-GB weights can live
+    off the repo volume; the default remains ASSETS/local_musicgen/hf_cache.
+    """
+    from interview_mux.config import merged_config
+
     home = musicgen_hf_home()
-    assert home.as_posix().endswith("ASSETS/local_musicgen/hf_cache")
+    override = str((merged_config().get("musicgen") or {}).get("hf_cache_dir") or "").strip()
+    if override:
+        assert home.as_posix() == Path(override).as_posix()
+    else:
+        assert home.as_posix().endswith("ASSETS/local_musicgen/hf_cache")
 
 
 def test_effective_device_auto_prefers_mps_on_apple_silicon(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,6 +57,11 @@ def test_effective_device_auto_falls_back_when_mps_unavailable(monkeypatch: pyte
     monkeypatch.delenv("MUX_MUSICGEN_BAN_MPS", raising=False)
     monkeypatch.setattr(
         "interview_mux.musicgen_runner._mps_available_for_musicgen", lambda: False
+    )
+    # "auto" also asks the MusicGen runtime venv (ISSUES entry 43); on a CUDA
+    # machine that answers yes, which is not what this fallback test is about.
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner._runtime_venv_cuda_available", lambda: False
     )
     assert effective_musicgen_device(requested="auto") == "cpu"
     assert effective_musicgen_device(requested="mps") == "cpu"

@@ -70,6 +70,16 @@ def is_context_length_error(exc: BaseException) -> bool:
         )
     ):
         return True
+    # A 429 "Request too large ... on tokens per min (TPM)" is an oversized
+    # single request, not a burst: the provider says outright that "the input or
+    # output tokens must be reduced", which is precisely what safe pruning does.
+    # Without this the stage hard-fails instead of pruning and retrying, which is
+    # how boundary_detection died 233 tokens over a 30k TPM cap on a real run.
+    #
+    # Deliberately narrow. A plain "rate limit reached" for requests per minute
+    # needs backoff, not pruning, and must not match here.
+    if "request too large" in blob or "tokens must be reduced" in blob:
+        return True
     code = str(getattr(exc, "code", "") or "").lower()
     if code in {"context_length_exceeded", "context_length"}:
         return True

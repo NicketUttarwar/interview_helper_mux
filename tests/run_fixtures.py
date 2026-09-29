@@ -656,6 +656,29 @@ def minimal_coherence_report(**patch: Any) -> dict[str, Any]:
     return doc
 
 
+def copy_shipped_config(dest_parent: Path) -> Path:
+    """Copy ``config/`` into a fake repo root, minus per-machine overrides.
+
+    Tests that build a throwaway repo (copytree config + INTERVIEW_MUX_ROOT) want
+    the *shipped* configuration. Copying the tree wholesale also drags in the
+    gitignored ``config/app.local.json``, and any absolute path in it (an
+    executions_root moved off the repo volume, local runtime venvs) then resolves
+    outside the sandbox, so the fixture's seeded runs become invisible. Excluding
+    the overlay keeps these tests independent of whatever the operator has
+    configured locally.
+    """
+    import shutil
+
+    from interview_mux.config import repo_root as _real_repo_root
+
+    dest = Path(dest_parent) / "config"
+    shutil.copytree(
+        _real_repo_root() / "config",
+        dest,
+        ignore=shutil.ignore_patterns("app.local.json"),
+    )
+    return dest
+
 def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
     """Patch merged_config in every imported module that binds it at load time.
 

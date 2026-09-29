@@ -243,6 +243,25 @@ def _truncation_blocked_envelope(
     }
 
 
+def _chat_client() -> Any:
+    """The OpenAI client, or an offline stub when MUX_STUB_LLM=1.
+
+    The stub exists so the whole 72-stage pipeline can be traversed with no API
+    key and no network: everything around this call (prompt assembly, model
+    resolution, response-format selection, envelope normalisation, schema
+    validation, the retry ladder, call recording) still runs for real. With the
+    env var unset this is exactly the previous expression, including the
+    require_secret() failure when no key is configured.
+    """
+    from interview_mux.stub_llm import stub_enabled
+
+    if stub_enabled():
+        from interview_mux.stub_llm import StubOpenAI
+
+        return StubOpenAI()
+    return OpenAI(api_key=require_secret("OPENAI_API_KEY"))
+
+
 def _execute_openai_envelope_call(
     stage_key: str,
     prompt_rel: str,
@@ -268,7 +287,7 @@ def _execute_openai_envelope_call(
     - `messages`: full user/assistant volley (recommended; system added here), or
     - `user_content`: legacy single user JSON blob.
     """
-    client = OpenAI(api_key=require_secret("OPENAI_API_KEY"))
+    client = _chat_client()
     cfg = merged_config()
     if system_override is not None:
         system = system_override

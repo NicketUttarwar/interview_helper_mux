@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, repo_root
+from interview_mux.venv_paths import venv_python
 
 _BAN_MPS_ENV = "MUX_MUSICGEN_BAN_MPS"
 _BAN_MPS_MARKER = ".musicgen_ban_mps"
@@ -167,7 +168,15 @@ def musicgen_timeouts_for_duration(
 
 
 def musicgen_hf_home() -> Path:
-    """Isolated Hugging Face cache used by bootstrap_musicgen.sh."""
+    """Isolated Hugging Face cache used by bootstrap_musicgen.sh.
+
+    Override with ``musicgen.hf_cache_dir`` to host the weights (several GB)
+    off the repo volume — the same escape hatch the runtime venvs use.
+    """
+    custom = str((musicgen_cfg().get("hf_cache_dir") or "")).strip()
+    if custom:
+        path = Path(custom)
+        return path if path.is_absolute() else repo_root() / path
     return repo_root() / "ASSETS" / "local_musicgen" / "hf_cache"
 
 
@@ -175,11 +184,11 @@ def musicgen_venv_python() -> Path | None:
     rt = (merged_config().get("local_runtimes") or {}).get("musicgen") or {}
     venv = str(rt.get("venv_dir") or "ASSETS/local_musicgen/venv")
     root = repo_root()
-    py = root / venv / "bin" / "python"
+    py = venv_python(root / venv)
     if py.is_file():
         return py
     # Fall back to main .venv for lightweight stub / optional installs
-    main = root / ".venv" / "bin" / "python"
+    main = venv_python(root / ".venv")
     return main if main.is_file() else None
 
 
@@ -337,6 +346,37 @@ def _mps_available_for_musicgen() -> bool:
         return True
 
 
+_RUNTIME_CUDA_CACHE: dict[str, bool] = {}
+
+
+def _runtime_venv_cuda_available() -> bool:
+    """True when the MusicGen venv's torch reports a usable CUDA device.
+
+    One subprocess per process lifetime, 30 s cap, any failure counts as no.
+    """
+    key = "musicgen"
+    if key in _RUNTIME_CUDA_CACHE:
+        return _RUNTIME_CUDA_CACHE[key]
+    ok = False
+    try:
+        import subprocess
+
+        py = musicgen_venv_python()
+        if py and py.is_file():
+            proc = subprocess.run(
+                [str(py), "-c", "import torch; print(int(torch.cuda.is_available()))"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            ok = proc.returncode == 0 and proc.stdout.strip().endswith("1")
+    except Exception:
+        ok = False
+    _RUNTIME_CUDA_CACHE[key] = ok
+    return ok
+
+
 def effective_musicgen_device(*, requested: str | None = None, run_ctx: Any | None = None) -> str:
     """Resolve device. ``auto`` prefers GPU (MPS/CUDA) when available; falls back to CPU.
 
@@ -349,15 +389,19 @@ def effective_musicgen_device(*, requested: str | None = None, run_ctx: Any | No
         if not mps_banned(run_ctx=run_ctx) and _mps_available_for_musicgen():
             pref = "mps"
         else:
+            core_cuda = False
             try:
                 import torch
 
-                if torch.cuda.is_available():
-                    pref = "cuda"
-                else:
-                    pref = "cpu"
+                core_cuda = bool(torch.cuda.is_available())
             except Exception:
-                pref = "cpu"
+                core_cuda = False
+            # The core venv is deliberately lean and may carry no torch at all;
+            # MusicGen's own venv is where CUDA torch lives. Deciding "cpu"
+            # from the core interpreter sent a 20-second bed to CPU on a host
+            # with a 6 GB CUDA card. Ask the runtime venv instead. macOS is
+            # unchanged: MPS is resolved above, before this branch.
+            pref = "cuda" if (core_cuda or _runtime_venv_cuda_available()) else "cpu"
     if pref == "mps" and mps_banned(run_ctx=run_ctx):
         return "cpu"
     if pref == "mps" and not _mps_available_for_musicgen():

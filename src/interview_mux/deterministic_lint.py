@@ -850,6 +850,28 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
     return errors
 
 
+def _layup_decided_targets(ctx: Any, report: Any) -> set[str]:
+    """Targets the nugget layup explicitly typed-skipped, when it has authority."""
+    if not isinstance(report, dict) or not report.get("nugget_layup_authority"):
+        return set()
+    try:
+        if not ctx.artifact_exists("understanding/nugget_layup_plan.json"):
+            return set()
+        plan = ctx.read_json("understanding/nugget_layup_plan.json")
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for row in (plan or {}).get("layups") or [] if isinstance(plan, dict) else []:
+        if not isinstance(row, dict) or not row.get("skip"):
+            continue
+        if not str(row.get("skip_reason_code") or "").strip():
+            continue  # an untyped skip is not a decision
+        tid = str(row.get("target_segment_id") or "").strip()
+        if tid:
+            out.add(tid)
+    return out
+
+
 def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
     lines = artifacts.get("interviewer_lines") or []
@@ -886,10 +908,16 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
             from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
         except Exception:
             _segment_is_blank_or_unusable = None  # type: ignore[assignment]
+        layup_decided = _layup_decided_targets(ctx, artifacts)
         for seg_id in high_segs:
             if not seg_id or seg_id in targeted:
                 continue
             if air_ids is not None and seg_id not in air_ids:
+                continue
+            # Under nugget-layup authority the plan owns which seams get VO; a
+            # typed skip for this target is a recorded decision, not a missing
+            # line (exec_055 seg_059, ISSUES entry 69).
+            if seg_id in layup_decided:
                 continue
             if _segment_is_blank_or_unusable is not None and _segment_is_blank_or_unusable(ctx, seg_id):
                 continue
