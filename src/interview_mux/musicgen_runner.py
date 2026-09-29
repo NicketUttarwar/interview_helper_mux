@@ -9,6 +9,7 @@ import os
 import shutil
 import struct
 import subprocess
+import threading
 import time
 import wave
 from pathlib import Path
@@ -134,6 +135,22 @@ def e2e_musicgen_timeout_sec(default: int) -> int:
         return int(default)
 
 
+def _pump(stream: Any, sink: list[str]) -> None:
+    """Read a child's pipe to exhaustion so the child never blocks on write."""
+    if stream is None:
+        return
+    try:
+        for line in iter(stream.readline, ""):
+            sink.append(line)
+    except Exception:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
 def _hub_model_cached(cache: Path, model_id: str) -> bool:
     slug = "models--" + str(model_id or "").replace("/", "--")
     root = cache / "hub" / slug / "snapshots"
@@ -157,6 +174,10 @@ def hub_env_for_request(req: Path, cache: Path) -> dict[str, str]:
     out: dict[str, str] = {
         "HF_HUB_ETAG_TIMEOUT": "10",
         "HF_HUB_DOWNLOAD_TIMEOUT": "30",
+        # Progress bars are noise on a captured pipe, and the newer transformers
+        # loader prints one per tensor: enough bytes to fill the pipe buffer.
+        "TQDM_DISABLE": "1",
+        "HF_HUB_DISABLE_PROGRESS_BARS": "1",
     }
     model_ids: list[str] = []
     try:
@@ -582,6 +603,19 @@ def _spawn_musicgen(
             env=env,
             start_new_session=True,
         )
+        # Drain both pipes while polling. Waiting without reading deadlocks the
+        # child once its output exceeds the pipe buffer (64 KB): a 6 s stinger
+        # sat 15 minutes blocked inside tqdm writing the model-loading progress
+        # bar to stderr, was killed at the timeout, and the retry did the same
+        # (exec_062, ISSUES 84). Same on macOS; the pipe is the same size.
+        out_buf: list[str] = []
+        err_buf: list[str] = []
+        pumps = [
+            threading.Thread(target=_pump, args=(proc_h.stdout, out_buf), daemon=True),
+            threading.Thread(target=_pump, args=(proc_h.stderr, err_buf), daemon=True),
+        ]
+        for t in pumps:
+            t.start()
         waited = 0
         while proc_h.poll() is None and waited < timeout:
             if run_ctx is not None:
@@ -604,10 +638,16 @@ def _spawn_musicgen(
                 proc_h.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 pass
-            return subprocess.CompletedProcess(proc_h.args, -9, "", f"timeout after {timeout}s")
-        stdout, stderr = proc_h.communicate()
+            for t in pumps:
+                t.join(timeout=2)
+            tail = "".join(err_buf)[-2000:]
+            return subprocess.CompletedProcess(
+                proc_h.args, -9, "".join(out_buf), f"timeout after {timeout}s" + chr(10) + tail
+            )
+        for t in pumps:
+            t.join(timeout=5)
         result = subprocess.CompletedProcess(
-            proc_h.args, proc_h.returncode, stdout or "", stderr or ""
+            proc_h.args, proc_h.returncode, "".join(out_buf), "".join(err_buf)
         )
         from interview_mux.heavy_task_policy import record_heavy_abort
 

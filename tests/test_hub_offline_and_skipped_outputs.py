@@ -51,7 +51,8 @@ def test_melody_model_must_be_cached_too(tmp_path) -> None:
 
 def test_unreadable_request_still_bounds_timeouts(tmp_path) -> None:
     env = hub_env_for_request(tmp_path / "missing.json", tmp_path / "hf_cache")
-    assert env == {"HF_HUB_ETAG_TIMEOUT": "10", "HF_HUB_DOWNLOAD_TIMEOUT": "30"}
+    assert env["HF_HUB_ETAG_TIMEOUT"] == "10" and env["HF_HUB_DOWNLOAD_TIMEOUT"] == "30"
+    assert "HF_HUB_OFFLINE" not in env
 
 
 def test_skipped_gap_fill_outputs_read_as_skipped_not_pending(tmp_path, monkeypatch) -> None:
