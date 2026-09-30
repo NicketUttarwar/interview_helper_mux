@@ -738,6 +738,15 @@ def check_edl_qc(
             errors = validate_flow1_edl(
                 ctx, result.get("edl") if edl is None else edl, gap_report=gap_report
             )
+        if any("Overlapping source range" in e for e in errors):
+            # Cross-speaker overlaps have no union; trim them (ISSUES 97).
+            from interview_mux.edl_overlap_repair import trim_residual_source_overlaps
+
+            working = edl if edl is not None else result.get("edl")
+            if isinstance(working, dict) and trim_residual_source_overlaps(
+                ctx, working, stage=stage, persist=edl is None
+            ):
+                errors = validate_flow1_edl(ctx, working, gap_report=gap_report)
     if not errors:
         ctx.log(
             "EDL QC passed",

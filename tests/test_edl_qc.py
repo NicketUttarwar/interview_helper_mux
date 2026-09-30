@@ -642,5 +642,10 @@ def test_overlapping_source_does_not_merge_cross_speaker(tmp_path) -> None:
         ],
         "timeline_duration_ms": 10_000,
     }
-    with pytest.raises(SystemExit, match="Overlapping source range"):
-        check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
+    # Cross-speaker overlaps are never unioned into one clip. Since ISSUES 97
+    # the gate trims the overlap instead of halting the run on it.
+    check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
+    speech = [c for c in edl["clips"] if c.get("type") == "speech"]
+    assert [c["segment_id"] for c in speech] == ["seg_a", "seg_b"]
+    assert speech[0]["source_end_ms"] == 3000
+    assert speech[1]["source_start_ms"] == 3000

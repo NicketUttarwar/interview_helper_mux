@@ -3140,6 +3140,34 @@ Tests: `tests/test_seat_freeze_first_production.py`.
 
 ---
 
+## [97] PRODUCT: a cross-speaker source overlap had no repair, so strict EDL QC halted the run
+
+**Stage / area:** `gates.check_edl_qc`, `edl_overlap_repair`
+**Status:** fixed.
+
+exec_063, `edl`: "Overlapping source range: seg_006 [223570,244430ms)
+intersects seg_005 [222790,223950ms)". The manifest has seg_005 (spk_0,
+"Right?") at [222580,223290) and seg_006 (spk_2) from 223570; a cut-edge
+refinement extended seg_005's clip end to 223950, 660 ms past its own
+bound and 380 ms into the next speaker's clip. The QC's only repair,
+`repair_overlapping_source_ranges`, unions overlapping *same-speaker*
+speech; across a speaker change it finds no component and returns
+unrepaired, the strict gate raises, and the engine stops after the same
+error twice ("same error as the previous resume and no progress").
+
+Fix: `trim_residual_source_overlaps` runs after the union repair when
+overlaps remain. It trims the earlier clip's end back to the later clip's
+start (or the later clip's start forward when the earlier one would drop
+under 200 ms), retimes the clips, logs the actions, and persists when the
+EDL came from disk. The refinement that extends across a neighbour is the
+next thing to look at; the gate no longer stops the run on it.
+
+Tests: `tests/test_edl_residual_overlap_trim.py` (the exec_063 shape trims
+380 ms off seg_005; a tiny earlier clip trims the later start instead; no
+overlap, no action).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
