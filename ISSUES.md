@@ -3105,6 +3105,37 @@ write carries `nugget_layup_compose`; before it, `gap_framing_compose`).
 
 ---
 
+## [96] PRODUCT: the soft seat freeze refused the first production of `master/transitions.json`
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`; stamped by
+`air_contract_sanitize`, hit by `transitions`
+**Status:** fixed.
+
+exec_063, after the sanitizer's gap write became optional (entry 90) and
+the sanitizer therefore finished on its first pass: it stamped the soft
+seat freeze (`soft_reason=air_contract_sanitize`), seed order then ran
+`transitions`, the model answered, and the one-writer persist logged
+"seat_freeze: skip write master/transitions.json (not End-A;
+reason=transitions)". With no artifact the stage could not be marked done,
+the attempt memo refused a second try, and the conductor stopped with
+`remaining stages: transitions, edl_narrative_audit`.
+
+Every earlier complete run (exec_052, 055, 062) shows `soft_reason:
+"implied"`: the sanitizer had never reached its stamp because it failed on
+the gap write first, transitions slipped in before any freeze, and the
+soft flag only appeared later, implied by vo_synthesize's hard freeze. So
+"first production of a seat doc under the soft freeze" had never run.
+
+Fix: a seat doc that does not exist on disk is not a frozen seat. The
+freeze protects existing seats from foreign rewrites; the first production
+by seed order (`transitions`, then `sound_design_plan`) is allowed with an
+info line. Rewrites of an existing doc and the End-A allowlist are
+unchanged.
+
+Tests: `tests/test_seat_freeze_first_production.py`.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
