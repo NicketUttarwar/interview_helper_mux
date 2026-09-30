@@ -942,6 +942,40 @@ def _read_hash(ctx: Any, rel: str) -> str:
     return sanitary_content_hash(loaded)
 
 
+def persist_air_contract_gap(ctx: Any, gap: dict[str, Any]) -> None:
+    """Land the sanitizer's VO flags on the gap report the way every other stamper does.
+
+    The sanitizer never authors interviewer text; it stamps omit, skip and
+    delivery flags (`stamp_gap_omit_flags`, an End-A core action). It used to
+    write under its own stage key, which the ownership table refuses once the
+    layup owns the report; entry 90 then made that write optional, which let
+    the stage finish with the flags unlanded. On upstream exec_008 the hosted
+    VO floor omitted two preface lines in the contract, the report never
+    learned of it, and vo_line_adjudicate refused the mismatch (ISSUES 101).
+    Present the report's current owner key and the End-A reason instead, the
+    pattern `vo_contract` and `omit_ledger` already use; a refusal is an error.
+    """
+    from interview_mux.artifact_ownership import gap_report_body_owner
+    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+    prior = None
+    try:
+        prior = ctx.read_json(GAP_REL) if ctx.artifact_exists(GAP_REL) else None
+    except Exception:
+        prior = None
+    owner = gap_report_body_owner(prior)
+    landed = persist_frozen_seat_doc(
+        ctx,
+        GAP_REL,
+        gap,
+        reason="stamp_gap_omit_flags",
+        skip_handoff=True,
+        stage_key=owner,
+    )
+    if not landed:
+        raise RuntimeError("seat_freeze refused stamp_gap_omit_flags on the gap report")
+
+
 def commit_air_contract(ctx: Any, *, reason: str = "") -> SanitizeResult:
     """Sole mutator for seats + gap VO flags + omit ledger VO rows."""
     with sanitize_reentry_guard(ctx) as nested:
@@ -1025,10 +1059,7 @@ def commit_air_contract(ctx: Any, *, reason: str = "") -> SanitizeResult:
             )
         if isinstance(gap, dict) and gap:
             try:
-                # Under pre_soft_freeze the layup owns gap_report; the VO flags
-                # the sanitizer carries land on its next permitted pass, and the
-                # dry re-sanitize below still refuses a stale contract (ISSUES 90).
-                ctx.write_json(GAP_REL, gap, optional=True)
+                persist_air_contract_gap(ctx, gap)
             except Exception as exc:
                 return SanitizeResult(
                     doc=result.doc,

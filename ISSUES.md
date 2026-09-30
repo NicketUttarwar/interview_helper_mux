@@ -2975,8 +2975,9 @@ case was worse: its refused gap write failed the whole stage once.
 Fix: `write_json(..., optional=True)` marks a courtesy write. The ownership
 table is asked first; a refused optional write is skipped with one info
 line and nothing else (no error, no signature, no halt, no forensics row).
-The seven sites pass the flag. The sanitizer's gap write is optional too;
-its dry re-sanitize still refuses a stale contract, so nothing is hidden.
+The seven sites pass the flag. The sanitizer's gap write was made optional
+here as well; that was wrong (its flags are required state, see entry 101)
+and it now goes through the End-A stamp path instead.
 exec_063 surfaced an eighth site of the same shape under the soft freeze:
 the local-runtime last-error sidecar (`vo_pickup/local_runtime_last_error.json`,
 written when a Chatterbox child prints invalid JSON but leaves a usable
@@ -3270,6 +3271,41 @@ at the join and a non-adjacent neighbour raises the critical; with the
 override it reports advisory and the live critical list is empty.
 
 Tests: `tests/test_chapter_bleed_accepted_hang.py`.
+
+---
+
+## [101] PRODUCT: the air-contract sanitizer's VO flags never reached the gap report, so adjudicate refused a contract that disagreed with it
+
+**Stage / area:** `artifact_sanitize.air_script.commit_air_contract`;
+reported from macOS exec_008 (54 of 72, stopped at `vo_line_adjudicate`)
+**Status:** fixed. Regression from entry 90.
+
+exec_008: the hosted-VO floor was thin, so the sanitizer omitted two
+preface lines in the execution contract to protect it
+(`protect_hosted_vo_floor_reseat`). Those omits must be mirrored as
+skip/omit flags on the matching `gap_report` lines; adjudicate compares
+the two before synthesis and refuses when they disagree. The report never
+got the flags: the sanitizer wrote it under its own stage key, which the
+ownership table refuses once the layup owns the report, and entry 90 had
+made that write *optional*, so the stage finished with the flags unlanded
+instead of failing. Adjudicate then hard-blocked on the mismatch and the
+contract stayed unsanitary.
+
+Before entry 90 the same refusal failed the sanitizer outright (exec_062,
+one resume), which was also wrong; the write is required, not a courtesy.
+The other stampers already knew how to do this: `vo_contract` and
+`omit_ledger` persist the flags with the End-A reason
+`stamp_gap_omit_flags` and the report's current owner key
+(`gap_report_body_owner`), which the ownership table allows because the
+stamp changes no interviewer text.
+
+Fix: `persist_air_contract_gap` does exactly that, and a refusal is an
+error again. My runs did not show it because their VO floor never needed
+an omit, so the unlanded write carried nothing.
+
+Tests: `tests/test_air_contract_gap_stamp.py` (the stamp carries the End-A
+reason and the owner key under and before layup authority; a refusal
+raises).
 
 ---
 
