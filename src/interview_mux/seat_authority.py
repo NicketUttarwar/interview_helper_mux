@@ -782,6 +782,37 @@ def freeze_blocks_raw_escape(ctx: RunContext, rel: str) -> bool:
     return freeze_active(ctx)
 
 
+_CUE_ANCHOR_KEYS = ("segment_id", "before_segment_id", "after_segment_id", "under_segment_id")
+
+
+def sound_design_plan_stale_versus_selection(ctx: RunContext) -> bool:
+    """True when the committed plan anchors a cue on a segment the selection dropped."""
+    try:
+        if not ctx.artifact_exists("understanding/sound_design_plan.json") or not ctx.artifact_exists(
+            "master/selection.json"
+        ):
+            return False
+        plan = ctx.read_json("understanding/sound_design_plan.json")
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return False
+    if not isinstance(plan, dict) or not isinstance(sel, dict):
+        return False
+    ordered = {str(s) for s in (sel.get("ordered_segment_ids") or []) if s}
+    if not ordered:
+        return False
+    flows = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    podcast = flows.get("podcast") if isinstance(flows.get("podcast"), dict) else {}
+    for cue in podcast.get("cues") or []:
+        if not isinstance(cue, dict) or cue.get("skip"):
+            continue
+        for key in _CUE_ANCHOR_KEYS:
+            sid = str(cue.get(key) or "").strip()
+            if sid and sid not in ordered:
+                return True
+    return False
+
+
 def frozen_seat_write_allowed(
     ctx: RunContext,
     rel: str,
@@ -804,6 +835,29 @@ def frozen_seat_write_allowed(
     except Exception:
         pass
     if hard_freeze_action_permitted(reason, ctx):
+        return True
+    # The plan's own producer re-deriving a plan that no longer matches the
+    # selection is not a seat mutation either: ranking re-ran after the plan
+    # was written (exec_065: the committed plan anchored a cue on seg_007,
+    # which ranking had since excluded), the stage re-ran to fix that, the
+    # soft freeze skipped its write, and the pre-flush barrier refused the
+    # stale cue on every pass (ISSUES 104). Soft freeze only; a hard freeze
+    # means WAVs are rendered against these seats.
+    if (
+        rel_n == "understanding/sound_design_plan.json"
+        and str(reason or "").strip() == "sound_design_plan"
+        and not hard_freeze_active(ctx)
+        and sound_design_plan_stale_versus_selection(ctx)
+    ):
+        try:
+            ctx.log(
+                "seat_freeze: sound_design_plan re-derivation allowed under soft "
+                "freeze (committed plan anchors cues outside the live selection)",
+                level="info",
+                stage="sound_design_plan",
+            )
+        except Exception:
+            pass
         return True
     # A seat doc that has never been produced is not a frozen seat: the freeze
     # protects seats that exist from foreign rewrites. air_contract_sanitize

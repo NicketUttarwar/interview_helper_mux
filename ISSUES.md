@@ -3397,6 +3397,32 @@ Tests: `tests/test_starved_host_reactions.py`.
 
 ---
 
+## [104] PRODUCT: the soft seat freeze kept the sound design plan's own stage from re-deriving a plan the selection had outgrown
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`; `sound_design_plan`
+**Status:** fixed.
+
+exec_065 (resumed after entries 102 and 103): the plan on disk came from
+the pass before the restart, with a bed cue anchored on seg_007. Ranking
+re-ran on the resume and excluded seg_007. `sound_design_plan` re-ran to
+re-derive the plan, the model answered, and the one-writer persist logged
+"seat_freeze: skip write understanding/sound_design_plan.json (not End-A;
+reason=sound_design_plan)": the soft freeze stamped by the sanitizer a
+minute earlier refused the rewrite. The stale plan stayed, the pre-flush
+barrier refused "cue anchor segment_id=seg_007 not in selection" on every
+pass, and the identical-failure counter climbed toward a halt. Entry 96
+covered the first production of the plan under the freeze; this is the
+next case, a re-derivation after the selection changed.
+
+Fix: under the soft freeze (never the hard one, which means WAVs are
+rendered against these seats) the plan's own stage may rewrite the plan
+when the committed plan anchors a cue on a segment outside the live
+selection. Other writers and coherent plans are unchanged.
+
+Tests: `tests/test_sdp_rederive_under_soft_freeze.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
