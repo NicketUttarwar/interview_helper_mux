@@ -130,7 +130,11 @@ def fallback_to_manual_collection(
             affected.append(lid or str(line.get("targets_segment_id") or ""))
             changed = True
         if changed:
-            ctx.write_json("understanding/gap_report.json", report, skip_handoff=True)
+            # Delivery is a stamped field; the report belongs to compose or the
+            # layup, so present the owner's key with the End-A reason (ISSUES 101).
+            from interview_mux.seat_authority import persist_gap_report_stamp
+
+            persist_gap_report_stamp(ctx, report, reason="stamp_gap_omit_flags")
             try:
                 from interview_mux.delivery_brief import rebuild_delivery_brief
 

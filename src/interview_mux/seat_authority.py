@@ -929,6 +929,37 @@ def persist_frozen_seat_doc(
     return True
 
 
+def persist_gap_report_stamp(
+    ctx: RunContext,
+    doc: dict[str, Any],
+    *,
+    reason: str,
+    skip_handoff: bool = True,
+    mutation_class: str | None = None,
+) -> bool:
+    """Land a flag-only change on the gap report from any stage (ISSUES 101).
+
+    Omit, skip, delivery and orientation stamps are required state that
+    adjudicate and synthesis compare against the contract. They may come from
+    stages that do not own the report, so present the report's current owner
+    key (`gap_report_body_owner`) with an End-A ``reason``; the sole-writer
+    guard still refuses any change to interviewer text. Returns True when the
+    write ran.
+    """
+    from interview_mux.artifact_ownership import gap_report_body_owner
+
+    prior = None
+    try:
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            prior = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        prior = None
+    kw: dict[str, Any] = {"skip_handoff": skip_handoff, "stage_key": gap_report_body_owner(prior)}
+    if mutation_class:
+        kw["mutation_class"] = mutation_class
+    return persist_frozen_seat_doc(ctx, "understanding/gap_report.json", doc, reason=reason, **kw)
+
+
 def persist_frozen_seat_doc_verified(
     ctx: RunContext,
     rel: str,

@@ -4506,7 +4506,18 @@ def propagate_nle_split_segment_refs(
                         row[key] = child_ids[0]
                         changed = True
             if changed:
-                ctx.write_json("master/transitions.json", tr, skip_handoff=True)
+                from interview_mux.seat_authority import persist_frozen_seat_doc
+
+                # Id remap after a split: the transitions owner's key with the
+                # End-A remap reason, so the freeze does not skip it (ISSUES 101).
+                persist_frozen_seat_doc(
+                    ctx,
+                    "master/transitions.json",
+                    tr,
+                    reason="segment_id_remap_omit",
+                    skip_handoff=True,
+                    stage_key="transitions",
+                )
                 updated.append("master/transitions.json")
 
     if ctx.artifact_exists("understanding/gap_report.json"):
@@ -4525,7 +4536,11 @@ def propagate_nle_split_segment_refs(
                         ln[key] = _rewrite_segment_id_list(val, parent_id, child_ids)
                         changed = True
             if changed:
-                ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+                from interview_mux.seat_authority import persist_gap_report_stamp
+
+                persist_gap_report_stamp(
+                    ctx, gap, reason="segment_id_remap_omit", mutation_class="segment_id_remap"
+                )
                 updated.append("understanding/gap_report.json")
 
     if ctx.artifact_exists("understanding/gap_evaluations.json"):

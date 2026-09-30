@@ -594,7 +594,10 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
             meta["waived_line_id"] = lid
         meta["compensating_path"] = "tier_d_logged_waive"
         out["opening_orientation"] = meta
-    ctx.write_json("understanding/gap_report.json", out)
+    # A waive is a flag stamp on a report another stage owns (ISSUES 101).
+    from interview_mux.seat_authority import persist_gap_report_stamp
+
+    persist_gap_report_stamp(ctx, out, reason="stamp_gap_omit_flags")
     written.append("understanding/gap_report.json")
     # Omit removed audible cover — demote leftover high gaps so compose lint
     # cannot stay dirty while omit-wins holds (exec_13170 seg_007).

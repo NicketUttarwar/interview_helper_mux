@@ -3314,6 +3314,17 @@ Each now lands through `persist_frozen_seat_doc` under the seat owner's key
 genuine courtesies: fingerprint restamp, boundary enrichment, the pair
 freeze stamp, the volley unlock note, the runtime error sidecar.
 
+A second sweep covered raw gap-report and transitions writes that never
+went through entry 90 but sat on the same VO path: the execution-contract
+waive (`_tier_d_logged_waive`), the synthesis fallback that flips a line to
+`record`, and the split-child id remap in `propagate_nle_split_segment_refs`.
+Each wrote under the active stage's key and would have been refused under
+layup authority exactly like the sanitizer. They now use
+`seat_authority.persist_gap_report_stamp` (owner key from
+`gap_report_body_owner`, an End-A reason, the sole-writer text guard still
+in force); the transitions remap presents the transitions owner with
+`segment_id_remap_omit`.
+
 Tests: `tests/test_air_contract_gap_stamp.py` (the stamp carries the End-A
 reason and the owner key under and before layup authority; a refusal
 raises), `tests/test_seat_repair_owner_key.py`.
