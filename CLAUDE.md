@@ -119,7 +119,12 @@ redoing `audio_probe_build` (~299 s, the slowest stage).
 
 ## Test baseline
 
-**6824 passed, 0 failed, 21 skipped**. Keep it there.
+**6878 passed, 0 failed, 21 skipped** (2026-09-30, after ISSUES 85 to 93). Keep it there.
+
+Launch pytest from Git Bash. From PowerShell, `bash` resolves to the WSL stub
+in System32 and two tests that shell out to bash fail for that reason alone
+(`test_r_wf_musicgen_stub_forbidden_via_verify`, and the gap-framing hollow
+done test which then cannot resolve the Chatterbox venv).
 
 **ffmpeg must be on PATH** or the suite aborts at once with a message naming it.
 The pipeline shells out to a bare `ffmpeg` in 22 places, so this is a real

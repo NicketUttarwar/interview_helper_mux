@@ -3049,6 +3049,34 @@ Tests: `tests/test_stage_cache.py`.
 
 ---
 
+## [94] PRODUCT: the manifest hydrate at approve time wrote back into staging, so the nested classification refused its own commit
+
+**Stage / area:** `write_staging.approve_stage_writes` (after flush);
+seen under `boundary_topic_resplit`'s nested `segment_classification`
+**Status:** fixed.
+
+exec_062 and exec_063 both logged "Failed: Stage boundary_topic_resplit:
+Stage segment_classification artifacts incomplete, segments/manifest.json
+has newer uncommitted pending", then recovered on the next pass after the
+walk unmarked classification as hollow and reran it. The sequence: the
+nested stage flushed its manifest, `approve_stage_writes` hydrated the
+committed manifest from the boundaries and, because the hydrate changed it,
+wrote it again with `ctx.write_json`. The staging root of the nested stage
+is still open at that point, so the rewrite landed in
+`.pending_writes/segment_classification/`, newer than the commit, and the
+completeness assertion two lines later refused exactly that. One wasted
+pass per run, one error line, and a hollow-unmark of a stage that was fine.
+
+Fix: the hydrate rewrite uses `write_committed_json`, which persists to the
+committed tree without touching the staging root. Ownership is unchanged
+(still attributed to `segment_classification`).
+
+Tests: `tests/test_hydrate_rewrite_commits.py` (the replayed approve path
+leaves no newer pending copy; the old shape is shown to be what the check
+refuses).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

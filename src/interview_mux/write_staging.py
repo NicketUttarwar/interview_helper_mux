@@ -1645,7 +1645,12 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
                 repaired, _notes = repair_manifest_segments(ctx, hydrated)
                 # Hydrate is segment_classification ownership — never attribute
                 # the rewrite to the flushing consumer stage (S2 / exec_13198).
-                ctx.write_json(
+                # The flush is over, so this goes to the committed tree: the
+                # staging root is still open here, and a staged copy newer than
+                # the commit is exactly what the completeness check below
+                # refuses ("newer uncommitted pending", ISSUES 94).
+                write_committed_json(
+                    ctx,
                     "segments/manifest.json",
                     repaired,
                     stage_key="segment_classification",
