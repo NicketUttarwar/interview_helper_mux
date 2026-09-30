@@ -3226,6 +3226,53 @@ job when the engine owns the run. Skip already needs no job.
 
 ---
 
+## [100] PRODUCT: a chapter-boundary clip whose hanging end was accepted was re-raised as critical every pass, so mix and junction handed the run back and forth
+
+**Stage / area:** `junction_snip_qa.detect_junction_findings`
+(`chapter_bleed_incomplete` branch); reported from macOS exec_006
+**Status:** fixed.
+
+Upstream exec_006 (partially-accelerated, real key): 61 of 72, then
+`mix` refused twice with `incomplete_cut_unresolved` (residual kind
+`chapter_bleed_incomplete`), the recovery pinned `junction_snip_qa`, junction
+ran, mix refused again, four rounds of it. The clip: a hard-kept segment
+that ends mid-thought exactly on a chapter join, with its EDL neighbour far
+away on tape (the order jumps 039 -> 038 -> 042, two transitions suppressed
+for clone adjacency).
+
+Junction's ladder for that clip has three rungs: cut earlier (no complete
+phrase end with room inside the clip), fuse into the neighbour (only when
+the neighbour is source-adjacent; it is not), omit (refused: the removal
+authority protects the segment, entry 74). Entry 72 gave the ladder a
+terminal outcome for exactly this: record `accepted_hanging_end` on the
+clip's NLE override and stop raising it. The detector honours that record
+in its `on_a_roll` branch, and only there. The `chapter_bleed_incomplete`
+branch never consulted it, so every fresh detect (which is what mix's
+refusal runs) raised the same critical again, junction accepted it again,
+and the two stages handed the run back and forth until the identical
+failure cap.
+
+Why it slipped in: the detector builds the same repair ladder three
+times, once per incomplete-cut kind (`on_a_roll`, `chapter_bleed_incomplete`,
+`incomplete_clause`), and entry 72's decision was wired into the one
+branch exec_055 had hit. The other two copies were never touched, and even
+the `on_a_roll` copy only honoured it when no cut or extend was
+recommended, which is not the state the ladder records it in.
+
+Fix: the decision is honoured in one place, the detector's `add`: any
+critical finding of an incomplete-cut kind on a clip whose override carries
+`accepted_hanging_end` is emitted as advisory (still in the QA report, with
+`accepted_hanging_end: true` in its detail). Mix's live critical check no
+longer sees it, assembly seats, and no branch can miss it again.
+
+Reproduced offline: a two-chapter fixture with the clip ending on a comma
+at the join and a non-adjacent neighbour raises the critical; with the
+override it reports advisory and the live critical list is empty.
+
+Tests: `tests/test_chapter_bleed_accepted_hang.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
