@@ -3206,7 +3206,7 @@ makes the engine wait, and the run completes after Skip).
 ## [99] GUI: Continue at the final sign-off started a second packaging job under the engine
 
 **Stage / area:** `web/server.py` `POST /api/runs/{id}/g-publish/continue`
-**Status:** fixed (endpoint deferral); endpoint test still to write.
+**Status:** fixed.
 
 exec_064 (partially-accelerated, engine-driven, zero error lines up to the
 sign-off): the operator's Continue cleared the gate and, as the old GUI
@@ -3217,6 +3217,8 @@ pipeline: directory lock busy", logged at error level, and wrote
 `gui_job.json` status "error" while the engine packaged the episode
 correctly one minute later. The run finished 72 of 72 with exactly this
 one error line.
+
+Tests: `tests/test_g_publish_continue_deferred.py`.
 
 Fix: the handler asks `orchestrator_owns_run` after clearing the gate, the
 same check `/execute` makes, and returns `deferred` instead of starting a
