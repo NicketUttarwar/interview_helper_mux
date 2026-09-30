@@ -1847,6 +1847,10 @@ def test_walk_seed_agenda_runs_hollow_skipped_transitions(monkeypatch: pytest.Mo
         "interview_mux.pipeline.run_single_stage",
         lambda _ctx, stage: ran.append(stage),
     )
+    # This fixture's planted markers are not seed-complete for every earlier
+    # delivery stage; with dispatch patched out, the seed-order check is the
+    # only thing that would run them first (ISSUES 106). Not this test's point.
+    monkeypatch.setattr("interview_mux.homunculus.runtime._seed_prereq_block", lambda c, s: None)
     walk_seed_agenda(ctx, ["transitions", "sound_design_plan"], reason="test")
     assert ran[0] == "transitions"
     agenda = ctx.read_json("mastering/homunculus/agenda.json")

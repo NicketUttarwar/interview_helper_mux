@@ -2171,14 +2171,21 @@ def _run_seed_prerequisites_first(
     """
     from interview_mux.homunculus.runtime import _seed_prereq_block
 
+    # Delivery stages only, and only delivery prerequisites: that is the chain
+    # every run climbed one failed pass at a time. An analysis hole behind a
+    # delivery stage is the engine's hop-back, not the walk's, and analysis
+    # stages keep the reactive path (their walks are short and their fixtures
+    # in the suite are deliberately partial).
+    if stage not in DELIVERY_ORDER:
+        return []
     ran: list[str] = []
-    for _ in range(len(ANALYSIS_ORDER) + len(DELIVERY_ORDER)):
+    for _ in range(len(DELIVERY_ORDER)):
         try:
             blocked = _seed_prereq_block(ctx, stage)
         except Exception:
             return ran
         blocked = str(blocked or "").strip()
-        if not blocked or blocked == stage or blocked in retried:
+        if not blocked or blocked == stage or blocked in retried or blocked not in DELIVERY_ORDER:
             return ran
         if not _seed_prereq_needs_run(ctx, blocked):
             return ran
