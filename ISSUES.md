@@ -3481,6 +3481,28 @@ Tests: `tests/test_seed_prereqs_ahead.py`, `tests/test_orchestrator.py`
 
 ---
 
+## [107] TOOLING: the engine writes a run verdict
+
+**Stage / area:** `orchestrator.run_verdict`
+**Status:** done.
+
+The maintainer's acceptance test was "is there a master.wav". master.wav
+appears at stage 68 of 72, and a run can carry it while an error line, a
+refused commit's leftovers, or a missing package sit behind it. The engine
+now ends every run, complete or not, by writing
+`operator/run_verdict.json` and logging one line:
+`=== verdict: PASS|FAIL complete=... stages=... error_lines=... stale_staging=... outputs=... ===`.
+`pass` is true only when the pipeline is complete, the publish outputs are
+on disk (or the sign-off was Skip and the package stub exists), the run log
+holds no error-level line, and no finished stage left staged files behind.
+The first five error lines are quoted in the file. The resume harness
+(entry 105) judges its cases by the same rules.
+
+Tests: `tests/test_orchestrator.py` (a complete clean run passes; a complete
+run with one error line fails).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
