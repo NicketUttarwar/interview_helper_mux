@@ -3303,9 +3303,20 @@ Fix: `persist_air_contract_gap` does exactly that, and a refusal is an
 error again. My runs did not show it because their VO floor never needed
 an omit, so the unlanded write carried nothing.
 
+The same audit found four more seat-truth writes that entry 90 had turned
+into courtesy writes: the two seat repairs in `vo_contract`
+(`_unseat_ineligible_plan_seats`, orphan unseat), the seat republish in
+`hosted_vo_authority`, and the catastrophe fallback in `vo_bind_authority`.
+Each now lands through `persist_frozen_seat_doc` under the seat owner's key
+(`air_contract_sanitize`) with its End-A reason (`air_script_gap_omit_sync`,
+`drop_seated_missing_from_gap`, `hosted_vo_disposition_apply`,
+`catastrophe_seated_bind_synth_failed`). The remaining optional sites are
+genuine courtesies: fingerprint restamp, boundary enrichment, the pair
+freeze stamp, the volley unlock note, the runtime error sidecar.
+
 Tests: `tests/test_air_contract_gap_stamp.py` (the stamp carries the End-A
 reason and the owner key under and before layup authority; a refusal
-raises).
+raises), `tests/test_seat_repair_owner_key.py`.
 
 ---
 

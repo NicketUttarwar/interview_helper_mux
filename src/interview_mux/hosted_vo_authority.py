@@ -1330,8 +1330,17 @@ def apply_orientation(
                     script["vo_seats"] = seats
                     plan = dict(plan)
                     plan["air_script"] = script
-                    ctx.write_json(
-                        "mastering/mastering_plan.json", plan, skip_handoff=True, optional=True
+                    # Seat truth, not a courtesy: land it under the seat owner's
+                    # key with the End-A reason for this disposition (ISSUES 101).
+                    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+                    persist_frozen_seat_doc(
+                        ctx,
+                        "mastering/mastering_plan.json",
+                        plan,
+                        reason="hosted_vo_disposition_apply",
+                        skip_handoff=True,
+                        stage_key="air_contract_sanitize",
                     )
                     actions = list(actions) + [
                         {"action": "republish_vo_seats", "disposition": decision.disposition}
