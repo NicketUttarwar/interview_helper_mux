@@ -447,6 +447,18 @@ def _inject_edl_producer(ctx: RunContext, out: list[str]) -> None:
         out.append("edl")
 
 
+def _speech_first_holds(ctx: RunContext, sid: str) -> bool:
+    """True when ``sid`` is the HAU speech-first seat and music cannot admit yet."""
+    if sid not in HAU_SPEECH_FIRST_EXCEPTIONS:
+        return False
+    try:
+        from interview_mux.mix_junction_seat import hold_speech_first_mix
+
+        return bool(hold_speech_first_mix(ctx, sid))
+    except Exception:
+        return False
+
+
 def defer_until_producers_ready(
     ctx: RunContext, sid: str, out: list[str], deferred: list[str]
 ) -> bool:
@@ -473,7 +485,11 @@ def defer_until_producers_ready(
         return True
     # Mix fail-closes on missing theme_outro; do not walk mix until compose lands it.
     # Not a MUST_PRECEDE row (HAU: beds are not mix producers) — music-epoch hole only.
-    if sid in {"mix", "junction_snip_qa"}:
+    # Under speech-first (ISSUES 85) the rule is void: music_palette_compose is
+    # the stage that places the outro cue, and it may not run until mix has
+    # seated the assembly. Reinjecting it here made the walk hand mix to music
+    # and music back to mix, and neither ran.
+    if sid in {"mix", "junction_snip_qa"} and not _speech_first_holds(ctx, sid):
         try:
             from interview_mux.stage_completion import (
                 _music_palette_missing_outro_incompleteness,

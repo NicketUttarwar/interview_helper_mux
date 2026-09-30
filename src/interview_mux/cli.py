@@ -374,6 +374,9 @@ def orchestrate_cmd(
     if run_id:
         ctx = _open_run(run_id)
         _stamp_run_mode(ctx, run_mode)
+        # A resume must be visible in the GUI too; a fresh launch clears the
+        # session state before the engine starts (ISSUES 82).
+        _register_active_run(ctx)
     elif input_audio:
         ctx = _create_run_for_input(input_audio, run_mode=run_mode)
     else:
@@ -389,6 +392,18 @@ def _stamp_run_mode(ctx: RunContext, run_mode: str) -> None:
         meta["partial_auto"] = run_mode == "partially-accelerated"
 
     ctx.mutate_run_meta(_mode)
+
+
+def _register_active_run(ctx: RunContext, *, input_audio_path: str | None = None) -> None:
+    try:
+        from interview_mux.application_session import set_active_execution
+
+        extra = {"source_locked": True}
+        if input_audio_path:
+            extra["input_audio_path"] = input_audio_path
+        set_active_execution(ctx.run_id, **extra)
+    except Exception:
+        pass
 
 
 def _create_run_for_input(input_audio: str, *, run_mode: str) -> RunContext:
@@ -413,12 +428,7 @@ def _create_run_for_input(input_audio: str, *, run_mode: str) -> RunContext:
     stamp_run_meta(ctx)
     stamp_podcast_meta(ctx)
     _stamp_run_mode(ctx, run_mode)
-    try:
-        from interview_mux.web.session import set_active_execution
-
-        set_active_execution(ctx.run_id, input_audio_path=str(raw), source_locked=True)
-    except Exception:
-        pass
+    _register_active_run(ctx, input_audio_path=str(raw))
     _emit(ctx, f"Allocated run {ctx.run_id} ({run_mode})", level="info", stage="cli")
     return ctx
 

@@ -4115,6 +4115,29 @@ def narrative_chapter_segment_ids(ctx: Any, chapter: dict[str, Any]) -> list[str
     return _sort_segment_ids_by_manifest(inferred, manifest_order)
 
 
+def _fused_survivor_map(ctx: Any) -> dict[str, str]:
+    """Retired segment id -> the live manifest row whose ``fused_from`` holds it."""
+    out: dict[str, str] = {}
+    try:
+        if not ctx.artifact_exists("segments/manifest.json"):
+            return out
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return out
+    rows = (manifest or {}).get("segments") or [] if isinstance(manifest, dict) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        survivor = str(row.get("segment_id") or "")
+        if not survivor:
+            continue
+        for old in row.get("fused_from") or []:
+            token = str(old or "")
+            if token and token != survivor:
+                out.setdefault(token, survivor)
+    return out
+
+
 def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
@@ -4184,6 +4207,63 @@ def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
                     }
                 ]
                 applied.append({"action": "rebuild_single_chapter_from_manifest"})
+    # Ordering constraints must name live segments. After connector fusion
+    # and resplit the LLM still sees the ids the brief cited, and writes
+    # constraints for segments that no longer exist; the pre-flush lint then
+    # refuses the whole plan and the run halts (one-hour source, seg_052 and
+    # seg_057 cited against a 26-row manifest, ISSUES 81). A retired id whose
+    # tape lives on in a fused survivor is remapped to it; the rest are dropped.
+    constraints = out.get("ordering_constraints")
+    if isinstance(constraints, list) and manifest_ids:
+        survivor_of = _fused_survivor_map(ctx)
+        kept_c: list[Any] = []
+        remapped = dropped = 0
+        for row in constraints:
+            if not isinstance(row, dict):
+                continue
+            row = dict(row)
+            ok = True
+            for keys in (
+                ("before_segment_id", "before", "setup_segment_id"),
+                ("after_segment_id", "after", "payoff_segment_id"),
+            ):
+                key = next((k for k in keys if row.get(k)), None)
+                if not key:
+                    continue
+                sid = str(row.get(key) or "").strip()
+                if sid in manifest_ids:
+                    continue
+                target = survivor_of.get(sid)
+                if target and target in manifest_ids:
+                    row[key] = target
+                    remapped += 1
+                else:
+                    ok = False
+                    break
+            legacy = [str(x) for x in (row.get("segment_ids") or row.get("ordered_segment_ids") or []) if x]
+            if ok and legacy and any(x not in manifest_ids for x in legacy):
+                ok = False
+            before_v = str(
+                row.get("before_segment_id") or row.get("before") or row.get("setup_segment_id") or ""
+            )
+            after_v = str(
+                row.get("after_segment_id") or row.get("after") or row.get("payoff_segment_id") or ""
+            )
+            if ok and before_v and after_v and before_v == after_v:
+                ok = False  # remapped onto the same survivor: nothing to order
+            if ok:
+                kept_c.append(row)
+            else:
+                dropped += 1
+        if remapped or dropped:
+            out["ordering_constraints"] = kept_c
+            applied.append(
+                {
+                    "action": "resolve_constraint_refs_to_manifest",
+                    "remapped": remapped,
+                    "dropped": dropped,
+                }
+            )
     # Clamp chapter count to delivery_brief budget max (pre-flush XV / lint).
     chapters_now = out.get("chapters")
     if isinstance(chapters_now, list) and chapters_now:
@@ -4272,6 +4352,38 @@ def _rewrite_segment_id_list(ids: list[Any], parent: str, children: list[str]) -
     return out
 
 
+def _brief_remap_permitted(ctx: Any) -> bool:
+    """May the running stage rewrite content_brief.json for a segment-id remap?
+
+    The remap is a courtesy to later readers, not this stage's output. Asking
+    the ownership table first keeps a refused courtesy write from being logged
+    as an authority denial, which after two occurrences halts the run
+    (ISSUES 87: full_master_ranking under pre_soft_freeze).
+    """
+    try:
+        from interview_mux.artifact_ownership import write_permitted
+        from interview_mux.write_staging import active_stage_id
+
+        stage = str(active_stage_id() or "").strip()
+        ok, reason = write_permitted(
+            ctx, "understanding/content_brief.json", stage or None, verb="persist"
+        )
+    except Exception:
+        return True
+    if ok:
+        return True
+    try:
+        ctx.log(
+            "segment-id remap skipped for understanding/content_brief.json: "
+            f"{reason} (owner rewrites it on its next pass)",
+            level="info",
+            stage=stage or "artifact_repairs",
+        )
+    except Exception:
+        pass
+    return False
+
+
 def propagate_nle_split_segment_refs(
     ctx: Any,
     parent_id: str,
@@ -4286,7 +4398,7 @@ def propagate_nle_split_segment_refs(
         return []
     updated: list[str] = []
 
-    if ctx.artifact_exists("understanding/content_brief.json"):
+    if ctx.artifact_exists("understanding/content_brief.json") and _brief_remap_permitted(ctx):
         brief = ctx.read_json("understanding/content_brief.json")
         if isinstance(brief, dict):
             changed = False
@@ -7094,7 +7206,7 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
                     es["segment_order"] = list(order)
                     changed = True
                 if changed:
-                    ctx.write_json("understanding/episode_structure.json", es)
+                    ctx.write_json("understanding/episode_structure.json", es, optional=True)
                     notes.append({"action": "unlock_speaker_volleys_for_reorder"})
         except Exception:
             notes.append({"action": "episode_structure_repair_skipped"})

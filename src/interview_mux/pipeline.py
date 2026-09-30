@@ -1008,6 +1008,21 @@ def run_analysis(
     )
 
 
+def stages_within_until(
+    stages: list[str], order: list[str], until_stage: str | None
+) -> list[str]:
+    """Drop stages that sit after ``until_stage`` in ``order`` (ISSUES 98)."""
+    if not until_stage or until_stage not in order:
+        return list(stages)
+    limit = order.index(until_stage)
+    kept: list[str] = []
+    for sid in stages:
+        if sid in order and order.index(sid) > limit:
+            continue
+        kept.append(sid)
+    return kept
+
+
 def _run_delivery_conductor_until_stalled(
     ctx: RunContext, planned: list[str], run_phase: Any
 ) -> dict[str, Any]:
@@ -1269,7 +1284,14 @@ def _run_steps(
             from interview_mux.homunculus.agenda import ship_after_master_remaining
             from interview_mux.homunculus.judge import after_complete_master
 
-            left = ship_after_master_remaining(ctx)
+            # The engine's stop-before-publish boundary (partial mode) applies
+            # to this walk too: it used to carry the run straight through
+            # podcast_publish past the operator's sign-off (ISSUES 98).
+            left = stages_within_until(
+                ship_after_master_remaining(ctx),
+                [name for name, _fn in steps],
+                until_stage,
+            )
             if left:
                 # Pending/promoted master with failing PMQ must remutate — not
                 # raise a ship-stage incomplete loop (exec_10066).

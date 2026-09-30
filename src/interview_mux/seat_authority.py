@@ -805,6 +805,21 @@ def frozen_seat_write_allowed(
         pass
     if hard_freeze_action_permitted(reason, ctx):
         return True
+    # A seat doc that has never been produced is not a frozen seat: the freeze
+    # protects seats that exist from foreign rewrites. air_contract_sanitize
+    # stamps the soft freeze and seed order puts transitions and the sound
+    # design plan after it, so their first production must land (ISSUES 96).
+    try:
+        if not ctx.artifact_exists(rel_n):
+            ctx.log(
+                f"seat_freeze: first production of {rel_n} allowed under soft freeze "
+                f"(reason={reason or 'empty'})",
+                level="info",
+                stage=str(reason or "") or None,
+            )
+            return True
+    except Exception:
+        pass
     try:
         ctx.log(
             f"seat_freeze: skip write {rel_n} (not End-A; reason={reason or 'empty'})",

@@ -641,6 +641,11 @@
     "dominant_speaker_min_share": 0.98
   },
   "_comment_audio_probes": "Local Audio Probe Platform + Vernacular Evidence Covenant. For hard vernacular protection set enforcement_mode=authoritative.",
+  "_comment_stage_cache": "Content-addressed cache for transcribe and audio_probe_build outputs (ISSUES 93). Keyed by input hashes, model ids and config; a rerun of the same source skips both models. root '' means <executions_root>/../stage_cache. MUX_STAGE_CACHE=0 disables it for one run.",
+  "stage_cache": {
+    "enabled": true,
+    "root": ""
+  },
   "audio_probes": {
     "enabled": true,
     "enforcement_mode": "shadow",

@@ -2705,6 +2705,555 @@ Found while proving the orchestrator through the GUI path (exec_061).
 
 ---
 
+## [81] PRODUCT: narrative_arc_plan cited segments that connector fusion had retired, and the write barrier refused the whole plan
+
+**Stage / area:** `artifact_repairs.repair_narrative_plan` (delivery stage 38 `narrative_arc_plan`, then `chapter_close_hitch`)
+**Status:** fixed.
+
+Reported from the maintainer's macOS run (exec_004, one-hour source, CLI
+orchestrated with a real key): `WriteApprovalBlockedError: Pre-flush commit
+barrier failed: ordering_constraint segment seg_052 not in manifest;
+heal_success:pre_flush_soft_refused`, identical failure x3, halt at 38 of
+72. The LLM wrote ordering constraints citing seg_052 and seg_057. After
+connector fuse and resplit the live manifest had 26 rows ending at seg_046;
+the ids came from the content brief the prompt also carries. The lint is
+right to refuse an id that does not exist, but refusing the whole plan for
+one bad constraint leaves no legal producer: re-running the stage asks the
+same model the same question.
+
+Fix: the narrative plan repair, which already runs before the write,
+resolves every constraint to the live manifest. A retired id that a
+manifest row's `fused_from` names is remapped to that survivor (its tape
+still airs there); an id nothing accounts for drops the constraint; a
+constraint whose two ends collapse onto one survivor is dropped. Logged as
+`resolve_constraint_refs_to_manifest {remapped, dropped}`. Chapter refs were
+already filtered this way; constraints were not.
+
+Resume on the affected run: `--from narrative_arc_plan`.
+
+Tests: `tests/test_narrative_plan_orphan_constraints.py` (remap, drop, keep;
+collapse; the lint accepts the repaired plan).
+
+---
+
+## [82] PRODUCT: the GUI did not see an engine-driven run, then offered a manual Run button beside a running stage
+
+**Stage / area:** `cli.py orchestrate` (run creation), `orchestrator._stamp`
+**Status:** fixed.
+
+Two GUI-facing gaps in the engine's first real run (exec_062):
+
+1. The Executions tab showed "No runs yet". The engine's create path
+   imported the session setter from `interview_mux.web.session`, a module
+   that does not exist; the import was inside a try/except and failed
+   quietly, so serve never learned about the run. It is
+   `interview_mux.application_session.set_active_execution`, which writes
+   the state file serve reads. The legacy driver did this over HTTP.
+2. With the run visible, the stage workbench showed "Complete this stage:
+   Run Generate theme audio" above a card that said the same stage was
+   running. The engine stamped `partial_auto_driver_active = False` for
+   full-auto runs (the name suggests partial only). The GUI reads that flag
+   in both modes as "a driver owns this run", and an explicit False makes
+   it offer manual actions. The legacy driver's claim set it True in both
+   modes. The engine now sets it True while alive and False when it exits.
+   Clicking the button would have been harmless (`/execute` is deferred
+   while the engine owns the run, entry 79), but the prompt was wrong.
+
+Tests: `test_engine_declares_driver_ownership_in_both_modes`.
+
+---
+
+## [83] GUI: a deliberately skipped optional step shows as FAILED
+
+**Stage / area:** stage workbench card for `missing_framing` / Fill gaps
+**Status:** fixed (the output view reports skipped gap-fill outputs as skipped; the card is gone).
+
+On a run whose pipeline mode is native-only (`gap_fill_mode: skipped`,
+reason "pipeline_mode native_only, skip gap-fill VO"), the Fill gaps step
+shows a red FAILED card: "Interviewer script incomplete,
+understanding/gap_framing_plan.json is pending". The stage was skipped on
+purpose and every downstream stage completed; the card reads a missing
+optional artifact as a failure. The maintainer's macOS run showed the same
+card at the same step. The stage row should report skipped with the reason.
+Fix: `artifact_lifecycle.build_outputs_view` reports the outputs of the five
+gap-fill stages as `skipped` when gap fill was skipped, and
+`stage_output_mode` returns `optional_skipped` for all five (it did for
+three). The GUI treats a skipped output as satisfied. No run output changes.
+
+---
+
+## [84] PRODUCT: MusicGen deadlocked on its own stderr pipe for the whole generation timeout, twice
+
+**Stage / area:** `musicgen_runner._spawn_musicgen` (macOS and Windows alike)
+**Status:** fixed.
+
+exec_062, `mmaudio_sfx`: a 6-second stinger on `facebook/musicgen-small`
+showed "MusicGen generating" for 15 minutes, was killed at the 900 s
+timeout (rc -9), and the ladder's retry did the same. The GPU sat at 5
+percent; the child had used 116 CPU-seconds. A `py-spy dump` of the child
+showed the main thread inside `tqdm ... fp_write`, writing the
+model-loading progress bar to stderr. The parent captured stderr through a
+pipe but only read it after the process exited: it polled with
+`proc.wait(timeout=30)` in a loop and called `communicate()` at the end.
+Once the child's output exceeded the pipe buffer (64 KB) it blocked on
+write forever, the parent waited out the timeout, and the retry repeated
+it. The newer `transformers` loader prints one progress line per tensor,
+which is why this began now. Nothing platform-specific: the pipe buffer
+is the same size on macOS.
+
+Fix:
+- The parent drains stdout and stderr on reader threads while it polls
+  (the operator-subprocess runner already did this; MusicGen had its own
+  loop). On timeout the collected stderr tail is kept in the result.
+- The child environment disables progress bars (`TQDM_DISABLE`,
+  `HF_HUB_DISABLE_PROGRESS_BARS`), loads a model that is fully in the local
+  cache offline (`HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE`), and bounds the
+  Hub timeouts otherwise, so a dead Hub connection cannot stall a load
+  either. Explicit values in the caller's environment win.
+
+Tests: `tests/test_musicgen_pipe_drain.py` (a child that floods stderr with
+12,000 progress lines finishes in seconds; a hung child is still killed at
+the timeout with its stderr tail kept) and
+`tests/test_hub_offline_and_skipped_outputs.py`.
+
+---
+
+## [85] PRODUCT: the delivery conductor handed `mix` to music and music back to `mix`, and ran neither
+
+**Stage / area:** `delivery_guardrails.defer_until_producers_ready` (the
+candidate filter every delivery walk goes through); platform independent
+**Status:** fixed.
+
+exec_062, delivery resumes 4 and 5: the conductor pinned the seed front to
+`mix`, walked it, and returned "Delivery incomplete after conductor,
+remaining stages: mix; resume=mix" twice in a row without running anything.
+The legacy driver could not get past this (exec_060 halted here at 62 of 72);
+the orchestrator escaped only because it dispatches the named remedy stage
+directly when a resume makes no progress, which bypasses the filter.
+
+The walk log shows the loop. `walk_seed_agenda([mix])` runs
+`filter_delivery_candidates`, which asks `defer_until_producers_ready` about
+`mix`. The sound design plan (written at stage `sound_design_plan`) already
+lists a `theme_outro` asset but no close cue, because the cue is placed by
+`music_palette_compose`, which has not run yet. The filter's outro rule
+("mix fail-closes on a missing theme_outro; do not walk mix until compose
+lands it") therefore replaced `mix` with `music_palette_compose`. The walk
+then applied the HAU speech-first rule: with only `assembly_preview.wav` on
+disk, music may not spend, so `music_palette_compose` was refused and the
+walk asked for `mix` again, which the filter turned into
+`music_palette_compose` again, which was skipped as "already in speech-first
+walk". Each rule deferred to the other's stage. Direct dispatch of `mix`
+proved the outro rule is moot in this state: speech-first mix seats the
+assembly with beds deferred, and compose places the close cue afterwards.
+
+Fix: the outro reinjection is skipped while `hold_speech_first_mix` holds
+for `mix` (music cannot admit until mix has seated the assembly). Once music
+may admit, the rule behaves as before. A helper `_speech_first_holds` keeps
+the predicate next to the HAU exception table it belongs to.
+
+Tests: `tests/test_speech_first_outro_deadlock.py` (speech-first mix is not
+deferred to compose for the outro cue; the same state with an admitting
+assembly still is; `filter([mix])` returns `[mix]` in the exec_062 shape).
+
+---
+
+## [86] PRODUCT: a prerequisite with a stale `.stage_done` was never rerun, so the seed walk looped on it
+
+**Stage / area:** `homunculus.agenda.walk_seed_agenda` (prerequisite
+autorun); reported from macOS exec_005, platform independent
+**Status:** fixed.
+
+Upstream exec_005 (one-hour source, real key): `full_master_ranking` ran,
+the pre-flush commit barrier refused its staged `selection.json`
+(`heal_success:pre_flush_soft_refused`, see entry 89 for the order itself),
+and dispatch recorded the stage as failed. A `.stage_done` marker for it was
+on disk anyway. Every later pass then raised "seed order: complete
+full_master_ranking before running refinement_agenda": `dispatch_stage`
+judges the prerequisite by seed completeness, which was false, but the
+walk's prerequisite autorun only reruns a prerequisite whose marker is
+absent (`not ctx.is_done(prereq)`), so it never reran ranking. The
+identical-failure counter on `refinement_agenda` then halted the run.
+
+Fix: `_seed_prereq_needs_run` decides whether the named prerequisite is
+worth a run. Marker absent: yes. Marker present and seed-complete: no.
+Marker present but not seed-complete: drop the marker (it is the lie, the
+check is right) and rerun. One rerun per prerequisite per walk, as before.
+
+Tests: `tests/test_seed_prereq_stale_marker.py`.
+
+---
+
+## [87] PRODUCT: a courtesy rewrite of `content_brief.json` inside ranking was logged as an authority denial, and two of those halt the run
+
+**Stage / area:** `artifact_repairs.propagate_nle_split_segment_refs`, called
+from CTA child materialize and NLE splits during `full_master_ranking`
+**Status:** fixed.
+
+Same exec_005. While ranking materialised split children it remapped the
+parent segment id in `understanding/content_brief.json`, which in the
+`pre_soft_freeze` epoch belongs to `content_brief_reanchor`. The write was
+wrapped in try/except, so the stage did not fail on it. But the ownership
+layer had already logged `authority_denied:persist:understanding/content_brief.json:full_master_ranking:pre_soft_freeze:content_brief_reanchor`,
+recorded an identical failure, and on the second occurrence stamped
+`authority_denied_halted` into `run_meta.json`. That stamp is a sticky halt
+the conductor honours, so a write nobody needed became a stop.
+
+Fix: the remap asks `write_permitted` first and skips the brief with an
+info line when the running stage may not touch it; the owner rewrites the
+brief on its next pass anyway (the segment-id sync at approve time already
+covers `content_brief_reanchor` and `segment_classification`).
+
+Tests: `tests/test_seed_prereq_stale_marker.py` (denied remap: no denial
+logged, brief untouched; permitted remap: rewritten as before).
+
+---
+
+## [88] STRUCTURAL: `tools/stub_pipeline_smoke.py --orchestrated` now runs the engine instead of its own copy of the loop
+
+**Status:** fixed.
+
+The maintainer runs the pipeline with this tool. It carried the resume loop
+the orchestrator was promoted from (entry 79), minus what the engine gained
+since: after a hop back to analysis it ran delivery once with no resumes and
+no remedy dispatch, and stopped. exec_005 ended exactly there ("hop 1:
+delivery -> FAIL, seed order: complete full_master_ranking ...") where the
+engine would have dispatched `full_master_ranking` directly and carried on.
+
+`--orchestrated` now constructs `interview_mux.orchestrator.Orchestrator`
+in full-auto mode and prints the same phase table; the linear walk is
+unchanged. `resume_hint` and `MAX_GATE_RESUMES` are imported from the
+engine so the tool cannot drift again.
+
+---
+
+## [89] OPEN: `full_master_ranking` produced an order the commit barrier refused (macOS exec_005)
+
+**Status:** open, needs the run directory.
+
+The ranking model returned a partial order that violated a narrative
+ordering constraint and parked an early-chapter segment after the finale.
+`finalize_selection_order` repairs both classes (`repair_selection_order`
+runs three times, with a finale-tail pass), and an offline reproduction on
+the one-hour exec_055 data with random partial, shuffled rankings (three
+seeds, 30 percent of segments dropped) commits cleanly every time. So the
+refusal depends on exec_005's plan and manifest: most likely a constraint
+that conflicts with the protected closing ids or with a chapter span, which
+the topological repair cannot satisfy and the barrier then refuses. Entries
+86 to 88 make the run recover from the refusal (rerun ranking, no false
+halt, engine keeps going). To fix the refusal itself the following files
+from `ASSETS/executions/exec_005_20260929T213649Z` are needed:
+`master/narrative_plan.json`, `segments/manifest.json`,
+`.pending_writes/full_master_ranking/`, `operator/resilience_report.json`,
+`operator/forensics_errors.json`, `run_meta.json`, and the run log.
+
+---
+
+## [90] PRODUCT: seven tolerated writes were logged as authority denials, and three of the same one halt a run
+
+**Stage / area:** `RunContext.write_json` and the ownership layer; sites in
+`split_plan_apply`, `gap_framing_recompose`, `air_contract_sanitize`,
+`vo_line_adjudicate`, `edl`, and the flush fingerprint restamp
+**Status:** fixed.
+
+exec_062 (72 of 72) still carried 11 error-level lines. Every one was an
+`authority_denied:persist:...` from a stage writing an artifact another
+stage owns in the current epoch: `split_plan_apply` enriching
+`segments/boundaries.json`, `gap_framing_recompose` and
+`vo_line_adjudicate` republishing VO seats into `mastering_plan.json`, the
+flush fingerprint restamp touching `gap_report.json`, `edl` unlocking
+`episode_structure.json` and stamping `transitions_pair_freeze.json`, and
+the air-contract sanitizer carrying its VO flags into `gap_report.json`. In
+every case the caller already caught the exception and went on ("split_plan
+skipped", "transitions pair freeze skipped"), so the pipeline was right to
+continue. But the ownership layer had already logged an error, written
+`forensics_errors.json`, and recorded an identical-failure signature. Three
+of the same one set `halt=True` (`gap_framing_recompose` reached 3 of 3 in
+this run), and two of them stamp `authority_denied_halted` into run_meta
+(that is what stopped the maintainer's exec_005, entry 87). The sanitizer's
+case was worse: its refused gap write failed the whole stage once.
+
+Fix: `write_json(..., optional=True)` marks a courtesy write. The ownership
+table is asked first; a refused optional write is skipped with one info
+line and nothing else (no error, no signature, no halt, no forensics row).
+The seven sites pass the flag. The sanitizer's gap write is optional too;
+its dry re-sanitize still refuses a stale contract, so nothing is hidden.
+exec_063 surfaced an eighth site of the same shape under the soft freeze:
+the local-runtime last-error sidecar (`vo_pickup/local_runtime_last_error.json`,
+written when a Chatterbox child prints invalid JSON but leaves a usable
+WAV). Same fix.
+
+Tests: `tests/test_optional_write.py`.
+
+---
+
+## [91] GUI: outputs a stage never produces show as pending after the stage is done
+
+**Stage / area:** `artifact_lifecycle.build_outputs_view`
+**Status:** fixed.
+
+`junction_snip_qa` declares seven artifacts and writes three of them only on
+some paths (thought-complete recut, failure review, remediation plan). On
+exec_062 it finished in 15 seconds with nothing to recut, and the outputs
+panel listed `master/junction_thought_complete.json` as pending; the T1
+reconcile in `ui_truth` turned that into a red "Junction snip QA incomplete"
+card on a stage that was done. Same shape as entry 83.
+
+Fix: once a stage is done and its primary artifact is committed, declared
+rows still pending are marked `n_a` ("not produced on this run"). The
+primary artifact is never touched, so a hollow stage still reads hollow.
+
+---
+
+## [92] PRODUCT: a finished full-auto run kept asking for the G-Publish sign-off
+
+**Stage / area:** `orchestrator` (full-auto), `gates.check_g_publish_pending`
+**Status:** fixed.
+
+Full-auto ran `podcast_publish` and reported "Run complete", and the GUI
+banner still read "Package episode needs your input". `g_publish_pending`
+is stamped when the master commits and is only cleared by the operator's
+Continue or Skip; the engine signs that gate off in partial mode by waiting
+for it, and in full-auto by running publish, which never stamped anything.
+During the run the same banner showed too, inviting a click the engine
+would then refuse.
+
+Fix: after `podcast_publish` lands in full-auto the engine stamps
+`g_publish_cleared` through the real `clear_g_publish` (package prepared),
+and while a full-auto engine is alive the gate check answers "not pending".
+Partial mode is unchanged: the operator still signs off.
+
+Tests: `tests/test_orchestrator.py` (two sign-off cases),
+`tests/test_g_publish_full_auto_engine.py`.
+
+---
+
+## [93] PERFORMANCE: transcription and the audio probes re-ran on every rerun of the same file
+
+**Stage / area:** `transcribe`, `audio_probe_build`; new `stage_cache.py`
+**Status:** fixed.
+
+Per-stage timings from the two complete runs: on the one-hour source
+`audio_probe_build` took 8.4 minutes and `transcribe` 6.1; on the 6-minute
+clip 7.9 and 2.5 (the probes are dominated by model start-up). Both are
+pure functions of bytes already on disk (the normalized audio, the
+transcript) and configuration, and both ran again on every rerun of the
+same file, which is the normal development loop.
+
+Fix: a content-addressed stage cache beside the executions directory
+(`<executions_root>/../stage_cache`, or `stage_cache.root`). The key is the
+SHA-256 of the input files plus the model ids and the config block that
+shape the output; the value is the stage's JSON outputs. On a hit the stage
+writes the cached documents through `write_json` as if it had produced
+them, so staging, ownership and completion are unchanged, and logs one
+info line. `MUX_STAGE_CACHE=0` disables it; a changed model or config is a
+miss. Nothing else is cached: every later stage depends on operator input
+or a model call.
+
+Tests: `tests/test_stage_cache.py`.
+
+---
+
+## [94] PRODUCT: the manifest hydrate at approve time wrote back into staging, so the nested classification refused its own commit
+
+**Stage / area:** `write_staging.approve_stage_writes` (after flush);
+seen under `boundary_topic_resplit`'s nested `segment_classification`
+**Status:** fixed.
+
+exec_062 and exec_063 both logged "Failed: Stage boundary_topic_resplit:
+Stage segment_classification artifacts incomplete, segments/manifest.json
+has newer uncommitted pending", then recovered on the next pass after the
+walk unmarked classification as hollow and reran it. The sequence: the
+nested stage flushed its manifest, `approve_stage_writes` hydrated the
+committed manifest from the boundaries and, because the hydrate changed it,
+wrote it again with `ctx.write_json`. The staging root of the nested stage
+is still open at that point, so the rewrite landed in
+`.pending_writes/segment_classification/`, newer than the commit, and the
+completeness assertion two lines later refused exactly that. One wasted
+pass per run, one error line, and a hollow-unmark of a stage that was fine.
+
+Fix: the hydrate rewrite uses `write_committed_json`, which persists to the
+committed tree without touching the staging root. Ownership is unchanged
+(still attributed to `segment_classification`).
+
+Tests: `tests/test_hydrate_rewrite_commits.py` (the replayed approve path
+leaves no newer pending copy; the old shape is shown to be what the check
+refuses).
+
+---
+
+## [95] PRODUCT: the orientation guard in gap_framing_recompose wrote the gap report under its own key, and the undo ledger halted the run
+
+**Stage / area:** `refinement_passes.after_gap_recompose_or_skip`
+**Status:** fixed.
+
+exec_063 (partially-accelerated, first end-to-end attempt on the engine)
+stopped at delivery resume 3 with
+`authority_undo_thrash:understanding/gap_report.json: hash_oscillation`.
+The chain: `gap_framing_recompose` republished the layup plan (the layup is
+now the report's sole body writer), then its post hook ran the opening
+orientation guard, which changed the report and wrote it back with the
+stage's own key. The ownership table refused (`owner=nugget_layup_compose`),
+the stage failed, and the authority-undo mechanism rolled the report back
+to the older compose version. The next pass republished the layup, the
+guard fired again, and the ledger saw compose hash, layup hash, compose
+hash: an A-B-A oscillation, which is a halt. exec_062 saw the same guard
+refuse under `vo_line_adjudicate` as a warning; this run hit it in the
+stage that owns nothing.
+
+Fix: the guard presents the report's current owner key,
+`gap_report_body_owner(prior)`, the answer entry 36 gave the other
+legitimate repairs. No refusal, no undo, no oscillation.
+
+Tests: `tests/test_orientation_guard_owner_key.py` (layup authority: the
+write carries `nugget_layup_compose`; before it, `gap_framing_compose`).
+
+---
+
+## [96] PRODUCT: the soft seat freeze refused the first production of `master/transitions.json`
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`; stamped by
+`air_contract_sanitize`, hit by `transitions`
+**Status:** fixed.
+
+exec_063, after the sanitizer's gap write became optional (entry 90) and
+the sanitizer therefore finished on its first pass: it stamped the soft
+seat freeze (`soft_reason=air_contract_sanitize`), seed order then ran
+`transitions`, the model answered, and the one-writer persist logged
+"seat_freeze: skip write master/transitions.json (not End-A;
+reason=transitions)". With no artifact the stage could not be marked done,
+the attempt memo refused a second try, and the conductor stopped with
+`remaining stages: transitions, edl_narrative_audit`.
+
+Every earlier complete run (exec_052, 055, 062) shows `soft_reason:
+"implied"`: the sanitizer had never reached its stamp because it failed on
+the gap write first, transitions slipped in before any freeze, and the
+soft flag only appeared later, implied by vo_synthesize's hard freeze. So
+"first production of a seat doc under the soft freeze" had never run.
+
+Fix: a seat doc that does not exist on disk is not a frozen seat. The
+freeze protects existing seats from foreign rewrites; the first production
+by seed order (`transitions`, then `sound_design_plan`) is allowed with an
+info line. Rewrites of an existing doc and the End-A allowlist are
+unchanged.
+
+Tests: `tests/test_seat_freeze_first_production.py`.
+
+---
+
+## [97] PRODUCT: a cross-speaker source overlap had no repair, so strict EDL QC halted the run
+
+**Stage / area:** `gates.check_edl_qc`, `edl_overlap_repair`
+**Status:** fixed.
+
+exec_063, `edl`: "Overlapping source range: seg_006 [223570,244430ms)
+intersects seg_005 [222790,223950ms)". The manifest has seg_005 (spk_0,
+"Right?") at [222580,223290) and seg_006 (spk_2) from 223570; a cut-edge
+refinement extended seg_005's clip end to 223950, 660 ms past its own
+bound and 380 ms into the next speaker's clip. The QC's only repair,
+`repair_overlapping_source_ranges`, unions overlapping *same-speaker*
+speech; across a speaker change it finds no component and returns
+unrepaired, the strict gate raises, and the engine stops after the same
+error twice ("same error as the previous resume and no progress").
+
+Fix: `trim_residual_source_overlaps` runs after the union repair when
+overlaps remain. It trims the earlier clip's end back to the later clip's
+start (or the later clip's start forward when the earlier one would drop
+under 200 ms), retimes the clips, logs the actions, and persists when the
+EDL came from disk. The refinement that extends across a neighbour is the
+next thing to look at; the gate no longer stops the run on it.
+
+Tests: `tests/test_edl_residual_overlap_trim.py` (the exec_063 shape trims
+380 ms off seg_005; a tiny earlier clip trims the later start instead; no
+overlap, no action).
+
+---
+
+## [98] PRODUCT: partial mode packaged the episode without the operator's sign-off
+
+**Stage / area:** `pipeline._run_steps` (ship walk after master),
+`stages.podcast_publish`, `orchestrator`
+**Status:** fixed.
+
+exec_063 was the first partially-accelerated run driven end to end by the
+engine. It waited at G0 as designed, then finished 72 of 72 with
+`run_meta.g_publish_pending` still true: nobody had signed the final gate
+off. The engine stops its delivery phase one stage short of
+`podcast_publish` (`until_stage=episode_cover_generate`), and the conductor
+honoured that for its own planning. But once master.wav is committed the
+same phase runs "walk remaining ship stages", which lists every ship stage
+whose outputs are missing and walks them, `podcast_publish` included. The
+old GUI path never saw this because the server deferred publish itself;
+the engine relies on the phase boundary, and this walk ignored it.
+
+Fix, in three places so no walk can overrun the gate again:
+- the ship walk filters its list through `stages_within_until`, the same
+  boundary the planner uses;
+- `run_podcast_publish` starts with `require_partial_signoff_before_publish`:
+  in partial mode, with neither Continue nor Skip stamped, it marks the gate
+  pending and halts with a gate message. Full-auto and manual runs are
+  untouched (full-auto signs off after packaging, entry 92; manual reaches
+  the stage only through the GUI's Continue). `require_g_publish_clear`
+  stays dead as the clinic pin requires;
+- the engine treats that halt as arriving at the sign-off point and waits
+  there, exactly as it does after a clean stop at the boundary.
+
+Tests: `tests/test_partial_publish_boundary.py`,
+`tests/test_orchestrator.py` (a delivery phase that halts on the guard
+makes the engine wait, and the run completes after Skip).
+
+---
+
+## [99] GUI: Continue at the final sign-off started a second packaging job under the engine
+
+**Stage / area:** `web/server.py` `POST /api/runs/{id}/g-publish/continue`
+**Status:** fixed.
+
+exec_064 (partially-accelerated, engine-driven, zero error lines up to the
+sign-off): the operator's Continue cleared the gate and, as the old GUI
+path did, started the server's own `master_transcript_build ->
+podcast_publish` job. The engine was already polling for that sign-off and
+took the run lock first, so the server job failed with "Could not start
+pipeline: directory lock busy", logged at error level, and wrote
+`gui_job.json` status "error" while the engine packaged the episode
+correctly one minute later. The run finished 72 of 72 with exactly this
+one error line.
+
+Tests: `tests/test_g_publish_continue_deferred.py`.
+
+Fix: the handler asks `orchestrator_owns_run` after clearing the gate, the
+same check `/execute` makes, and returns `deferred` instead of starting a
+job when the engine owns the run. Skip already needs no job.
+
+---
+
+# Planned: prune the job-API driver (phase 2 of entry 79)
+
+Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
+partially-accelerated, both 72 of 72 through the GUI endpoints):
+
+- `tools/full_auto_driver.py` is 15,020 lines; `tools/full_auto_keepalive_loop.py`
+  and the daemon paths in `tools/full_auto_daemon_launch.py` go with it
+  (`MUX_LEGACY_DRIVER=1` is the only remaining entry point).
+- Seven source modules import from the driver (`cli`, `delivery_guardrails`,
+  `forensics_error_ledger`, `forensics_minor_fixes`, `full_auto_launch`,
+  `heal_routing`, `identical_failures`): each import is a heal or forensics
+  helper that must move into `src/interview_mux/` before the file can go.
+- 56 test files reference the driver. Most exercise heal branches that the
+  engine now reaches through `homunculus.agenda`; each needs retargeting or
+  deleting, not blanket removal.
+- `scripts/run.sh` and `tools/catalog_unattended_breakpoints.py`,
+  `tools/subtraction_predict.py` name the driver in comments and env plumbing.
+
+Order: (1) move the seven imported helpers into the package with their
+tests; (2) delete the keepalive and the daemon spawn path, keeping
+`ensure_e2e` as the engine launcher; (3) delete the driver and retarget its
+tests; (4) drop the driver-only execute modes from `web/server.py` and the
+`_STAGE_REUSE_POLICY` rows that exist for it; (5) rerun the suite and reset
+the baseline. Do this in its own branch with the maintainer's go-ahead: it
+touches the GUI's execute modes.
+
+**Status:** OPEN, sized, not started.
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

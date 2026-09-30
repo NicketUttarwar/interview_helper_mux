@@ -156,11 +156,13 @@ def apply_split_plan(
     from interview_mux.shared_path_commit import commit_boundaries_doc
 
     # split_plan_apply is not an ALLOW producer — enrich only; keep prior claim.
+    # Where the epoch reserves boundaries for its owner, the enrichment waits.
     commit_boundaries_doc(
         ctx,
         out,
         stage_key="split_plan_apply",
         claim_producer=False,
+        optional=True,
     )
 
     doc = dict(doc)

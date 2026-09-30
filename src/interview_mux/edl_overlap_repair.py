@@ -787,6 +787,80 @@ def overlapping_source_components(
     return components
 
 
+MIN_TRIMMED_CLIP_MS = 200
+
+
+def trim_residual_source_overlaps(
+    ctx: RunContext,
+    edl: dict[str, Any],
+    *,
+    stage: str = "edl",
+    persist: bool = False,
+) -> list[dict[str, Any]]:
+    """Trim overlapping source ranges the union repair cannot merge (ISSUES 97).
+
+    The union repair merges overlapping *same-speaker* speech. A cut-edge
+    refinement can extend a clip past the next clip's start across a speaker
+    change (exec_063: seg_005's end pushed 660 ms into seg_006); no union
+    applies, and strict EDL QC halts on the 380 ms of tape that would play
+    twice. This trims the earlier clip's end back to the later clip's start
+    (or, when that would leave too little, the later clip's start forward),
+    mutating ``edl`` in place. Returns the actions applied.
+    """
+    clips = edl.get("clips") if isinstance(edl, dict) else None
+    if not isinstance(clips, list):
+        return []
+    speech = [
+        (i, c) for i, c in enumerate(clips)
+        if isinstance(c, dict) and c.get("type") == "speech" and _source_span(c) is not None
+    ]
+    speech.sort(key=lambda ic: _source_span(ic[1])[0])
+    actions: list[dict[str, Any]] = []
+    for (ia, a), (ib, b) in zip(speech, speech[1:]):
+        sa, ea = _source_span(a)
+        sb, eb = _source_span(b)
+        if not (sa < eb and sb < ea):
+            continue
+        overlap = min(ea, eb) - max(sa, sb)
+        if sb - sa >= MIN_TRIMMED_CLIP_MS and ea > sb:
+            a["source_end_ms"] = sb
+            a["duration_ms"] = max(0, sb - sa)
+            trimmed, side = str(a.get("segment_id") or f"clips[{ia}]"), "end"
+        elif eb - ea >= MIN_TRIMMED_CLIP_MS:
+            b["source_start_ms"] = ea
+            b["duration_ms"] = max(0, eb - ea)
+            trimmed, side = str(b.get("segment_id") or f"clips[{ib}]"), "start"
+        else:
+            continue
+        actions.append(
+            {
+                "action": "trim_residual_source_overlap",
+                "trimmed": trimmed,
+                "side": side,
+                "against": str((b if side == "end" else a).get("segment_id") or ""),
+                "overlap_ms": int(overlap),
+            }
+        )
+    if not actions:
+        return []
+    edl["timeline_duration_ms"] = _retime_clips([c for c in clips if isinstance(c, dict)])
+    try:
+        ctx.log(
+            f"EDL overlap trim: {len(actions)} residual overlap(s) trimmed "
+            "(cross-speaker; no union possible)",
+            level="warning",
+            stage=stage,
+            detail=actions[:8],
+        )
+    except Exception:
+        pass
+    if persist:
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, edl, source=STAGE_KEY)
+    return actions
+
+
 def repair_overlapping_source_ranges(
     ctx: RunContext,
     edl: dict[str, Any] | None = None,

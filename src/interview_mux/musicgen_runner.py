@@ -9,6 +9,7 @@ import os
 import shutil
 import struct
 import subprocess
+import threading
 import time
 import wave
 from pathlib import Path
@@ -132,6 +133,65 @@ def e2e_musicgen_timeout_sec(default: int) -> int:
         return max(30, int(float(raw)))
     except ValueError:
         return int(default)
+
+
+def _pump(stream: Any, sink: list[str]) -> None:
+    """Read a child's pipe to exhaustion so the child never blocks on write."""
+    if stream is None:
+        return
+    try:
+        for line in iter(stream.readline, ""):
+            sink.append(line)
+    except Exception:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
+def _hub_model_cached(cache: Path, model_id: str) -> bool:
+    slug = "models--" + str(model_id or "").replace("/", "--")
+    root = cache / "hub" / slug / "snapshots"
+    try:
+        return root.is_dir() and any(p.is_dir() for p in root.iterdir())
+    except OSError:
+        return False
+
+
+def hub_env_for_request(req: Path, cache: Path) -> dict[str, str]:
+    """Hugging Face Hub environment for one generation subprocess.
+
+    A model that is already in the local cache is loaded offline: the Hub
+    client otherwise contacts huggingface.co to check for updates on every
+    load, and a hung connection there (a 6 s stinger sat 15 minutes on a
+    CLOSE_WAIT socket, exec_062, ISSUES 84) stalls the whole run for the
+    length of the generation timeout. When the model is not cached, the
+    fetch is allowed but with bounded timeouts. Platform neutral: MLX/MPS on
+    macOS and CUDA on Windows use the same client.
+    """
+    out: dict[str, str] = {
+        "HF_HUB_ETAG_TIMEOUT": "10",
+        "HF_HUB_DOWNLOAD_TIMEOUT": "30",
+        # Progress bars are noise on a captured pipe, and the newer transformers
+        # loader prints one per tensor: enough bytes to fill the pipe buffer.
+        "TQDM_DISABLE": "1",
+        "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    }
+    model_ids: list[str] = []
+    try:
+        doc = json.loads(Path(req).read_text(encoding="utf-8"))
+        for key in ("model_id", "melody_model_id"):
+            value = str((doc or {}).get(key) or "").strip()
+            if value:
+                model_ids.append(value)
+    except Exception:
+        return out
+    if model_ids and all(_hub_model_cached(cache, m) for m in model_ids):
+        out["HF_HUB_OFFLINE"] = "1"
+        out["TRANSFORMERS_OFFLINE"] = "1"
+    return out
 
 
 def musicgen_timeouts_for_duration(
@@ -525,6 +585,8 @@ def _spawn_musicgen(
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(cache / "hub"))
     # Soft ops fallback when an op is missing on Metal (does not override device=cpu).
     env.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    for key, value in hub_env_for_request(req, cache).items():
+        env.setdefault(key, value)
     if extra_env:
         env.update(extra_env)
     from interview_mux.gpu_exclusive import gpu_exclusive
@@ -541,6 +603,19 @@ def _spawn_musicgen(
             env=env,
             start_new_session=True,
         )
+        # Drain both pipes while polling. Waiting without reading deadlocks the
+        # child once its output exceeds the pipe buffer (64 KB): a 6 s stinger
+        # sat 15 minutes blocked inside tqdm writing the model-loading progress
+        # bar to stderr, was killed at the timeout, and the retry did the same
+        # (exec_062, ISSUES 84). Same on macOS; the pipe is the same size.
+        out_buf: list[str] = []
+        err_buf: list[str] = []
+        pumps = [
+            threading.Thread(target=_pump, args=(proc_h.stdout, out_buf), daemon=True),
+            threading.Thread(target=_pump, args=(proc_h.stderr, err_buf), daemon=True),
+        ]
+        for t in pumps:
+            t.start()
         waited = 0
         while proc_h.poll() is None and waited < timeout:
             if run_ctx is not None:
@@ -563,10 +638,16 @@ def _spawn_musicgen(
                 proc_h.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 pass
-            return subprocess.CompletedProcess(proc_h.args, -9, "", f"timeout after {timeout}s")
-        stdout, stderr = proc_h.communicate()
+            for t in pumps:
+                t.join(timeout=2)
+            tail = "".join(err_buf)[-2000:]
+            return subprocess.CompletedProcess(
+                proc_h.args, -9, "".join(out_buf), f"timeout after {timeout}s" + chr(10) + tail
+            )
+        for t in pumps:
+            t.join(timeout=5)
         result = subprocess.CompletedProcess(
-            proc_h.args, proc_h.returncode, stdout or "", stderr or ""
+            proc_h.args, proc_h.returncode, "".join(out_buf), "".join(err_buf)
         )
         from interview_mux.heavy_task_policy import record_heavy_abort
 

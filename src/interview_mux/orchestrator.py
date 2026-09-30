@@ -253,9 +253,14 @@ class Orchestrator:
         mode: str,
         poll_sec: float = 5.0,
         gate_timeout_sec: float = 0.0,
-        log: Callable[[str], None] = print,
+        log: Callable[[str], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if log is None:
+            # The console log is a file; block-buffered prints vanish on a
+            # hard kill, which is exactly when they are needed.
+            def log(line: str) -> None:
+                print(line, flush=True)
         if mode not in MODES:
             raise ValueError(f"mode must be one of {sorted(MODES)}, got {mode!r}")
         self.ctx = ctx
@@ -278,8 +283,11 @@ class Orchestrator:
             row.update({"active": active, "pid": os.getpid(), "mode": self.mode})
             row["started_at" if active else "ended_at"] = _utc_now()
             meta[ORCHESTRATOR_META_KEY] = row
-            # The GUI's partial-auto views key off this flag (driver owns resume).
-            meta["partial_auto_driver_active"] = bool(active and self.partial)
+            # The GUI reads this flag in both modes as "a driver owns the run":
+            # an explicit False makes it offer the manual Run button next to a
+            # stage the engine is executing (ISSUES 82). True while the engine
+            # lives, False once it has finished.
+            meta["partial_auto_driver_active"] = bool(active)
 
         try:
             self.ctx.mutate_run_meta(_mut)
@@ -344,6 +352,18 @@ class Orchestrator:
         for name in cleared:
             self.log(f"      gate cleared: {name}")
         return cleared
+
+    def _sign_off_publish_gate(self) -> None:
+        """Stamp the G-Publish sign-off as prepared (full-auto only)."""
+        if not final_signoff_pending(self.ctx):
+            return
+        try:
+            from interview_mux.gates import clear_g_publish
+
+            clear_g_publish(self.ctx, skipped=False)
+            self.log("      gate cleared: g_publish (full-auto, package prepared)")
+        except Exception as exc:  # noqa: BLE001 - reporting only
+            self.log(f"      g_publish sign-off failed: {type(exc).__name__}: {str(exc)[:120]}")
 
     def _final_signoff(self) -> bool:
         """Partial mode: hold before podcast_publish until the operator signs off."""
@@ -503,11 +523,22 @@ class Orchestrator:
                         row = a
                         break
                     row = self._phase("delivery", run_delivery, until_stage=until)
-            if row["status"] == "ok" and until and not pipeline_complete(self.ctx):
+            at_signoff = row["status"] == "ok" or (
+                row["status"] == "halt"
+                and "G-Publish sign-off pending" in str(row.get("error") or "")
+            )
+            if at_signoff and until and not pipeline_complete(self.ctx):
                 # Everything up to the sign-off is done; hold for the operator,
                 # then run what remains (podcast_publish, or nothing after Skip).
+                # A walk that reached podcast_publish past the boundary halts on
+                # the stage's own guard with the same meaning (ISSUES 98).
                 if self._final_signoff():
                     row = self._phase("delivery", run_delivery)
+            if not self.partial and self.ctx.is_done("podcast_publish"):
+                # Full-auto signs the final gate off itself: the package was
+                # prepared by podcast_publish, so the GUI must not keep asking
+                # for a sign-off nobody is waiting for (ISSUES 92).
+                self._sign_off_publish_gate()
             complete = False
             try:
                 complete = bool(pipeline_complete(self.ctx))

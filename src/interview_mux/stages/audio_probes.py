@@ -140,6 +140,30 @@ def run_audio_probe_build(ctx: RunContext) -> None:
     except Exception:
         work_dir = None
 
+    # The probes are a pure function of the transcript, the normalized audio
+    # and the audio_probes configuration; a rerun of the same source restores
+    # them from the stage cache instead of spending 8 minutes of models (ISSUES 93).
+    from interview_mux import stage_cache
+
+    probe_rels = [
+        "analysis/run_golden_facts.json",
+        "transcript/protected_zones.json",
+        "transcript/speaker_flows.json",
+        "vernacular/probe_report.json",
+        "vernacular/audio_tags_by_flow.json",
+    ]
+    cache_key = stage_cache.cache_key(
+        stage,
+        stage_cache.json_body_digest(ctx.final_path("transcript", "full.json")),
+        stage_cache.file_digest(source_wav) if source_wav else "no_wav",
+        stage_cache.config_digest(cfg),
+    )
+    if stage_cache.restore(ctx, stage, cache_key, probe_rels):
+        from interview_mux.stage_completion import heal_or_raise
+
+        heal_or_raise(ctx, stage)
+        return
+
     with logged_step(f"{stage}/run_platform", ctx=ctx, stage=stage):
         try:
             arts = build_audio_probe_artifacts(
@@ -165,15 +189,22 @@ def run_audio_probe_build(ctx: RunContext) -> None:
             )
 
         # Always write a complete set so later stages have stable contracts.
+        docs = {
+            "analysis/run_golden_facts.json": arts["golden_facts"],
+            "transcript/protected_zones.json": arts["protected_zones"],
+            "transcript/speaker_flows.json": arts["speaker_flows"],
+            "vernacular/probe_report.json": arts["probe_report"],
+            "vernacular/audio_tags_by_flow.json": {
+                "version": 1,
+                "by_flow": arts.get("audio_tags_by_flow") or {},
+            },
+        }
         try:
-            ctx.write_json("analysis/run_golden_facts.json", arts["golden_facts"])
-            ctx.write_json("transcript/protected_zones.json", arts["protected_zones"])
-            ctx.write_json("transcript/speaker_flows.json", arts["speaker_flows"])
-            ctx.write_json("vernacular/probe_report.json", arts["probe_report"])
-            ctx.write_json(
-                "vernacular/audio_tags_by_flow.json",
-                {"version": 1, "by_flow": arts.get("audio_tags_by_flow") or {}},
-            )
+            for rel in probe_rels:
+                ctx.write_json(rel, docs[rel])
+            # A fail-open empty set is not worth remembering.
+            if "build_failed" not in str((arts.get("probe_report") or {}).get("reason") or ""):
+                stage_cache.store(ctx, stage, cache_key, docs)
         except Exception as exc:  # noqa: BLE001
             ctx.log(
                 f"audio_probe_build write failed: {exc}",

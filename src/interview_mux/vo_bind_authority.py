@@ -300,7 +300,7 @@ def _omit_bind_failed_line(
                 write_plan(ctx, plan, seat_reason="catastrophe_seated_bind_synth_failed")
             except Exception:
                 ctx.write_json(
-                    "mastering/mastering_plan.json", plan, skip_handoff=True
+                    "mastering/mastering_plan.json", plan, skip_handoff=True, optional=True
                 )
         except Exception:
             pass

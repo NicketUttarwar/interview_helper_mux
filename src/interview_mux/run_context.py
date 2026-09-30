@@ -117,6 +117,40 @@ class RunContext:
         """Alias for read_path — makes read intent obvious at call sites."""
         return self.read_path(*rel.split("/"))
 
+    def _optional_write_refused(
+        self,
+        rel: str,
+        stage_key: str | None,
+        role: str | None,
+        mutation_class: str | None,
+    ) -> bool:
+        """Ask the ownership table whether an optional write would be refused."""
+        try:
+            from interview_mux.artifact_ownership import write_permitted
+            from interview_mux.write_staging import active_stage_id
+
+            sk = stage_key or active_stage_id()
+            role_s = str(role or "").strip() or ("producer" if sk else "ops")
+            ok, reason = write_permitted(
+                self, rel, sk, role=role_s, verb="persist", mutation_class=mutation_class
+            )
+        except ImportError:
+            return False
+        except Exception:
+            return False
+        if ok:
+            return False
+        try:
+            self.log(
+                f"optional write skipped: {rel} ({reason}); its owner rewrites it",
+                level="info",
+                stage=str(sk or "ops"),
+                detail={"optional_write_skipped": True, "path": str(rel), "reason": str(reason)},
+            )
+        except Exception:
+            pass
+        return True
+
     def write_json(
         self,
         rel: str,
@@ -126,7 +160,20 @@ class RunContext:
         skip_handoff: bool = False,
         role: str | None = None,
         mutation_class: str | None = None,
+        optional: bool = False,
     ) -> Path:
+        """Persist ``data`` at ``rel`` under the ownership constitution.
+
+        ``optional=True`` marks a courtesy write: one the caller would swallow a
+        refusal of anyway (a fingerprint restamp, a remap for later readers, a
+        bookkeeping stamp another stage owns in this epoch). A refused optional
+        write is skipped with an info line and returns the path unwritten. It
+        is not an authority denial: nothing is logged at error level, no
+        identical-failure signature is recorded, and no halt is stamped
+        (ISSUES 90).
+        """
+        if optional and self._optional_write_refused(rel, stage_key, role, mutation_class):
+            return self.path(*str(rel or "").replace("\\", "/").lstrip("/").split("/"))
         if os.environ.get("MUX_TRACE_WRITES") and str(rel) in (
             "segments/manifest.json",
             "segments/boundaries.json",

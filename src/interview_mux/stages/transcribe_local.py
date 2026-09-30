@@ -43,13 +43,37 @@ def run_transcribe(ctx: RunContext) -> None:
     )
     touch_job_message(ctx, "Transcribe: running local MLX STT…")
 
+    # Same normalized audio, same model, same diarization mode: same words.
+    # A rerun of a source file already transcribed on this machine restores the
+    # transcript from the stage cache instead of running STT again (ISSUES 93).
+    from interview_mux import stage_cache
+    from interview_mux.stt_runner import local_speech_cfg, resolve_diarization_mode, resolve_stt_model_id
+
+    cache_rels = ["transcript/full.json", "transcript/speakers.json"]
+    key = stage_cache.cache_key(
+        "transcribe",
+        stage_cache.file_digest(normalized),
+        resolve_stt_model_id(),
+        resolve_diarization_mode(),
+        stage_cache.config_digest(local_speech_cfg()),
+    )
     try:
-        with logged_step("transcribe/local_stt", ctx=ctx, stage="transcribe"):
-            raw = transcribe_audio(ctx, normalized)
-        with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
-            full, speakers = normalize_local_stt(raw)
-            ctx.write_json("transcript/full.json", full)
-            ctx.write_json("transcript/speakers.json", speakers)
+        if stage_cache.restore(ctx, "transcribe", key, cache_rels):
+            full = ctx.read_json("transcript/full.json")
+            speakers = ctx.read_json("transcript/speakers.json")
+        else:
+            with logged_step("transcribe/local_stt", ctx=ctx, stage="transcribe"):
+                raw = transcribe_audio(ctx, normalized)
+            with logged_step("transcribe/normalize_transcript", ctx=ctx, stage="transcribe"):
+                full, speakers = normalize_local_stt(raw)
+                ctx.write_json("transcript/full.json", full)
+                ctx.write_json("transcript/speakers.json", speakers)
+            stage_cache.store(
+                ctx,
+                "transcribe",
+                key,
+                {"transcript/full.json": full, "transcript/speakers.json": speakers},
+            )
     except LocalRuntimeUnavailable as exc:
         ctx.log(f"Local STT failed: {exc}", level="error", stage="transcribe")
         raise RuntimeError(str(exc)) from exc

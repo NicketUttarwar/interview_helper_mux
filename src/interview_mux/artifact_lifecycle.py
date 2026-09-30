@@ -494,7 +494,9 @@ def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[st
             doc = ctx.read_json(rel)
             if isinstance(doc, dict):
                 fp = fingerprint_artifact(doc, stage_key)
-                ctx.write_json(rel, fp, stage_key=stage_key, skip_handoff=True)
+                # A restamp of an artifact this stage may not own in the current
+                # epoch is a courtesy; the owner restamps on its own flush.
+                ctx.write_json(rel, fp, stage_key=stage_key, skip_handoff=True, optional=True)
                 h = (fp.get("_meta") or {}).get("content_hash")
                 if h:
                     _record_fingerprint(ctx, rel, str(h), stage_key)
@@ -799,12 +801,37 @@ def split_artifact_lists(
     return committed, staged, lifecycle
 
 
+#: Stages whose outputs exist only when gap-fill VO is active. A run that
+#: skipped gap fill (native-only pipeline mode) reports them as skipped, not
+#: pending: the GUI showed "Interviewer script incomplete, gap_framing_plan.json
+#: is pending" as FAILED over a step it had deliberately skipped (ISSUES 83).
+GAP_FILL_STAGES: tuple[str, ...] = (
+    "missing_framing",
+    "optimal_questions",
+    "g1_vo_pickup",
+    "gap_framing_compose",
+    "gap_framing_recompose",
+)
+
+
+def _gap_fill_skipped(ctx: Any, stage_id: str) -> bool:
+    if stage_id not in GAP_FILL_STAGES:
+        return False
+    try:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        return bool(gap_fill_was_skipped(ctx))
+    except Exception:
+        return False
+
+
 def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
     from interview_mux.web.stages import STAGE_BY_ID
 
     info = STAGE_BY_ID.get(stage_id)
     if not info:
         return []
+    skipped = _gap_fill_skipped(ctx, stage_id)
     rows: list[dict[str, Any]] = []
     for rel in info.artifacts or []:
         if not rel or rel.endswith("/"):
@@ -827,16 +854,53 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
                     suff = "blocking" if blocking else "ok"
             except Exception:
                 suff = "unknown"
+        status = artifact_status_for_stage(rel, ctx, stage_id)
+        if skipped and phase == "pending":
+            phase, status = "skipped", "skipped"
         rows.append(
             {
                 "path": rel,
                 "label": rel.split("/")[-1],
-                "status": artifact_status_for_stage(rel, ctx, stage_id),
+                "status": status,
                 "phase": phase,
                 "kind": "artifact",
                 "sufficiency_status": suff,
             }
         )
+    return _settle_unproduced_rows(ctx, stage_id, rows)
+
+
+def _settle_unproduced_rows(ctx: Any, stage_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A finished stage's outputs it never produced are not pending work.
+
+    Several stages declare artifacts they write only on some paths (junction's
+    thought-complete recut, failure review, remediation plan). Once the stage
+    is done and its primary artifact is committed, a row still "pending" reads
+    to the operator as unfinished work and to the T1 reconcile as a failure.
+    Mark those rows n_a instead (ISSUES 91).
+    """
+    try:
+        if not ctx.is_done(stage_id):
+            return rows
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        primary = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+        by_path = {str(r.get("path")): r for r in rows}
+        if primary:
+            head = by_path.get(primary)
+            if not head or head.get("status") != "complete":
+                return rows
+        elif not any(r.get("status") == "complete" for r in rows):
+            return rows
+        for row in rows:
+            if row.get("path") == primary:
+                continue
+            if row.get("phase") == "pending" and row.get("status") == "pending":
+                row["phase"] = "n_a"
+                row["status"] = "n_a"
+                row["note"] = "not produced on this run"
+    except Exception:
+        return rows
     return rows
 
 
@@ -857,7 +921,7 @@ def stage_output_mode(ctx: Any, stage_id: str) -> str:
         if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
             return "optional_skipped"
 
-    if stage_id in ("missing_framing", "optimal_questions", "g1_vo_pickup"):
+    if stage_id in GAP_FILL_STAGES:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
         if gap_fill_was_skipped(ctx):

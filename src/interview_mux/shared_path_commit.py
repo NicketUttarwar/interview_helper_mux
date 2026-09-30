@@ -310,6 +310,7 @@ def commit_boundaries_doc(
     clear_stale: bool = True,
     protect_sacred: bool | None = None,
     skip_handoff: bool = False,
+    optional: bool = False,
 ) -> Any:
     """Persist boundaries via ``write_json`` with explicit shared-path opts."""
     protect = bool(protect_sacred) if protect_sacred is not None else (not claim_producer)
@@ -324,6 +325,7 @@ def commit_boundaries_doc(
             doc,
             stage_key=stage_key,
             skip_handoff=skip_handoff,
+            optional=optional,
         )
 
 

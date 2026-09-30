@@ -1025,7 +1025,10 @@ def commit_air_contract(ctx: Any, *, reason: str = "") -> SanitizeResult:
             )
         if isinstance(gap, dict) and gap:
             try:
-                ctx.write_json(GAP_REL, gap)
+                # Under pre_soft_freeze the layup owns gap_report; the VO flags
+                # the sanitizer carries land on its next permitted pass, and the
+                # dry re-sanitize below still refuses a stale contract (ISSUES 90).
+                ctx.write_json(GAP_REL, gap, optional=True)
             except Exception as exc:
                 return SanitizeResult(
                     doc=result.doc,

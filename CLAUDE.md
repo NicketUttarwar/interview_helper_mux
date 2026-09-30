@@ -42,7 +42,10 @@ equivalents behind the same contracts. Details and rationale:
 
 ```bash
 ./scripts/run.sh                          # GUI at http://127.0.0.1:8765
-./scripts/run.sh --cli run --run-id ...   # headless
+./scripts/run.sh --cli run --run-id ...   # headless, one phase
+python -m interview_mux orchestrate --mode full-auto --input <wav>   # the engine (ISSUES 79)
+python -m interview_mux orchestrate --mode partially-accelerated --run-id exec_...
+MUX_STAGE_CACHE=0 ...                     # force transcribe/probes to rerun (ISSUES 93)
 MUX_REBUILD_GUI=1 ./scripts/run.sh        # rebuild React bundle first
 PYTHONUTF8=1 .venv/Scripts/python -m pytest -q          # full suite, ~17 min
 PYTHONUTF8=1 .venv/Scripts/python -m pytest -q -n 12   # same suite, ~8 min
@@ -74,6 +77,13 @@ the removal authority, the ordering-gate sweep). exec_052 was
 re-entered after each new defect (ISSUES.md entries 54 to 66, all fixed); a
 from-scratch run that needs no re-entry is the standing check (entry 45).
 Keyless stub: 41 stages.
+
+Engine proofs (2026-09-30): `exec_062` full-auto through the GUI path, 72 of
+72, 4.3-minute master from the 6-minute clip (entries 84, 85). `exec_063`
+partially-accelerated through the GUI endpoints, 72 of 72 after entries 94
+to 98 were fixed along the way (the engine was restarted three times on the
+same run; each restart re-verified analysis in about 10 s). Stage cache
+(entry 93) lives at `C:\mux-local\stage_cache` here.
 
 Ordering exceptions ("may X run before Y is complete") live only in
 `src/interview_mux/ordering_authority.py` (entry 62). Add new ones there; a
@@ -116,7 +126,12 @@ redoing `audio_probe_build` (~299 s, the slowest stage).
 
 ## Test baseline
 
-**6824 passed, 0 failed, 21 skipped**. Keep it there.
+**6895 passed, 0 failed, 21 skipped** (2026-09-30, after ISSUES 85 to 99). Keep it there.
+
+Launch pytest from Git Bash. From PowerShell, `bash` resolves to the WSL stub
+in System32 and two tests that shell out to bash fail for that reason alone
+(`test_r_wf_musicgen_stub_forbidden_via_verify`, and the gap-framing hollow
+done test which then cannot resolve the Chatterbox venv).
 
 **ffmpeg must be on PATH** or the suite aborts at once with a message naming it.
 The pipeline shells out to a bare `ffmpeg` in 22 places, so this is a real
