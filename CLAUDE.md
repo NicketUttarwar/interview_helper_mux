@@ -126,7 +126,7 @@ redoing `audio_probe_build` (~299 s, the slowest stage).
 
 ## Test baseline
 
-**6895 passed, 0 failed, 21 skipped** (2026-09-30, after ISSUES 85 to 99). Keep it there.
+**6903 passed, 0 failed, 21 skipped** (2026-10-01, after ISSUES 85 to 101). Keep it there.
 
 Launch pytest from Git Bash. From PowerShell, `bash` resolves to the WSL stub
 in System32 and two tests that shell out to bash fail for that reason alone
