@@ -516,9 +516,18 @@ def after_gap_recompose_or_skip(ctx: RunContext) -> None:
             str(x) for x in ((selection or {}).get("ordered_segment_ids") or []) if x
         ]
         if isinstance(report, dict) and ordered:
+            # The orientation guard is a repair of the live report, not this
+            # stage's authorship: after nugget_layup_authority the layup is the
+            # sole body writer, so present its key (entry 36's answer). Under
+            # the recompose key the write was refused, the undo ledger rolled
+            # the report back to the compose version, the layup republished,
+            # and the A-B-A hash oscillation halted the run (ISSUES 95).
+            from interview_mux.artifact_ownership import gap_report_body_owner
+
+            owner_key = gap_report_body_owner(report)
             report, actions = ensure_episode_orientation(ctx, report, ordered)
             if actions:
-                ctx.write_json(FINAL_REL, report)
+                ctx.write_json(FINAL_REL, report, stage_key=owner_key)
                 ctx.log(
                     f"opening orientation guard applied {len(actions)} action(s)",
                     level="info",

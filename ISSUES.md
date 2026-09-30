@@ -3077,6 +3077,34 @@ refuses).
 
 ---
 
+## [95] PRODUCT: the orientation guard in gap_framing_recompose wrote the gap report under its own key, and the undo ledger halted the run
+
+**Stage / area:** `refinement_passes.after_gap_recompose_or_skip`
+**Status:** fixed.
+
+exec_063 (partially-accelerated, first end-to-end attempt on the engine)
+stopped at delivery resume 3 with
+`authority_undo_thrash:understanding/gap_report.json: hash_oscillation`.
+The chain: `gap_framing_recompose` republished the layup plan (the layup is
+now the report's sole body writer), then its post hook ran the opening
+orientation guard, which changed the report and wrote it back with the
+stage's own key. The ownership table refused (`owner=nugget_layup_compose`),
+the stage failed, and the authority-undo mechanism rolled the report back
+to the older compose version. The next pass republished the layup, the
+guard fired again, and the ledger saw compose hash, layup hash, compose
+hash: an A-B-A oscillation, which is a halt. exec_062 saw the same guard
+refuse under `vo_line_adjudicate` as a warning; this run hit it in the
+stage that owns nothing.
+
+Fix: the guard presents the report's current owner key,
+`gap_report_body_owner(prior)`, the answer entry 36 gave the other
+legitimate repairs. No refusal, no undo, no oscillation.
+
+Tests: `tests/test_orientation_guard_owner_key.py` (layup authority: the
+write carries `nugget_layup_compose`; before it, `gap_framing_compose`).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
