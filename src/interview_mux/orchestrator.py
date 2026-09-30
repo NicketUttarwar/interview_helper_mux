@@ -508,6 +508,7 @@ class Orchestrator:
             row = self._phase("analysis", run_analysis)
             if row["status"] == "ok":
                 row = self._phase("delivery", run_delivery, until_stage=until)
+                last_hop: tuple[str, int] | None = None
                 while row["status"] != "ok" and hops < MAX_GATE_RESUMES:
                     err = str(row.get("error") or "")
                     hop_back = "analysis incomplete" in err or (
@@ -516,6 +517,17 @@ class Orchestrator:
                     )
                     if not hop_back:
                         break
+                    # A hop that reproduces the previous hop's error with no new
+                    # stage landed is a loop, not recovery. exec_065 spent nine
+                    # hops and nine error lines on one refused input check
+                    # before the invoke cap ended it (ISSUES 106).
+                    signature = (err[:200], self._done_count())
+                    if last_hop == signature:
+                        self.log(
+                            "  hop loop: same error and no progress after a hop; stopping"
+                        )
+                        break
+                    last_hop = signature
                     hops += 1
                     self.log(f"  hop {hops}: delivery invalidated analysis, re-running both")
                     a = self._phase("analysis", run_analysis)

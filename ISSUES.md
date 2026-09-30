@@ -3452,6 +3452,35 @@ judgements; gate sign-off once per gate; rewind drops the old sign-off).
 
 ---
 
+## [106] PRODUCT: two deterministic guardrails in the walk and the engine loop
+
+**Stage / area:** `homunculus.agenda.walk_seed_agenda`, `orchestrator.run`
+**Status:** fixed.
+
+Two behaviours every recent run showed, neither a stop on its own, both
+paid for in failed passes and error lines:
+
+- **Prerequisites learned from the exception.** `dispatch_stage` refuses a
+  stage whose earlier seed-order stage is incomplete; the walk learned the
+  prerequisite from the error and ran it, one per pass. Every run paid two
+  or three failed passes climbing "complete chapter_close_hitch before
+  refinement_agenda", then full_master_ranking, then the next. The walk now
+  asks the same check before dispatch and runs the chain up front,
+  bounded by the order length and by the one-run-per-prerequisite set the
+  reactive path already keeps. A prerequisite that fails to run falls
+  through to dispatch, which reports it as before.
+- **Hops that reproduce the last error.** When delivery reports analysis
+  incomplete the engine hops back to analysis and tries again, up to
+  sixteen times. exec_065 spent nine hops and nine error lines on one
+  refused input check (entry 103) with nothing landing in between. The
+  engine now stops a hop that reproduces the previous hop's error with the
+  same stage count, and says so.
+
+Tests: `tests/test_seed_prereqs_ahead.py`, `tests/test_orchestrator.py`
+(the hop-loop case).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

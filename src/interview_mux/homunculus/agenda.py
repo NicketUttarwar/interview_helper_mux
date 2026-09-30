@@ -2154,6 +2154,55 @@ def _constrain_delivery_walk_for_sticky(
 _SEED_ORDER_RE = re.compile(r"seed order: complete (\S+) before running (\S+)")
 
 
+def _run_seed_prerequisites_first(
+    ctx: RunContext, stage: str, retried: set[str], run_stage: Any
+) -> list[str]:
+    """Resolve the seed-order chain ahead of dispatch, not after a refusal (ISSUES 106).
+
+    ``dispatch_stage`` refuses a stage whose earlier seed-order stage is not
+    complete, and the walk then learns the prerequisite from the exception,
+    one per pass. Every run paid two or three failed passes to "seed order:
+    complete chapter_close_hitch before running refinement_agenda", then
+    full_master_ranking, then the next. Ask the same check first and run the
+    chain up front, bounded by the order length and by ``retried`` (one run
+    per prerequisite per walk, shared with the reactive path below). A
+    prerequisite that fails to run falls through to dispatch, which raises
+    the same seed-order error the reactive path already handles.
+    """
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+
+    ran: list[str] = []
+    for _ in range(len(ANALYSIS_ORDER) + len(DELIVERY_ORDER)):
+        try:
+            blocked = _seed_prereq_block(ctx, stage)
+        except Exception:
+            return ran
+        blocked = str(blocked or "").strip()
+        if not blocked or blocked == stage or blocked in retried:
+            return ran
+        if not _seed_prereq_needs_run(ctx, blocked):
+            return ran
+        retried.add(blocked)
+        ctx.log(
+            f"seed walk: running prerequisite {blocked} before {stage}",
+            level="info",
+            stage=stage,
+            detail={"event": "seed_prereq_ahead", "prereq": blocked},
+        )
+        try:
+            run_stage(ctx, blocked)
+        except Exception as exc:  # noqa: BLE001 - dispatch will report it properly
+            ctx.log(
+                f"seed walk: prerequisite {blocked} did not land ahead of {stage}: "
+                f"{type(exc).__name__}: {str(exc)[:160]}",
+                level="warning",
+                stage=stage,
+            )
+            return ran
+        ran.append(blocked)
+    return ran
+
+
 def _seed_prereq_needs_run(ctx: RunContext, prereq: str) -> bool:
     """A named prerequisite is worth one run unless it is genuinely complete.
 
@@ -2412,6 +2461,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 except Exception:
                     pass
                 continue
+            _run_seed_prerequisites_first(ctx, stage, seed_prereq_retried, run_single_stage)
             try:
                 run_single_stage(ctx, stage)
             except Exception as exc:

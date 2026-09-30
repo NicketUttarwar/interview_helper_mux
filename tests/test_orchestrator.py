@@ -256,3 +256,17 @@ def test_partial_treats_the_publish_guard_halt_as_the_sign_off_point(ctx, monkey
     assert o.run() == 0
     assert waited, "the engine must have waited for the operator"
     assert [n for n, _ in phases.calls] == ["analysis", "delivery", "delivery"]
+
+
+def test_hop_loop_stops_on_the_same_error_with_no_progress(ctx, monkeypatch) -> None:
+    """A hop that reproduces the last error with nothing landed is a loop (ISSUES 106)."""
+    err = RuntimeError("Delivery blocked — analysis incomplete: missing_framing")
+    phases = _Phases(analysis=[None, None, None, None], delivery=[err, err, err, err])
+    _wire(monkeypatch, phases, complete=lambda c: False)
+    lines: list[str] = []
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
+    assert o.run() == 1
+    names = [n for n, _ in phases.calls]
+    # analysis, delivery, one hop (analysis, delivery), then stop: not sixteen hops.
+    assert names == ["analysis", "delivery", "analysis", "delivery"]
+    assert any("hop loop" in line for line in lines)
