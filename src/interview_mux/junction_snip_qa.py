@@ -920,6 +920,22 @@ def detect_junction_findings(
         evidence: str = "",
     ) -> None:
         detail = dict(detail or {})
+        # A recorded ``accepted_hanging_end`` (entry 72: no recut, no fuse,
+        # omit refused for a hard keep) is the terminal outcome of the ladder
+        # for that clip. Honour it here, for every incomplete-cut kind, rather
+        # than in one detection branch: the chapter-bleed and incomplete-clause
+        # branches never saw it and re-raised the same critical on every pass
+        # (ISSUES 100, upstream exec_006 mix <-> junction). Advisory keeps the
+        # finding visible in the QA report without blocking mix.
+        if (
+            severity == "critical"
+            and kind in _INCOMPLETE_CUT_KINDS
+            and segment_id
+            and isinstance(overrides.get(segment_id), dict)
+            and overrides[segment_id].get("accepted_hanging_end")
+        ):
+            severity = "advisory"
+            detail["accepted_hanging_end"] = True
         # Hysteresis: suppress re-fire unless delta large or valley moved.
         if action == "nudge_source_bounds" and segment_id:
             edge = str(detail.get("edge") or "end")
