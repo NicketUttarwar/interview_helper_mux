@@ -353,7 +353,10 @@ def persist_runtime_last_error(ctx: Any, payload: dict[str, Any]) -> None:
             elif isinstance(prev, list):
                 hist = list(prev)
         hist.append(payload)
-        ctx.write_json(rel, {"version": 1, "failures": hist[-12:]})
+        # A diagnostics sidecar: under the seat freeze the ownership table may
+        # refuse it, and a refused note about a failure must not become a
+        # failure of its own (ISSUES 90).
+        ctx.write_json(rel, {"version": 1, "failures": hist[-12:]}, optional=True)
     except Exception:
         pass
 

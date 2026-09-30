@@ -2977,6 +2977,10 @@ table is asked first; a refused optional write is skipped with one info
 line and nothing else (no error, no signature, no halt, no forensics row).
 The seven sites pass the flag. The sanitizer's gap write is optional too;
 its dry re-sanitize still refuses a stale contract, so nothing is hidden.
+exec_063 surfaced an eighth site of the same shape under the soft freeze:
+the local-runtime last-error sidecar (`vo_pickup/local_runtime_last_error.json`,
+written when a Chatterbox child prints invalid JSON but leaves a usable
+WAV). Same fix.
 
 Tests: `tests/test_optional_write.py`.
 
