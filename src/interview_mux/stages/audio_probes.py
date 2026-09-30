@@ -154,7 +154,7 @@ def run_audio_probe_build(ctx: RunContext) -> None:
     ]
     cache_key = stage_cache.cache_key(
         stage,
-        stage_cache.file_digest(ctx.final_path("transcript", "full.json")),
+        stage_cache.json_body_digest(ctx.final_path("transcript", "full.json")),
         stage_cache.file_digest(source_wav) if source_wav else "no_wav",
         stage_cache.config_digest(cfg),
     )

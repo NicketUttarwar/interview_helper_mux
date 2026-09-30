@@ -73,6 +73,22 @@ def file_digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def json_body_digest(path: Path) -> str:
+    """SHA-256 of a JSON artifact's body, ignoring the per-run ``_meta`` stamp.
+
+    Artifacts written through ``write_json`` carry a fingerprint block with
+    the producing run's stamps, so two identical transcripts differ in bytes
+    (exec_064: the probe key missed on a cache-restored transcript).
+    """
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return file_digest(path)
+    if isinstance(doc, dict):
+        doc = {k: v for k, v in doc.items() if k != "_meta"}
+    return config_digest(doc)
+
+
 def config_digest(obj: Any) -> str:
     return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 

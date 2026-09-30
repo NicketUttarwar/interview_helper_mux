@@ -86,3 +86,14 @@ def test_cache_root_sits_beside_the_executions(tmp_path, monkeypatch) -> None:
     assert stage_cache.cache_root(_Ctx()) == tmp_path / "stage_cache"
     entry = json.loads(json.dumps({"ok": True}))
     assert entry == {"ok": True}
+
+
+def test_json_body_digest_ignores_the_per_run_meta_stamp(tmp_path) -> None:
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps({"words": [{"w": "hi"}], "_meta": {"content_hash": "1", "stage": "x"}}), encoding="utf-8")
+    b.write_text(json.dumps({"_meta": {"content_hash": "2", "run": "other"}, "words": [{"w": "hi"}]}), encoding="utf-8")
+    assert stage_cache.json_body_digest(a) == stage_cache.json_body_digest(b)
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps({"words": [{"w": "bye"}]}), encoding="utf-8")
+    assert stage_cache.json_body_digest(a) != stage_cache.json_body_digest(c)
