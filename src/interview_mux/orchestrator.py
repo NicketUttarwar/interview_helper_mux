@@ -523,9 +523,15 @@ class Orchestrator:
                         row = a
                         break
                     row = self._phase("delivery", run_delivery, until_stage=until)
-            if row["status"] == "ok" and until and not pipeline_complete(self.ctx):
+            at_signoff = row["status"] == "ok" or (
+                row["status"] == "halt"
+                and "G-Publish sign-off pending" in str(row.get("error") or "")
+            )
+            if at_signoff and until and not pipeline_complete(self.ctx):
                 # Everything up to the sign-off is done; hold for the operator,
                 # then run what remains (podcast_publish, or nothing after Skip).
+                # A walk that reached podcast_publish past the boundary halts on
+                # the stage's own guard with the same meaning (ISSUES 98).
                 if self._final_signoff():
                     row = self._phase("delivery", run_delivery)
             if not self.partial and self.ctx.is_done("podcast_publish"):

@@ -3168,6 +3168,41 @@ overlap, no action).
 
 ---
 
+## [98] PRODUCT: partial mode packaged the episode without the operator's sign-off
+
+**Stage / area:** `pipeline._run_steps` (ship walk after master),
+`stages.podcast_publish`, `orchestrator`
+**Status:** fixed.
+
+exec_063 was the first partially-accelerated run driven end to end by the
+engine. It waited at G0 as designed, then finished 72 of 72 with
+`run_meta.g_publish_pending` still true: nobody had signed the final gate
+off. The engine stops its delivery phase one stage short of
+`podcast_publish` (`until_stage=episode_cover_generate`), and the conductor
+honoured that for its own planning. But once master.wav is committed the
+same phase runs "walk remaining ship stages", which lists every ship stage
+whose outputs are missing and walks them, `podcast_publish` included. The
+old GUI path never saw this because the server deferred publish itself;
+the engine relies on the phase boundary, and this walk ignored it.
+
+Fix, in three places so no walk can overrun the gate again:
+- the ship walk filters its list through `stages_within_until`, the same
+  boundary the planner uses;
+- `run_podcast_publish` starts with `require_partial_signoff_before_publish`:
+  in partial mode, with neither Continue nor Skip stamped, it marks the gate
+  pending and halts with a gate message. Full-auto and manual runs are
+  untouched (full-auto signs off after packaging, entry 92; manual reaches
+  the stage only through the GUI's Continue). `require_g_publish_clear`
+  stays dead as the clinic pin requires;
+- the engine treats that halt as arriving at the sign-off point and waits
+  there, exactly as it does after a clean stop at the boundary.
+
+Tests: `tests/test_partial_publish_boundary.py`,
+`tests/test_orchestrator.py` (a delivery phase that halts on the guard
+makes the engine wait, and the run completes after Skip).
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.

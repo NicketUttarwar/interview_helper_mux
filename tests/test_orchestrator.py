@@ -231,3 +231,28 @@ def test_partial_leaves_the_publish_sign_off_to_the_operator(ctx, monkeypatch) -
     assert o.run() == 0
     meta = ctx.read_json("run_meta.json")
     assert not meta.get("g_publish_cleared")
+
+
+def test_partial_treats_the_publish_guard_halt_as_the_sign_off_point(ctx, monkeypatch) -> None:
+    """A walk that overran the boundary halts on podcast_publish's guard; the engine waits there (ISSUES 98)."""
+    from interview_mux.stages.podcast_publish import PARTIAL_SIGNOFF_PENDING
+
+    monkeypatch.setattr("interview_mux.gates.check_transcript_review_pending", lambda c: False)
+    monkeypatch.setattr(
+        "interview_mux.v2.config.effective_delivery_order",
+        lambda: ("edl", "mix", "master_finalize", "episode_cover_generate", "podcast_publish"),
+    )
+    phases = _Phases(analysis=[None], delivery=[SystemExit(PARTIAL_SIGNOFF_PENDING), None])
+    published = {"done": False}
+    _wire(monkeypatch, phases, complete=lambda c: published["done"])
+    waited: list[float] = []
+
+    def _sleep(_s: float) -> None:
+        waited.append(_s)
+        ctx.mutate_run_meta(lambda m: m.__setitem__("g_publish_skipped", True))
+        published["done"] = True
+
+    o = orch.Orchestrator(ctx, mode="partially-accelerated", log=lambda s: None, sleep=_sleep)
+    assert o.run() == 0
+    assert waited, "the engine must have waited for the operator"
+    assert [n for n, _ in phases.calls] == ["analysis", "delivery", "delivery"]

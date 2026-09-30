@@ -78,6 +78,13 @@ re-entered after each new defect (ISSUES.md entries 54 to 66, all fixed); a
 from-scratch run that needs no re-entry is the standing check (entry 45).
 Keyless stub: 41 stages.
 
+Engine proofs (2026-09-30): `exec_062` full-auto through the GUI path, 72 of
+72, 4.3-minute master from the 6-minute clip (entries 84, 85). `exec_063`
+partially-accelerated through the GUI endpoints, 72 of 72 after entries 94
+to 98 were fixed along the way (the engine was restarted three times on the
+same run; each restart re-verified analysis in about 10 s). Stage cache
+(entry 93) lives at `C:\mux-local\stage_cache` here.
+
 Ordering exceptions ("may X run before Y is complete") live only in
 `src/interview_mux/ordering_authority.py` (entry 62). Add new ones there; a
 test fails if an ordering check grows its own copy.

@@ -562,6 +562,39 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
     ctx.mark_done("episode_cover_generate")
 
 
+PARTIAL_SIGNOFF_PENDING = (
+    "G-Publish sign-off pending: listen to the master and check the cover, "
+    "then Continue or Skip in the GUI."
+)
+
+
+def require_partial_signoff_before_publish(ctx: RunContext) -> None:
+    """Partial mode: packaging waits for the operator's Continue (ISSUES 98).
+
+    Full-auto and manual runs are untouched (full-auto signs this gate off
+    itself after packaging; manual runs reach this stage only through the
+    GUI's Continue, which clears the gate first). The engine's phase boundary
+    is the first line of defence; this is the belt for walks that ignore it.
+    """
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    except Exception:
+        return
+    if not isinstance(meta, dict):
+        return
+    partial = str(meta.get("run_mode") or "") == "partially-accelerated" or bool(
+        meta.get("partial_auto")
+    )
+    if not partial:
+        return
+    if meta.get("g_publish_cleared") or meta.get("g_publish_skipped"):
+        return
+    from interview_mux.gates import mark_g_publish_pending
+
+    mark_g_publish_pending(ctx)
+    raise SystemExit(PARTIAL_SIGNOFF_PENDING)
+
+
 def run_podcast_publish(ctx: RunContext) -> None:
     """Finalize a local episode package under publish/ — no S3 upload.
 
@@ -579,6 +612,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
     from interview_mux.podcast_rss.chapters import build_timed_chapters
     from interview_mux.podcast_rss.openai_cover import require_cover_min_size
 
+    require_partial_signoff_before_publish(ctx)
     require_publishable(ctx, stage="podcast_publish")
     layout = s3_layout(_podcast_cfg(ctx))
     files = layout["episode_files"]
