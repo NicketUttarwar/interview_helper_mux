@@ -47,6 +47,7 @@ python -m interview_mux orchestrate --mode full-auto --input <wav>   # the engin
 python -m interview_mux orchestrate --mode partially-accelerated --run-id exec_...
 MUX_STAGE_CACHE=0 ...                     # force transcribe/probes to rerun (ISSUES 93)
 MUX_REBUILD_GUI=1 ./scripts/run.sh        # rebuild React bundle first
+python tools/resume_harness.py --source exec_064_... --preset quick   # rewind/crash the engine on a clone (ISSUES 105)
 PYTHONUTF8=1 .venv/Scripts/python -m pytest -q          # full suite, ~17 min
 PYTHONUTF8=1 .venv/Scripts/python -m pytest -q -n 12   # same suite, ~8 min
 

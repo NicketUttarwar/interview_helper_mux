@@ -3423,6 +3423,35 @@ Tests: `tests/test_sdp_rederive_under_soft_freeze.py`.
 
 ---
 
+## [105] TOOLING: a resume harness, because every recent defect lived on a resume path
+
+**Status:** built; first real cases pending (they need the GPU free).
+
+Entries 94, 96, 98, 102 and 104 all appeared only when a run was re-entered:
+a stage after a refused commit, a resume after ranking changed the
+selection, an engine restarted after a code fix. Straight runs never walk
+those paths, so neither the unit suite nor the two clean end-to-end proofs
+could see them. `tools/resume_harness.py` walks them on purpose:
+
+- **rewind**: clone a completed run, `clear_from` a stage (the call delivery
+  itself uses to invalidate analysis), drive the engine to completion again;
+- **crash**: clone, rewind, start the engine as a subprocess, kill the whole
+  process tree the moment the named stage reports running, restart, repeat
+  `--kills` times.
+
+The harness is the operator at both gates, through the same functions the
+GUI endpoints call. A case passes only when the run completes with publish
+outputs, adds zero error-level lines to the run log, and leaves no staged
+files for finished stages. Presets: `boundaries` (nine rewind points on
+authority and freeze boundaries), `crash` (four long stages with child
+processes), `quick` (one of each). The maintainer's workflow is unchanged;
+this runs here, against clones.
+
+Tests: `tests/test_resume_harness.py` (completion, error and stale-staging
+judgements; gate sign-off once per gate; rewind drops the old sign-off).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
