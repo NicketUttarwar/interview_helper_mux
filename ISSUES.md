@@ -3503,6 +3503,27 @@ run with one error line fails).
 
 ---
 
+## [108] GUI: a browser notice was recorded at error level in the run log
+
+**Stage / area:** `POST /api/runs/{id}/log`
+**Status:** fixed.
+
+exec_065 gained an error line that no stage produced: "Refresh run: Failed
+to fetch", origin gui. The open browser tab's refresh timed out while the
+server held the run lock, the frontend posted the notice with the level it
+uses for its own failures, and the server wrote it into the run log as is.
+The maintainer saw the same on his run and rightly called it noise, but
+noise at error level fails the verdict (entry 107) and reads as a pipeline
+error in the log.
+
+Fix: the run log's error level belongs to the pipeline. A browser notice
+posted at error level is recorded as a warning with `gui_level: error`
+kept in its detail.
+
+Tests: `tests/test_gui_notice_level.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
