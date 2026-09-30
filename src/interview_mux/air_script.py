@@ -1297,7 +1297,9 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
         script["vo_seats"] = build_vo_seats(plan, None)
         plan = dict(plan)
         plan["air_script"] = script
-        write_plan(ctx, plan)
+        # Seat stamp from whichever stage runs the ladder: the seat owner's
+        # key and the End-A reason keep it from being refused (ISSUES 101).
+        write_plan(ctx, plan, seat_reason="stamp_gap_omit_flags", stage_key="air_contract_sanitize")
         try:
             from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
 
@@ -1313,7 +1315,7 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
     script["vo_seats"] = build_vo_seats(plan, filtered)
     plan = dict(plan)
     plan["air_script"] = script
-    write_plan(ctx, plan)
+    write_plan(ctx, plan, seat_reason="stamp_gap_omit_flags", stage_key="air_contract_sanitize")
     before = {
         str(ln.get("line_id") or "")
         for ln in (gap.get("interviewer_lines") or [])

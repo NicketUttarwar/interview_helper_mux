@@ -387,14 +387,14 @@ def test_commit_gap_write_failure_is_fail_closed(monkeypatch) -> None:
         {"version": 1, "entries": [], "summary": {"active_count": 0}},
     )
 
-    real_write = ctx.write_json
-
-    def boom(rel, doc, **kwargs):
+    # The gap flags land through the End-A stamp path (ISSUES 101); a failure
+    # there is still fail-closed for the whole commit.
+    def boom(_ctx, rel, _doc, **_kwargs):
         if rel == "understanding/gap_report.json":
             raise RuntimeError("disk full")
-        return real_write(rel, doc, **kwargs)
+        return True
 
-    monkeypatch.setattr(ctx, "write_json", boom)
+    monkeypatch.setattr("interview_mux.seat_authority.persist_frozen_seat_doc", boom)
     result = commit_air_contract(ctx, reason="test")
     assert not result.ok
     assert any("air_contract_write_failed" in e for e in (result.errors or []))

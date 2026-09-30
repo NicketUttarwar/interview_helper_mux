@@ -242,7 +242,16 @@ def write_plan(
     plan: dict[str, Any],
     *,
     seat_reason: str = "",
+    stage_key: str | None = None,
 ) -> None:
+    """Persist the mastering plan.
+
+    ``stage_key`` names the writer for the ownership table. A seat stamp made
+    from a stage that does not own the plan (an omit sync from the recovery
+    ladder, say) presents the seat owner, ``air_contract_sanitize``, together
+    with its End-A ``seat_reason``; otherwise the active stage is the writer
+    (ISSUES 101).
+    """
     from interview_mux.information_packages import ensure_episode_close_on_plan
 
     plan = ensure_episode_close_on_plan(plan)
@@ -251,7 +260,10 @@ def write_plan(
     # A′′ Global Freeze: preserve prior vo_seats when freeze is active and the
     # caller did not name an End-A / one-shot reason (seat-truth artifact).
     plan = _preserve_frozen_vo_seats(ctx, plan, seat_reason=seat_reason)
-    ctx.write_json(PLAN_REL, plan)
+    if stage_key:
+        ctx.write_json(PLAN_REL, plan, stage_key=stage_key)
+    else:
+        ctx.write_json(PLAN_REL, plan)
     _record_degradation(ctx, plan)
 
 

@@ -1163,9 +1163,37 @@ def _unseat_ineligible_plan_seats(ctx: RunContext) -> list[str]:
     seats["omitted_line_ids"] = [o for o in omitted if o not in set(new_seated)]
     script["vo_seats"] = seats
     plan["air_script"] = script
-    # Seat hygiene from a non-owner: the sanitizer re-derives seats on its pass.
-    ctx.write_json("mastering/mastering_plan.json", plan, optional=True)
+    _persist_seat_repair(ctx, plan, reason="air_script_gap_omit_sync")
     return drop
+
+
+def _persist_seat_repair(ctx: RunContext, plan: dict[str, Any], *, reason: str) -> bool:
+    """Land a seat repair on the mastering plan under the seat owner's key.
+
+    Seat truth is required state: adjudicate and synthesis compare it with
+    the gap report and refuse a mismatch (ISSUES 101). A repair from a
+    consumer stage therefore presents the seat owner's key
+    (`air_contract_sanitize`, the precedent in `_commit_hosted_floor_gap`) and its
+    End-A reason, so neither the ownership table nor the seat freeze turns
+    it into a silent skip. Returns False only when the freeze refuses.
+    """
+    from interview_mux.seat_authority import persist_frozen_seat_doc
+
+    landed = persist_frozen_seat_doc(
+        ctx,
+        "mastering/mastering_plan.json",
+        plan,
+        reason=reason,
+        skip_handoff=True,
+        stage_key="air_contract_sanitize",
+    )
+    if not landed:
+        ctx.log(
+            f"vo_contract: seat repair {reason} held by the seat freeze (not End-A)",
+            level="warning",
+            stage="vo_contract",
+        )
+    return bool(landed)
 
 
 def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
@@ -1366,7 +1394,7 @@ def repair_vo_contract_drift(ctx: RunContext) -> list[str]:
         seats["omitted_line_ids"] = [o for o in cur_omitted if o not in set(new_seated)]
         script["vo_seats"] = seats
         plan["air_script"] = script
-        ctx.write_json("mastering/mastering_plan.json", plan, optional=True)
+        _persist_seat_repair(ctx, plan, reason="drop_seated_missing_from_gap")
     # Rebuild vo_seats from gap so omitted lines are not synthesized downstream.
     # Catastrophe reason unlocks freeze; explicit unseat covers freeze fail-closed.
     try:

@@ -1418,6 +1418,64 @@ def _report_contract_conformance(ctx: RunContext, stage_id: str) -> None:
         return
 
 
+#: Stages whose orphaned pending writes are promoted, not discarded: they hold
+#: expensive WAVs (exec_10066).
+_ORPHAN_PROMOTE_STAGES: frozenset[str] = frozenset({"vo_synthesize", "edl"})
+
+
+def discard_stale_staging_before_entry(ctx: RunContext, stage_id: str) -> list[str]:
+    """Drop staged writes a previous attempt of ``stage_id`` left behind (ISSUES 102).
+
+    A fresh attempt starts from a clean overlay. Files staged by an attempt
+    whose commit the barrier refused are newer than the commit, and the
+    completeness check then reads the upstream producer as incomplete on the
+    very next entry (exec_065: gap_framing_compose refused, then blocked on
+    its own stale gap_evaluations copy). Returns the discarded paths. Stages
+    in ``_ORPHAN_PROMOTE_STAGES`` are left to their own recovery, and nothing
+    is touched while the operator approval flow owns pending writes.
+    """
+    if stage_id in _ORPHAN_PROMOTE_STAGES or write_approval_enabled():
+        return []
+    try:
+        if ctx.is_done(stage_id):
+            return []
+        # Every file in the overlay, not only the operator-visible ones: the
+        # copy that blocked exec_065 (gap_evaluations under gap_framing_compose)
+        # is exactly the kind the visible listing leaves out.
+        root = staging_root(ctx, stage_id)
+        if not root.is_dir():
+            return []
+        stale = sorted(
+            str(p.relative_to(root)).replace("\\", "/")
+            for p in root.rglob("*")
+            if p.is_file() and p.name != ".write.lock"
+        )
+        if not stale:
+            return []
+        discard_stage_writes(ctx, stage_id)
+    except Exception as exc:  # noqa: BLE001 - hygiene must not block the stage
+        try:
+            ctx.log(
+                f"{stage_id}: stale staging discard failed open: {exc}",
+                level="warning",
+                stage=stage_id,
+            )
+        except Exception:
+            pass
+        return []
+    try:
+        ctx.log(
+            f"{stage_id}: discarded {len(stale)} stale staged write(s) from a "
+            "previous refused attempt before re-entering",
+            level="warning",
+            stage=stage_id,
+            detail={"discarded": stale[:24]},
+        )
+    except Exception:
+        pass
+    return stale
+
+
 def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     """Execute a stage function with write staging and v2 auto-commit."""
     from interview_mux.operator_trace import active_run_context, log_step
@@ -1481,6 +1539,13 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
                     level="warning",
                     stage=stage_id,
                 )
+        # A fresh attempt starts from a clean overlay. Staged files left by an
+        # attempt whose commit the barrier refused are newer than the commit
+        # and make upstream producers read as incomplete on the very next
+        # entry (exec_065: gap_framing_compose refused, then blocked on its own
+        # stale gap_evaluations copy; ISSUES 102). vo_synthesize and edl
+        # recovered their orphans above because those hold expensive WAVs.
+        discard_stale_staging_before_entry(ctx, stage_id)
         preflight_stage_enter(ctx, stage_id)
         enter_stage_staging(stage_id)
         stage_exc: BaseException | None = None

@@ -2975,8 +2975,9 @@ case was worse: its refused gap write failed the whole stage once.
 Fix: `write_json(..., optional=True)` marks a courtesy write. The ownership
 table is asked first; a refused optional write is skipped with one info
 line and nothing else (no error, no signature, no halt, no forensics row).
-The seven sites pass the flag. The sanitizer's gap write is optional too;
-its dry re-sanitize still refuses a stale contract, so nothing is hidden.
+The seven sites pass the flag. The sanitizer's gap write was made optional
+here as well; that was wrong (its flags are required state, see entry 101)
+and it now goes through the End-A stamp path instead.
 exec_063 surfaced an eighth site of the same shape under the soft freeze:
 the local-runtime last-error sidecar (`vo_pickup/local_runtime_last_error.json`,
 written when a Chatterbox child prints invalid JSON but leaves a usable
@@ -3270,6 +3271,184 @@ at the join and a non-adjacent neighbour raises the critical; with the
 override it reports advisory and the live critical list is empty.
 
 Tests: `tests/test_chapter_bleed_accepted_hang.py`.
+
+---
+
+## [101] PRODUCT: the air-contract sanitizer's VO flags never reached the gap report, so adjudicate refused a contract that disagreed with it
+
+**Stage / area:** `artifact_sanitize.air_script.commit_air_contract`;
+reported from macOS exec_008 (54 of 72, stopped at `vo_line_adjudicate`)
+**Status:** fixed. Regression from entry 90.
+
+exec_008: the hosted-VO floor was thin, so the sanitizer omitted two
+preface lines in the execution contract to protect it
+(`protect_hosted_vo_floor_reseat`). Those omits must be mirrored as
+skip/omit flags on the matching `gap_report` lines; adjudicate compares
+the two before synthesis and refuses when they disagree. The report never
+got the flags: the sanitizer wrote it under its own stage key, which the
+ownership table refuses once the layup owns the report, and entry 90 had
+made that write *optional*, so the stage finished with the flags unlanded
+instead of failing. Adjudicate then hard-blocked on the mismatch and the
+contract stayed unsanitary.
+
+Before entry 90 the same refusal failed the sanitizer outright (exec_062,
+one resume), which was also wrong; the write is required, not a courtesy.
+The other stampers already knew how to do this: `vo_contract` and
+`omit_ledger` persist the flags with the End-A reason
+`stamp_gap_omit_flags` and the report's current owner key
+(`gap_report_body_owner`), which the ownership table allows because the
+stamp changes no interviewer text.
+
+Fix: `persist_air_contract_gap` does exactly that, and a refusal is an
+error again. My runs did not show it because their VO floor never needed
+an omit, so the unlanded write carried nothing.
+
+The same audit found four more seat-truth writes that entry 90 had turned
+into courtesy writes: the two seat repairs in `vo_contract`
+(`_unseat_ineligible_plan_seats`, orphan unseat), the seat republish in
+`hosted_vo_authority`, and the catastrophe fallback in `vo_bind_authority`.
+Each now lands through `persist_frozen_seat_doc` under the seat owner's key
+(`air_contract_sanitize`) with its End-A reason (`air_script_gap_omit_sync`,
+`drop_seated_missing_from_gap`, `hosted_vo_disposition_apply`,
+`catastrophe_seated_bind_synth_failed`). The remaining optional sites are
+genuine courtesies: fingerprint restamp, boundary enrichment, the pair
+freeze stamp, the volley unlock note, the runtime error sidecar.
+
+A second sweep covered raw gap-report and transitions writes that never
+went through entry 90 but sat on the same VO path: the execution-contract
+waive (`_tier_d_logged_waive`), the synthesis fallback that flips a line to
+`record`, and the split-child id remap in `propagate_nle_split_segment_refs`.
+Each wrote under the active stage's key and would have been refused under
+layup authority exactly like the sanitizer. They now use
+`seat_authority.persist_gap_report_stamp` (owner key from
+`gap_report_body_owner`, an End-A reason, the sole-writer text guard still
+in force); the transitions remap presents the transitions owner with
+`segment_id_remap_omit`.
+
+A third sweep, from exec_065 here: the recovery ladder's tier-C opening
+unseat stamps seats on the mastering plan through
+`air_script.persist_air_script_omits_on_gap_report`, which called
+`write_plan` under the running stage's key (`gap_framing_compose`) and was
+refused. `write_plan` now takes a `stage_key`, and that helper presents
+the seat owner with `stamp_gap_omit_flags`.
+
+Tests: `tests/test_air_contract_gap_stamp.py` (the stamp carries the End-A
+reason and the owner key under and before layup authority; a refusal
+raises), `tests/test_seat_repair_owner_key.py`.
+
+---
+
+## [102] PRODUCT: a stage re-entered after a refused commit was blocked by its own stale staged files
+
+**Stage / area:** `write_staging.run_wrapped_stage` (stage entry); seen on
+exec_065 `gap_framing_compose`, and the shape the maintainer reported when
+he asked whether to delete `.pending_writes` by hand
+**Status:** fixed.
+
+exec_065: the model's framing left high-gap segment seg_004 without a line,
+the pre-flush barrier refused the commit
+("heal_success:pre_flush_soft_refused"), the deterministic seed then covered
+the gap, and the walk re-entered `gap_framing_compose`. It refused at
+once: "gap_framing_compose blocked, missing_framing incomplete:
+understanding/gap_evaluations.json has newer uncommitted pending". The
+newer copy was the refused attempt's own staged file. Nothing discards a
+stage's overlay when the barrier refuses it, so every re-entry of that
+stage read the producer upstream of it as incomplete because of a file the
+stage itself had left behind. Two resumes and three error lines to get
+past it here; on a run with more high gaps it would exhaust the identical
+failure counter.
+
+Fix: `discard_stale_staging_before_entry` runs at stage entry. A stage that
+is not done and still has staged writes from a previous attempt drops
+them (logged with the paths) and starts from a clean overlay. The two WAV
+stages keep their existing orphan promotion, and nothing is touched while
+the operator approval flow owns pending writes.
+
+Tests: `tests/test_stale_staging_discard.py`.
+
+---
+
+## [103] PRODUCT: a host present only as reactions read as a "starved host packet", and the attempt memo then locked the run out of missing_framing
+
+**Stage / area:** `llm_preflight` (missing_framing input check)
+**Status:** fixed.
+
+exec_065 (6-minute clip, partially-accelerated): after the chapter-close
+hitch reclassified the tape, the manifest held four interviewee answers
+and two host rows typed `interviewer_reaction`; speakers.json names that
+speaker as the interviewer. The input check for `missing_framing` counts
+only `interviewer_question`, `interviewer_prompt` and `host_turn` as host
+tape, so it refused with `starved_host_packet` ("resume speaker_roles or
+segment_classification"). The engine dispatched `speaker_roles` as the
+named remedy, which changed nothing; the attempt memo then refused every
+re-entry of `missing_framing` ("dispatch refused for incomplete critical
+missing_framing"), delivery reported analysis incomplete, the engine
+hopped back to analysis, and the cycle repeated until the invoke cap: nine
+error lines and no progress. Three earlier runs of the same clip had
+typed those two rows as questions, so nothing here was seen before; the
+classifier's choice decided which path ran.
+
+Fix: `interviewer_reaction` counts as host tape. The check exists to stop
+LLM spend on a hollow host packet; a host present only in reactions is
+thin, not hollow, and what framing that needs is missing_framing's own
+decision (it already handles no questions on tape).
+
+Tests: `tests/test_starved_host_reactions.py`.
+
+---
+
+## [104] PRODUCT: the soft seat freeze kept the sound design plan's own stage from re-deriving a plan the selection had outgrown
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`; `sound_design_plan`
+**Status:** fixed.
+
+exec_065 (resumed after entries 102 and 103): the plan on disk came from
+the pass before the restart, with a bed cue anchored on seg_007. Ranking
+re-ran on the resume and excluded seg_007. `sound_design_plan` re-ran to
+re-derive the plan, the model answered, and the one-writer persist logged
+"seat_freeze: skip write understanding/sound_design_plan.json (not End-A;
+reason=sound_design_plan)": the soft freeze stamped by the sanitizer a
+minute earlier refused the rewrite. The stale plan stayed, the pre-flush
+barrier refused "cue anchor segment_id=seg_007 not in selection" on every
+pass, and the identical-failure counter climbed toward a halt. Entry 96
+covered the first production of the plan under the freeze; this is the
+next case, a re-derivation after the selection changed.
+
+Fix: under the soft freeze (never the hard one, which means WAVs are
+rendered against these seats) the plan's own stage may rewrite the plan
+when the committed plan anchors a cue on a segment outside the live
+selection. Other writers and coherent plans are unchanged.
+
+Tests: `tests/test_sdp_rederive_under_soft_freeze.py`.
+
+---
+
+## [105] TOOLING: a resume harness, because every recent defect lived on a resume path
+
+**Status:** built; first real cases pending (they need the GPU free).
+
+Entries 94, 96, 98, 102 and 104 all appeared only when a run was re-entered:
+a stage after a refused commit, a resume after ranking changed the
+selection, an engine restarted after a code fix. Straight runs never walk
+those paths, so neither the unit suite nor the two clean end-to-end proofs
+could see them. `tools/resume_harness.py` walks them on purpose:
+
+- **rewind**: clone a completed run, `clear_from` a stage (the call delivery
+  itself uses to invalidate analysis), drive the engine to completion again;
+- **crash**: clone, rewind, start the engine as a subprocess, kill the whole
+  process tree the moment the named stage reports running, restart, repeat
+  `--kills` times.
+
+The harness is the operator at both gates, through the same functions the
+GUI endpoints call. A case passes only when the run completes with publish
+outputs, adds zero error-level lines to the run log, and leaves no staged
+files for finished stages. Presets: `boundaries` (nine rewind points on
+authority and freeze boundaries), `crash` (four long stages with child
+processes), `quick` (one of each). The maintainer's workflow is unchanged;
+this runs here, against clones.
+
+Tests: `tests/test_resume_harness.py` (completion, error and stale-staging
+judgements; gate sign-off once per gate; rewind drops the old sign-off).
 
 ---
 
