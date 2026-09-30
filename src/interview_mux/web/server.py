@@ -2170,6 +2170,26 @@ def create_app() -> FastAPI:
                 level="action",
                 stage="podcast_publish",
             )
+        # While the engine owns the run it is polling for exactly this
+        # sign-off and packages on its own; a second job here only collides
+        # with it on the run lock (exec_064: "directory lock busy") and
+        # paints the GUI red (ISSUES 99).
+        try:
+            from interview_mux.orchestrator import orchestrator_owns_run
+
+            owner = orchestrator_owns_run(_ctx(run_id))
+        except Exception:
+            owner = None
+        if owner:
+            return {
+                "ok": True,
+                "cleared": True,
+                "started": False,
+                "deferred": True,
+                "reason": "orchestrator_owns_run",
+                "orchestrator": owner,
+                "prepare_only": True,
+            }
         # Outside lock: background job owns the run (same pattern as /execute)
         job = runner.start(
             run_id,

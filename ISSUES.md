@@ -3203,6 +3203,27 @@ makes the engine wait, and the run completes after Skip).
 
 ---
 
+## [99] GUI: Continue at the final sign-off started a second packaging job under the engine
+
+**Stage / area:** `web/server.py` `POST /api/runs/{id}/g-publish/continue`
+**Status:** fixed (endpoint deferral); endpoint test still to write.
+
+exec_064 (partially-accelerated, engine-driven, zero error lines up to the
+sign-off): the operator's Continue cleared the gate and, as the old GUI
+path did, started the server's own `master_transcript_build ->
+podcast_publish` job. The engine was already polling for that sign-off and
+took the run lock first, so the server job failed with "Could not start
+pipeline: directory lock busy", logged at error level, and wrote
+`gui_job.json` status "error" while the engine packaged the episode
+correctly one minute later. The run finished 72 of 72 with exactly this
+one error line.
+
+Fix: the handler asks `orchestrator_owns_run` after clearing the gate, the
+same check `/execute` makes, and returns `deferred` instead of starting a
+job when the engine owns the run. Skip already needs no job.
+
+---
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
