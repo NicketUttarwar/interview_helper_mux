@@ -3226,6 +3226,34 @@ job when the engine owns the run. Skip already needs no job.
 
 ---
 
+# Planned: prune the job-API driver (phase 2 of entry 79)
+
+Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
+partially-accelerated, both 72 of 72 through the GUI endpoints):
+
+- `tools/full_auto_driver.py` is 15,020 lines; `tools/full_auto_keepalive_loop.py`
+  and the daemon paths in `tools/full_auto_daemon_launch.py` go with it
+  (`MUX_LEGACY_DRIVER=1` is the only remaining entry point).
+- Seven source modules import from the driver (`cli`, `delivery_guardrails`,
+  `forensics_error_ledger`, `forensics_minor_fixes`, `full_auto_launch`,
+  `heal_routing`, `identical_failures`): each import is a heal or forensics
+  helper that must move into `src/interview_mux/` before the file can go.
+- 56 test files reference the driver. Most exercise heal branches that the
+  engine now reaches through `homunculus.agenda`; each needs retargeting or
+  deleting, not blanket removal.
+- `scripts/run.sh` and `tools/catalog_unattended_breakpoints.py`,
+  `tools/subtraction_predict.py` name the driver in comments and env plumbing.
+
+Order: (1) move the seven imported helpers into the package with their
+tests; (2) delete the keepalive and the daemon spawn path, keeping
+`ensure_e2e` as the engine launcher; (3) delete the driver and retarget its
+tests; (4) drop the driver-only execute modes from `web/server.py` and the
+`_STAGE_REUSE_POLICY` rows that exist for it; (5) rerun the suite and reset
+the baseline. Do this in its own branch with the maintainer's go-ahead: it
+touches the GUI's execute modes.
+
+**Status:** OPEN, sized, not started.
+
 # Planned: exhaustive pre-flight suite
 
 Goal requested: a suite such that **if it passes, an execution works**.
