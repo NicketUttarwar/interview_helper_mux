@@ -3325,9 +3325,75 @@ layup authority exactly like the sanitizer. They now use
 in force); the transitions remap presents the transitions owner with
 `segment_id_remap_omit`.
 
+A third sweep, from exec_065 here: the recovery ladder's tier-C opening
+unseat stamps seats on the mastering plan through
+`air_script.persist_air_script_omits_on_gap_report`, which called
+`write_plan` under the running stage's key (`gap_framing_compose`) and was
+refused. `write_plan` now takes a `stage_key`, and that helper presents
+the seat owner with `stamp_gap_omit_flags`.
+
 Tests: `tests/test_air_contract_gap_stamp.py` (the stamp carries the End-A
 reason and the owner key under and before layup authority; a refusal
 raises), `tests/test_seat_repair_owner_key.py`.
+
+---
+
+## [102] PRODUCT: a stage re-entered after a refused commit was blocked by its own stale staged files
+
+**Stage / area:** `write_staging.run_wrapped_stage` (stage entry); seen on
+exec_065 `gap_framing_compose`, and the shape the maintainer reported when
+he asked whether to delete `.pending_writes` by hand
+**Status:** fixed.
+
+exec_065: the model's framing left high-gap segment seg_004 without a line,
+the pre-flush barrier refused the commit
+("heal_success:pre_flush_soft_refused"), the deterministic seed then covered
+the gap, and the walk re-entered `gap_framing_compose`. It refused at
+once: "gap_framing_compose blocked, missing_framing incomplete:
+understanding/gap_evaluations.json has newer uncommitted pending". The
+newer copy was the refused attempt's own staged file. Nothing discards a
+stage's overlay when the barrier refuses it, so every re-entry of that
+stage read the producer upstream of it as incomplete because of a file the
+stage itself had left behind. Two resumes and three error lines to get
+past it here; on a run with more high gaps it would exhaust the identical
+failure counter.
+
+Fix: `discard_stale_staging_before_entry` runs at stage entry. A stage that
+is not done and still has staged writes from a previous attempt drops
+them (logged with the paths) and starts from a clean overlay. The two WAV
+stages keep their existing orphan promotion, and nothing is touched while
+the operator approval flow owns pending writes.
+
+Tests: `tests/test_stale_staging_discard.py`.
+
+---
+
+## [103] PRODUCT: a host present only as reactions read as a "starved host packet", and the attempt memo then locked the run out of missing_framing
+
+**Stage / area:** `llm_preflight` (missing_framing input check)
+**Status:** fixed.
+
+exec_065 (6-minute clip, partially-accelerated): after the chapter-close
+hitch reclassified the tape, the manifest held four interviewee answers
+and two host rows typed `interviewer_reaction`; speakers.json names that
+speaker as the interviewer. The input check for `missing_framing` counts
+only `interviewer_question`, `interviewer_prompt` and `host_turn` as host
+tape, so it refused with `starved_host_packet` ("resume speaker_roles or
+segment_classification"). The engine dispatched `speaker_roles` as the
+named remedy, which changed nothing; the attempt memo then refused every
+re-entry of `missing_framing` ("dispatch refused for incomplete critical
+missing_framing"), delivery reported analysis incomplete, the engine
+hopped back to analysis, and the cycle repeated until the invoke cap: nine
+error lines and no progress. Three earlier runs of the same clip had
+typed those two rows as questions, so nothing here was seen before; the
+classifier's choice decided which path ran.
+
+Fix: `interviewer_reaction` counts as host tape. The check exists to stop
+LLM spend on a hollow host packet; a host present only in reactions is
+thin, not hollow, and what framing that needs is missing_framing's own
+decision (it already handles no questions on tape).
+
+Tests: `tests/test_starved_host_reactions.py`.
 
 ---
 

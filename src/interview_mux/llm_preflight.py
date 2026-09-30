@@ -247,12 +247,24 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
                         break
             if has_host:
                 man = ctx.read_json("segments/manifest.json")
+                # A reaction row is the host on tape too. exec_065: the
+                # classifier typed the host's two turns as reactions, this
+                # check refused missing_framing, and the attempt memo then
+                # refused every re-entry until the invoke cap (ISSUES 103).
+                # The check exists to stop LLM spend on a hollow host packet;
+                # a host present only in reactions is thin, not hollow, and
+                # deciding what framing that needs is missing_framing's job.
                 typed = [
                     s
                     for s in ((man or {}).get("segments") or [])
                     if isinstance(s, dict)
                     and str(s.get("type") or "")
-                    in {"interviewer_question", "interviewer_prompt", "host_turn"}
+                    in {
+                        "interviewer_question",
+                        "interviewer_prompt",
+                        "host_turn",
+                        "interviewer_reaction",
+                    }
                 ]
                 if not typed:
                     errors.append(
