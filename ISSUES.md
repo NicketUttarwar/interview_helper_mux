@@ -3754,6 +3754,32 @@ Tests: `tests/test_blank_segments_and_order_dependents.py`.
 
 ---
 
+## [116] PRODUCT: the sound design plan's own producer could not land its plan under the soft freeze, so the unclamped palettes plan stayed on disk and failed the barrier
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`
+**Status:** fixed.
+
+exec_094 (fresh run on the code with entry 114): the stage composed a plan,
+the sanitizer clamped it to the cap, and the write was skipped: "seat_freeze:
+skip write understanding/sound_design_plan.json (not End-A;
+reason=sound_design_plan)". `sound_design_palettes` writes the file before
+the soft freeze, so the stage's production is never a first production
+(entry 96), and the stale-versus-selection carve-out (entry 104) did not
+apply. What stayed on disk was the palettes plan with 8 assets, allowed at
+palettes time because the delivery brief that narrows the cap to 7 is
+written later; the stage marked itself done, and the pre-flush barrier
+refused the next flush on "asset count 8 exceeds cap 7". exec_084 died the
+same way after its second attempt.
+
+Fix: under the soft freeze the plan's own producer (reason
+`sound_design_plan`) may write the plan, whatever is on disk; the hard
+freeze still refuses, since WAVs are rendered against those seats. Entry
+104's carve-out is a special case of this rule and is folded into it.
+
+Tests: `tests/test_sdp_producer_write_under_soft_freeze.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

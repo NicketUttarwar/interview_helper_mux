@@ -846,16 +846,26 @@ def frozen_seat_write_allowed(
     # soft freeze skipped its write, and the pre-flush barrier refused the
     # stale cue on every pass (ISSUES 104). Soft freeze only; a hard freeze
     # means WAVs are rendered against these seats.
+    # The plan's own producer landing the plan under the soft freeze is not a
+    # seat mutation at all: the freeze protects seats that exist from foreign
+    # rewrites, and the hard freeze (WAVs rendered against the seats) still
+    # refuses. ISSUES 116: sound_design_palettes writes the file first, so the
+    # stage's production was never "first production" (entry 96) and was
+    # skipped as not End-A on every fresh run; the unclamped palettes plan then
+    # failed the pre-flush barrier on asset count (exec_084, exec_094).
     if (
         rel_n == "understanding/sound_design_plan.json"
         and str(reason or "").strip() == "sound_design_plan"
         and not hard_freeze_active(ctx)
-        and sound_design_plan_stale_versus_selection(ctx)
     ):
         try:
+            why = (
+                "committed plan anchors cues outside the live selection"
+                if sound_design_plan_stale_versus_selection(ctx)
+                else "the plan's producer may land its plan before the hard freeze"
+            )
             ctx.log(
-                "seat_freeze: sound_design_plan re-derivation allowed under soft "
-                "freeze (committed plan anchors cues outside the live selection)",
+                f"seat_freeze: sound_design_plan write allowed under soft freeze ({why})",
                 level="info",
                 stage="sound_design_plan",
             )
