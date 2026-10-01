@@ -1388,6 +1388,8 @@ def backfill_ship_holes_after_master(ctx: RunContext) -> list[str]:
     """
     if not ctx.final_path("master", "master.wav").is_file():
         return []
+    # DETECTION_ONLY_IS_DONE: hole-fill mode after a shipped master, as in
+    # backfill_delivery_holes_after_master; outputs decide, markers only select.
     if not ctx.is_done("master_finalize"):
         return []
     from interview_mux.done_authority import raw_stamp_session, try_mark_done
