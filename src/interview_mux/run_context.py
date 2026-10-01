@@ -853,6 +853,12 @@ class RunContext:
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
+        try:
+            from interview_mux.write_staging import note_stage_sealed
+
+            note_stage_sealed(self, stage)
+        except Exception:
+            pass
         # Close ledger rows for this stage once it actually completed. Dispatch
         # door also resolves on outcome=done, but heals / nested remasters often
         # mark_done without that path — leaving stale ship-bar defects that

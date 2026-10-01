@@ -3807,6 +3807,29 @@ Tests: `tests/test_audit_orientation_omitted_decision.py`.
 
 ---
 
+## [118] PRODUCT: bookkeeping written after a stage's seal landed in a staging directory nobody flushes again
+
+**Stage / area:** `write_staging.staged_path`, `run_context.mark_done`
+**Status:** fixed.
+
+Every fresh run left 40 to 74 files under `.pending_writes/<stage>/` for
+stages that were done: homunculus memory, ledger and admitted rows,
+`understanding/analysis_state.json`, the llm_calls index, written 0.2 to 5
+seconds after the stage marker (exec_084, exec_094). The seal flushes and
+removes the staging root, the walk's post-stage bookkeeping then writes
+under the stage's still-active staging context, and the new files sit in a
+root that is never flushed. The run verdict (entry 107) counted them as
+stale staging and failed otherwise clean runs; the next re-entry's stale
+staging discard (entry 102) had to clean them.
+
+Fix: `mark_done` notes the seal, and `staged_path` routes a sealed stage's
+later writes to the committed tree, where the flush would have put them.
+Re-entering the stage reopens its staging as before.
+
+Tests: `tests/test_post_seal_writes_land_committed.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

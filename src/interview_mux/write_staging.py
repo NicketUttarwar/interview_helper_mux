@@ -44,7 +44,25 @@ def active_stage() -> str | None:
     return _active_stage.get()
 
 
+# Stages sealed in this process (stage_id -> run_dir). A write made under a
+# stage's staging context after its seal and flush used to land in a staging
+# dir nobody would flush again: the walk's bookkeeping (homunculus memory and
+# ledger, analysis_state, llm_calls index) arrived 0.2 to 5 s after the marker
+# on every stage and stayed there forever (ISSUES 118). Once sealed, the
+# stage's writes go to the committed tree, where the flush would have put them.
+_SEALED: dict[str, str] = {}
+
+
+def note_stage_sealed(ctx: RunContext, stage_id: str) -> None:
+    _SEALED[str(stage_id)] = str(ctx.run_dir)
+
+
+def stage_sealed_here(ctx: RunContext, stage_id: str | None) -> bool:
+    return bool(stage_id) and _SEALED.get(str(stage_id)) == str(ctx.run_dir)
+
+
 def enter_stage_staging(stage_id: str) -> None:
+    _SEALED.pop(str(stage_id), None)
     sid = str(stage_id or "").strip()
     _active_stage.set(sid or stage_id)
 
@@ -126,7 +144,7 @@ def staging_root(ctx: RunContext, stage_id: str) -> Path:
 
 def staged_path(ctx: RunContext, rel: str, *, stage_id: str | None = None) -> Path:
     sid = stage_id or _active_stage.get()
-    if not sid:
+    if not sid or stage_sealed_here(ctx, sid):
         return ctx.run_dir.joinpath(*rel.split("/"))
     return staging_root(ctx, sid).joinpath(*rel.split("/"))
 
