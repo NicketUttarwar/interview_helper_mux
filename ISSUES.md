@@ -4183,18 +4183,64 @@ still be left with an incomplete stage it will not run):
   verdict; both are the first place to look when a run stopped or a passing
   run sounds wrong.
 
-**What is not proven.** The write itself was not reproduced. A keyless
-replay of sharded compose on a clone of the one-hour exec_055 (76 segments,
-four shards, pre soft freeze) completes without a denial in five states:
-full model output, a third of it (seeding playbook runs), none, and the first
-two again in the hop-back state with an air script on the plan. So the write
-depends on something in exec_011's own data. The fix does not depend on
-which helper it was: every unkeyed foreign write goes through the same two
-write points. The run's `operator/foreign_writes_skipped.jsonl` will name it.
+**Reproduced on the one-hour source (exec_102, 2026-10-02).** The keyless
+replays of sharded compose on a clone of exec_055 never made the write, in
+five states. The first fresh one-hour run on this code did, at the same point
+as exec_011: after compose's second pass landed its lines, the completion
+path promoted orphan markers and ran the delivery sanitizers inline
+(`gap_report_sanitize`, the pass-2 skip copy of `gap_framing_recompose`,
+which is the "skip-copy landed done in the noise" of the report), the
+execution contract's seat sync stayed read-only three times, and a fourth
+helper wrote the plan unkeyed. The log line is now a warning,
+`side-effect write skipped: mastering/mastering_plan.json is not
+gap_framing_compose's to write (owner air_contract_sanitize)`, the stage
+completed, and the walk went on to the brief. The ledger row now also
+records the calling frames inside the package, so the next occurrence names
+the helper.
 
 Tests: `tests/test_foreign_side_effect_writes.py` (24). Existing
 `tests/test_p15_no_delta_guard.py` and `tests/test_fallback_backstop.py`
 pass unchanged.
+
+---
+
+## [128] PRODUCT: one unspeakable required line failed the whole of sharded `gap_framing_compose` (exec_102, one-hour source)
+
+**Stage / area:** `spoken_copy_guard.guard_spoken_copy`, `artifact_repairs.repair_gap_report`
+**Status:** fixed.
+
+**Symptom:** four compose shards returned (65 segments), then
+`required gap VO blocked by spoken_copy_guard (vo_context_seg_062):
+spoken_repeated_sentence, no_grounded_fallback`, `Failed: Stage
+gap_framing_compose`. The engine re-entered analysis and paid for all four
+shards again; the second roll happened to pass.
+
+**Cause:** each shard is written without sight of the others, so two shards
+can open a context line with the same sentence. The guard flags the second
+as a repeated sentence (a hard structure violation: it sounds like a
+synthesis fault). Its only remedy was a grounded hinge built from topic
+evidence, there was none, so the verdict was `block`, and for a required
+line that is not a lay-up the repair raised a loud failure. One line in 65
+segments took the stage down. The six-minute clip has one shard, so it
+cannot produce a cross-shard repeat.
+
+**Fix:**
+
+- **Cure before blocking.** `strip_repeated_sentences` drops the sentences
+  another line already voiced, and repeats inside the line. When the rest is
+  still a line (six words or more) and passes the guard, it is the fallback:
+  the model's own grounded copy minus the repeat. A shorter remnant ("What
+  broke next?") is a hinge, not a line, and is not kept.
+- **Release instead of failing.** A required line the guard still cannot
+  make speakable is released (`release_unspeakable_required_vo`, logged as a
+  warning with the violations) in both branches that used to raise
+  (`required gap VO blocked`, `required high-gap VO omitted after rewrite`).
+  The high-gap seed that follows the repair covers the segment with a stock
+  phrase the guard accepts (entry 123), and the completion check still
+  refuses the stage if a high gap ends up uncovered. Same rule as entry 123:
+  a line whose copy the guard refuses is released, not asserted.
+
+Tests: `tests/test_unspeakable_required_line_released.py` (6).
 
 ---
 

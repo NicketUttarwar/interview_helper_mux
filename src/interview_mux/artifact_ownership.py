@@ -2516,6 +2516,23 @@ def skip_foreign_side_effect(
     if rel in FOREIGN_SKIP_EXEMPT:
         return False
     owner = str(reason).split("=", 1)[-1]
+    # Name the helper that made the write: the ledger is how a skipped write
+    # is traced back to code (exec_011's was never identified from its log).
+    callers: list[str] = []
+    try:
+        import traceback
+
+        for frame in traceback.extract_stack()[:-1]:
+            name = str(frame.filename).replace("\\", "/")
+            if "/interview_mux/" not in name:
+                continue
+            base = name.rsplit("/interview_mux/", 1)[-1]
+            if base in {"artifact_ownership.py", "run_context.py", "write_staging.py"}:
+                continue
+            callers.append(f"{base}:{frame.lineno}:{frame.name}")
+        callers = callers[-5:]
+    except Exception:
+        callers = []
     try:
         ctx.log(
             f"side-effect write skipped: {rel} is not {active}'s to write "
@@ -2527,6 +2544,7 @@ def skip_foreign_side_effect(
                 "path": rel,
                 "owner": owner,
                 "epoch": str(current_epoch(ctx) or ""),
+                "callers": callers,
             },
         )
     except Exception:
@@ -2543,6 +2561,7 @@ def skip_foreign_side_effect(
                         "path": rel,
                         "stage": active,
                         "owner": owner,
+                        "callers": callers,
                         "at": datetime.now(timezone.utc).isoformat(),
                     }
                 )

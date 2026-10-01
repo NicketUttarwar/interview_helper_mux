@@ -2492,6 +2492,45 @@ def _rewrite_editorial_qc_vo_lines(
     out["interviewer_lines"] = rewritten
 
 
+
+def _release_unspeakable_required_line(
+    ctx: Any,
+    row: dict[str, Any],
+    decision: dict[str, Any],
+    applied: list[dict[str, Any]],
+    out: dict[str, Any],
+) -> None:
+    """Record a required line the spoken-copy guard refused and drop it (ISSUES 128)."""
+    lid = str(row.get("line_id") or "")
+    violations = [str(v) for v in (decision.get("violations") or [])]
+    applied.append(
+        {
+            "action": "release_unspeakable_required_vo",
+            "line_id": lid,
+            "targets_segment_id": row.get("targets_segment_id"),
+            "violations": violations,
+            "guard_action": decision.get("action"),
+        }
+    )
+    try:
+        ctx.log(
+            f"gap repair: required line {lid or '(no id)'} is not speakable "
+            f"({', '.join(violations)[:160]}); released, the high-gap seed covers its segment",
+            level="warning",
+            stage=(
+                "nugget_layup_compose"
+                if bool(out.get("nugget_layup_authority"))
+                else "gap_framing_compose"
+            ),
+            detail={
+                "event": "release_unspeakable_required_vo",
+                "line_id": lid,
+                "violations": violations,
+            },
+        )
+    except Exception:
+        pass
+
 def repair_gap_report(
     ctx: Any,
     doc: dict[str, Any],
@@ -3282,28 +3321,15 @@ def repair_gap_report(
                     }
                 )
                 continue
-            # Required non-layup: never ValueError thrash (exec_11630 #13).
-            # Loud-fail pins compose/layup — never soft EDL.
-            from interview_mux.loud_fail import raise_loud_failure
-
-            pin_stage = (
-                "nugget_layup_compose"
-                if bool(out.get("nugget_layup_authority"))
-                else "gap_framing_compose"
-            )
-            raise_loud_failure(
-                ctx,
-                f"required gap VO blocked by spoken_copy_guard "
-                f"({row.get('line_id') or target}): "
-                + ", ".join(decision["violations"]),
-                stage=pin_stage,
-                reason="spoken_copy_unhealable",
-                detail={
-                    "line_id": row.get("line_id"),
-                    "violations": decision.get("violations"),
-                    "guard_action": "block",
-                },
-            )
+            # Required non-layup the guard cannot make speakable: release the
+            # line instead of failing the stage (ISSUES 128). This used to be
+            # a loud failure that threw away every shard's work for one
+            # unspeakable line, and the rerun was a fresh roll of the same
+            # dice. The high-gap seed that follows this repair covers the
+            # segment with a speakable stock phrase, and the completion check
+            # still refuses the stage if the gap ends up uncovered.
+            _release_unspeakable_required_line(ctx, row, decision, applied, out)
+            continue
         if decision["action"] == "omit":
             if required:
                 lid_omit = str(row.get("line_id") or "")
@@ -3342,15 +3368,10 @@ def repair_gap_report(
                         }
                     )
                     continue
-                from interview_mux.loud_fail import raise_loud_failure
-
-                raise_loud_failure(
-                    ctx,
-                    f"required high-gap VO omitted after rewrite ({row.get('line_id')})",
-                    stage="gap_framing_compose",
-                    reason="high_gap_uncovered",
-                    detail={"violations": decision.get("violations")},
-                )
+                # Same rule as the block branch above (ISSUES 128): release
+                # the line, let the seed cover the gap.
+                _release_unspeakable_required_line(ctx, row, decision, applied, out)
+                continue
             # R8: heal forward cue / keep framing setup lines instead of silent omit.
             cat = str(row.get("line_category") or "").lower()
             keep_framing = (

@@ -63,6 +63,8 @@ def test_an_unkeyed_write_from_a_stage_with_no_row_is_skipped_not_raised(ctx) ->
         for line in (Path(ctx.run_dir) / ao.FOREIGN_WRITE_LEDGER_REL).read_text(encoding="utf-8").splitlines()
     ]
     assert rows[-1]["path"] == PLAN and rows[-1]["stage"] == "gap_framing_compose"
+    # The ledger names the code that made the write (frames inside the package only).
+    assert isinstance(rows[-1]["callers"], list)
 
 
 def test_the_committed_write_point_follows_the_same_rule(ctx) -> None:
