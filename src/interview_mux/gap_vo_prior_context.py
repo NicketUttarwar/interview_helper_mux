@@ -1764,14 +1764,16 @@ def is_interruptive_opener(text: str) -> bool:
 # Diversified stock lines so multi-seed high-gap repair does not collapse into
 # identical copy that spoken_copy_guard omits as spoken_repeated_copy (exec_13157).
 # Keep only phrases that pass spoken_copy_guard + spoken_meta_lint (no segment/clip).
+# ISSUES 123: three former entries ("What tension carries into what comes
+# next?", "How should we hear what follows differently?", "How does that
+# landing set up what follows?") trip the guard's generic-filler ban; a seed
+# minted with one of them could never be spoken, and the run died on it
+# (maintainer's exec_010). A test keeps this pool and the guard in agreement.
 _COURTESY_SEED_POOL: tuple[str, ...] = (
     "How does this next moment reframe what we just heard?",
     "What claim should we test as this continues?",
-    "What tension carries into what comes next?",
-    "How should we hear what follows differently?",
     "What is at stake as this continues?",
     "What should we listen for as this continues?",
-    "How does that landing set up what follows?",
     "What changes if we stay with this idea a beat longer?",
 )
 
@@ -1847,7 +1849,19 @@ def courtesy_seed_text(
     text = str(decision.get("text") or "").strip()
     if text:
         return text
-    # Required guard still emptied (omit/block) — never seed blank high-gap VO.
+    # Required guard still emptied (omit/block): never seed blank high-gap VO,
+    # and never seed the phrase the guard just refused (ISSUES 123). Take the
+    # first pool phrase the guard speaks in this context.
+    for phrase in _COURTESY_SEED_POOL:
+        probe = guard_spoken_copy(
+            phrase,
+            evidence=evidence,
+            required=True,
+            purpose=f"gap_prior_fallback[{category}]",
+        )
+        spoken = str(probe.get("text") or "").strip()
+        if spoken:
+            return spoken
     return diversified
 
 def enrich_line_with_prior_context(

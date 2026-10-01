@@ -3952,6 +3952,43 @@ Tests: `tests/test_sdp_duplicate_assets.py`.
 
 ---
 
+## [123] PRODUCT: the high-gap seed minted stock bridge copy the spoken-copy guard bans, and a seated line with unspeakable copy could neither be rendered nor released
+
+**Stage / area:** `gap_vo_prior_context.courtesy_seed_text`, `vo_bind_authority` (seated bind heal)
+**Status:** fixed.
+
+Maintainer's exec_010: delivery failed twice on "vo_synthesize: seated
+synthesize VO not rendered: vo_seed_seg_019" and stopped. The line had been
+minted by the high-gap VO-seed playbook as a required synthesize bridge with
+the stock copy "What tension carries into what comes next?". The guard's
+generic-filler ban refuses exactly that phrase, with no grounded fallback,
+so synthesis never attempted it; the adjudicated rewrite is advisory by
+design (S1) and the seat freeze kept the stock text authoritative; the bind
+heal refused the line (S2: no omit as success); the seat-rewrite meta-gate
+refused as low gain; and the contract asserted a WAV for a seat nothing
+could speak.
+
+Two deterministic defects:
+- The stock pool of eight bridge phrases carried three the guard bans
+  (checked here: three of eight), although its comment claimed every phrase
+  passed, and the minter returned the blocked phrase whenever the guard
+  emptied it. Three in eight story-bridge seeds were unspeakable at birth.
+  The pool now holds only phrases the guard speaks, a blocked candidate
+  falls back to the first pool phrase the guard accepts, and a test keeps
+  the pool and the guard in agreement.
+- The seated bind heal now distinguishes "the guard refuses this copy with
+  no fallback" from a transient synthesis failure: for the former it
+  releases the seat under the existing synth-fail End-A action, recording
+  the reason, so the content hole stays visible instead of fatal. Transient
+  failures are still refused, as S2 intends.
+
+Why it did not show here: which seed phrase a line gets is a hash of its
+target segment, and the 6-minute clip's seeds landed on speakable entries.
+
+Tests: `tests/test_seed_pool_speakable.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
