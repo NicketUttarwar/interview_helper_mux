@@ -5190,9 +5190,18 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
             from interview_mux.opening_orientation import (
                 is_episode_orientation,
                 orientation_copy_unusable,
+                orientation_omitted,
             )
 
             gap = ctx.read_json("understanding/gap_report.json")
+            # A durable, recorded omission (omitted and not required, written
+            # by the native-open / lay-up authority) is a decision the audit
+            # cannot overturn: it demanded an orientation line on every pass,
+            # the repair found no line to demote, and the run halted on the
+            # third identical failure (ISSUES 117, exec_094). The decision
+            # stays visible as an advisory.
+            if orientation_omitted(gap if isinstance(gap, dict) else None):
+                return True
             for line in (gap.get("interviewer_lines") or []) if isinstance(gap, dict) else []:
                 if isinstance(line, dict) and is_episode_orientation(line):
                     return not orientation_copy_unusable(str(line.get("text") or ""))

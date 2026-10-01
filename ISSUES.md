@@ -3780,6 +3780,33 @@ Tests: `tests/test_sdp_producer_write_under_soft_freeze.py`.
 
 ---
 
+## [117] PRODUCT: the narrative audit demanded an opening orientation the lay-up authority had durably omitted, and the run halted on the third identical failure
+
+**Stage / area:** `artifact_repairs.repair_edl_audit` (opening_orientation_invalid)
+**Status:** fixed.
+
+exec_094 (fresh run on the code with entries 114 to 116): the lay-up plan
+decided the native opening orients itself (omit ledger
+`episode_open_native_self_orients`), the gap report recorded the opening
+orientation as omitted and not required, and the EDL narrative audit's
+model returned verdict "fail" with `opening_orientation_invalid` on every
+pass. The repair demotes that issue only when an orientation line with
+usable copy exists; with none, the fail stood, the unattended decision was
+"retry_stage", the hollow guard unmarked the stage, and the run halted on
+the pre-flush barrier after the third identical failure. The audio opens
+mid-sentence ("Second thing is"), so the model's opinion is reasonable;
+the point is that a recorded, durable decision must win over a repeated
+opinion, or the run never ends.
+
+Fix: a durably omitted orientation (`orientation_omitted`: omitted and not
+required, written only by the native-open / lay-up authority) demotes
+`opening_orientation_invalid` to an advisory, the same way a typed lay-up
+skip is a decision rather than a missing line (entry 69).
+
+Tests: `tests/test_audit_orientation_omitted_decision.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
