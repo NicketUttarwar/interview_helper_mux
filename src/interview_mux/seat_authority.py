@@ -74,6 +74,9 @@ END_A_CORE_ACTIONS: frozenset[str] = frozenset(
         # Reseat gap-active synth lines stripped by WAV clamp so vo_synthesize can
         # close the hosted floor — does not invent copy (exec_13177).
         "reseated_active_hosted_vo_for_wav",
+        # Documents derived from the selection follow a permitted removal:
+        # cue re-anchor / skip and lay-up lock copy, never a new seat (ISSUES 113).
+        "selection_dependents_reconcile",
     }
 )
 HARD_FREEZE_ALLOWLIST_ACTIONS: frozenset[str] = frozenset(

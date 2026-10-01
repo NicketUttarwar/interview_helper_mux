@@ -3625,6 +3625,63 @@ Tests: `tests/test_ship_holes_after_master.py`.
 
 ---
 
+## [113] PRODUCT: the overlap family. A permitted removal left every selection-derived document behind, and the repair's own writes were refused
+
+**Stage / area:** `edl_overlap_repair`, `air_order_boundary.commit_selection_mutation`, `nugget_layup`, `recovery_controller`, `seat_authority`
+**Status:** fixed (structural).
+
+Maintainer's exec_009 (59.5-minute interview, partially-accelerated): at
+stage 58, `edl` built the timeline, then the overlap repair was refused
+writing `segments/nle_edits.json`; on the retry the absorbed segment
+seg_019 was retired from the selection (revision 2 to 3), the lay-up plan
+kept the id and revision 2, `edl/load_inputs` failed closed on the stale
+plan, the heal `recovery_adopt_layup` was refused as not the plan's owner,
+and after two identical failures the conductor exited with edl remaining.
+Same shape as entries 101 (gap report omit stamps) and 104 (sound design
+plan cues anchored on a dropped segment, which exec_065 hit as "cue anchor
+seg_007 not in selection"): the selection moves under a permitted action
+and what is derived from it does not.
+
+Three defects, each deterministic:
+
+1. **Overlap repair refused at its own writes, in every epoch.** A remap
+   stage persisting a remap path must declare `mutation_class="segment_id_remap"`
+   (that is the ownership rule for referential-integrity writes). The
+   repair's NLE and transitions writes did not, so ownership answered
+   `mutation_class_required:segment_id_remap` on every overlap union; the
+   recovery test had been passing on the half-done repair (its run log
+   carried `authority_denied:persist:segments/nle_edits.json:edl_overlap_repair`).
+   Both writes now declare the class.
+2. **Nothing reconciled the selection's dependents after a commit.** New
+   `selection_dependents.reconcile_selection_dependents`, called from the
+   selection's single write point right after the write. It fits the lay-up
+   plan to the committed order and lock (`adopt_layup_plan_to_selection`
+   under the plan owner's key, without republishing the gap body) and
+   re-anchors sound design cues whose anchor left the selection onto the
+   nearest live neighbour (or skips them when none exists), persisting
+   under the plan's owner with the new End-A core reason
+   `selection_dependents_reconcile`. It never widens the air order. A plan
+   the unfrozen cascade marked for recompose is left to the recompose.
+3. **The heal wrote under its own key.** `recovery_adopt_layup` and
+   `order_reconcile` now adopt under `nugget_layup_compose`, the owner, so
+   the recovery path works even if a commit ever reaches disk without the
+   reconcile (it answered `not_allow:owner=nugget_layup_compose` before).
+
+Why it did not show on the 6-minute clip: an overlap union under hard
+freeze needs two neighbouring segments whose source ranges intersect after
+the EDL is built, which the short tape's selection does not produce; the
+cue variant (104) did, and was patched as a carve-out. This entry replaces
+the carve-outs with the rule.
+
+Tests: `tests/test_selection_dependents.py` (eleven cases: End-A row, retired
+id and bumped revision under hard freeze, lock-only drift, fresh plan
+untouched, cascade-stale plan left alone, recovery playbook, cue re-anchor
+rules, no-neighbour skip, owner key and reason on the SDP write, commit
+ordering, NLE write lands). The recovery test now also asserts no
+`authority_denied` line in its run log.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -837,6 +837,26 @@ def commit_selection_mutation(
             previous=previous,
             current=out,
         )
+        # The documents derived from the selection follow it here, under their
+        # owners' keys, whoever moved it (ISSUES 113). A removal the
+        # constitution permitted must not leave the lay-up plan one revision
+        # behind or a cue anchored on a retired id.
+        try:
+            from interview_mux.selection_dependents import reconcile_selection_dependents
+
+            reconcile_selection_dependents(
+                ctx, producer=producer, previous=previous, current=out
+            )
+        except Exception as exc:  # noqa: BLE001 - paperwork never fails the commit
+            try:
+                ctx.log(
+                    f"selection dependents reconcile error ({producer}): "
+                    f"{type(exc).__name__}: {str(exc)[:160]}",
+                    level="warning",
+                    stage=str(producer or "").split(":")[0] or None,
+                )
+            except Exception:
+                pass
         return out
     finally:
         if not nested_admit:
