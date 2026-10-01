@@ -44,7 +44,36 @@ def active_stage() -> str | None:
     return _active_stage.get()
 
 
+# Stages sealed in this process (stage_id -> run_dir). A write made under a
+# stage's staging context after its seal and flush used to land in a staging
+# dir nobody would flush again: the walk's bookkeeping (homunculus memory and
+# ledger, analysis_state, llm_calls index) arrived 0.2 to 5 s after the marker
+# on every stage and stayed there forever (ISSUES 118). Once sealed, the
+# stage's writes go to the committed tree, where the flush would have put them.
+_SEALED: dict[str, str] = {}
+
+
+def note_stage_sealed(ctx: RunContext, stage_id: str) -> None:
+    _SEALED[str(stage_id)] = str(ctx.run_dir)
+
+
+def stage_sealed_here(ctx: RunContext, stage_id: str | None) -> bool:
+    """True while ``stage_id`` is sealed in this process and its marker stands.
+
+    A cleared marker (the hollow guard unmarking a stage for a rerun) voids
+    the seal: the rerun stages its writes again whether or not the runner
+    re-entered the staging context.
+    """
+    if not stage_id or _SEALED.get(str(stage_id)) != str(ctx.run_dir):
+        return False
+    try:
+        return bool(ctx.is_done(str(stage_id)))
+    except Exception:
+        return False
+
+
 def enter_stage_staging(stage_id: str) -> None:
+    _SEALED.pop(str(stage_id), None)
     sid = str(stage_id or "").strip()
     _active_stage.set(sid or stage_id)
 
@@ -287,6 +316,13 @@ def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     sid = _active_stage.get()
     _record_contract_touch(ctx, rel, sid, write=True)
     if not sid or is_operational_path(rel):
+        return ctx.run_dir.joinpath(*rel.split("/"))
+    if stage_sealed_here(ctx, sid):
+        # A sealed stage's later writes go where the flush would have put
+        # them (ISSUES 118). Only the write target moves: staged_path stays
+        # the staging location for readers and the pre-flush barrier, which
+        # the first version of this fix broke (exec_096: "cannot read staged
+        # file" at the committed path on every re-entry of a sealed stage).
         return ctx.run_dir.joinpath(*rel.split("/"))
     if is_vo_pickup_rel(rel) and sid not in VO_PICKUP_OWNER_STAGES:
         return staged_path(ctx, rel, stage_id="vo_synthesize")
@@ -1421,6 +1457,68 @@ def _report_contract_conformance(ctx: RunContext, stage_id: str) -> None:
 #: Stages whose orphaned pending writes are promoted, not discarded: they hold
 #: expensive WAVs (exec_10066).
 _ORPHAN_PROMOTE_STAGES: frozenset[str] = frozenset({"vo_synthesize", "edl"})
+
+
+def promote_lost_staged_writes(ctx: RunContext) -> list[str]:
+    """Land staged files of done stages that the committed tree never got.
+
+    A stage sealed through the forced heal path leaves its overlay for the
+    orphan promote on its next entry; a run that completes never re-enters
+    it, so a file staged there with no committed copy, or a copy newer than
+    the committed one, is simply lost (exec_099: the EDL's clone adjacency
+    report, ISSUES 118). Called once at run end. Only files the stage owns
+    are promoted, and only when the committed copy is missing or older;
+    everything else in the overlay is a leftover and is left alone. Returns
+    the promoted paths.
+    """
+    from interview_mux.file_store import atomic_copy
+
+    pending = ctx.run_dir / ".pending_writes"
+    if not pending.is_dir():
+        return []
+    promoted: list[str] = []
+    for stage_dir in sorted(pending.iterdir()):
+        if not stage_dir.is_dir():
+            continue
+        stage_id = stage_dir.name
+        try:
+            if not ctx.is_done(stage_id):
+                continue
+        except Exception:
+            continue
+        for src in sorted(stage_dir.rglob("*")):
+            if not src.is_file() or src.name.endswith(".lock"):
+                continue
+            rel = str(src.relative_to(stage_dir)).replace("\\", "/")
+            if is_vo_pickup_rel(rel) and stage_id not in VO_PICKUP_OWNER_STAGES:
+                continue
+            try:
+                if not _owned_staging_path(ctx, stage_id, rel):
+                    continue
+            except Exception:
+                continue
+            dest = ctx.run_dir.joinpath(*rel.split("/"))
+            try:
+                if dest.is_file() and dest.stat().st_mtime >= src.stat().st_mtime:
+                    continue
+                atomic_copy(src, dest)
+                src.unlink(missing_ok=True)
+            except OSError:
+                continue
+            promoted.append(f"{stage_id}/{rel}")
+    if promoted:
+        try:
+            ctx.log(
+                f"run end: promoted {len(promoted)} staged write(s) the committed tree never got: "
+                + ", ".join(promoted[:6]),
+                level="info",
+                stage=None,
+                action_id="write_staging.promote_lost",
+                detail={"promoted": promoted[:40]},
+            )
+        except Exception:
+            pass
+    return promoted
 
 
 def discard_stale_staging_before_entry(ctx: RunContext, stage_id: str) -> list[str]:

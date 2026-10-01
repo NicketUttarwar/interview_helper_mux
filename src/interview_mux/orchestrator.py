@@ -31,6 +31,7 @@ a second walk inside the server.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -508,6 +509,7 @@ class Orchestrator:
             row = self._phase("analysis", run_analysis)
             if row["status"] == "ok":
                 row = self._phase("delivery", run_delivery, until_stage=until)
+                last_hop: tuple[str, int] | None = None
                 while row["status"] != "ok" and hops < MAX_GATE_RESUMES:
                     err = str(row.get("error") or "")
                     hop_back = "analysis incomplete" in err or (
@@ -516,6 +518,17 @@ class Orchestrator:
                     )
                     if not hop_back:
                         break
+                    # A hop that reproduces the previous hop's error with no new
+                    # stage landed is a loop, not recovery. exec_065 spent nine
+                    # hops and nine error lines on one refused input check
+                    # before the invoke cap ended it (ISSUES 106).
+                    signature = (err[:200], self._done_count())
+                    if last_hop == signature:
+                        self.log(
+                            "  hop loop: same error and no progress after a hop; stopping"
+                        )
+                        break
+                    last_hop = signature
                     hops += 1
                     self.log(f"  hop {hops}: delivery invalidated analysis, re-running both")
                     a = self._phase("analysis", run_analysis)
@@ -544,6 +557,20 @@ class Orchestrator:
                 complete = bool(pipeline_complete(self.ctx))
             except Exception:
                 complete = self.ctx.is_done("podcast_publish")
+            try:
+                from interview_mux.write_staging import promote_lost_staged_writes
+
+                promote_lost_staged_writes(self.ctx)
+            except Exception:  # noqa: BLE001 - hygiene never fails the run
+                pass
+            verdict = run_verdict(self.ctx, complete=complete, error=str(row.get("error") or ""))
+            self.log(
+                "=== verdict: "
+                + ("PASS" if verdict["pass"] else "FAIL")
+                + f" complete={verdict['complete']} stages={verdict['stages_done']}"
+                + f" error_lines={verdict['error_lines']} stale_staging={len(verdict['stale_staging'])}"
+                + f" outputs={verdict['publish_outputs']} ==="
+            )
             if complete:
                 self._write_job("done", stage="podcast_publish", message="Run complete")
                 self.log("=== complete ===")
@@ -561,6 +588,146 @@ class Orchestrator:
                 release_driver_run(self.ctx)
             except Exception:
                 pass
+
+
+PUBLISH_OUTPUTS: tuple[str, ...] = ("publish/audio.mp3", "publish/cover.jpg", "publish/package_ready.json")
+
+
+def _standing_error_lines(log: Path) -> tuple[list[str], list[str]]:
+    """Error-level rows split into standing and recovered.
+
+    A row is recovered when its stage reports "Stage finished" later in the
+    same log: the engine's resume loop ran the stage again and it landed
+    (ISSUES 114). The acceptance record counts only standing errors; the
+    recovered ones stay listed so a noisy run is still visible.
+    """
+    rows: list[tuple[int, str, str]] = []
+    finished_at: dict[str, int] = {}
+    try:
+        with open(log, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if '"level": "error"' in line:
+                    try:
+                        doc = json.loads(line)
+                        rows.append((i, str(doc.get("stage") or ""), str(doc.get("message") or "")[:200]))
+                    except ValueError:
+                        rows.append((i, "", line.strip()[:200]))
+                elif '"Stage finished: ' in line and '"level": "success"' in line:
+                    try:
+                        doc = json.loads(line)
+                    except ValueError:
+                        continue
+                    stage = str(doc.get("stage") or "")
+                    if stage:
+                        finished_at[stage] = i
+    except OSError:
+        return [], []
+    standing: list[str] = []
+    recovered: list[str] = []
+    for i, stage, msg in rows:
+        text = f"[{stage}] {msg}"
+        if stage and finished_at.get(stage, -1) > i:
+            recovered.append(text)
+        else:
+            standing.append(text)
+    return standing, recovered
+
+
+def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str, Any]:
+    """One deterministic acceptance record for a run (ISSUES 107).
+
+    Written to ``operator/run_verdict.json`` when the engine ends. ``pass`` is
+    true only when the pipeline is complete, every publish output is on disk,
+    the run log carries no error-level line, and no finished stage left
+    staged files behind. Anything less names what is missing, so acceptance
+    is a file to read rather than a hunt for master.wav.
+    """
+    run_dir = Path(ctx.run_dir)
+    error_lines: list[str] = []
+    recovered: list[str] = []
+    log = run_dir / "gui_log.jsonl"
+    if log.is_file():
+        error_lines, recovered = _standing_error_lines(log)
+    stale: list[str] = []
+    leftovers: list[str] = []
+    pending = run_dir / ".pending_writes"
+    done = run_dir / ".stage_done"
+    if pending.is_dir():
+        try:
+            from interview_mux.write_staging import _owned_staging_path
+        except Exception:  # noqa: BLE001
+            _owned_staging_path = None  # type: ignore[assignment]
+        for stage_dir in sorted(pending.iterdir()):
+            if stage_dir.is_dir() and (done / stage_dir.name).is_file():
+                for p in stage_dir.rglob("*"):
+                    if not p.is_file() or p.name == ".write.lock":
+                        continue
+                    rel = p.relative_to(stage_dir).as_posix()
+                    owned = True
+                    if _owned_staging_path is not None:
+                        try:
+                            owned = bool(_owned_staging_path(ctx, stage_dir.name, rel))
+                        except Exception:  # noqa: BLE001
+                            owned = True
+                    # Stale product is a staged copy the stage owns that is newer
+                    # than the committed file, or has no committed file: an
+                    # update the run lost. A copy the stage may not promote, or
+                    # one the committed tree has since overtaken or matches
+                    # byte for byte, is a leftover (ISSUES 118).
+                    lost = owned
+                    if owned:
+                        committed = run_dir / rel
+                        try:
+                            if committed.is_file():
+                                if committed.stat().st_mtime >= p.stat().st_mtime:
+                                    lost = False
+                                elif committed.read_bytes() == p.read_bytes():
+                                    lost = False
+                        except OSError:
+                            lost = True
+                    (stale if lost else leftovers).append(f"{stage_dir.name}/{rel}")
+    outputs = {rel: (run_dir / rel).is_file() for rel in PUBLISH_OUTPUTS}
+    skipped = False
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        skipped = bool(isinstance(meta, dict) and meta.get("g_publish_skipped"))
+    except Exception:
+        skipped = False
+    outputs_ok = outputs["publish/package_ready.json"] if skipped else all(outputs.values())
+    try:
+        from interview_mux.execution_status import package_bound_to_current_master
+
+        package_current = bool(package_bound_to_current_master(ctx))
+    except Exception:
+        package_current = False
+    verdict = {
+        "version": 1,
+        "run_id": ctx.run_id,
+        "complete": bool(complete),
+        "stages_done": len(list(done.glob("*"))) if done.is_dir() else 0,
+        "error_lines": len(error_lines),
+        "first_errors": error_lines[:5],
+        "recovered_error_lines": len(recovered),
+        "recovered_errors": recovered[:5],
+        "stale_staging": stale[:40],
+        "staging_leftovers": leftovers[:40],
+        "publish_outputs": outputs,
+        "publish_skipped": skipped,
+        "package_current": package_current,
+        "stopped_on": str(error or "")[:300],
+        "pass": bool(complete and outputs_ok and not error_lines and not stale),
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        ctx.write_json("operator/run_verdict.json", verdict, skip_handoff=True)
+    except Exception:
+        try:
+            path = run_dir / "operator" / "run_verdict.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+    return verdict
 
 
 def orchestrate(

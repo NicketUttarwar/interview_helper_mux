@@ -2783,8 +2783,13 @@ def adopt_layup_plan_to_selection(
     *,
     persist: bool = True,
     stage: str = "nugget_layup_compose",
+    publish_gap: bool = True,
 ) -> dict[str, Any]:
     """Rewrite layup ids onto the live selection without remine.
+
+    ``publish_gap=False`` fits the plan without republishing the gap body
+    (selection-dependents reconcile, ISSUES 113: the omit stamps for retired
+    ids are the sanitizer's, and the gap body is frozen).
 
     Displaced rows rebind onto the earliest overlapping live native. Extra hitch
     split children skip (no new VO, no compose). Satisfies
@@ -2911,7 +2916,7 @@ def adopt_layup_plan_to_selection(
             write_kw["mutation_class"] = "segment_id_remap"
         ctx.write_json(PLAN_REL, plan, **write_kw)
         # S3: hitch must not republish gap body — owned stages own that land.
-        if stage == "chapter_close_hitch":
+        if stage == "chapter_close_hitch" or not publish_gap:
             return {
                 "ok": True,
                 "inherited": inherited,

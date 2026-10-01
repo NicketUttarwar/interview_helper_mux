@@ -4875,6 +4875,18 @@ def _edl_issue_premature_vo_nle_placement(ctx: Any, row: dict[str, Any]) -> bool
             if isinstance(ln, dict)
             and str(ln.get("line_id") or "") in cited
         ]
+    # Spoken transitions the issue cites are heard once their WAVs play; the
+    # audit runs before edl, so timeline placement is not evidence yet
+    # (ISSUES 120: exec_095 failed three passes on pairs rendered to disk).
+    pairs = _cited_transition_pairs(row)
+    if pairs:
+        from interview_mux.transition_vo import current_pair_wav_usable
+
+        try:
+            if all(current_pair_wav_usable(ctx, a, b) for a, b in pairs):
+                return True
+        except Exception:
+            pass
     if not lines:
         return False
     return all(_wav_exists(ln) for ln in lines)
@@ -5190,9 +5202,18 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
             from interview_mux.opening_orientation import (
                 is_episode_orientation,
                 orientation_copy_unusable,
+                orientation_omitted,
             )
 
             gap = ctx.read_json("understanding/gap_report.json")
+            # A durable, recorded omission (omitted and not required, written
+            # by the native-open / lay-up authority) is a decision the audit
+            # cannot overturn: it demanded an orientation line on every pass,
+            # the repair found no line to demote, and the run halted on the
+            # third identical failure (ISSUES 117, exec_094). The decision
+            # stays visible as an advisory.
+            if orientation_omitted(gap if isinstance(gap, dict) else None):
+                return True
             for line in (gap.get("interviewer_lines") or []) if isinstance(gap, dict) else []:
                 if isinstance(line, dict) and is_episode_orientation(line):
                     return not orientation_copy_unusable(str(line.get("text") or ""))

@@ -3452,6 +3452,506 @@ judgements; gate sign-off once per gate; rewind drops the old sign-off).
 
 ---
 
+## [106] PRODUCT: two deterministic guardrails in the walk and the engine loop
+
+**Stage / area:** `homunculus.agenda.walk_seed_agenda`, `orchestrator.run`
+**Status:** fixed.
+
+Two behaviours every recent run showed, neither a stop on its own, both
+paid for in failed passes and error lines:
+
+- **Prerequisites learned from the exception.** `dispatch_stage` refuses a
+  stage whose earlier seed-order stage is incomplete; the walk learned the
+  prerequisite from the error and ran it, one per pass. Every run paid two
+  or three failed passes climbing "complete chapter_close_hitch before
+  refinement_agenda", then full_master_ranking, then the next. The walk now
+  asks the same check before dispatch and runs the chain up front,
+  bounded by the order length and by the one-run-per-prerequisite set the
+  reactive path already keeps. A prerequisite that fails to run falls
+  through to dispatch, which reports it as before.
+- **Hops that reproduce the last error.** When delivery reports analysis
+  incomplete the engine hops back to analysis and tries again, up to
+  sixteen times. exec_065 spent nine hops and nine error lines on one
+  refused input check (entry 103) with nothing landing in between. The
+  engine now stops a hop that reproduces the previous hop's error with the
+  same stage count, and says so.
+
+Tests: `tests/test_seed_prereqs_ahead.py`, `tests/test_orchestrator.py`
+(the hop-loop case).
+
+---
+
+## [107] TOOLING: the engine writes a run verdict
+
+**Stage / area:** `orchestrator.run_verdict`
+**Status:** done.
+
+The maintainer's acceptance test was "is there a master.wav". master.wav
+appears at stage 68 of 72, and a run can carry it while an error line, a
+refused commit's leftovers, or a missing package sit behind it. The engine
+now ends every run, complete or not, by writing
+`operator/run_verdict.json` and logging one line:
+`=== verdict: PASS|FAIL complete=... stages=... error_lines=... stale_staging=... outputs=... ===`.
+`pass` is true only when the pipeline is complete, the publish outputs are
+on disk (or the sign-off was Skip and the package stub exists), the run log
+holds no error-level line, and no finished stage left staged files behind.
+The first five error lines are quoted in the file. The resume harness
+(entry 105) judges its cases by the same rules.
+
+Tests: `tests/test_orchestrator.py` (a complete clean run passes; a complete
+run with one error line fails).
+
+---
+
+## [108] GUI: a browser notice was recorded at error level in the run log
+
+**Stage / area:** `POST /api/runs/{id}/log`
+**Status:** fixed.
+
+exec_065 gained an error line that no stage produced: "Refresh run: Failed
+to fetch", origin gui. The open browser tab's refresh timed out while the
+server held the run lock, the frontend posted the notice with the level it
+uses for its own failures, and the server wrote it into the run log as is.
+The maintainer saw the same on his run and rightly called it noise, but
+noise at error level fails the verdict (entry 107) and reads as a pipeline
+error in the log.
+
+Fix: the run log's error level belongs to the pipeline. A browser notice
+posted at error level is recorded as a warning with `gui_level: error`
+kept in its detail.
+
+Tests: `tests/test_gui_notice_level.py`.
+
+---
+
+## [109] PRODUCT: one malformed model reply was logged as a run error although the next attempt repaired it
+
+**Stage / area:** `stages.llm_runner` (parse of a model reply)
+**Status:** fixed.
+
+exec_066, `mastering_shape_candidates`: the model's first reply was not
+valid JSON ("Expecting ',' delimiter"), the runner's repair pass had a good
+reply six seconds later, and the stage finished. The parse failure was
+logged at error level, so the only error line in an otherwise clean run
+was an attempt the ladder had already handled.
+
+Fix: a single attempt's parse failure is a warning (still carrying the raw
+reply prefix, model id and attempt). A stage whose every attempt fails
+reports its own error as before.
+
+---
+
+## [110] PRODUCT: a slow Chatterbox import was reported as a missing runtime, hard-stopping gap framing, and the answer was cached for the engine's life
+
+**Stage / area:** `synthesis_fallback.chatterbox_runtime_available`
+**Status:** fixed.
+
+exec_066 (fresh partial run, engine spawned by a freshly restarted server
+while the resume harness was copying a run on the same disk): gap framing
+hard-stopped with "Chatterbox runtime unavailable (venv or import check
+failed)". The venv was fine; the probe runs `python -c "import chatterbox"`
+with a 30 s timeout, importing chatterbox loads torch, the cold import on a
+busy disk took longer, and `TimeoutExpired` was folded into "unavailable".
+The result was then cached (`lru_cache`) for the whole engine process, so
+every later ask in that run got the same wrong answer. A first run on a
+cold server would see exactly this.
+
+Fix: the probe timeout is 180 s, a timeout counts as present (the
+synthesis call has its own budget and reports its own failure), and only
+a positive answer is cached; a miss is re-probed on the next ask.
+
+Tests: `tests/test_chatterbox_probe_timeout.py`.
+
+---
+
+## [111] PRODUCT: a re-entered run reported itself complete on its old package, skipping the sign-off and the stages that remained
+
+**Stage / area:** `execution_status.pipeline_complete` (the Partial DONE bar), orchestrator end-of-run
+**Status:** fixed.
+
+Resume harness, boundaries preset, every rewind case (exec_069 to exec_073):
+a completed run cloned and rewound to an earlier stage ran the engine for
+about 90 s, which then printed "Run complete" with 67 to 73 of 74 stage
+markers, no G-Publish sign-off, and the conductor's own note "delivery
+incomplete after conductor (5 remaining)". The crash and the
+master_finalize rewind of the quick preset passed because they rebuild the
+master.
+
+The bar was file-based only: committed master, cover, mp3, and a
+`package_ready.json` with `ready:true`. All four survive a re-entry, so
+the engine saw "complete", skipped the hold for the operator, and the
+delivery conductor (which consults the same bar to decide whether to
+wait) returned OK with work remaining. An operator who re-enters a
+finished run from the GUI, or the engine's own hop back to analysis on a
+run that has a package, would get the stale package as the run's result.
+
+Fix: the bar also requires the `podcast_publish` stage marker and a
+package no older than the master on disk (`package_bound_to_current_master`).
+`ship_bar_incomplete_reasons` names the two new holes
+(`podcast_publish_not_done`, `package_older_than_master`), the run verdict
+carries `package_current`, and the harness judges completion the same way.
+A re-entered run now holds at the final sign-off and packages again.
+
+Tests: `tests/test_package_bound_to_master.py`; ship-bar and footgun
+fixtures now model a complete run with its marker.
+
+---
+
+## [112] PRODUCT: after a re-entry the ship stages never ran again (outputs on disk keyed them as done) and a current package stayed unmarked
+
+**Stage / area:** `homunculus.agenda.ship_after_master_remaining`, the delivery runner's committed-master walk
+**Status:** fixed.
+
+With entry 111 in place, the rewound clones held at the sign-off as they
+should, and then stopped incomplete: rewind vo_synthesize (exec_073) ended
+with 68 of 74 markers and "6 remaining", rewind edl (exec_074) with 73 and
+the package stage never run. Two causes, one mechanism. The ship stages
+(transcript, meta, cover prompt, mp3, cover, package) are keyed on their
+outputs being present, not on their markers. After a re-entry the outputs
+are still on disk, so the walk had nothing to do; the markers the re-entry
+cleared were never written again, and the run could not complete. When the
+master had been rebuilt, the same keying shipped the old mp3 and cover.
+
+Fix, both deterministic:
+- A ship output older than `master/master.wav` counts as missing
+  (`ship_stage_output_stale`); the walk makes it again from the new master.
+- Ship stages whose outputs are present and current but whose marker is gone
+  are re-marked before the walk (`backfill_ship_holes_after_master`), the
+  same way pre-master holes behind an existing master already were. Outputs
+  first, never a hollow stamp. The package stage is included: a package
+  current for this master is this master's package.
+
+Tests: `tests/test_ship_holes_after_master.py`.
+
+---
+
+## [113] PRODUCT: the overlap family. A permitted removal left every selection-derived document behind, and the repair's own writes were refused
+
+**Stage / area:** `edl_overlap_repair`, `air_order_boundary.commit_selection_mutation`, `nugget_layup`, `recovery_controller`, `seat_authority`
+**Status:** fixed (structural).
+
+Maintainer's exec_009 (59.5-minute interview, partially-accelerated): at
+stage 58, `edl` built the timeline, then the overlap repair was refused
+writing `segments/nle_edits.json`; on the retry the absorbed segment
+seg_019 was retired from the selection (revision 2 to 3), the lay-up plan
+kept the id and revision 2, `edl/load_inputs` failed closed on the stale
+plan, the heal `recovery_adopt_layup` was refused as not the plan's owner,
+and after two identical failures the conductor exited with edl remaining.
+Same shape as entries 101 (gap report omit stamps) and 104 (sound design
+plan cues anchored on a dropped segment, which exec_065 hit as "cue anchor
+seg_007 not in selection"): the selection moves under a permitted action
+and what is derived from it does not.
+
+Three defects, each deterministic:
+
+1. **Overlap repair refused at its own writes, in every epoch.** A remap
+   stage persisting a remap path must declare `mutation_class="segment_id_remap"`
+   (that is the ownership rule for referential-integrity writes). The
+   repair's NLE and transitions writes did not, so ownership answered
+   `mutation_class_required:segment_id_remap` on every overlap union; the
+   recovery test had been passing on the half-done repair (its run log
+   carried `authority_denied:persist:segments/nle_edits.json:edl_overlap_repair`).
+   Both writes now declare the class.
+2. **Nothing reconciled the selection's dependents after a commit.** New
+   `selection_dependents.reconcile_selection_dependents`, called from the
+   selection's single write point right after the write. It fits the lay-up
+   plan to the committed order and lock (`adopt_layup_plan_to_selection`
+   under the plan owner's key, without republishing the gap body) and
+   re-anchors sound design cues whose anchor left the selection onto the
+   nearest live neighbour (or skips them when none exists), persisting
+   under the plan's owner with the new End-A core reason
+   `selection_dependents_reconcile`. It never widens the air order. A plan
+   the unfrozen cascade marked for recompose is left to the recompose.
+3. **The heal wrote under its own key.** `recovery_adopt_layup` and
+   `order_reconcile` now adopt under `nugget_layup_compose`, the owner, so
+   the recovery path works even if a commit ever reaches disk without the
+   reconcile (it answered `not_allow:owner=nugget_layup_compose` before).
+
+Why it did not show on the 6-minute clip: an overlap union under hard
+freeze needs two neighbouring segments whose source ranges intersect after
+the EDL is built, which the short tape's selection does not produce; the
+cue variant (104) did, and was patched as a carve-out. This entry replaces
+the carve-outs with the rule.
+
+Tests: `tests/test_selection_dependents.py` (eleven cases: End-A row, retired
+id and bumped revision under hard freeze, lock-only drift, fresh plan
+untouched, cascade-stale plan left alone, recovery playbook, cue re-anchor
+rules, no-neighbour skip, owner key and reason on the SDP write, commit
+ordering, NLE write lands). The recovery test now also asserts no
+`authority_denied` line in its run log.
+
+---
+
+## [114] PRODUCT: the sound design plan over its asset cap was refused at the barrier while the lint called it a warning; two handled failures stood as run errors
+
+**Stage / area:** `artifact_sanitize.sound_design_plan`, `deterministic_lint`, `llm_simple`, `orchestrator.run_verdict`
+**Status:** fixed.
+
+exec_084 (fresh partial run through the GUI endpoints on the final code):
+the model returned a sound design plan with 8 assets against a cap of 7
+(the density budget of the delivery brief). The lint logged "non-blocking",
+the pre-flush barrier refused the flush on the same message, vo_synthesize
+found its prerequisite had not landed, the walk re-ran transitions and the
+plan, and the second plan landed. The run went on, but carried two error
+lines: the model status "partial" on the first plan, logged at error level
+right before the fail-open commit that completed the stage, and the
+"Prerequisite stage vo_line_adjudicate is not complete" raised by a stage
+the resume loop then ran. With the verdict of entry 107, both counted as
+failures.
+
+Fixes:
+- One cap, `sound_design_caps.sound_design_asset_cap`, read by the lint and
+  applied by the sanitizer: a plan over the cap is trimmed to it, assets
+  referenced by cues first, orphaned cues dropped. Non-amplifying; the plan
+  on disk never exceeds the cap, so the barrier never refuses on count.
+- The fail-open commit path logs its note as a warning; the error line
+  stays for the case where fail-open did not commit and the stage fails.
+- The verdict splits error rows into standing and recovered: a row whose
+  stage reports "Stage finished" later in the log was handled by the resume
+  loop. `pass` counts standing errors only; recovered ones are listed under
+  `recovered_errors` so a noisy run is still visible.
+
+Tests: `tests/test_sdp_asset_cap_clamp.py`, `tests/test_run_verdict_recovered_errors.py`.
+
+---
+
+## [115] PRODUCT: a blank fragment reached the air order and was judged blank only at the EDL gate under hard freeze; the narrative constraints and the episode structure did not follow the order
+
+**Stage / area:** `air_order_boundary.commit_selection_mutation`, `selection_dependents`, `episode_structure`
+**Status:** fixed.
+
+exec_084 after the sound design plan: seg_007, a 3.2-second, 7-word fragment
+("Okay? Where the sensitivity, the specific"), had been ranked onto air. The
+EDL rendered it as a speech clip and passed QC; the EDL gate then ran its
+narrative pre-repair, whose blank-or-unusable predicate dropped seg_007 from
+the selection under the hard freeze, and the gate failed its own parity
+check ("speech clips do not match final selection"). The resume loop
+re-entered, the order change invalidated the lay-up plan and the sound
+design plan, and the run died on the plan's asset cap (entry 114).
+
+Upstream of that, the narrative plan carried a constraint over the same
+fragment ("seg_007 must appear before seg_004") that the committed order
+could not satisfy; the sound design plan's model refused with "rerun
+narrative_arc_plan", and the episode structure, also derived from the
+order, was stale, with the EDL gate's rewrite of it refused for ownership.
+
+Three rules:
+- A blank or unusable segment is excluded once, before the freeze, at
+  `selection_order_sanitize` (the existing predicate and helper, now
+  `drop_blank_segments`, applied to the sanitized order before its commit).
+  Hard-keeps are exempt as before; an order that would empty is left alone.
+  The EDL stage's "no selection blank handling" intent (its S1 to S5 peel)
+  holds again: the gate's pre-repair finds nothing to drop.
+- Narrative ordering constraints that contradict the committed order are
+  dropped or flipped by the reconcile (`rewrite_constraints_to_selection`,
+  under the ranking's freeze-safe metadata-align class, as `order_reconcile`
+  already did when invoked as a heal).
+- The episode structure is rebuilt on the committed order under its owner's
+  key when the order changes (`persist_structure` takes `stage_key`). The
+  build is deterministic.
+
+Tests: `tests/test_blank_segments_and_order_dependents.py`.
+
+---
+
+## [116] PRODUCT: the sound design plan's own producer could not land its plan under the soft freeze, so the unclamped palettes plan stayed on disk and failed the barrier
+
+**Stage / area:** `seat_authority.frozen_seat_write_allowed`
+**Status:** fixed.
+
+exec_094 (fresh run on the code with entry 114): the stage composed a plan,
+the sanitizer clamped it to the cap, and the write was skipped: "seat_freeze:
+skip write understanding/sound_design_plan.json (not End-A;
+reason=sound_design_plan)". `sound_design_palettes` writes the file before
+the soft freeze, so the stage's production is never a first production
+(entry 96), and the stale-versus-selection carve-out (entry 104) did not
+apply. What stayed on disk was the palettes plan with 8 assets, allowed at
+palettes time because the delivery brief that narrows the cap to 7 is
+written later; the stage marked itself done, and the pre-flush barrier
+refused the next flush on "asset count 8 exceeds cap 7". exec_084 died the
+same way after its second attempt.
+
+Fix: under the soft freeze the plan's own producer (reason
+`sound_design_plan`) may write the plan, whatever is on disk; the hard
+freeze still refuses, since WAVs are rendered against those seats. Entry
+104's carve-out is a special case of this rule and is folded into it.
+
+Tests: `tests/test_sdp_producer_write_under_soft_freeze.py`.
+
+---
+
+## [117] PRODUCT: the narrative audit demanded an opening orientation the lay-up authority had durably omitted, and the run halted on the third identical failure
+
+**Stage / area:** `artifact_repairs.repair_edl_audit` (opening_orientation_invalid)
+**Status:** fixed.
+
+exec_094 (fresh run on the code with entries 114 to 116): the lay-up plan
+decided the native opening orients itself (omit ledger
+`episode_open_native_self_orients`), the gap report recorded the opening
+orientation as omitted and not required, and the EDL narrative audit's
+model returned verdict "fail" with `opening_orientation_invalid` on every
+pass. The repair demotes that issue only when an orientation line with
+usable copy exists; with none, the fail stood, the unattended decision was
+"retry_stage", the hollow guard unmarked the stage, and the run halted on
+the pre-flush barrier after the third identical failure. The audio opens
+mid-sentence ("Second thing is"), so the model's opinion is reasonable;
+the point is that a recorded, durable decision must win over a repeated
+opinion, or the run never ends.
+
+Fix: a durably omitted orientation (`orientation_omitted`: omitted and not
+required, written only by the native-open / lay-up authority) demotes
+`opening_orientation_invalid` to an advisory, the same way a typed lay-up
+skip is a decision rather than a missing line (entry 69).
+
+Tests: `tests/test_audit_orientation_omitted_decision.py`.
+
+---
+
+## [118] PRODUCT: bookkeeping written after a stage's seal landed in a staging directory nobody flushes again
+
+**Stage / area:** `write_staging.staged_path`, `run_context.mark_done`
+**Status:** fixed.
+
+Every fresh run left 40 to 74 files under `.pending_writes/<stage>/` for
+stages that were done: homunculus memory, ledger and admitted rows,
+`understanding/analysis_state.json`, the llm_calls index, written 0.2 to 5
+seconds after the stage marker (exec_084, exec_094). The seal flushes and
+removes the staging root, the walk's post-stage bookkeeping then writes
+under the stage's still-active staging context, and the new files sit in a
+root that is never flushed. The run verdict (entry 107) counted them as
+stale staging and failed otherwise clean runs; the next re-entry's stale
+staging discard (entry 102) had to clean them.
+
+Fix: `mark_done` notes the seal, and `resolve_write_path` (the write
+target) routes a sealed stage's later writes to the committed tree, where
+the flush would have put them. Re-entering the stage reopens its staging,
+and a cleared marker voids the seal.
+
+The first version of this fix put the redirect in `staged_path`, which is
+also what readers and the pre-flush barrier use to find a staged copy:
+after a stage's first seal, every re-entry of that stage had its barrier
+look for the staged file at the committed path and refuse with "cannot
+read staged file" (exec_096 looped on sfx_prompt_craft and stopped). Only
+the write target moves now; `staged_path` is the staging location again.
+
+Two more pieces, from exec_099 (the first run to complete on this chain):
+the EDL stage seals through the forced heal path, which leaves its overlay
+for the orphan promote on a later entry that a completing run never makes.
+At run end the engine now promotes staged files of done stages that the
+committed tree never got or has older (`promote_lost_staged_writes`); the
+clone adjacency report was the one such file. The verdict counts as stale
+only a staged copy the stage owns that is newer than the committed file or
+has none; older or byte-identical copies, and courtesy copies the stage
+may not promote, are listed under `staging_leftovers` and do not fail the
+run.
+
+Tests: `tests/test_post_seal_writes_land_committed.py`.
+
+---
+
+## [119] PRODUCT: the asset clamp dropped the outro theme; a failed prerequisite still dispatched its consumer
+
+**Stage / area:** `sound_design_caps.clamp_assets_to_cap`, `homunculus.agenda._run_seed_prerequisites_first`
+**Status:** fixed.
+
+exec_095 (fresh run on the code through entry 117): the plan's producer
+landed its plan under the soft freeze (entry 116) and the clamp (entry 114)
+trimmed 8 assets to 7, dropping the one no cue referenced: the outro theme.
+The pre-flush barrier then refused "creative delivery missing music
+role:theme_outro". The walk logged that the prerequisite had not landed and
+dispatched vo_synthesize anyway, which raised "Prerequisite stage
+vo_line_adjudicate is not complete" at error level, the same row every
+fresh run since exec_084 has carried, before the resume loop filled it.
+
+Fixes:
+- The clamp ranks the first asset of each protected role (the theme roles
+  the creative delivery check requires, and the roles that stand in for
+  them) above cue-referenced assets, then the rest.
+- A prerequisite that fails to land ahead of a stage is raised by the walk
+  as "Prerequisite stage X is not complete", in the words the walk's own
+  parser reads, instead of dispatching the consumer into the same wall.
+
+Tests: `tests/test_sdp_asset_cap_clamp.py` (protected roles),
+`tests/test_seed_prereqs_ahead.py` (raise before dispatch).
+
+---
+
+## [120] PRODUCT: the narrative audit was shown no heard-WAV evidence for spoken transitions and failed every pass on WAVs that existed
+
+**Stage / area:** `stages.edl_narrative_audit.compact_vo_coverage`, `artifact_repairs._edl_issue_premature_vo_nle_placement`
+**Status:** fixed.
+
+exec_095 (fresh run on the code through entry 117): no gap lines were
+planned, so the audit payload's `vo_coverage` was empty, while
+`seam_occupancy` showed two spoken transitions (seg_007 to seg_005, seg_004
+to seg_008). The model answered `pre_edl_vo_placement_missing`: "cannot
+verify either occupied spoken transition because vo_coverage is empty".
+Both transition WAVs had been rendered minutes earlier
+(`master/transitions/tr_*.wav`). The repair's demote for that code looks
+only at gap lines, found none, and left the fail; three identical passes
+and the run halted at the pre-flush barrier.
+
+Fixes:
+- `vo_coverage` carries one row per planned transition pair with its
+  heard-WAV status (rendered, missing, omitted, not_spoken), so the model
+  sees the evidence.
+- The demote also accepts the issue when every transition pair it cites
+  has a playable WAV on disk.
+
+A related warning stays: vo_synthesize's scratch copy under
+`master/transitions/synthesized/` is refused at promotion as an unknown
+path. The canonical WAV lands beside it, so nothing is lost; noise only.
+
+Tests: `tests/test_audit_transition_vo_coverage.py`.
+
+---
+
+## [121] PRODUCT: the walk skipped vo_line_adjudicate as a prerequisite when G1 was not pending, but the VO stage's gate still demanded it
+
+**Stage / area:** `homunculus.runtime._seed_prereq_block`
+**Status:** fixed.
+
+Every fresh run since exec_084 carried "Prerequisite stage vo_line_adjudicate
+is not complete" (exec_096 again, with every other prerequisite landed
+ahead). The walk's prerequisite check and the stage's own gate both start
+from the earliest incomplete seed stage, but the walk added an exception
+for the adjudication stage: skip it when the G1 gate is not pending. The
+stage gate (`maybe_require_upstream_llm_progress`) consults only the
+ordering authority (entry 62) and has no such exception, so the walk
+dispatched vo_synthesize straight into the gate's refusal, and the resume
+loop ran the adjudication afterwards.
+
+Fix: the walk clears the block only when adjudication is sealed and
+seed-complete (the seal helper still marks a stale stamp done when G1 is
+green and the WAVs are fresh); otherwise it runs the stage ahead, as it does
+for every other prerequisite. Both checks now read the same rule.
+
+---
+
+## [122] PRODUCT: a duplicated asset row in the sound design plan made the prompt craft fail its own barrier on every pass
+
+**Stage / area:** `artifact_sanitize.sound_design_plan`, `sdp_cross_validate`
+**Status:** fixed.
+
+exec_096 and exec_098 (fresh runs on the final code): the plan carried the
+outro asset twice (`show_theme_v1_full_bed_close`, 8 rows, 7 distinct ids).
+`sfx_prompt_craft` writes one prompt per distinct id (7); the pre-flush
+check compared 7 prompts with 8 asset rows and refused "fewer prompts than
+SDP assets", the stage's attempt to sync the plan was refused under the
+hard freeze, the marker was cleared as "pending_only", and the conductor
+exited after the attempt memo with sfx_prompt_craft remaining. Nothing in
+the run could change the plan's row count at that point.
+
+Fixes:
+- The plan sanitizer drops duplicate asset ids (first row wins) before the
+  cap clamp, so the plan on disk never carries the duplicate.
+- The cross-validate compares prompts with distinct asset ids, so a
+  duplicate that reached disk through another path cannot trip it.
+
+Tests: `tests/test_sdp_duplicate_assets.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -756,7 +756,14 @@ def test_overlapping_source_playbook_merges_and_resumes_edl(tmp_path: Path) -> N
     )
     result = handle_stage_failure(ctx, "edl", exc)
     assert result.playbook_id == "merge_overlapping_source_ranges"
-    assert result.resume_stage in {"edl", "information_package_plan"}
+    # The repair now lands whole (ISSUES 113): the NLE write used to be refused
+    # for lacking the remap mutation class, so the selection never moved. With
+    # the absorbed id retired from the selection, the unfrozen order cascade
+    # invalidates the lay-up compose, and the admitted resume clamps to it.
+    assert result.resume_stage in {"edl", "information_package_plan", "nugget_layup_compose"}
+    log = ctx.final_path("gui_log.jsonl")
+    if log.is_file():
+        assert "authority_denied" not in log.read_text(encoding="utf-8", errors="replace")
     if result.status == "recovered":
         edl = ctx.read_json("master/edl.json")
         speech = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]

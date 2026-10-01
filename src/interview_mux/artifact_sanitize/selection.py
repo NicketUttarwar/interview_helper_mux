@@ -870,7 +870,25 @@ def run_selection_order_sanitize(ctx: Any) -> None:
         raise RuntimeError(
             "sanitize_refused:selection: " + "; ".join((result.errors or ["unknown"])[:4])
         )
-    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.air_order_boundary import commit_selection_mutation, drop_blank_segments
+
+    # A blank or unusable fragment never reaches the air order the freeze will
+    # protect (ISSUES 115). Judged here, once, with the same predicate the EDL
+    # gate used to apply after the EDL had already rendered the fragment.
+    before_blank = [str(x) for x in (result.doc.get("ordered_segment_ids") or []) if x]
+    cleaned = drop_blank_segments(ctx, result.doc)
+    after_blank = [str(x) for x in (cleaned.get("ordered_segment_ids") or []) if x]
+    if before_blank != after_blank:
+        ctx.log(
+            "selection_order_sanitize: excluded blank/unusable segment(s) "
+            f"{[x for x in before_blank if x not in set(after_blank)][:8]}",
+            level="warning",
+            stage="selection_order_sanitize",
+            detail={"excluded": [x for x in before_blank if x not in set(after_blank)][:24]},
+        )
+        import dataclasses
+
+        result = dataclasses.replace(result, doc=cleaned)
 
     # write_committed avoids write_validated → repair undoing sanitize.
     commit_selection_mutation(

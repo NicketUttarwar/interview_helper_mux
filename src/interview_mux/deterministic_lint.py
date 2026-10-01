@@ -474,15 +474,9 @@ def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> l
 
 def _lint_sound_design_plan(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
-    cfg = merged_config()
-    cap = int((cfg.get("sound_design") or {}).get("max_assets", (cfg.get("sound_design") or {}).get("max_assets_flow1", 6)))
-    if ctx.artifact_exists("understanding/delivery_brief.json"):
-        brief = ctx.read_json("understanding/delivery_brief.json")
-        dens = brief.get("sfx_density") if isinstance(brief, dict) else {}
-        if isinstance(dens, dict):
-            brief_cap = sum(int(dens.get(k) or 0) for k in ("max_beds", "max_punctuators", "max_foley"))
-            if brief_cap > 0:
-                cap = min(cap, brief_cap)
+    from interview_mux.sound_design_caps import sound_design_asset_cap
+
+    cap = sound_design_asset_cap(ctx)
     assets = artifacts.get("assets") or []
     asset_ids = {str(a.get("asset_id")) for a in assets if isinstance(a, dict) and a.get("asset_id")}
     if len(asset_ids) > cap:

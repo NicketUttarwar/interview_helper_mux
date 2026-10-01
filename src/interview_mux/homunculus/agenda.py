@@ -1346,9 +1346,76 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
     return _drop_delivery_while_voice_ref_open(ctx, out)
 
 
+def ship_stage_output_stale(ctx: RunContext, stage: str) -> bool:
+    """True when a ship stage's outputs predate ``master/master.wav``.
+
+    Ship outputs are cut from the master; ones older than it belong to an
+    earlier master and must be made again (ISSUES 112).
+    """
+    try:
+        master_mtime = ctx.final_path("master", "master.wav").stat().st_mtime
+    except OSError:
+        return False
+    for rel in stage_required_outputs(stage):
+        try:
+            if ctx.final_path(*str(rel).split("/")).stat().st_mtime < master_mtime:
+                return True
+        except OSError:
+            return True
+    return False
+
+
 def ship_after_master_remaining(ctx: RunContext) -> list[str]:
-    """Cover / encode / publish stages still missing after master.wav exists."""
-    return [s for s in SHIP_AFTER_MASTER if not stage_outputs_present(ctx, s)]
+    """Cover / encode / publish stages still missing after master.wav exists.
+
+    Present but older than the master counts as missing (ISSUES 112).
+    """
+    return [
+        s
+        for s in SHIP_AFTER_MASTER
+        if not stage_outputs_present(ctx, s) or ship_stage_output_stale(ctx, s)
+    ]
+
+
+def backfill_ship_holes_after_master(ctx: RunContext) -> list[str]:
+    """Re-mark ship stages whose outputs are present and current but unmarked.
+
+    A re-entry clears the markers after its stage; the ship outputs stay on
+    disk and, when the master was not rebuilt, are still this master's. The
+    walk keys ship stages on their outputs, so it never ran them again, and
+    the missing markers left the run unable to complete (ISSUES 112). Mirrors
+    ``backfill_delivery_holes_after_master``: outputs first, never hollow.
+    """
+    if not ctx.final_path("master", "master.wav").is_file():
+        return []
+    # DETECTION_ONLY_IS_DONE: hole-fill mode after a shipped master, as in
+    # backfill_delivery_holes_after_master; outputs decide, markers only select.
+    if not ctx.is_done("master_finalize"):
+        return []
+    from interview_mux.done_authority import raw_stamp_session, try_mark_done
+
+    filled: list[str] = []
+    for stage in SHIP_AFTER_MASTER:
+        if ctx.is_done(stage):
+            continue
+        if not stage_outputs_present(ctx, stage) or ship_stage_output_stale(ctx, stage):
+            continue
+        stamped = try_mark_done(ctx, stage, force=True)
+        if not stamped:
+            try:
+                with raw_stamp_session(ctx, "post_master_backfill"):
+                    stamped = try_mark_done(ctx, stage, force=True)
+            except Exception:
+                stamped = False
+        if not stamped:
+            continue
+        filled.append(stage)
+        ctx.log(
+            f"homunculus backfilled ship hole {stage} (outputs current for this master)",
+            level="warning",
+            stage=stage,
+        )
+    return filled
 
 
 def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
@@ -2154,6 +2221,73 @@ def _constrain_delivery_walk_for_sticky(
 _SEED_ORDER_RE = re.compile(r"seed order: complete (\S+) before running (\S+)")
 
 
+def _run_seed_prerequisites_first(
+    ctx: RunContext, stage: str, retried: set[str], run_stage: Any
+) -> list[str]:
+    """Resolve the seed-order chain ahead of dispatch, not after a refusal (ISSUES 106).
+
+    ``dispatch_stage`` refuses a stage whose earlier seed-order stage is not
+    complete, and the walk then learns the prerequisite from the exception,
+    one per pass. Every run paid two or three failed passes to "seed order:
+    complete chapter_close_hitch before running refinement_agenda", then
+    full_master_ranking, then the next. Ask the same check first and run the
+    chain up front, bounded by the order length and by ``retried`` (one run
+    per prerequisite per walk, shared with the reactive path below). A
+    prerequisite that fails to run falls through to dispatch, which raises
+    the same seed-order error the reactive path already handles.
+    """
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+
+    # Delivery stages only, and only delivery prerequisites: that is the chain
+    # every run climbed one failed pass at a time. An analysis hole behind a
+    # delivery stage is the engine's hop-back, not the walk's, and analysis
+    # stages keep the reactive path (their walks are short and their fixtures
+    # in the suite are deliberately partial).
+    if stage not in DELIVERY_ORDER:
+        return []
+    ran: list[str] = []
+    for _ in range(len(DELIVERY_ORDER)):
+        try:
+            blocked = _seed_prereq_block(ctx, stage)
+        except Exception:
+            return ran
+        blocked = str(blocked or "").strip()
+        if not blocked or blocked == stage or blocked in retried or blocked not in DELIVERY_ORDER:
+            return ran
+        if not _seed_prereq_needs_run(ctx, blocked):
+            return ran
+        retried.add(blocked)
+        ctx.log(
+            f"seed walk: running prerequisite {blocked} before {stage}",
+            level="info",
+            stage=stage,
+            detail={"event": "seed_prereq_ahead", "prereq": blocked},
+        )
+        try:
+            run_stage(ctx, blocked)
+        except Exception as exc:  # noqa: BLE001 - re-raised as the stage's prerequisite failure
+            ctx.log(
+                f"seed walk: prerequisite {blocked} did not land ahead of {stage}: "
+                f"{type(exc).__name__}: {str(exc)[:160]}",
+                level="warning",
+                stage=stage,
+            )
+            # Dispatching the consumer now would only make it raise its own
+            # "Prerequisite stage X is not complete" at error level (every
+            # fresh run carried that line, ISSUES 119). Raise here, in the
+            # words the walk's prerequisite parser already understands.
+            raise SeedPrerequisiteFailed(
+                f"Prerequisite stage {blocked} is not complete ahead of {stage}: "
+                f"{type(exc).__name__}: {str(exc)[:200]}"
+            ) from exc
+        ran.append(blocked)
+    return ran
+
+
+class SeedPrerequisiteFailed(RuntimeError):
+    """A prerequisite the walk ran ahead of a stage did not land (ISSUES 119)."""
+
+
 def _seed_prereq_needs_run(ctx: RunContext, prereq: str) -> bool:
     """A named prerequisite is worth one run unless it is genuinely complete.
 
@@ -2413,6 +2547,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                     pass
                 continue
             try:
+                _run_seed_prerequisites_first(ctx, stage, seed_prereq_retried, run_single_stage)
                 run_single_stage(ctx, stage)
             except Exception as exc:
                 prereq = _seed_order_prereq_from(exc)
@@ -2542,6 +2677,7 @@ def run_homunculus_phase(
 
         if committed_master_wav(ctx) and honest_finalize_seeded(ctx):
             filled = backfill_delivery_holes_after_master(ctx)
+            filled = list(filled) + backfill_ship_holes_after_master(ctx)
             if filled:
                 from interview_mux.done_authority import may_skip_as_complete
 

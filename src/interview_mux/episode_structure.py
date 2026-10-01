@@ -785,7 +785,9 @@ def attach_episode_structure_to_payload(ctx: RunContext, payload: dict[str, Any]
     return out
 
 
-def persist_structure(ctx: RunContext, doc: dict[str, Any], *, stage: str) -> None:
+def persist_structure(
+    ctx: RunContext, doc: dict[str, Any], *, stage: str, stage_key: str | None = None
+) -> None:
     from interview_mux.prompt_validation import validate_episode_structure
 
     errors = validate_episode_structure(doc)
@@ -801,9 +803,12 @@ def persist_structure(ctx: RunContext, doc: dict[str, Any], *, stage: str) -> No
     all_errs = errors + hard_lint
     if all_errs:
         raise ValueError(f"episode_structure invalid: {all_errs[:5]}")
-    ctx.write_json(STRUCTURE_PATH, doc)
+    if stage_key:
+        ctx.write_json(STRUCTURE_PATH, doc, stage_key=stage_key)
+    else:
+        ctx.write_json(STRUCTURE_PATH, doc)
     digest = str(doc.get("compact_digest") or build_compact_digest(doc))
-    commit_episode_structure_compact(ctx, digest, stage_key=stage)
+    commit_episode_structure_compact(ctx, digest, stage_key=stage_key or stage)
     ctx.log(
         f"episode_structure: {len(doc.get('slot_plan') or [])} slots, "
         f"{len(doc.get('omit_reasons') or [])} omits, integrity_ok={(doc.get('integrity') or {}).get('ok')}",

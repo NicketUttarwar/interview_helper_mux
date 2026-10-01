@@ -1225,10 +1225,19 @@ def create_app() -> FastAPI:
             detail["action_id"] = body.action_id
         from interview_mux.operator_log import operator_log
 
+        # The run log's error level belongs to the pipeline. A browser notice
+        # ("Refresh run: Failed to fetch" while the server is busy) is
+        # transport, not a run defect; recorded at error level it failed the
+        # run verdict and read as a pipeline error to the maintainer
+        # (ISSUES 108). Keep the browser's own level in the detail.
+        level = str(body.level or "info")
+        if level == "error":
+            detail["gui_level"] = "error"
+            level = "warning"
         entry = operator_log(
             body.message,
             run_dir=ctx.run_dir,
-            level=body.level,
+            level=level,
             stage=body.stage,
             action_id=body.action_id,
             origin="gui",

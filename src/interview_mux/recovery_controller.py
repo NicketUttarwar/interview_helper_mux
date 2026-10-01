@@ -739,7 +739,11 @@ def playbook_ensure_g1(ctx: RunContext) -> list[str]:
 def playbook_adopt_layup(ctx: RunContext) -> list[str]:
     from interview_mux.nugget_layup import PLAN_REL, adopt_layup_plan_to_selection
 
-    result = adopt_layup_plan_to_selection(ctx, persist=True, stage="recovery_adopt_layup")
+    # Owner key: the plan belongs to nugget_layup_compose; a heal writing under
+    # its own key was refused as not_allow (ISSUES 113).
+    result = adopt_layup_plan_to_selection(
+        ctx, persist=True, stage="nugget_layup_compose", publish_gap=False
+    )
     if result.get("ok") and ctx.artifact_exists(PLAN_REL):
         return [PLAN_REL]
     return []

@@ -115,6 +115,11 @@ def test_fg2_skipped_package_is_not_pipeline_complete(ctx) -> None:
         {"ready": True, "version": 1},
         skip_handoff=True,
     )
+    # ready:true alone is still not DONE: the package stage must be done (ISSUES 111).
+    assert pipeline_complete(ctx) is False
+    marker = ctx.final_path(".stage_done", "podcast_publish")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("")
     assert pipeline_complete(ctx) is True
 
 

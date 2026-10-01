@@ -199,7 +199,9 @@ def _apply_reconciled_order(
     try:
         from interview_mux.nugget_layup import adopt_layup_plan_to_selection
 
-        adopt_layup_plan_to_selection(ctx, persist=True, stage="order_reconcile")
+        adopt_layup_plan_to_selection(
+            ctx, persist=True, stage="nugget_layup_compose", publish_gap=False
+        )
     except Exception:
         pass
     return cleaned

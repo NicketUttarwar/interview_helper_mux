@@ -357,7 +357,9 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
         rows = prompts.get("prompts") if isinstance(prompts, dict) else prompts
         if not rows:
             errors.append("no crafted prompts on disk")
-        elif len(rows) < len(assets):
+        elif len(rows) < len(assets_by_id):
+            # Distinct ids: a duplicated asset row must not demand a second
+            # prompt the craft can never write (ISSUES 122).
             errors.append("fewer prompts than SDP assets")
         for row in rows or []:
             if not isinstance(row, dict):

@@ -112,10 +112,14 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                     seed_stage_complete,
                     seal_adjudicate_stale_when_g1_green,
                 )
-                from interview_mux.gates import check_g1_vo
-
                 seal_adjudicate_stale_when_g1_green(ctx)
-                if seed_stage_complete(ctx, "vo_line_adjudicate") or not check_g1_vo(ctx):
+                # Only a sealed, seed-complete adjudication clears the block.
+                # "G1 not pending" used to clear it too, but the stage's own
+                # gate (maybe_require_upstream_llm_progress) has no such
+                # exception: every fresh run dispatched vo_synthesize into
+                # "Prerequisite stage vo_line_adjudicate is not complete"
+                # (ISSUES 121). The two checks now read the same rule.
+                if seed_stage_complete(ctx, "vo_line_adjudicate"):
                     return None
             except Exception:
                 pass

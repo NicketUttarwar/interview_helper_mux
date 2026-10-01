@@ -481,7 +481,16 @@ def _update_nle(
     from interview_mux.removal_authority import refuse_nle_excludes
 
     nle = refuse_nle_excludes(ctx, nle, producer=STAGE_KEY)
-    ctx.write_json("segments/nle_edits.json", nle, skip_handoff=True, stage_key=STAGE_KEY)
+    # A remap stage persisting a remap path must name the integrity-only
+    # mutation class, or ownership refuses the write on every overlap union
+    # (ISSUES 113: exec_009's first EDL attempt died here).
+    ctx.write_json(
+        "segments/nle_edits.json",
+        nle,
+        skip_handoff=True,
+        stage_key=STAGE_KEY,
+        mutation_class="segment_id_remap",
+    )
 
 
 def _drop_self_transitions(ctx: RunContext) -> None:
@@ -511,7 +520,13 @@ def _drop_self_transitions(ctx: RunContext) -> None:
             kept.append(row)
         doc[key] = kept
     if changed:
-        ctx.write_json("master/transitions.json", doc, skip_handoff=True, stage_key=STAGE_KEY)
+        ctx.write_json(
+            "master/transitions.json",
+            doc,
+            skip_handoff=True,
+            stage_key=STAGE_KEY,
+            mutation_class="segment_id_remap",
+        )
 
 
 # Share of a retired id's tape that must stay on air for the retire to be a union.

@@ -1281,8 +1281,19 @@ def _run_steps(
                 + f"; resume={pin}"
             )
         if committed_master:
-            from interview_mux.homunculus.agenda import ship_after_master_remaining
+            from interview_mux.homunculus.agenda import (
+                backfill_ship_holes_after_master,
+                ship_after_master_remaining,
+            )
             from interview_mux.homunculus.judge import after_complete_master
+
+            # Ship outputs current for this master but unmarked after a
+            # re-entry get their markers back here; stale ones are walked
+            # again below (ISSUES 112).
+            try:
+                backfill_ship_holes_after_master(ctx)
+            except Exception:
+                pass
 
             # The engine's stop-before-publish boundary (partial mode) applies
             # to this walk too: it used to carry the run straight through

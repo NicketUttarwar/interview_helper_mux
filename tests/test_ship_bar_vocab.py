@@ -56,6 +56,12 @@ def _local_package(run_ctx, *, ready: bool = True, skipped: bool = False) -> Non
         {"ready": ready, "skipped": skipped, "version": 1},
         skip_handoff=True,
     )
+    if ready:
+        # A real package comes with its stage's marker, written after it
+        # (ISSUES 111: the bar binds the package to the stage and the master).
+        done = run_ctx.final_path(".stage_done")
+        done.mkdir(parents=True, exist_ok=True)
+        (done / "podcast_publish").write_text("")
 
 
 def test_pipeline_complete_requires_package_envelope(ctx) -> None:

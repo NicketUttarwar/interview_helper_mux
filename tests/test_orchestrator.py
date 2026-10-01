@@ -256,3 +256,55 @@ def test_partial_treats_the_publish_guard_halt_as_the_sign_off_point(ctx, monkey
     assert o.run() == 0
     assert waited, "the engine must have waited for the operator"
     assert [n for n, _ in phases.calls] == ["analysis", "delivery", "delivery"]
+
+
+def test_hop_loop_stops_on_the_same_error_with_no_progress(ctx, monkeypatch) -> None:
+    """A hop that reproduces the last error with nothing landed is a loop (ISSUES 106)."""
+    err = RuntimeError("Delivery blocked — analysis incomplete: missing_framing")
+    phases = _Phases(analysis=[None, None, None, None], delivery=[err, err, err, err])
+    _wire(monkeypatch, phases, complete=lambda c: False)
+    lines: list[str] = []
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
+    assert o.run() == 1
+    names = [n for n, _ in phases.calls]
+    # analysis, delivery, one hop (analysis, delivery), then stop: not sixteen hops.
+    assert names == ["analysis", "delivery", "analysis", "delivery"]
+    assert any("hop loop" in line for line in lines)
+
+
+def test_a_run_ends_with_a_verdict_file(ctx, monkeypatch) -> None:
+    """Acceptance is one file: complete, outputs, error lines, stale staging (ISSUES 107)."""
+    from run_fixtures import mark_done_raw
+
+    phases = _Phases(analysis=[None], delivery=[None])
+    _wire(monkeypatch, phases, complete=lambda c: True)
+    mark_done_raw(ctx, "podcast_publish")
+    for rel in ("publish/audio.mp3", "publish/cover.jpg", "publish/package_ready.json"):
+        p = ctx.final_path(*rel.split("/"))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    lines: list[str] = []
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
+    assert o.run() == 0
+    verdict = ctx.read_json("operator/run_verdict.json")
+    assert verdict["pass"] is True and verdict["complete"] is True
+    assert verdict["error_lines"] == 0 and verdict["stale_staging"] == []
+    assert any(line.startswith("=== verdict: PASS") for line in lines)
+
+
+def test_the_verdict_fails_on_an_error_line_even_when_complete(ctx, monkeypatch) -> None:
+    from run_fixtures import mark_done_raw
+
+    phases = _Phases(analysis=[None], delivery=[None])
+    _wire(monkeypatch, phases, complete=lambda c: True)
+    mark_done_raw(ctx, "podcast_publish")
+    ctx.mutate_run_meta(lambda m: m.__setitem__("g_publish_skipped", True))
+    p = ctx.final_path("publish", "package_ready.json")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("{}", encoding="utf-8")
+    ctx.log("boom", level="error", stage="mix")
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lambda s: None, sleep=lambda s: None)
+    assert o.run() == 0
+    verdict = ctx.read_json("operator/run_verdict.json")
+    assert verdict["complete"] is True and verdict["pass"] is False
+    assert verdict["error_lines"] >= 1 and verdict["first_errors"][0].startswith("[mix]")

@@ -460,9 +460,13 @@ def _execute_openai_envelope_call(
         envelope = normalize_envelope(_extract_json(content))
     except (ValueError, json.JSONDecodeError) as exc:
         if ctx:
+            # One attempt's malformed reply, not the stage's failure: the
+            # ladder above repairs or retries, and the stage reports its own
+            # error if every attempt fails (exec_066: recovered in six
+            # seconds, yet the line failed the run verdict; ISSUES 109).
             ctx.log(
                 f"LLM parse failed ({stage_key}, {task_kind}): {exc}",
-                level="error",
+                level="warning",
                 stage=stage_key,
                 action_id="llm.parse_failed",
                 detail={
