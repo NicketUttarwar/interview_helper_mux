@@ -3857,6 +3857,36 @@ Tests: `tests/test_sdp_asset_cap_clamp.py` (protected roles),
 
 ---
 
+## [120] PRODUCT: the narrative audit was shown no heard-WAV evidence for spoken transitions and failed every pass on WAVs that existed
+
+**Stage / area:** `stages.edl_narrative_audit.compact_vo_coverage`, `artifact_repairs._edl_issue_premature_vo_nle_placement`
+**Status:** fixed.
+
+exec_095 (fresh run on the code through entry 117): no gap lines were
+planned, so the audit payload's `vo_coverage` was empty, while
+`seam_occupancy` showed two spoken transitions (seg_007 to seg_005, seg_004
+to seg_008). The model answered `pre_edl_vo_placement_missing`: "cannot
+verify either occupied spoken transition because vo_coverage is empty".
+Both transition WAVs had been rendered minutes earlier
+(`master/transitions/tr_*.wav`). The repair's demote for that code looks
+only at gap lines, found none, and left the fail; three identical passes
+and the run halted at the pre-flush barrier.
+
+Fixes:
+- `vo_coverage` carries one row per planned transition pair with its
+  heard-WAV status (rendered, missing, omitted, not_spoken), so the model
+  sees the evidence.
+- The demote also accepts the issue when every transition pair it cites
+  has a playable WAV on disk.
+
+A related warning stays: vo_synthesize's scratch copy under
+`master/transitions/synthesized/` is refused at promotion as an unknown
+path. The canonical WAV lands beside it, so nothing is lost; noise only.
+
+Tests: `tests/test_audit_transition_vo_coverage.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

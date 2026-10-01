@@ -4875,6 +4875,18 @@ def _edl_issue_premature_vo_nle_placement(ctx: Any, row: dict[str, Any]) -> bool
             if isinstance(ln, dict)
             and str(ln.get("line_id") or "") in cited
         ]
+    # Spoken transitions the issue cites are heard once their WAVs play; the
+    # audit runs before edl, so timeline placement is not evidence yet
+    # (ISSUES 120: exec_095 failed three passes on pairs rendered to disk).
+    pairs = _cited_transition_pairs(row)
+    if pairs:
+        from interview_mux.transition_vo import current_pair_wav_usable
+
+        try:
+            if all(current_pair_wav_usable(ctx, a, b) for a, b in pairs):
+                return True
+        except Exception:
+            pass
     if not lines:
         return False
     return all(_wav_exists(ln) for ln in lines)

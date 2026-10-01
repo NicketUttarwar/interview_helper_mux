@@ -84,6 +84,51 @@ def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
                 "script_match": bool(script_match),
             }
         )
+    rows.extend(compact_transition_vo_coverage(ctx))
+    return rows
+
+
+def compact_transition_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
+    """Heard-WAV status for spoken transitions, one row per planned pair.
+
+    The audit payload used to carry gap lines only; with none planned, the
+    model read "vo_coverage is empty" against seam occupants it could see and
+    failed every pass on missing evidence that existed on disk (ISSUES 120,
+    exec_095). The rows name the pair and whether its WAV plays.
+    """
+    from interview_mux.transition_vo import current_pair_wav_usable
+
+    doc = _optional_json(ctx, "master/transitions.json")
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for key in ("transitions", "pairs"):
+        for row in doc.get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            after = str(row.get("after_segment_id") or row.get("after_id") or "").strip()
+            before = str(row.get("before_segment_id") or row.get("before_id") or "").strip()
+            if not after or not before or (after, before) in seen:
+                continue
+            seen.add((after, before))
+            spoken = bool(str(row.get("spoken_text") or row.get("text") or row.get("spoken") or "").strip())
+            if row.get("omit") or row.get("omitted"):
+                coverage = "omitted"
+            else:
+                try:
+                    usable = current_pair_wav_usable(ctx, after, before)
+                except Exception:
+                    usable = None
+                coverage = "rendered" if usable else ("missing" if spoken else "not_spoken")
+            rows.append(
+                {
+                    "line_id": f"tr_{after}_{before}",
+                    "kind": "transition",
+                    "after_segment_id": after,
+                    "before_segment_id": before,
+                    "coverage": coverage,
+                    "required": spoken,
+                }
+            )
     return rows
 
 
