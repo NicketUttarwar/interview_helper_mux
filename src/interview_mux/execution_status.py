@@ -774,9 +774,9 @@ def package_bound_to_current_master(ctx: RunContext) -> bool:
     run's result (ISSUES 111: every rewind case in the resume harness).
     """
     try:
-        # DETECTION_ONLY_IS_DONE: the marker is one of three signs read together
-        # (marker, package stamp, package no older than the master); none of
-        # them alone makes the run DONE.
+        # The marker is one of three signs read together (marker, package
+        # stamp, package no older than the master); none alone makes DONE.
+        # DETECTION_ONLY_IS_DONE
         if not ctx.is_done("podcast_publish"):
             return False
         pkg = ctx.final_path("publish", "package_ready.json")
