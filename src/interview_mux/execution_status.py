@@ -807,6 +807,7 @@ def ship_bar_incomplete_reasons(ctx: RunContext) -> list[str]:
         reasons.append("audio_mp3_missing")
     if not _package_ready_for_ship_bar(ctx):
         reasons.append("package_ready_missing_or_false")
+    # DETECTION_ONLY_IS_DONE: naming the hole, not advancing on it.
     elif not ctx.is_done("podcast_publish"):
         reasons.append("podcast_publish_not_done")
     elif not package_bound_to_current_master(ctx):
