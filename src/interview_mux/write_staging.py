@@ -58,7 +58,18 @@ def note_stage_sealed(ctx: RunContext, stage_id: str) -> None:
 
 
 def stage_sealed_here(ctx: RunContext, stage_id: str | None) -> bool:
-    return bool(stage_id) and _SEALED.get(str(stage_id)) == str(ctx.run_dir)
+    """True while ``stage_id`` is sealed in this process and its marker stands.
+
+    A cleared marker (the hollow guard unmarking a stage for a rerun) voids
+    the seal: the rerun stages its writes again whether or not the runner
+    re-entered the staging context.
+    """
+    if not stage_id or _SEALED.get(str(stage_id)) != str(ctx.run_dir):
+        return False
+    try:
+        return bool(ctx.is_done(str(stage_id)))
+    except Exception:
+        return False
 
 
 def enter_stage_staging(stage_id: str) -> None:
@@ -144,7 +155,7 @@ def staging_root(ctx: RunContext, stage_id: str) -> Path:
 
 def staged_path(ctx: RunContext, rel: str, *, stage_id: str | None = None) -> Path:
     sid = stage_id or _active_stage.get()
-    if not sid or stage_sealed_here(ctx, sid):
+    if not sid:
         return ctx.run_dir.joinpath(*rel.split("/"))
     return staging_root(ctx, sid).joinpath(*rel.split("/"))
 
@@ -305,6 +316,13 @@ def resolve_write_path(ctx: RunContext, rel: str) -> Path:
     sid = _active_stage.get()
     _record_contract_touch(ctx, rel, sid, write=True)
     if not sid or is_operational_path(rel):
+        return ctx.run_dir.joinpath(*rel.split("/"))
+    if stage_sealed_here(ctx, sid):
+        # A sealed stage's later writes go where the flush would have put
+        # them (ISSUES 118). Only the write target moves: staged_path stays
+        # the staging location for readers and the pre-flush barrier, which
+        # the first version of this fix broke (exec_096: "cannot read staged
+        # file" at the committed path on every re-entry of a sealed stage).
         return ctx.run_dir.joinpath(*rel.split("/"))
     if is_vo_pickup_rel(rel) and sid not in VO_PICKUP_OWNER_STAGES:
         return staged_path(ctx, rel, stage_id="vo_synthesize")

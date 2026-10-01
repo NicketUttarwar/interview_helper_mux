@@ -1,4 +1,8 @@
-"""A write under a sealed stage's context lands in the committed tree (ISSUES 118)."""
+"""A write under a sealed stage's context lands in the committed tree (ISSUES 118).
+
+Only the write target moves. The staging location that readers and the
+pre-flush barrier use is unchanged, and a cleared marker voids the seal.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ from interview_mux.write_staging import (
     enter_stage_staging,
     exit_stage_staging,
     note_stage_sealed,
+    resolve_write_path,
     stage_sealed_here,
     staged_path,
 )
@@ -23,27 +28,47 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return isolated_run_ctx(tmp_path, "post_seal")
 
 
-def test_staged_path_moves_to_the_committed_tree_after_the_seal(ctx) -> None:
+def _mark(ctx, stage: str) -> None:
+    m = ctx.final_path(".stage_done", stage)
+    m.parent.mkdir(parents=True, exist_ok=True)
+    m.write_text("")
+
+
+def test_write_target_moves_to_the_committed_tree_after_the_seal(ctx) -> None:
     enter_stage_staging("content_context")
     try:
         rel = "mastering/homunculus/memory.json"
-        before = staged_path(ctx, rel)
-        assert ".pending_writes" in str(before)
+        assert ".pending_writes" in str(resolve_write_path(ctx, rel))
+        _mark(ctx, "content_context")
         note_stage_sealed(ctx, "content_context")
         assert stage_sealed_here(ctx, "content_context")
-        after = staged_path(ctx, rel)
-        assert ".pending_writes" not in str(after)
-        assert after == ctx.run_dir.joinpath("mastering", "homunculus", "memory.json")
+        assert resolve_write_path(ctx, rel) == ctx.run_dir.joinpath("mastering", "homunculus", "memory.json")
+        # Readers and the barrier still find the staging location.
+        assert ".pending_writes" in str(staged_path(ctx, rel))
+    finally:
+        exit_stage_staging()
+
+
+def test_a_cleared_marker_voids_the_seal(ctx) -> None:
+    enter_stage_staging("sfx_prompt_craft")
+    try:
+        _mark(ctx, "sfx_prompt_craft")
+        note_stage_sealed(ctx, "sfx_prompt_craft")
+        assert stage_sealed_here(ctx, "sfx_prompt_craft")
+        ctx.final_path(".stage_done", "sfx_prompt_craft").unlink()
+        assert not stage_sealed_here(ctx, "sfx_prompt_craft")
+        assert ".pending_writes" in str(resolve_write_path(ctx, "sound_design/sfx_prompts.json"))
     finally:
         exit_stage_staging()
 
 
 def test_re_entering_the_stage_reopens_its_staging(ctx) -> None:
+    _mark(ctx, "content_context")
     note_stage_sealed(ctx, "content_context")
     enter_stage_staging("content_context")
     try:
         assert not stage_sealed_here(ctx, "content_context")
-        assert ".pending_writes" in str(staged_path(ctx, "understanding/analysis_state.json"))
+        assert ".pending_writes" in str(resolve_write_path(ctx, "understanding/analysis_state.json"))
     finally:
         exit_stage_staging()
 
@@ -51,18 +76,16 @@ def test_re_entering_the_stage_reopens_its_staging(ctx) -> None:
 def test_mark_done_notes_the_seal(ctx) -> None:
     from interview_mux.done_authority import raw_stamp_session
 
-    # The raw stamp escape writes the marker without the heal ladder, which
-    # would refuse a stage with no outputs in this fixture.
     with raw_stamp_session(ctx, "post_master_backfill"):
         ctx.mark_done("content_context")
     assert ctx.is_done("content_context")
     assert stage_sealed_here(ctx, "content_context")
-    # Another run directory is not affected by this process's note.
-    assert _other_run_not_sealed(ctx)
 
-
-def _other_run_not_sealed(ctx) -> bool:
     class _Other:
         run_dir = ctx.run_dir.parent / "other"
 
-    return not stage_sealed_here(_Other(), "content_context")
+        @staticmethod
+        def is_done(stage: str) -> bool:
+            return True
+
+    assert not stage_sealed_here(_Other(), "content_context")

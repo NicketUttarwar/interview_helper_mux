@@ -3822,9 +3822,17 @@ root that is never flushed. The run verdict (entry 107) counted them as
 stale staging and failed otherwise clean runs; the next re-entry's stale
 staging discard (entry 102) had to clean them.
 
-Fix: `mark_done` notes the seal, and `staged_path` routes a sealed stage's
-later writes to the committed tree, where the flush would have put them.
-Re-entering the stage reopens its staging as before.
+Fix: `mark_done` notes the seal, and `resolve_write_path` (the write
+target) routes a sealed stage's later writes to the committed tree, where
+the flush would have put them. Re-entering the stage reopens its staging,
+and a cleared marker voids the seal.
+
+The first version of this fix put the redirect in `staged_path`, which is
+also what readers and the pre-flush barrier use to find a staged copy:
+after a stage's first seal, every re-entry of that stage had its barrier
+look for the staged file at the committed path and refuse with "cannot
+read staged file" (exec_096 looped on sfx_prompt_craft and stopped). Only
+the write target moves now; `staged_path` is the staging location again.
 
 Tests: `tests/test_post_seal_writes_land_committed.py`.
 
