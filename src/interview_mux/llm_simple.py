@@ -294,6 +294,22 @@ def run_llm_stage_simple(
         )
         framing = None
 
+    refusal_note = ""
+    try:
+        from interview_mux.fallback_backstop import feedback_note, take_refusal_feedback
+
+        fed_back = take_refusal_feedback(ctx, stage_key)
+        if fed_back:
+            refusal_note = feedback_note(fed_back)
+            ctx.log(
+                f"{stage_key}: feeding back {len(fed_back)} commit-barrier refusal reason(s) "
+                "to the model (ISSUES 124)",
+                level="info",
+                stage=stage_key,
+                detail={"reasons": fed_back[:12]},
+            )
+    except Exception:
+        refusal_note = ""
     for attempt in (1, 2):
         retry_note = ""
         if attempt == 2 and last_schema_errors:
@@ -301,7 +317,7 @@ def run_llm_stage_simple(
                 "\n\n---\nRETRY: fix schema validation errors from previous attempt:\n"
                 + "\n".join(f"- {e}" for e in last_schema_errors[:12])
             )
-        user_content = user_payload + retry_note
+        user_content = user_payload + refusal_note + retry_note
         volley_messages: list[dict[str, str]] = []
         if framing and framing.used_local and framing.volley_turns:
             volley_messages = list(framing.volley_turns)

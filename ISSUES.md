@@ -3989,6 +3989,65 @@ Tests: `tests/test_seed_pool_speakable.py`.
 
 ---
 
+## [124] PRODUCT: two self-correction backstops: refusal feedback to the model, and a declared fallback at the identical-failure cap
+
+**Stage / area:** `fallback_backstop` (new), `write_staging.approve_stage_writes`, `llm_simple.run_llm_stage_simple`, `homunculus.agenda.note_identical_stage_error`
+**Status:** added.
+
+Asked for by the maintainer after exec_010: rather than halting on a hard
+blocker, adjust and retry, with deterministic rules where an old version
+exists and model re-runs that are told what went wrong.
+
+- **Refusal feedback.** When the pre-flush commit barrier refuses a stage's
+  artifact, its reasons are written to `operator/refusal_feedback/<stage>.json`.
+  The next run of that LLM stage reads them once and appends them to the
+  user turn ("PREVIOUS ATTEMPT REFUSED: ... fix exactly these"). Each
+  distinct reason set is fed back once, so a model that cannot comply does
+  not loop; the deterministic sanitizers and the cap still stand behind it.
+  Until now a refused LLM stage was re-run blind: exec_084's plan came back
+  with 8 assets twice.
+- **Declared fallback at the cap.** When a stage fails identically for the
+  third time and its primary artifact already exists committed and
+  acceptable (the old version), the engine keeps it, marks the stage done
+  through the heal ladder, appends the decision to
+  `operator/fallback_decisions.jsonl`, and continues. Without an old
+  version there is nothing honest to fall back to, and the halt stands as
+  before.
+
+Tests: `tests/test_fallback_backstop.py`.
+
+---
+
+## [125] PRODUCT: transient OpenAI errors ended a stage attempt at once; optional stages had no rung below "keep the old version"
+
+**Stage / area:** `stages.llm_runner` (OpenAI call site), `fallback_backstop`
+**Status:** added.
+
+- **Transient retry.** A rate limit, connection error, timeout, or 5xx from
+  OpenAI was raised straight to the attempt loop, so a stage with two
+  attempts could die on two blips. The call is now retried up to four times
+  with 2, 4, 8 second backoff before the attempt is judged, each retry logged
+  as a warning. Context-length and content errors are not transient and are
+  handled as before.
+- **Skip ladder.** Entry 124's fallback keeps a stage's old version at the
+  identical-failure cap. For a stage with no old version, the second rung
+  is now a skip stub, for the stages the pipeline already runs without
+  (delivery brief, episode structure, the pass-2 framing stages), each
+  through the stub writer the stage's own disabled path uses, with the
+  decision recorded. Stages the master cannot do without are not on the
+  ladder; for those the halt still stands, and the deterministic repairs
+  of entries 101 to 123 are the real guard.
+
+Local models: the on-device LLM stack in this codebase frames volleys
+before OpenAI (prep only, by design) and is not available on this machine,
+so there is no local path that produces a stage's artifact; the local
+stacks that do produce (STT, diarization, Chatterbox, MusicGen) already
+have their own retries and probes (entry 110).
+
+Tests: `tests/test_fallback_backstop.py` (transient retry, skip ladder).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

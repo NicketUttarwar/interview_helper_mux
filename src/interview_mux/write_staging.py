@@ -1783,6 +1783,14 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
                 action="halt",
                 reasons=pre.reasons,
             )
+            # Refusal feedback (ISSUES 124): the stage's next run reads these
+            # reasons once and tells the model exactly what was refused.
+            try:
+                from interview_mux.fallback_backstop import note_refusal
+
+                note_refusal(ctx, stage_id, list(pre.reasons or []))
+            except Exception:
+                pass
             raise WriteApprovalBlockedError(
                 stage_id,
                 "Pre-flush commit barrier failed: " + "; ".join(pre.reasons[:4] or ["unacceptable"]),

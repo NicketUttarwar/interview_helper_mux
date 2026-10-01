@@ -243,6 +243,63 @@ def _truncation_blocked_envelope(
     }
 
 
+#: Transient OpenAI failures (rate limit, connection, timeout, 5xx) used to end
+#: the attempt at once, and a stage with two attempts could die on two blips.
+#: They are retried here with backoff before the attempt is judged (ISSUES 125).
+TRANSIENT_RETRY_ATTEMPTS = 4
+TRANSIENT_RETRY_BASE_SECONDS = 2.0
+
+
+def is_transient_openai_error(exc: BaseException) -> bool:
+    try:
+        import openai
+    except Exception:  # noqa: BLE001
+        return False
+    if isinstance(exc, (openai.RateLimitError, openai.APIConnectionError, openai.APITimeoutError)):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        status = int(getattr(exc, "status_code", 0) or 0)
+        return status == 429 or status >= 500
+    return False
+
+
+def create_with_transient_retry(
+    call: Any,
+    *,
+    ctx: Any = None,
+    stage: str = "",
+    attempts: int = TRANSIENT_RETRY_ATTEMPTS,
+    sleep: Any = None,
+) -> Any:
+    """Call ``call()``; on a transient OpenAI error wait and try again, up to ``attempts``."""
+    import time
+
+    wait = sleep or time.sleep
+    last: BaseException | None = None
+    for i in range(1, max(1, int(attempts)) + 1):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001 - classified below
+            if not is_transient_openai_error(exc) or i >= attempts:
+                raise
+            last = exc
+            delay = TRANSIENT_RETRY_BASE_SECONDS * (2 ** (i - 1))
+            if ctx is not None:
+                try:
+                    ctx.log(
+                        f"OpenAI transient error on {stage or 'call'} (attempt {i}/{attempts}): "
+                        f"{type(exc).__name__}: {str(exc)[:120]}; retrying in {delay:.0f}s",
+                        level="warning",
+                        stage=stage or None,
+                    )
+                except Exception:
+                    pass
+            wait(delay)
+    if last is not None:
+        raise last
+    return call()
+
+
 def _chat_client() -> Any:
     """The OpenAI client, or an offline stub when MUX_STUB_LLM=1.
 
@@ -381,10 +438,12 @@ def _execute_openai_envelope_call(
     try:
         from interview_mux.homunculus.loop import nested_chat_create
 
-        if ctx is not None:
-            resp = nested_chat_create(ctx, record_stage_key or stage_key, client, kwargs)
-        else:
-            resp = client.chat.completions.create(**kwargs)
+        def _create() -> Any:
+            if ctx is not None:
+                return nested_chat_create(ctx, record_stage_key or stage_key, client, kwargs)
+            return client.chat.completions.create(**kwargs)
+
+        resp = create_with_transient_retry(_create, ctx=ctx, stage=stage_key)
     except Exception as exc:
         from interview_mux.safe_pruning import (
             SAFE_PRUNE_EXTRACT_KIND,
