@@ -3952,6 +3952,121 @@ Tests: `tests/test_sdp_duplicate_assets.py`.
 
 ---
 
+## [123] PRODUCT: the high-gap seed minted stock bridge copy the spoken-copy guard bans, and a seated line with unspeakable copy could neither be rendered nor released
+
+**Stage / area:** `gap_vo_prior_context.courtesy_seed_text`, `vo_bind_authority` (seated bind heal)
+**Status:** fixed.
+
+Maintainer's exec_010: delivery failed twice on "vo_synthesize: seated
+synthesize VO not rendered: vo_seed_seg_019" and stopped. The line had been
+minted by the high-gap VO-seed playbook as a required synthesize bridge with
+the stock copy "What tension carries into what comes next?". The guard's
+generic-filler ban refuses exactly that phrase, with no grounded fallback,
+so synthesis never attempted it; the adjudicated rewrite is advisory by
+design (S1) and the seat freeze kept the stock text authoritative; the bind
+heal refused the line (S2: no omit as success); the seat-rewrite meta-gate
+refused as low gain; and the contract asserted a WAV for a seat nothing
+could speak.
+
+Two deterministic defects:
+- The stock pool of eight bridge phrases carried three the guard bans
+  (checked here: three of eight), although its comment claimed every phrase
+  passed, and the minter returned the blocked phrase whenever the guard
+  emptied it. Three in eight story-bridge seeds were unspeakable at birth.
+  The pool now holds only phrases the guard speaks, a blocked candidate
+  falls back to the first pool phrase the guard accepts, and a test keeps
+  the pool and the guard in agreement.
+- The seated bind heal now distinguishes "the guard refuses this copy with
+  no fallback" from a transient synthesis failure: for the former it
+  releases the seat under the existing synth-fail End-A action, recording
+  the reason, so the content hole stays visible instead of fatal. Transient
+  failures are still refused, as S2 intends.
+
+Why it did not show here: which seed phrase a line gets is a hash of its
+target segment, and the 6-minute clip's seeds landed on speakable entries.
+
+Tests: `tests/test_seed_pool_speakable.py`.
+
+---
+
+## [124] PRODUCT: two self-correction backstops: refusal feedback to the model, and a declared fallback at the identical-failure cap
+
+**Stage / area:** `fallback_backstop` (new), `write_staging.approve_stage_writes`, `llm_simple.run_llm_stage_simple`, `homunculus.agenda.note_identical_stage_error`
+**Status:** added.
+
+Asked for by the maintainer after exec_010: rather than halting on a hard
+blocker, adjust and retry, with deterministic rules where an old version
+exists and model re-runs that are told what went wrong.
+
+- **Refusal feedback.** When the pre-flush commit barrier refuses a stage's
+  artifact, its reasons are written to `operator/refusal_feedback/<stage>.json`.
+  The next run of that LLM stage reads them once and appends them to the
+  user turn ("PREVIOUS ATTEMPT REFUSED: ... fix exactly these"). Each
+  distinct reason set is fed back once, so a model that cannot comply does
+  not loop; the deterministic sanitizers and the cap still stand behind it.
+  Until now a refused LLM stage was re-run blind: exec_084's plan came back
+  with 8 assets twice.
+- **Declared fallback at the cap.** When a stage fails identically for the
+  third time and its primary artifact already exists committed and
+  acceptable (the old version), the engine keeps it, marks the stage done
+  through the heal ladder, appends the decision to
+  `operator/fallback_decisions.jsonl`, and continues. Without an old
+  version there is nothing honest to fall back to, and the halt stands as
+  before.
+
+Tests: `tests/test_fallback_backstop.py`.
+
+---
+
+## [125] PRODUCT: transient OpenAI errors ended a stage attempt at once; optional stages had no rung below "keep the old version"
+
+**Stage / area:** `stages.llm_runner` (OpenAI call site), `fallback_backstop`
+**Status:** added.
+
+- **Transient retry.** A rate limit, connection error, timeout, or 5xx from
+  OpenAI was raised straight to the attempt loop, so a stage with two
+  attempts could die on two blips. The call is now retried up to four times
+  with 2, 4, 8 second backoff before the attempt is judged, each retry logged
+  as a warning. Context-length and content errors are not transient and are
+  handled as before.
+- **Skip ladder.** Entry 124's fallback keeps a stage's old version at the
+  identical-failure cap. For a stage with no old version, the second rung
+  is now a skip stub, for the stages the pipeline already runs without
+  (delivery brief, episode structure, the pass-2 framing stages), each
+  through the stub writer the stage's own disabled path uses, with the
+  decision recorded. Stages the master cannot do without are not on the
+  ladder; for those the halt still stands, and the deterministic repairs
+  of entries 101 to 123 are the real guard.
+
+Local models: the on-device LLM stack in this codebase frames volleys
+before OpenAI (prep only, by design) and is not available on this machine,
+so there is no local path that produces a stage's artifact; the local
+stacks that do produce (STT, diarization, Chatterbox, MusicGen) already
+have their own retries and probes (entry 110).
+
+Tests: `tests/test_fallback_backstop.py` (transient retry, skip ladder).
+
+---
+
+## [126] PRODUCT: the engine takes one second wind before it stops
+
+**Stage / area:** `orchestrator.Orchestrator._second_wind`
+**Status:** added.
+
+When the resume loop gives up (hop loop with no progress, identical-failure
+halt, exhausted remedies), the engine now resets the persisted failure
+counters once (`clear_all_halts`), clears the operator-need flag the walk
+set, logs "second wind", and re-enters analysis and delivery one more time
+with the fallback ladder of entries 124 and 125 active. Once per engine
+run; a gate wait (sign-off, transcript review) is not a failure and is
+never re-entered this way. A run that fails again after the second wind
+stops as before, with the verdict naming the stage.
+
+Tests: `tests/test_orchestrator.py` (second wind recovers, hop loop plus
+second wind, gate wait untouched).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

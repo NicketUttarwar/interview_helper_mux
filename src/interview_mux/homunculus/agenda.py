@@ -1227,6 +1227,16 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
     except Exception:
         pass
     if exhausted:
+        # Declared fallback (ISSUES 124): keep the old version when there is
+        # one, record the decision, and carry on instead of halting.
+        try:
+            from interview_mux.fallback_backstop import apply_declared_fallback
+
+            if apply_declared_fallback(ctx, stage, fingerprint):
+                exhausted = False
+        except Exception:
+            pass
+    if exhausted:
         def _mark(meta: dict[str, Any]) -> None:
             meta["needs_operator"] = True
             meta["needs_operator_stage"] = stage

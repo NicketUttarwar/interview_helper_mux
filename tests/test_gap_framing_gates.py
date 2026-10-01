@@ -544,11 +544,15 @@ def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None
 def test_courtesy_seed_never_empty_and_diversified() -> None:
     from interview_mux.gap_vo_prior_context import courtesy_seed_text
 
-    a = courtesy_seed_text(None, category="story_bridge", target_segment_id="seg_051")
-    b = courtesy_seed_text(None, category="story_bridge", target_segment_id="seg_015")
-    assert a.strip()
-    assert b.strip()
-    assert a != b
+    # The phrase is a hash of the target id over the pool; two ids can share a
+    # phrase (the pool shrank to speakable entries only, ISSUES 123), so
+    # diversity is checked across a span of ids rather than one pair.
+    seeds = {
+        courtesy_seed_text(None, category="story_bridge", target_segment_id=f"seg_{i:03d}")
+        for i in range(1, 40)
+    }
+    assert all(t.strip() for t in seeds)
+    assert len(seeds) >= 3
 
 
 def test_gap_framing_compose_incomplete_while_high_gap_unframed(

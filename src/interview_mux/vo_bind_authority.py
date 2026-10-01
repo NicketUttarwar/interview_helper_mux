@@ -78,10 +78,48 @@ def heal_seated_bind_mismatch(
         if _line_wav_present(ctx, row):
             out["resynthesized"].append(lid)
             continue
+        # A seat whose copy the guard refuses with no grounded fallback can
+        # never be rendered by any retry: the contract then demands a WAV the
+        # guard forbids, and the run dies on "seated synthesize VO not
+        # rendered" (maintainer's exec_010, ISSUES 123). Release the seat
+        # under the synth-fail End-A action, with the reason recorded, so the
+        # content hole stays visible instead of fatal.
+        if _copy_unspeakable(ctx, row):
+            if _omit_bind_failed_line(ctx, lid, row):
+                ctx.log(
+                    f"vo bind heal: unseated {lid}: its copy is refused by the "
+                    "spoken-copy guard with no grounded fallback",
+                    level="warning",
+                    stage="vo_synthesize",
+                    detail={"line_id": lid, "reason": "spoken_copy_guard_block"},
+                )
+                out["omitted"].append(lid)
+                continue
         # S2: seated synth fail → refuse incomplete (no omit-as-success / plan unseat).
         out["refused"].append(lid)
     discard_non_owner_pending_vo_pickup(ctx)
     return out
+
+
+def _copy_unspeakable(ctx: RunContext, line: dict[str, Any]) -> bool:
+    """True when the guard blocks the line's own copy and offers no fallback."""
+    try:
+        from interview_mux.spoken_copy_guard import (
+            enrich_evidence_from_run,
+            evidence_for_line,
+            guard_spoken_copy,
+        )
+
+        text = str(line.get("text") or "").strip()
+        if not text:
+            return False
+        evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
+        decision = guard_spoken_copy(
+            text, evidence=evidence, required=True, purpose=f"vo[{line.get('line_id')}]"
+        )
+        return str(decision.get("action") or "") == "block"
+    except Exception:
+        return False
 
 
 def _line_wav_present(ctx: RunContext, line: dict[str, Any]) -> bool:
