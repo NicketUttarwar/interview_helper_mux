@@ -88,7 +88,11 @@ same run; each restart re-verified analysis in about 10 s). `exec_065`
 to 104 and 108. Stage cache (entry 93) lives at `C:\mux-local\stage_cache`
 here. The resume harness (entry 105, `tools/resume_harness.py`) rewinds a
 completed run to each phase boundary and kills the engine mid-stage; its
-boundaries preset found entries 111 and 112.
+boundaries preset found entries 111 and 112. Seven fresh runs on the same
+clip then found entries 114 to 122, each on a path the previous run had not
+taken (see the memory note on fresh runs); `exec_099` is the first fresh
+run to pass the verdict outright: 74 of 74, zero error lines, zero
+recovered, package current, 3.05-minute master.
 
 Ordering exceptions ("may X run before Y is complete") live only in
 `src/interview_mux/ordering_authority.py` (entry 62). Add new ones there; a

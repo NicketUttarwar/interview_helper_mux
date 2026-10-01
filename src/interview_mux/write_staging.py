@@ -1459,6 +1459,68 @@ def _report_contract_conformance(ctx: RunContext, stage_id: str) -> None:
 _ORPHAN_PROMOTE_STAGES: frozenset[str] = frozenset({"vo_synthesize", "edl"})
 
 
+def promote_lost_staged_writes(ctx: RunContext) -> list[str]:
+    """Land staged files of done stages that the committed tree never got.
+
+    A stage sealed through the forced heal path leaves its overlay for the
+    orphan promote on its next entry; a run that completes never re-enters
+    it, so a file staged there with no committed copy, or a copy newer than
+    the committed one, is simply lost (exec_099: the EDL's clone adjacency
+    report, ISSUES 118). Called once at run end. Only files the stage owns
+    are promoted, and only when the committed copy is missing or older;
+    everything else in the overlay is a leftover and is left alone. Returns
+    the promoted paths.
+    """
+    from interview_mux.file_store import atomic_copy
+
+    pending = ctx.run_dir / ".pending_writes"
+    if not pending.is_dir():
+        return []
+    promoted: list[str] = []
+    for stage_dir in sorted(pending.iterdir()):
+        if not stage_dir.is_dir():
+            continue
+        stage_id = stage_dir.name
+        try:
+            if not ctx.is_done(stage_id):
+                continue
+        except Exception:
+            continue
+        for src in sorted(stage_dir.rglob("*")):
+            if not src.is_file() or src.name.endswith(".lock"):
+                continue
+            rel = str(src.relative_to(stage_dir)).replace("\\", "/")
+            if is_vo_pickup_rel(rel) and stage_id not in VO_PICKUP_OWNER_STAGES:
+                continue
+            try:
+                if not _owned_staging_path(ctx, stage_id, rel):
+                    continue
+            except Exception:
+                continue
+            dest = ctx.run_dir.joinpath(*rel.split("/"))
+            try:
+                if dest.is_file() and dest.stat().st_mtime >= src.stat().st_mtime:
+                    continue
+                atomic_copy(src, dest)
+                src.unlink(missing_ok=True)
+            except OSError:
+                continue
+            promoted.append(f"{stage_id}/{rel}")
+    if promoted:
+        try:
+            ctx.log(
+                f"run end: promoted {len(promoted)} staged write(s) the committed tree never got: "
+                + ", ".join(promoted[:6]),
+                level="info",
+                stage=None,
+                action_id="write_staging.promote_lost",
+                detail={"promoted": promoted[:40]},
+            )
+        except Exception:
+            pass
+    return promoted
+
+
 def discard_stale_staging_before_entry(ctx: RunContext, stage_id: str) -> list[str]:
     """Drop staged writes a previous attempt of ``stage_id`` left behind (ISSUES 102).
 

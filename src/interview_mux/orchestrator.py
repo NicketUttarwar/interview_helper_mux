@@ -557,6 +557,12 @@ class Orchestrator:
                 complete = bool(pipeline_complete(self.ctx))
             except Exception:
                 complete = self.ctx.is_done("podcast_publish")
+            try:
+                from interview_mux.write_staging import promote_lost_staged_writes
+
+                promote_lost_staged_writes(self.ctx)
+            except Exception:  # noqa: BLE001 - hygiene never fails the run
+                pass
             verdict = run_verdict(self.ctx, complete=complete, error=str(row.get("error") or ""))
             self.log(
                 "=== verdict: "
@@ -643,14 +649,43 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
     if log.is_file():
         error_lines, recovered = _standing_error_lines(log)
     stale: list[str] = []
+    leftovers: list[str] = []
     pending = run_dir / ".pending_writes"
     done = run_dir / ".stage_done"
     if pending.is_dir():
+        try:
+            from interview_mux.write_staging import _owned_staging_path
+        except Exception:  # noqa: BLE001
+            _owned_staging_path = None  # type: ignore[assignment]
         for stage_dir in sorted(pending.iterdir()):
             if stage_dir.is_dir() and (done / stage_dir.name).is_file():
                 for p in stage_dir.rglob("*"):
-                    if p.is_file() and p.name != ".write.lock":
-                        stale.append(f"{stage_dir.name}/{p.relative_to(stage_dir).as_posix()}")
+                    if not p.is_file() or p.name == ".write.lock":
+                        continue
+                    rel = p.relative_to(stage_dir).as_posix()
+                    owned = True
+                    if _owned_staging_path is not None:
+                        try:
+                            owned = bool(_owned_staging_path(ctx, stage_dir.name, rel))
+                        except Exception:  # noqa: BLE001
+                            owned = True
+                    # Stale product is a staged copy the stage owns that is newer
+                    # than the committed file, or has no committed file: an
+                    # update the run lost. A copy the stage may not promote, or
+                    # one the committed tree has since overtaken or matches
+                    # byte for byte, is a leftover (ISSUES 118).
+                    lost = owned
+                    if owned:
+                        committed = run_dir / rel
+                        try:
+                            if committed.is_file():
+                                if committed.stat().st_mtime >= p.stat().st_mtime:
+                                    lost = False
+                                elif committed.read_bytes() == p.read_bytes():
+                                    lost = False
+                        except OSError:
+                            lost = True
+                    (stale if lost else leftovers).append(f"{stage_dir.name}/{rel}")
     outputs = {rel: (run_dir / rel).is_file() for rel in PUBLISH_OUTPUTS}
     skipped = False
     try:
@@ -675,6 +710,7 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
         "recovered_error_lines": len(recovered),
         "recovered_errors": recovered[:5],
         "stale_staging": stale[:40],
+        "staging_leftovers": leftovers[:40],
         "publish_outputs": outputs,
         "publish_skipped": skipped,
         "package_current": package_current,

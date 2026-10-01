@@ -3834,6 +3834,17 @@ look for the staged file at the committed path and refuse with "cannot
 read staged file" (exec_096 looped on sfx_prompt_craft and stopped). Only
 the write target moves now; `staged_path` is the staging location again.
 
+Two more pieces, from exec_099 (the first run to complete on this chain):
+the EDL stage seals through the forced heal path, which leaves its overlay
+for the orphan promote on a later entry that a completing run never makes.
+At run end the engine now promotes staged files of done stages that the
+committed tree never got or has older (`promote_lost_staged_writes`); the
+clone adjacency report was the one such file. The verdict counts as stale
+only a staged copy the stage owns that is newer than the committed file or
+has none; older or byte-identical copies, and courtesy copies the stage
+may not promote, are listed under `staging_leftovers` and do not fail the
+run.
+
 Tests: `tests/test_post_seal_writes_land_committed.py`.
 
 ---
