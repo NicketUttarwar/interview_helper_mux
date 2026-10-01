@@ -3597,6 +3597,34 @@ fixtures now model a complete run with its marker.
 
 ---
 
+## [112] PRODUCT: after a re-entry the ship stages never ran again (outputs on disk keyed them as done) and a current package stayed unmarked
+
+**Stage / area:** `homunculus.agenda.ship_after_master_remaining`, the delivery runner's committed-master walk
+**Status:** fixed.
+
+With entry 111 in place, the rewound clones held at the sign-off as they
+should, and then stopped incomplete: rewind vo_synthesize (exec_073) ended
+with 68 of 74 markers and "6 remaining", rewind edl (exec_074) with 73 and
+the package stage never run. Two causes, one mechanism. The ship stages
+(transcript, meta, cover prompt, mp3, cover, package) are keyed on their
+outputs being present, not on their markers. After a re-entry the outputs
+are still on disk, so the walk had nothing to do; the markers the re-entry
+cleared were never written again, and the run could not complete. When the
+master had been rebuilt, the same keying shipped the old mp3 and cover.
+
+Fix, both deterministic:
+- A ship output older than `master/master.wav` counts as missing
+  (`ship_stage_output_stale`); the walk makes it again from the new master.
+- Ship stages whose outputs are present and current but whose marker is gone
+  are re-marked before the walk (`backfill_ship_holes_after_master`), the
+  same way pre-master holes behind an existing master already were. Outputs
+  first, never a hollow stamp. The package stage is included: a package
+  current for this master is this master's package.
+
+Tests: `tests/test_ship_holes_after_master.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

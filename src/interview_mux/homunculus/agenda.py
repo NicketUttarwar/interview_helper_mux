@@ -1346,9 +1346,74 @@ def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
     return _drop_delivery_while_voice_ref_open(ctx, out)
 
 
+def ship_stage_output_stale(ctx: RunContext, stage: str) -> bool:
+    """True when a ship stage's outputs predate ``master/master.wav``.
+
+    Ship outputs are cut from the master; ones older than it belong to an
+    earlier master and must be made again (ISSUES 112).
+    """
+    try:
+        master_mtime = ctx.final_path("master", "master.wav").stat().st_mtime
+    except OSError:
+        return False
+    for rel in stage_required_outputs(stage):
+        try:
+            if ctx.final_path(*str(rel).split("/")).stat().st_mtime < master_mtime:
+                return True
+        except OSError:
+            return True
+    return False
+
+
 def ship_after_master_remaining(ctx: RunContext) -> list[str]:
-    """Cover / encode / publish stages still missing after master.wav exists."""
-    return [s for s in SHIP_AFTER_MASTER if not stage_outputs_present(ctx, s)]
+    """Cover / encode / publish stages still missing after master.wav exists.
+
+    Present but older than the master counts as missing (ISSUES 112).
+    """
+    return [
+        s
+        for s in SHIP_AFTER_MASTER
+        if not stage_outputs_present(ctx, s) or ship_stage_output_stale(ctx, s)
+    ]
+
+
+def backfill_ship_holes_after_master(ctx: RunContext) -> list[str]:
+    """Re-mark ship stages whose outputs are present and current but unmarked.
+
+    A re-entry clears the markers after its stage; the ship outputs stay on
+    disk and, when the master was not rebuilt, are still this master's. The
+    walk keys ship stages on their outputs, so it never ran them again, and
+    the missing markers left the run unable to complete (ISSUES 112). Mirrors
+    ``backfill_delivery_holes_after_master``: outputs first, never hollow.
+    """
+    if not ctx.final_path("master", "master.wav").is_file():
+        return []
+    if not ctx.is_done("master_finalize"):
+        return []
+    from interview_mux.done_authority import raw_stamp_session, try_mark_done
+
+    filled: list[str] = []
+    for stage in SHIP_AFTER_MASTER:
+        if ctx.is_done(stage):
+            continue
+        if not stage_outputs_present(ctx, stage) or ship_stage_output_stale(ctx, stage):
+            continue
+        stamped = try_mark_done(ctx, stage, force=True)
+        if not stamped:
+            try:
+                with raw_stamp_session(ctx, "post_master_backfill"):
+                    stamped = try_mark_done(ctx, stage, force=True)
+            except Exception:
+                stamped = False
+        if not stamped:
+            continue
+        filled.append(stage)
+        ctx.log(
+            f"homunculus backfilled ship hole {stage} (outputs current for this master)",
+            level="warning",
+            stage=stage,
+        )
+    return filled
 
 
 def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
@@ -2599,6 +2664,7 @@ def run_homunculus_phase(
 
         if committed_master_wav(ctx) and honest_finalize_seeded(ctx):
             filled = backfill_delivery_holes_after_master(ctx)
+            filled = list(filled) + backfill_ship_holes_after_master(ctx)
             if filled:
                 from interview_mux.done_authority import may_skip_as_complete
 
