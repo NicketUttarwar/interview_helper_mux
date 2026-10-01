@@ -3682,6 +3682,39 @@ ordering, NLE write lands). The recovery test now also asserts no
 
 ---
 
+## [114] PRODUCT: the sound design plan over its asset cap was refused at the barrier while the lint called it a warning; two handled failures stood as run errors
+
+**Stage / area:** `artifact_sanitize.sound_design_plan`, `deterministic_lint`, `llm_simple`, `orchestrator.run_verdict`
+**Status:** fixed.
+
+exec_084 (fresh partial run through the GUI endpoints on the final code):
+the model returned a sound design plan with 8 assets against a cap of 7
+(the density budget of the delivery brief). The lint logged "non-blocking",
+the pre-flush barrier refused the flush on the same message, vo_synthesize
+found its prerequisite had not landed, the walk re-ran transitions and the
+plan, and the second plan landed. The run went on, but carried two error
+lines: the model status "partial" on the first plan, logged at error level
+right before the fail-open commit that completed the stage, and the
+"Prerequisite stage vo_line_adjudicate is not complete" raised by a stage
+the resume loop then ran. With the verdict of entry 107, both counted as
+failures.
+
+Fixes:
+- One cap, `sound_design_caps.sound_design_asset_cap`, read by the lint and
+  applied by the sanitizer: a plan over the cap is trimmed to it, assets
+  referenced by cues first, orphaned cues dropped. Non-amplifying; the plan
+  on disk never exceeds the cap, so the barrier never refuses on count.
+- The fail-open commit path logs its note as a warning; the error line
+  stays for the case where fail-open did not commit and the stage fails.
+- The verdict splits error rows into standing and recovered: a row whose
+  stage reports "Stage finished" later in the log was handled by the resume
+  loop. `pass` counts standing errors only; recovered ones are listed under
+  `recovered_errors` so a noisy run is still visible.
+
+Tests: `tests/test_sdp_asset_cap_clamp.py`, `tests/test_run_verdict_recovered_errors.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

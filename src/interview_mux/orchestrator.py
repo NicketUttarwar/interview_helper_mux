@@ -587,6 +587,46 @@ class Orchestrator:
 PUBLISH_OUTPUTS: tuple[str, ...] = ("publish/audio.mp3", "publish/cover.jpg", "publish/package_ready.json")
 
 
+def _standing_error_lines(log: Path) -> tuple[list[str], list[str]]:
+    """Error-level rows split into standing and recovered.
+
+    A row is recovered when its stage reports "Stage finished" later in the
+    same log: the engine's resume loop ran the stage again and it landed
+    (ISSUES 114). The acceptance record counts only standing errors; the
+    recovered ones stay listed so a noisy run is still visible.
+    """
+    rows: list[tuple[int, str, str]] = []
+    finished_at: dict[str, int] = {}
+    try:
+        with open(log, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if '"level": "error"' in line:
+                    try:
+                        doc = json.loads(line)
+                        rows.append((i, str(doc.get("stage") or ""), str(doc.get("message") or "")[:200]))
+                    except ValueError:
+                        rows.append((i, "", line.strip()[:200]))
+                elif '"Stage finished: ' in line and '"level": "success"' in line:
+                    try:
+                        doc = json.loads(line)
+                    except ValueError:
+                        continue
+                    stage = str(doc.get("stage") or "")
+                    if stage:
+                        finished_at[stage] = i
+    except OSError:
+        return [], []
+    standing: list[str] = []
+    recovered: list[str] = []
+    for i, stage, msg in rows:
+        text = f"[{stage}] {msg}"
+        if stage and finished_at.get(stage, -1) > i:
+            recovered.append(text)
+        else:
+            standing.append(text)
+    return standing, recovered
+
+
 def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str, Any]:
     """One deterministic acceptance record for a run (ISSUES 107).
 
@@ -598,19 +638,10 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
     """
     run_dir = Path(ctx.run_dir)
     error_lines: list[str] = []
+    recovered: list[str] = []
     log = run_dir / "gui_log.jsonl"
     if log.is_file():
-        try:
-            with open(log, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    if '"level": "error"' in line:
-                        try:
-                            doc = json.loads(line)
-                            error_lines.append(f"[{doc.get('stage')}] {str(doc.get('message') or '')[:200]}")
-                        except ValueError:
-                            error_lines.append(line.strip()[:200])
-        except OSError:
-            pass
+        error_lines, recovered = _standing_error_lines(log)
     stale: list[str] = []
     pending = run_dir / ".pending_writes"
     done = run_dir / ".stage_done"
@@ -641,6 +672,8 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
         "stages_done": len(list(done.glob("*"))) if done.is_dir() else 0,
         "error_lines": len(error_lines),
         "first_errors": error_lines[:5],
+        "recovered_error_lines": len(recovered),
+        "recovered_errors": recovered[:5],
         "stale_staging": stale[:40],
         "publish_outputs": outputs,
         "publish_skipped": skipped,

@@ -120,6 +120,17 @@ def sanitize_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             new_p.append(pal)
         out["palettes"] = new_p
 
+    # Asset cap (ISSUES 114): the barrier refuses a plan over the cap, so the
+    # plan on disk never exceeds it. Cue-referenced assets outrank the rest.
+    try:
+        from interview_mux.sound_design_caps import clamp_assets_to_cap, sound_design_asset_cap
+
+        out, clamp = clamp_assets_to_cap(out, sound_design_asset_cap(ctx))
+        if clamp:
+            actions.append(clamp)
+    except Exception:
+        pass
+
     # Clear false stale only when we have a sanitize stamp and selection lock matches
     # (actual fingerprint clear is producer responsibility — we only note)
     meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}

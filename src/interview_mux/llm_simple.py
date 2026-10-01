@@ -527,12 +527,16 @@ def run_llm_stage_simple(
                         if auto_complete:
                             _auto_complete_or_raise(ctx, stage_key)
                         return {**envelope, "status": "complete", "artifacts": fallback}
-                ctx.log(msg, level="error", stage=stage_key)
                 committed = _try_fail_open_partial(
                     ctx, stage_key, envelope, persist_artifacts, sync_fn, auto_complete, msg
                 )
                 if committed is not None:
+                    # The stage landed its artifacts and completed; the model's
+                    # blocking need is a warning for the operator, not a run
+                    # error (ISSUES 114: exec_084's sound design plan).
+                    ctx.log(f"{msg} — committed fail-open", level="warning", stage=stage_key)
                     return committed
+                ctx.log(msg, level="error", stage=stage_key)
                 raise StageError(stage_key, msg)
             last_schema_errors = [msg]
             continue
