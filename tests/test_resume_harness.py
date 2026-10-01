@@ -24,13 +24,20 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def test_complete_needs_the_publish_marker_and_an_output(tmp_path) -> None:
+def test_complete_needs_the_publish_marker_and_a_package_newer_than_the_master(tmp_path) -> None:
+    import os
+
     run = tmp_path / "run"
     assert harness._complete(run) is False
     _write(run / ".stage_done" / "podcast_publish", "")
     assert harness._complete(run) is False
-    _write(run / "publish" / "audio.mp3", "x")
+    _write(run / "master" / "master.wav", "w")
+    _write(run / "publish" / "package_ready.json", "{}")
     assert harness._complete(run) is True
+    # A master rebuilt after the package means the package stage did not run again (ISSUES 111).
+    t = (run / "publish" / "package_ready.json").stat().st_mtime + 60
+    os.utime(run / "master" / "master.wav", (t, t))
+    assert harness._complete(run) is False
 
 
 def test_error_lines_are_the_error_level_log_rows_only(tmp_path) -> None:

@@ -3564,6 +3564,39 @@ Tests: `tests/test_chatterbox_probe_timeout.py`.
 
 ---
 
+## [111] PRODUCT: a re-entered run reported itself complete on its old package, skipping the sign-off and the stages that remained
+
+**Stage / area:** `execution_status.pipeline_complete` (the Partial DONE bar), orchestrator end-of-run
+**Status:** fixed.
+
+Resume harness, boundaries preset, every rewind case (exec_069 to exec_073):
+a completed run cloned and rewound to an earlier stage ran the engine for
+about 90 s, which then printed "Run complete" with 67 to 73 of 74 stage
+markers, no G-Publish sign-off, and the conductor's own note "delivery
+incomplete after conductor (5 remaining)". The crash and the
+master_finalize rewind of the quick preset passed because they rebuild the
+master.
+
+The bar was file-based only: committed master, cover, mp3, and a
+`package_ready.json` with `ready:true`. All four survive a re-entry, so
+the engine saw "complete", skipped the hold for the operator, and the
+delivery conductor (which consults the same bar to decide whether to
+wait) returned OK with work remaining. An operator who re-enters a
+finished run from the GUI, or the engine's own hop back to analysis on a
+run that has a package, would get the stale package as the run's result.
+
+Fix: the bar also requires the `podcast_publish` stage marker and a
+package no older than the master on disk (`package_bound_to_current_master`).
+`ship_bar_incomplete_reasons` names the two new holes
+(`podcast_publish_not_done`, `package_older_than_master`), the run verdict
+carries `package_current`, and the harness judges completion the same way.
+A re-entered run now holds at the final sign-off and packages again.
+
+Tests: `tests/test_package_bound_to_master.py`; ship-bar and footgun
+fixtures now model a complete run with its marker.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

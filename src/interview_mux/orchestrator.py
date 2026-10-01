@@ -628,6 +628,12 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
     except Exception:
         skipped = False
     outputs_ok = outputs["publish/package_ready.json"] if skipped else all(outputs.values())
+    try:
+        from interview_mux.execution_status import package_bound_to_current_master
+
+        package_current = bool(package_bound_to_current_master(ctx))
+    except Exception:
+        package_current = False
     verdict = {
         "version": 1,
         "run_id": ctx.run_id,
@@ -638,6 +644,7 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
         "stale_staging": stale[:40],
         "publish_outputs": outputs,
         "publish_skipped": skipped,
+        "package_current": package_current,
         "stopped_on": str(error or "")[:300],
         "pass": bool(complete and outputs_ok and not error_lines and not stale),
         "at": datetime.now(timezone.utc).isoformat(),

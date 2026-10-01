@@ -759,7 +759,28 @@ def pipeline_complete(ctx: RunContext) -> bool:
     mp3_ok = (pub / "audio.mp3").is_file()
     if not cover_ok or not mp3_ok:
         return False
-    return _package_ready_for_ship_bar(ctx)
+    if not _package_ready_for_ship_bar(ctx):
+        return False
+    return package_bound_to_current_master(ctx)
+
+
+def package_bound_to_current_master(ctx: RunContext) -> bool:
+    """The package on disk is podcast_publish's product for *this* master.
+
+    A completed run that is re-entered at an earlier stage keeps its publish
+    files; they are DONE only while the stage that made them is still done and
+    the master they were cut from is still the master on disk. Otherwise the
+    engine would skip the final sign-off and report a stale package as the
+    run's result (ISSUES 111: every rewind case in the resume harness).
+    """
+    try:
+        if not ctx.is_done("podcast_publish"):
+            return False
+        pkg = ctx.final_path("publish", "package_ready.json")
+        master = ctx.final_path("master", "master.wav")
+        return pkg.stat().st_mtime >= master.stat().st_mtime
+    except Exception:
+        return False
 
 
 def ship_bar_complete(ctx: RunContext) -> bool:
@@ -783,6 +804,10 @@ def ship_bar_incomplete_reasons(ctx: RunContext) -> list[str]:
         reasons.append("audio_mp3_missing")
     if not _package_ready_for_ship_bar(ctx):
         reasons.append("package_ready_missing_or_false")
+    elif not ctx.is_done("podcast_publish"):
+        reasons.append("podcast_publish_not_done")
+    elif not package_bound_to_current_master(ctx):
+        reasons.append("package_older_than_master")
     return reasons
 
 

@@ -183,10 +183,13 @@ def _stale_staging(run_dir: Path) -> list[str]:
 
 
 def _complete(run_dir: Path) -> bool:
-    return (run_dir / ".stage_done" / "podcast_publish").is_file() and (
-        (run_dir / "publish" / "audio.mp3").is_file()
-        or (run_dir / "publish" / "package_ready.json").is_file()
-    )
+    """Done means the package stage ran again on this pass (ISSUES 111)."""
+    marker = run_dir / ".stage_done" / "podcast_publish"
+    pkg = run_dir / "publish" / "package_ready.json"
+    master = run_dir / "master" / "master.wav"
+    if not (marker.is_file() and pkg.is_file() and master.is_file()):
+        return False
+    return pkg.stat().st_mtime >= master.stat().st_mtime
 
 
 # ---------------------------------------------------------------------------
