@@ -4048,6 +4048,25 @@ Tests: `tests/test_fallback_backstop.py` (transient retry, skip ladder).
 
 ---
 
+## [126] PRODUCT: the engine takes one second wind before it stops
+
+**Stage / area:** `orchestrator.Orchestrator._second_wind`
+**Status:** added.
+
+When the resume loop gives up (hop loop with no progress, identical-failure
+halt, exhausted remedies), the engine now resets the persisted failure
+counters once (`clear_all_halts`), clears the operator-need flag the walk
+set, logs "second wind", and re-enters analysis and delivery one more time
+with the fallback ladder of entries 124 and 125 active. Once per engine
+run; a gate wait (sign-off, transcript review) is not a failure and is
+never re-entered this way. A run that fails again after the second wind
+stops as before, with the verdict naming the stage.
+
+Tests: `tests/test_orchestrator.py` (second wind recovers, hop loop plus
+second wind, gate wait untouched).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

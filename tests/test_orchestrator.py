@@ -267,9 +267,11 @@ def test_hop_loop_stops_on_the_same_error_with_no_progress(ctx, monkeypatch) -> 
     o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
     assert o.run() == 1
     names = [n for n, _ in phases.calls]
-    # analysis, delivery, one hop (analysis, delivery), then stop: not sixteen hops.
-    assert names == ["analysis", "delivery", "analysis", "delivery"]
+    # analysis, delivery, one hop (analysis, delivery), the hop loop stops,
+    # then the one second wind (analysis, delivery; ISSUES 126): not sixteen hops.
+    assert names == ["analysis", "delivery", "analysis", "delivery", "analysis", "delivery"]
     assert any("hop loop" in line for line in lines)
+    assert sum("second wind" in line for line in lines) == 1
 
 
 def test_a_run_ends_with_a_verdict_file(ctx, monkeypatch) -> None:
@@ -308,3 +310,42 @@ def test_the_verdict_fails_on_an_error_line_even_when_complete(ctx, monkeypatch)
     verdict = ctx.read_json("operator/run_verdict.json")
     assert verdict["complete"] is True and verdict["pass"] is False
     assert verdict["error_lines"] >= 1 and verdict["first_errors"][0].startswith("[mix]")
+
+
+def test_the_second_wind_recovers_a_run_the_loop_gave_up_on(ctx, monkeypatch) -> None:
+    """One reset of the failure counters and one re-entry, then the run completes (ISSUES 126)."""
+    from run_fixtures import mark_done_raw
+
+    # An error the phase's own resume loop does not retry (no remedy named,
+    # no hop back): the loop gives up, the second wind re-enters, and the
+    # re-entered delivery lands.
+    err = RuntimeError("WriteApprovalBlockedError: Pre-flush commit barrier failed: fewer prompts than SDP assets")
+    phases = _Phases(analysis=[None, None, None], delivery=[err, err, err, None])
+    _wire(monkeypatch, phases, complete=lambda c: True)
+    cleared: list[str] = []
+    monkeypatch.setattr("interview_mux.identical_failures.clear_all_halts", lambda c: cleared.append("x") or 3)
+    mark_done_raw(ctx, "podcast_publish")
+    for rel in ("publish/audio.mp3", "publish/cover.jpg", "publish/package_ready.json"):
+        p = ctx.final_path(*rel.split("/"))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+    ctx.mutate_run_meta(lambda m: m.__setitem__("needs_operator", True))
+    lines: list[str] = []
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
+    assert o.run() == 0
+    names = [n for n, _ in phases.calls]
+    assert names[:2] == ["analysis", "delivery"] and names[-1] == "delivery"
+    assert names.count("analysis") == 2
+    assert cleared == ["x"]
+    assert any("second wind" in line for line in lines)
+    assert "needs_operator" not in ctx.read_json("run_meta.json")
+
+
+def test_a_gate_wait_is_never_re_entered_by_the_second_wind(ctx, monkeypatch) -> None:
+    halt = SystemExit("G-Publish sign-off pending")
+    phases = _Phases(analysis=[None], delivery=[halt, None])
+    _wire(monkeypatch, phases, complete=lambda c: False)
+    lines: list[str] = []
+    o = orch.Orchestrator(ctx, mode="full-auto", log=lines.append, sleep=lambda s: None)
+    o.run()
+    assert not any("second wind" in line for line in lines)

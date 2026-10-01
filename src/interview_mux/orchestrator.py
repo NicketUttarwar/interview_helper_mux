@@ -492,6 +492,47 @@ class Orchestrator:
         self.summary.append(row)
         return row
 
+    def _second_wind(
+        self, row: dict[str, Any], run_analysis: Any, run_delivery: Any, until: str | None
+    ) -> dict[str, Any]:
+        """One more pass after the resume loop gives up (ISSUES 126).
+
+        The identical-failure counters and the refusal-feedback consumption
+        that stopped the loop are reset once, the operator-need flag the walk
+        set is cleared, and both phases are re-entered with the fallback
+        ladder (entries 124, 125) active. Used once per engine run; a gate
+        wait is not a failure and is never re-entered this way.
+        """
+        if row.get("status") == "ok" or getattr(self, "_second_wind_used", False):
+            return row
+        err = str(row.get("error") or "")
+        if "sign-off" in err.lower() or "transcript review" in err.lower():
+            return row
+        self._second_wind_used = True
+        cleared = 0
+        try:
+            from interview_mux.identical_failures import clear_all_halts
+
+            cleared = int(clear_all_halts(self.ctx) or 0)
+        except Exception:
+            cleared = 0
+        try:
+            def _clear_need(meta: dict[str, Any]) -> None:
+                for key in ("needs_operator", "needs_operator_stage", "needs_operator_reason"):
+                    meta.pop(key, None)
+
+            self.ctx.mutate_run_meta(_clear_need)
+        except Exception:
+            pass
+        self.log(
+            f"=== second wind: reset {cleared} failure counter(s) after "
+            f"{err[:120]!r}; re-entering once ==="
+        )
+        a = self._phase("analysis", run_analysis)
+        if a["status"] != "ok":
+            return a
+        return self._phase("delivery", run_delivery, until_stage=until)
+
     # ----- main -------------------------------------------------------------
     def run(self) -> int:
         from interview_mux.driver_singleton import claim_driver_run, release_driver_run
@@ -536,6 +577,7 @@ class Orchestrator:
                         row = a
                         break
                     row = self._phase("delivery", run_delivery, until_stage=until)
+            row = self._second_wind(row, run_analysis, run_delivery, until)
             at_signoff = row["status"] == "ok" or (
                 row["status"] == "halt"
                 and "G-Publish sign-off pending" in str(row.get("error") or "")
