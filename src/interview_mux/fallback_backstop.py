@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -192,12 +193,30 @@ def _mark_through_heal(ctx: Any, stage: str) -> bool:
         return False
 
 
+_SEED_ORDER_RE = re.compile(r"seed order: complete (\S+) before running (\S+)")
+
+
 def apply_declared_fallback(ctx: Any, stage: str, reason: str) -> dict[str, Any] | None:
     """At the identical-failure cap: keep the old version, else skip an optional stage.
 
     Returns the recorded decision when the stage ended done; None when neither
     rung applies, in which case the halt stands.
+
+    When the failure is the seed order naming an incomplete prerequisite, the
+    ladder is applied to that prerequisite: it is the stage with something to
+    fall back on, and skipping the blocked consumer through its stub would
+    leave the next consumer blocked on the same prerequisite (ISSUES 127).
     """
+    m = _SEED_ORDER_RE.search(str(reason or ""))
+    if m and m.group(1) != str(stage or ""):
+        decision = _fallback_for_stage(ctx, m.group(1), reason)
+        if decision is not None:
+            decision["unblocks"] = str(stage or "")
+        return decision
+    return _fallback_for_stage(ctx, stage, reason)
+
+
+def _fallback_for_stage(ctx: Any, stage: str, reason: str) -> dict[str, Any] | None:
     rel = prior_committed_artifact(ctx, stage)
     if not rel:
         stub = OPTIONAL_STAGE_SKIP_STUBS.get(str(stage or ""))

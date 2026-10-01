@@ -339,10 +339,14 @@ def write_committed_json(
 ) -> Path:
     """Persist to the committed run tree without opening a new staging root."""
     try:
-        from interview_mux.artifact_ownership import assert_write
+        from interview_mux.artifact_ownership import assert_write, skip_foreign_side_effect
         from interview_mux.write_staging import active_stage_id
 
         sk = stage_key or active_stage_id()
+        if skip_foreign_side_effect(
+            ctx, rel, stage_key=stage_key, role=None, mutation_class=mutation_class
+        ):
+            return ctx.run_dir.joinpath(*str(rel).replace("\\", "/").lstrip("/").split("/"))
         assert_write(
             ctx,
             rel,

@@ -2274,7 +2274,7 @@ def _run_seed_prerequisites_first(
             detail={"event": "seed_prereq_ahead", "prereq": blocked},
         )
         try:
-            run_stage(ctx, blocked)
+            _run_demanded_prereq(ctx, blocked, stage, run_stage)
         except Exception as exc:  # noqa: BLE001 - re-raised as the stage's prerequisite failure
             ctx.log(
                 f"seed walk: prerequisite {blocked} did not land ahead of {stage}: "
@@ -2296,6 +2296,154 @@ def _run_seed_prerequisites_first(
 
 class SeedPrerequisiteFailed(RuntimeError):
     """A prerequisite the walk ran ahead of a stage did not land (ISSUES 119)."""
+
+
+def _run_demanded_prereq(ctx: RunContext, prereq: str, consumer: str, run_stage: Any) -> None:
+    """Run ``prereq`` because the seed order demands it before ``consumer`` (ISSUES 127).
+
+    The dispatch door is told the run is demanded, so "nothing changed" cannot
+    refuse it. If the prerequisite still is not seed-complete afterwards, its
+    marker is offered to the heal ladder (which marks only a complete body),
+    and whatever is still wrong is logged in the prerequisite's own words:
+    the consumer's "seed order: complete X" line is the symptom, and it was
+    all the log used to say.
+    """
+    from interview_mux.dispatch_door import demand_seed_prereq
+
+    with demand_seed_prereq(ctx, prereq):
+        run_stage(ctx, prereq)
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if seed_stage_complete(ctx, prereq):
+            return
+        from interview_mux.stage_completion import (
+            heal_or_refuse_mark,
+            stage_artifact_incompleteness,
+        )
+
+        verdict: dict[str, Any] = {}
+        if not ctx.is_done(prereq):
+            verdict = heal_or_refuse_mark(ctx, prereq, force=True) or {}
+            if seed_stage_complete(ctx, prereq):
+                ctx.log(
+                    f"seed walk: prerequisite {prereq} was complete on disk without its "
+                    f"marker; marked ahead of {consumer}",
+                    level="info",
+                    stage=prereq,
+                    detail={"event": "seed_prereq_marker_healed", "consumer": consumer},
+                )
+                return
+        why = stage_artifact_incompleteness(ctx, prereq) or (
+            verdict.get("reason") if isinstance(verdict, dict) else ""
+        ) or ("marker missing" if not ctx.is_done(prereq) else "outputs missing")
+        if _recover_incomplete_prereq(ctx, prereq, str(why)):
+            ctx.log(
+                f"seed walk: prerequisite {prereq} completed by its recovery playbook "
+                f"ahead of {consumer} ({str(why)[:160]})",
+                level="info",
+                stage=prereq,
+                detail={"event": "seed_prereq_recovered", "consumer": consumer, "why": str(why)[:600]},
+            )
+            return
+        ctx.log(
+            f"seed walk: prerequisite {prereq} is still incomplete after its run "
+            f"ahead of {consumer}: {str(why)[:300]}",
+            level="warning",
+            stage=prereq,
+            detail={"event": "seed_prereq_still_incomplete", "consumer": consumer, "why": str(why)[:600]},
+        )
+    except Exception:
+        pass
+
+
+def _recover_incomplete_prereq(ctx: RunContext, prereq: str, why: str) -> bool:
+    """Give an incomplete prerequisite its own recovery playbook, once (ISSUES 127).
+
+    A stage that raises gets ``handle_stage_failure`` and its playbook. A
+    stage that returned without becoming complete (the door refused it, or it
+    finished short of its completion bar) got nothing: the consumer raised a
+    seed-order error instead, and recovery was run for the consumer. Route
+    the prerequisite's own incompleteness through the same controller, then
+    offer the marker to the heal ladder again. True when it is now complete.
+    """
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+        from interview_mux.recovery_controller import handle_stage_failure
+        from interview_mux.stage_completion import heal_or_refuse_mark
+
+        result = handle_stage_failure(ctx, prereq, RuntimeError(str(why)[:400]))
+        if getattr(result, "status", "") != "recovered":
+            return False
+        if not ctx.is_done(prereq):
+            heal_or_refuse_mark(ctx, prereq, force=True)
+        return bool(seed_stage_complete(ctx, prereq))
+    except Exception:
+        return False
+
+
+#: Audio stages where a rerun on unchanged inputs is exactly the ping-pong the
+#: no-delta guard exists to stop (exec_11871: 55 mix and junction dispatches).
+#: For these a refusal stands even when the marker cannot be restored.
+_REFUSAL_STANDS_FOR: frozenset[str] = frozenset(
+    {
+        "mix",
+        "junction_snip_qa",
+        "mmaudio_sfx",
+        "vo_synthesize",
+        "music_palette_compose",
+        "master_finalize",
+    }
+)
+
+
+def _refusal_strands_stage(ctx: RunContext, stage: str, reason: str, rerun: set[str]) -> bool:
+    """Whether a door refusal would leave ``stage`` incomplete with no way forward.
+
+    ``no_delta`` means "the last success stands, do not run it again". When
+    the stage is seed-complete that is true and the walk advances. (The
+    attempt memo is a different claim, "this already failed at this state",
+    and is left alone: voiding it would re-walk the same failed stages on
+    every re-entry, which is what it exists to stop.) When it is not, the marker is first offered to the heal
+    ladder, which marks a body that is complete on disk. If that also fails,
+    the last result does not stand: advancing strands the next stage on the
+    seed order (or ends the phase with a hole), so the stage is run once in
+    this walk under the seed order's demand (ISSUES 127). Returns True when
+    the refusal is void and the stage must run.
+    """
+    if str(reason or "") != "no_delta":
+        return False
+    if stage in rerun or stage in _REFUSAL_STANDS_FOR:
+        return False
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+
+        if seed_stage_complete(ctx, stage):
+            return False
+        if not ctx.is_done(stage):
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            heal_or_refuse_mark(ctx, stage, force=True)
+            if seed_stage_complete(ctx, stage):
+                ctx.log(
+                    f"seed walk: {stage} was complete on disk without its marker; "
+                    f"marked, refusal ({reason}) stands",
+                    level="info",
+                    stage=stage,
+                    detail={"event": "refused_stage_marker_healed", "reason": reason},
+                )
+                return False
+    except Exception:
+        return False
+    rerun.add(stage)
+    ctx.log(
+        f"seed walk: {stage} is refused ({reason}) but is not complete; "
+        "running it once instead of advancing past it",
+        level="warning",
+        stage=stage,
+        detail={"event": "refusal_void_stage_incomplete", "reason": reason},
+    )
+    return True
 
 
 def _seed_prereq_needs_run(ctx: RunContext, prereq: str) -> bool:
@@ -2359,6 +2507,9 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
     # Each prerequisite is auto-run at most once per walk, so a genuinely broken
     # stage cannot ping-pong the walk forever.
     seed_prereq_retried: set[str] = set()
+    # Stages run despite a no-delta refusal because they were left
+    # incomplete; once each per walk (ISSUES 127).
+    refusal_void_rerun: set[str] = set()
     try:
         from interview_mux.web.job_progress import notify_batch_plan
 
@@ -2504,6 +2655,14 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 verdict = evaluate_dispatch(ctx, stage, source=reason, layer="walk")
             except Exception:
                 verdict = None
+            run_demanded = False
+            if (
+                verdict is not None
+                and verdict.refused
+                and _refusal_strands_stage(ctx, stage, verdict.reason, refusal_void_rerun)
+            ):
+                verdict = None
+                run_demanded = True
             if verdict is not None and verdict.refused:
                 try:
                     from interview_mux.dispatch_door import refuse_dispatch
@@ -2558,7 +2717,13 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 continue
             try:
                 _run_seed_prerequisites_first(ctx, stage, seed_prereq_retried, run_single_stage)
-                run_single_stage(ctx, stage)
+                if run_demanded:
+                    from interview_mux.dispatch_door import demand_seed_prereq
+
+                    with demand_seed_prereq(ctx, stage):
+                        run_single_stage(ctx, stage)
+                else:
+                    run_single_stage(ctx, stage)
             except Exception as exc:
                 prereq = _seed_order_prereq_from(exc)
                 # A stage can be invalidated mid-walk by an upstream rewrite:
@@ -2584,7 +2749,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                         detail={"event": "seed_prereq_autorun", "prereq": prereq},
                     )
                     try:
-                        run_single_stage(ctx, prereq)
+                        _run_demanded_prereq(ctx, prereq, stage, run_single_stage)
                         run_single_stage(ctx, stage)
                         continue
                     except Exception as retry_exc:

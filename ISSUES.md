@@ -4067,6 +4067,137 @@ second wind, gate wait untouched).
 
 ---
 
+## [127] PRODUCT: a refused side-effect write halted the stage that happened to be active, and the dispatch door then refused the only repair (macOS exec_011)
+
+**Stage / area:** `artifact_ownership` (denial accounting), `run_context.write_json`,
+`write_staging.write_committed_json`, `dispatch_door`, `homunculus.agenda` (seed
+prerequisites), `fallback_backstop`, `media_ip_cta`
+**Status:** fixed at the choke points. The exact helper that made the write in
+exec_011 is not identified (see "What is not proven").
+
+**Reported (one-hour source, 53 segments, three compose shards):** the run died
+with `seed order: complete gap_framing_compose before running delivery_brief_build`.
+`gap_framing_compose` had done its work (27 interviewer lines, high-gap seeding),
+then logged
+`authority_denied:persist:mastering/mastering_plan.json:gap_framing_compose:pre_soft_freeze:air_contract_sanitize`,
+its marker did not stay, every re-entry of compose was refused as `no_delta`,
+and the walk cycled brief, compose, brief until the identical-failure cap.
+
+**Chain, each link confirmed in the code:**
+
+1. Shared helpers (seat sync, id remaps, orientation republish) run under
+   whichever stage is active and write documents that stage does not own. The
+   ownership table has no row for `gap_framing_compose` on the mastering plan,
+   so the write is refused (`not_allow:owner=air_contract_sanitize`).
+2. `_log_authority_denied` ran at raise time, before anyone knew whether the
+   caller handled the denial, and most callers do. It logged at error level,
+   recorded an identical failure against the active stage, and on the second
+   identical fingerprint stamped `halt` with `authority_denied_no_heal`. Two
+   handled denials were enough to halt compose with no heal. This is why the
+   run completes in forensics mode: `is_halted` returns False there.
+3. The dispatch door's `no_delta` guard refuses a stage whose hard inputs are
+   byte-identical to its last success while its outputs are on disk. It does
+   not ask whether the stage is still complete. Compose's inputs had not
+   changed and `gap_report.json` was on disk, so the door refused it at the
+   walk layer (advance) and again at the dispatch layer, where
+   `dispatch_stage` returns silently on a refusal.
+4. The walk's prerequisite retry therefore "ran" compose (a silent no-op) and
+   retried the consumer, which raised the same seed-order error. Three of
+   those reached the cap.
+5. The fallback ladder of entries 124 and 125 was then applied to the blocked
+   consumer (`delivery_brief_build`), not to the incomplete prerequisite.
+
+**Why the six-minute clip never showed it:** about ten segments, so compose
+takes the single-batch path, has no CTA recut and few high gaps, and its
+finish path makes no foreign write. The maintainer's question was right: the
+short source does not exercise this path.
+
+**Fix (rules, not carve-outs):**
+
+- **A denial is counted where it fails a stage, not where it is raised.**
+  `_log_authority_denied` no longer records an identical failure or stamps a
+  halt. A denial that escapes a stage is counted by the walk's failure path
+  under the ordinary cap, with the ordinary fallbacks.
+- **A refused side-effect write costs the write, not the stage.**
+  `skip_foreign_side_effect`: when the writer is inferred from the active
+  stage (no `stage_key`, no `role`) and the table's answer is the last
+  fall-through (`not_allow:owner=...`, the stage has no row for the path at
+  all), `write_json` and `write_committed_json` skip the write, log a warning
+  naming the owner, and append to `operator/foreign_writes_skipped.jsonl`.
+  A caller that names a key or a role still gets `AuthorityDenied`, so every
+  existing fallback (retry as owner, mirrored write) is unchanged, and
+  explicit DENY rows, freeze blocks and mutation-class rules still raise.
+  Documents with their own commit path (EDL, selection, air order,
+  transitions, manifest, boundaries, gap report, sound design plan) are
+  exempt and still raise, because their writers catch the refusal and retry
+  as the owner. An AST sweep of every try block with an unkeyed write and a
+  writing handler found one site outside those documents that relied on the
+  refusal (`vo_bind_authority`, the bind-failure omit on the mastering
+  plan); it now names the seat owner up front, and a static test keeps that
+  pattern out.
+  A foreign denial that is raised logs at warning level, not error.
+- **The door does not hold a prerequisite the seed order has just demanded.**
+  `demand_seed_prereq` marks the stage while the walk runs it as a
+  prerequisite; `evaluate_dispatch` then skips `no_delta` and the attempt
+  memo for that stage only. The dispatch caps still apply, and the walk asks
+  once per prerequisite. The mix and junction ping-pong the guard was built
+  for is untouched (its tests pass unchanged).
+- **A prerequisite left incomplete says why.** After a demanded run the walk
+  offers the marker to the heal ladder (which marks only a complete body) and
+  otherwise logs `stage_artifact_incompleteness` for the prerequisite, so the
+  log carries the cause and not only the consumer's seed-order line.
+- **The fallback at the cap goes to the incomplete prerequisite.** A
+  `seed order: complete X before running Y` failure applies the ladder to X
+  (keep its prior committed artifact through the heal ladder) and records
+  `unblocks: Y`. Y is never skipped through its stub for X's failure.
+- `media_ip_cta._publish_story_children_sources` asked for a writer by
+  denial: first as `full_master_ranking`, then as the active stage, then a
+  mirrored write. It now asks `write_permitted` which key may write and
+  falls to the mirrored write without logging two denials.
+
+**Guardrails around the same chain** (each one closes a way the walk could
+still be left with an incomplete stage it will not run):
+
+- **A refused stage that is not complete is run, not skipped.** At the walk
+  layer a `no_delta` refusal means "the last success stands". The walk now
+  checks that: a seed-complete stage is advanced past as
+  before; a stage whose body is complete on disk gets its marker back
+  through the heal ladder; a stage that is neither is run once in that walk
+  under the demand. The audio stages the guard was built for (mix, junction,
+  MMAudio, VO synthesis, music, master) are excluded and keep the refusal.
+  The attempt memo ("already failed at this state") is left alone: voiding
+  it would bring back the re-walk of failed stages it exists to stop.
+- **An incomplete prerequisite gets its own recovery playbook.** A stage that
+  raises is handed to `handle_stage_failure`; a stage that returned without
+  becoming complete was not, and recovery ran for the consumer instead. The
+  prerequisite's incompleteness reason now goes through the same controller
+  once, and the marker is offered again afterwards.
+- **The second wind resets the door's memory too.** `_second_wind` cleared
+  the failure counters but left `operator/dispatch_memo.json`, so its one
+  re-entry could be refused by the same rows. It now drops the memo rows of
+  every stage that is not seed-complete, and when the stopping error names
+  a prerequisite it applies the fallback ladder to that prerequisite first.
+- **The verdict shows what the self-correction did.**
+  `operator/run_verdict.json` gains `fallback_decisions` (last ten) and
+  `foreign_writes_skipped` (stage:path, distinct). Neither fails the
+  verdict; both are the first place to look when a run stopped or a passing
+  run sounds wrong.
+
+**What is not proven.** The write itself was not reproduced. A keyless
+replay of sharded compose on a clone of the one-hour exec_055 (76 segments,
+four shards, pre soft freeze) completes without a denial in five states:
+full model output, a third of it (seeding playbook runs), none, and the first
+two again in the hop-back state with an air script on the plan. So the write
+depends on something in exec_011's own data. The fix does not depend on
+which helper it was: every unkeyed foreign write goes through the same two
+write points. The run's `operator/foreign_writes_skipped.jsonl` will name it.
+
+Tests: `tests/test_foreign_side_effect_writes.py` (24). Existing
+`tests/test_p15_no_delta_guard.py` and `tests/test_fallback_backstop.py`
+pass unchanged.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

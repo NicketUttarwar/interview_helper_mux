@@ -207,6 +207,12 @@ class RunContext:
             role_s = str(role or "").strip()
             if not role_s:
                 role_s = "producer" if sk else "ops"
+            from interview_mux.artifact_ownership import skip_foreign_side_effect
+
+            if skip_foreign_side_effect(
+                self, rel_norm, stage_key=stage_key, role=role, mutation_class=mutation_class
+            ):
+                return self.path(*rel_norm.split("/"))
             assert_write(
                 self,
                 rel,

@@ -335,7 +335,17 @@ def _omit_bind_failed_line(
             script["vo_seats"] = seats
             plan["air_script"] = script
             try:
-                write_plan(ctx, plan, seat_reason="catastrophe_seated_bind_synth_failed")
+                # Present the seat owner up front. The unkeyed write used to be
+                # refused for a stage that does not own the plan and only then
+                # retried as the owner below; an unkeyed foreign write is now
+                # skipped rather than raised (ISSUES 127), so the retry would
+                # never run.
+                write_plan(
+                    ctx,
+                    plan,
+                    seat_reason="catastrophe_seated_bind_synth_failed",
+                    stage_key="air_contract_sanitize",
+                )
             except Exception:
                 from interview_mux.seat_authority import persist_frozen_seat_doc
 

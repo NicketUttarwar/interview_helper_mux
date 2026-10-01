@@ -479,6 +479,40 @@ def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
     }
 
 
+def forget_incomplete_stage_rows(ctx: RunContext) -> int:
+    """Drop the memo rows of stages that are not seed-complete (ISSUES 127).
+
+    A row is what lets the door refuse a stage: "inputs unchanged since the
+    last success", "already attempted at this state". Both are only worth
+    honouring for a stage whose result stands. The engine's second wind calls
+    this so its one re-entry can run whatever was left incomplete.
+    """
+    doc = read_memo(ctx)
+    stages = dict(doc.get("stages") or {})
+    if not stages:
+        return 0
+    try:
+        from interview_mux.delivery_guardrails import seed_stage_complete
+    except Exception:
+        return 0
+    kept: dict[str, Any] = {}
+    cleared = 0
+    for sid, row in stages.items():
+        try:
+            complete = bool(seed_stage_complete(ctx, str(sid)))
+        except Exception:
+            complete = False
+        if complete:
+            kept[sid] = row
+        else:
+            cleared += 1
+    if cleared:
+        doc["stages"] = kept
+        doc["updated_at"] = _now()
+        _write_memo(ctx, doc)
+    return cleared
+
+
 def clear_failed_refused_memo_rows(ctx: RunContext) -> int:
     """Drop failed/refused attempt-memo rows (forensics restart / product flip).
 
