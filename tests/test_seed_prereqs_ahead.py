@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from run_fixtures import isolated_run_ctx, mark_done_raw
 
 from interview_mux.homunculus import agenda
@@ -62,5 +64,8 @@ def test_a_failing_prerequisite_falls_through_to_dispatch(tmp_path, monkeypatch)
         raise RuntimeError("model refused")
 
     retried: set[str] = set()
-    assert agenda._run_seed_prerequisites_first(ctx, "refinement_agenda", retried, _boom) == []
+    # ISSUES 119: the failure is raised before dispatch, in the words the
+    # walk's prerequisite parser reads, so the consumer never runs into it.
+    with pytest.raises(agenda.SeedPrerequisiteFailed, match="Prerequisite stage chapter_close_hitch"):
+        agenda._run_seed_prerequisites_first(ctx, "refinement_agenda", retried, _boom)
     assert retried == {"chapter_close_hitch"}

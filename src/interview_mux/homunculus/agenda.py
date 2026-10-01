@@ -2265,16 +2265,27 @@ def _run_seed_prerequisites_first(
         )
         try:
             run_stage(ctx, blocked)
-        except Exception as exc:  # noqa: BLE001 - dispatch will report it properly
+        except Exception as exc:  # noqa: BLE001 - re-raised as the stage's prerequisite failure
             ctx.log(
                 f"seed walk: prerequisite {blocked} did not land ahead of {stage}: "
                 f"{type(exc).__name__}: {str(exc)[:160]}",
                 level="warning",
                 stage=stage,
             )
-            return ran
+            # Dispatching the consumer now would only make it raise its own
+            # "Prerequisite stage X is not complete" at error level (every
+            # fresh run carried that line, ISSUES 119). Raise here, in the
+            # words the walk's prerequisite parser already understands.
+            raise SeedPrerequisiteFailed(
+                f"Prerequisite stage {blocked} is not complete ahead of {stage}: "
+                f"{type(exc).__name__}: {str(exc)[:200]}"
+            ) from exc
         ran.append(blocked)
     return ran
+
+
+class SeedPrerequisiteFailed(RuntimeError):
+    """A prerequisite the walk ran ahead of a stage did not land (ISSUES 119)."""
 
 
 def _seed_prereq_needs_run(ctx: RunContext, prereq: str) -> bool:
@@ -2535,8 +2546,8 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 except Exception:
                     pass
                 continue
-            _run_seed_prerequisites_first(ctx, stage, seed_prereq_retried, run_single_stage)
             try:
+                _run_seed_prerequisites_first(ctx, stage, seed_prereq_retried, run_single_stage)
                 run_single_stage(ctx, stage)
             except Exception as exc:
                 prereq = _seed_order_prereq_from(exc)

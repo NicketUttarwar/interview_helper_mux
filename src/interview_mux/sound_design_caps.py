@@ -47,11 +47,33 @@ def _cue_asset_ids(doc: dict[str, Any]) -> list[str]:
     return seen
 
 
+#: Roles the creative delivery check requires on the plan (one asset each),
+#: and the roles that stand in for them. An unreferenced outro theme was the
+#: first thing the clamp dropped in exec_095, and the barrier then refused the
+#: plan for "missing music role:theme_outro" (ISSUES 119).
+PROTECTED_ROLES: frozenset[str] = frozenset(
+    {
+        "theme_underscore",
+        "theme_cold_open",
+        "theme_outro",
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_transition",
+        "era_music_bed",
+        "ambient_bed",
+        "cold_open",
+        "chapter_stinger",
+        "transition_stinger",
+    }
+)
+
+
 def clamp_assets_to_cap(doc: dict[str, Any], cap: int) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Trim ``assets`` to ``cap`` distinct ids and drop cues that used the rest.
 
-    Keeps plan order; assets referenced by cues outrank unreferenced ones. Pure;
-    returns the (possibly same) document and an action note or None.
+    Keeps plan order. The first asset of each protected role outranks the
+    rest, then assets referenced by cues, then the others. Pure; returns the
+    (possibly same) document and an action note or None.
     """
     assets = doc.get("assets")
     if not isinstance(assets, list) or cap <= 0:
@@ -65,7 +87,22 @@ def clamp_assets_to_cap(doc: dict[str, Any], cap: int) -> tuple[dict[str, Any], 
     if len(ids) <= cap:
         return doc, None
     used = set(_cue_asset_ids(doc))
-    ranked = [i for i in ids if i in used] + [i for i in ids if i not in used]
+    role_of: dict[str, str] = {}
+    for a in rows:
+        aid = str(a.get("asset_id"))
+        role_of.setdefault(aid, str(a.get("role") or "").strip())
+    protected: list[str] = []
+    seen_roles: set[str] = set()
+    for aid in ids:
+        role = role_of.get(aid, "")
+        if role in PROTECTED_ROLES and role not in seen_roles:
+            protected.append(aid)
+            seen_roles.add(role)
+    ranked = (
+        protected
+        + [i for i in ids if i in used and i not in protected]
+        + [i for i in ids if i not in used and i not in protected]
+    )
     keep = set(ranked[:cap])
     dropped = [i for i in ids if i not in keep]
     out = dict(doc)

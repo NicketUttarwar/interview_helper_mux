@@ -76,3 +76,28 @@ def test_sanitizer_applies_the_clamp_so_the_lint_passes(tmp_path: Path, monkeypa
     assert any(a.get("action") == "clamp_assets_to_cap" for a in res.actions)
     assert not any("exceeds cap" in e for e in _lint_sound_design_plan(res.doc, ctx))
     assert any(a["asset_id"] == f"a{cap + 1}" for a in res.doc["assets"])
+
+
+def test_clamp_keeps_one_asset_per_protected_role_before_cue_references() -> None:
+    doc = {
+        "assets": [
+            {"asset_id": "bed1", "role": "era_music_bed"},
+            {"asset_id": "bed2", "role": "era_music_bed"},
+            {"asset_id": "sting", "role": "chapter_stinger"},
+            {"asset_id": "outro", "role": "theme_outro"},
+            {"asset_id": "cold", "role": "theme_cold_open"},
+            {"asset_id": "x1", "role": "foley"},
+            {"asset_id": "x2", "role": "foley"},
+            {"asset_id": "x3", "role": "foley"},
+        ],
+        "flow_plans": {
+            "podcast": {
+                "cues": [{"cue_id": "c", "asset_id": "x3", "segment_id": "seg_1", "description": "d"}]
+            }
+        },
+    }
+    out, note = clamp_assets_to_cap(doc, 5)
+    ids = [a["asset_id"] for a in out["assets"]]
+    # One per protected role (bed1, sting, outro, cold), then the cue-referenced x3.
+    assert ids == ["bed1", "sting", "outro", "cold", "x3"]
+    assert note["dropped_assets"] == ["bed2", "x1", "x2"]

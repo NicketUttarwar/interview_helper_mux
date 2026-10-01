@@ -3830,6 +3830,33 @@ Tests: `tests/test_post_seal_writes_land_committed.py`.
 
 ---
 
+## [119] PRODUCT: the asset clamp dropped the outro theme; a failed prerequisite still dispatched its consumer
+
+**Stage / area:** `sound_design_caps.clamp_assets_to_cap`, `homunculus.agenda._run_seed_prerequisites_first`
+**Status:** fixed.
+
+exec_095 (fresh run on the code through entry 117): the plan's producer
+landed its plan under the soft freeze (entry 116) and the clamp (entry 114)
+trimmed 8 assets to 7, dropping the one no cue referenced: the outro theme.
+The pre-flush barrier then refused "creative delivery missing music
+role:theme_outro". The walk logged that the prerequisite had not landed and
+dispatched vo_synthesize anyway, which raised "Prerequisite stage
+vo_line_adjudicate is not complete" at error level, the same row every
+fresh run since exec_084 has carried, before the resume loop filled it.
+
+Fixes:
+- The clamp ranks the first asset of each protected role (the theme roles
+  the creative delivery check requires, and the roles that stand in for
+  them) above cue-referenced assets, then the rest.
+- A prerequisite that fails to land ahead of a stage is raised by the walk
+  as "Prerequisite stage X is not complete", in the words the walk's own
+  parser reads, instead of dispatching the consumer into the same wall.
+
+Tests: `tests/test_sdp_asset_cap_clamp.py` (protected roles),
+`tests/test_seed_prereqs_ahead.py` (raise before dispatch).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
