@@ -321,3 +321,6 @@ config/app.local.json
 # Windows shell metadata.
 Thumbs.db
 Desktop.ini
+
+# Machine-specific session notes for this debugging checkout; never shared.
+CLAUDE.md
