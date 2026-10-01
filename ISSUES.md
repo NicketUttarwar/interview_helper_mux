@@ -3524,6 +3524,23 @@ Tests: `tests/test_gui_notice_level.py`.
 
 ---
 
+## [109] PRODUCT: one malformed model reply was logged as a run error although the next attempt repaired it
+
+**Stage / area:** `stages.llm_runner` (parse of a model reply)
+**Status:** fixed.
+
+exec_066, `mastering_shape_candidates`: the model's first reply was not
+valid JSON ("Expecting ',' delimiter"), the runner's repair pass had a good
+reply six seconds later, and the stage finished. The parse failure was
+logged at error level, so the only error line in an otherwise clean run
+was an attempt the ladder had already handled.
+
+Fix: a single attempt's parse failure is a warning (still carrying the raw
+reply prefix, model id and attempt). A stage whose every attempt fails
+reports its own error as before.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
