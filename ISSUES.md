@@ -3541,6 +3541,29 @@ reports its own error as before.
 
 ---
 
+## [110] PRODUCT: a slow Chatterbox import was reported as a missing runtime, hard-stopping gap framing, and the answer was cached for the engine's life
+
+**Stage / area:** `synthesis_fallback.chatterbox_runtime_available`
+**Status:** fixed.
+
+exec_066 (fresh partial run, engine spawned by a freshly restarted server
+while the resume harness was copying a run on the same disk): gap framing
+hard-stopped with "Chatterbox runtime unavailable (venv or import check
+failed)". The venv was fine; the probe runs `python -c "import chatterbox"`
+with a 30 s timeout, importing chatterbox loads torch, the cold import on a
+busy disk took longer, and `TimeoutExpired` was folded into "unavailable".
+The result was then cached (`lru_cache`) for the whole engine process, so
+every later ask in that run got the same wrong answer. A first run on a
+cold server would see exactly this.
+
+Fix: the probe timeout is 180 s, a timeout counts as present (the
+synthesis call has its own budget and reports its own failure), and only
+a positive answer is cached; a miss is re-probed on the next ask.
+
+Tests: `tests/test_chatterbox_probe_timeout.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -39,15 +39,34 @@ def manual_fallback_enabled(cfg: dict[str, Any] | None = None) -> bool:
 
 
 def clear_chatterbox_runtime_cache() -> None:
-    _probe_chatterbox_runtime.cache_clear()
+    _probe_cache.clear()
+
+
+#: Importing chatterbox loads torch; a cold start on a busy disk takes well
+#: over the old 30 s. The synthesis call carries its own timeout, so the probe
+#: only has to answer "is the runtime there", not "is it fast".
+PROBE_TIMEOUT_SEC = 180
+
+_probe_cache: dict[str, bool] = {}
 
 
 def chatterbox_runtime_available() -> bool:
-    """True when local Chatterbox venv imports cleanly (cached per serve process)."""
-    return _probe_chatterbox_runtime()
+    """True when the local Chatterbox venv exists and imports cleanly.
+
+    A positive answer is cached for the process. A negative one is not: it is
+    re-probed on the next ask, so a transient (the venv's first import racing a
+    busy disk) cannot condemn a whole run. A probe timeout counts as present
+    (ISSUES 110: exec_066 hard-stopped gap framing on a 30 s import timeout
+    while the venv was fine, and the cached False stuck for the engine's life).
+    """
+    if _probe_cache.get("chatterbox") is True:
+        return True
+    ok = _probe_chatterbox_runtime()
+    if ok:
+        _probe_cache["chatterbox"] = True
+    return ok
 
 
-@functools.lru_cache(maxsize=1)
 def _probe_chatterbox_runtime() -> bool:
     try:
         from interview_mux.local_runtime import LocalRuntimeUnavailable, runtime_python
@@ -61,8 +80,11 @@ def _probe_chatterbox_runtime() -> bool:
             [str(py), "-c", "import chatterbox"],
             check=True,
             capture_output=True,
-            timeout=30,
+            timeout=PROBE_TIMEOUT_SEC,
         )
+        return True
+    except subprocess.TimeoutExpired:
+        # Slow is not absent: let the synthesis call decide with its own budget.
         return True
     except (subprocess.SubprocessError, OSError):
         return False
