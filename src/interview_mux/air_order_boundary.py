@@ -126,6 +126,15 @@ def _previous_selection(ctx: RunContext) -> dict[str, Any] | None:
     return dict(doc) if isinstance(doc, dict) else None
 
 
+def drop_blank_segments(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
+    """Exclude blank/unusable air ids (hard-keeps exempt; never empties the order).
+
+    Applied once before the freeze, at selection_order_sanitize (ISSUES 115),
+    and again after a refused order change under freeze.
+    """
+    return _drop_blank_segments_under_freeze(ctx, selection)
+
+
 def _drop_blank_segments_under_freeze(
     ctx: RunContext, selection: dict[str, Any]
 ) -> dict[str, Any]:

@@ -3715,6 +3715,45 @@ Tests: `tests/test_sdp_asset_cap_clamp.py`, `tests/test_run_verdict_recovered_er
 
 ---
 
+## [115] PRODUCT: a blank fragment reached the air order and was judged blank only at the EDL gate under hard freeze; the narrative constraints and the episode structure did not follow the order
+
+**Stage / area:** `air_order_boundary.commit_selection_mutation`, `selection_dependents`, `episode_structure`
+**Status:** fixed.
+
+exec_084 after the sound design plan: seg_007, a 3.2-second, 7-word fragment
+("Okay? Where the sensitivity, the specific"), had been ranked onto air. The
+EDL rendered it as a speech clip and passed QC; the EDL gate then ran its
+narrative pre-repair, whose blank-or-unusable predicate dropped seg_007 from
+the selection under the hard freeze, and the gate failed its own parity
+check ("speech clips do not match final selection"). The resume loop
+re-entered, the order change invalidated the lay-up plan and the sound
+design plan, and the run died on the plan's asset cap (entry 114).
+
+Upstream of that, the narrative plan carried a constraint over the same
+fragment ("seg_007 must appear before seg_004") that the committed order
+could not satisfy; the sound design plan's model refused with "rerun
+narrative_arc_plan", and the episode structure, also derived from the
+order, was stale, with the EDL gate's rewrite of it refused for ownership.
+
+Three rules:
+- A blank or unusable segment is excluded once, before the freeze, at
+  `selection_order_sanitize` (the existing predicate and helper, now
+  `drop_blank_segments`, applied to the sanitized order before its commit).
+  Hard-keeps are exempt as before; an order that would empty is left alone.
+  The EDL stage's "no selection blank handling" intent (its S1 to S5 peel)
+  holds again: the gate's pre-repair finds nothing to drop.
+- Narrative ordering constraints that contradict the committed order are
+  dropped or flipped by the reconcile (`rewrite_constraints_to_selection`,
+  under the ranking's freeze-safe metadata-align class, as `order_reconcile`
+  already did when invoked as a heal).
+- The episode structure is rebuilt on the committed order under its owner's
+  key when the order changes (`persist_structure` takes `stage_key`). The
+  build is deterministic.
+
+Tests: `tests/test_blank_segments_and_order_dependents.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

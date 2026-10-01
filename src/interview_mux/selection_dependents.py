@@ -2,8 +2,9 @@
 
 The selection (``master/selection.json``) is the air order. Several documents
 are derived from it and key on its ids or its order-lock revision: the nugget
-lay-up plan copies both, and the sound design plan anchors cues on segment
-ids. Until ISSUES 113 nothing reconciled them when the selection changed
+lay-up plan copies both, the sound design plan anchors cues on segment ids,
+the narrative plan carries ordering constraints over them, and the episode
+structure orders them (ISSUES 115 added the last two). Until ISSUES 113 nothing reconciled them when the selection changed
 under a seat freeze. A removal that the constitution permitted (an overlap
 union retiring an absorbed id, a junction omit, a remap) bumped the selection
 revision and left the lay-up plan one revision behind with a retired id in
@@ -174,6 +175,66 @@ def _reconcile_sound_design_plan(
     notes.append(f"sdp_cues_reanchored:{len(cue_notes)}" if landed else "sdp_reanchor_skipped")
 
 
+def _reconcile_narrative_constraints(ctx: RunContext, notes: list[str], *, current_ids: list[str]) -> None:
+    """Drop or flip narrative ordering constraints that contradict the committed order.
+
+    The selection is authoritative once committed (ISSUES 115): a constraint
+    the ranking could not honour otherwise reaches the sound design plan as a
+    "rerun narrative_arc_plan" refusal and the EDL gate as a QC failure.
+    Writes under the ranking's freeze-safe metadata-align class, as
+    ``order_reconcile`` does.
+    """
+    if not ctx.artifact_exists("master/narrative_plan.json"):
+        return
+    try:
+        plan = ctx.read_json("master/narrative_plan.json")
+    except Exception:
+        return
+    if not isinstance(plan, dict):
+        return
+    from interview_mux.order_reconcile import material_order_conflicts, rewrite_constraints_to_selection
+
+    if not material_order_conflicts(current_ids, plan):
+        return
+    rewritten, rewrite_notes = rewrite_constraints_to_selection(plan, current_ids)
+    if not rewrite_notes:
+        return
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(
+        ctx,
+        "master/narrative_plan.json",
+        rewritten,
+        stage_key="full_master_ranking",
+        mutation_class="narrative_metadata_align",
+    )
+    notes.append(f"narrative_constraints_rewritten:{len(rewrite_notes)}")
+
+
+def _reconcile_episode_structure(ctx: RunContext, notes: list[str]) -> None:
+    """Rebuild the episode structure on the committed order, under its owner.
+
+    The structure's segment order is derived from the selection; a stale one
+    made the sound design plan refuse ("places seg_007 before seg_005") while
+    the EDL gate's rewrite of it was refused for ownership (ISSUES 115). The
+    build is deterministic, so the owner's key is presented here.
+    """
+    from interview_mux.episode_structure import (
+        STRUCTURE_PATH,
+        build_episode_structure,
+        persist_structure,
+        structure_enabled,
+    )
+
+    if not structure_enabled() or not ctx.artifact_exists(STRUCTURE_PATH):
+        return
+    doc = build_episode_structure(ctx, refresh=True)
+    persist_structure(
+        ctx, doc, stage="episode_structure_compose", stage_key="episode_structure_compose"
+    )
+    notes.append("episode_structure_refreshed")
+
+
 def reconcile_selection_dependents(
     ctx: RunContext,
     *,
@@ -194,7 +255,11 @@ def reconcile_selection_dependents(
     try:
         _reconcile_layup_plan(ctx, notes)
     except Exception as exc:  # noqa: BLE001 - never fail the commit for paperwork
-        notes.append(f"layup_plan_reconcile_error:{type(exc).__name__}")
+        notes.append(f"layup_plan_reconcile_error:{type(exc).__name__}:{str(exc)[:120]}")
+    try:
+        _reconcile_narrative_constraints(ctx, notes, current_ids=current_ids)
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"narrative_reconcile_error:{type(exc).__name__}:{str(exc)[:120]}")
     if previous_ids and previous_ids != current_ids:
         try:
             _reconcile_sound_design_plan(
@@ -202,6 +267,10 @@ def reconcile_selection_dependents(
             )
         except Exception as exc:  # noqa: BLE001
             notes.append(f"sdp_reconcile_error:{type(exc).__name__}")
+        try:
+            _reconcile_episode_structure(ctx, notes)
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"episode_structure_reconcile_error:{type(exc).__name__}:{str(exc)[:120]}")
     if notes:
         try:
             ctx.log(
