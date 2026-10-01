@@ -3917,6 +3917,30 @@ for every other prerequisite. Both checks now read the same rule.
 
 ---
 
+## [122] PRODUCT: a duplicated asset row in the sound design plan made the prompt craft fail its own barrier on every pass
+
+**Stage / area:** `artifact_sanitize.sound_design_plan`, `sdp_cross_validate`
+**Status:** fixed.
+
+exec_096 and exec_098 (fresh runs on the final code): the plan carried the
+outro asset twice (`show_theme_v1_full_bed_close`, 8 rows, 7 distinct ids).
+`sfx_prompt_craft` writes one prompt per distinct id (7); the pre-flush
+check compared 7 prompts with 8 asset rows and refused "fewer prompts than
+SDP assets", the stage's attempt to sync the plan was refused under the
+hard freeze, the marker was cleared as "pending_only", and the conductor
+exited after the attempt memo with sfx_prompt_craft remaining. Nothing in
+the run could change the plan's row count at that point.
+
+Fixes:
+- The plan sanitizer drops duplicate asset ids (first row wins) before the
+  cap clamp, so the plan on disk never carries the duplicate.
+- The cross-validate compares prompts with distinct asset ids, so a
+  duplicate that reached disk through another path cannot trip it.
+
+Tests: `tests/test_sdp_duplicate_assets.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -120,6 +120,18 @@ def sanitize_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             new_p.append(pal)
         out["palettes"] = new_p
 
+    # Duplicate asset ids (ISSUES 122): the model repeats an asset row often
+    # enough that the prompt craft, which writes one prompt per id, can never
+    # match the row count the pre-flush check compares against. First row wins.
+    try:
+        from interview_mux.sound_design_caps import dedupe_assets
+
+        out, dedupe = dedupe_assets(out)
+        if dedupe:
+            actions.append(dedupe)
+    except Exception:
+        pass
+
     # Asset cap (ISSUES 114): the barrier refuses a plan over the cap, so the
     # plan on disk never exceeds it. Cue-referenced assets outrank the rest.
     try:

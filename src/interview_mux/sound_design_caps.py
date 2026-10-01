@@ -68,6 +68,29 @@ PROTECTED_ROLES: frozenset[str] = frozenset(
 )
 
 
+def dedupe_assets(doc: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Keep the first row of each asset id. Pure; note or None (ISSUES 122)."""
+    assets = doc.get("assets")
+    if not isinstance(assets, list):
+        return doc, None
+    seen: set[str] = set()
+    kept: list[Any] = []
+    dropped: list[str] = []
+    for a in assets:
+        aid = str(a.get("asset_id") or "").strip() if isinstance(a, dict) else ""
+        if aid and aid in seen:
+            dropped.append(aid)
+            continue
+        if aid:
+            seen.add(aid)
+        kept.append(a)
+    if not dropped:
+        return doc, None
+    out = dict(doc)
+    out["assets"] = kept
+    return out, {"action": "dedupe_assets", "dropped_duplicates": dropped}
+
+
 def clamp_assets_to_cap(doc: dict[str, Any], cap: int) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Trim ``assets`` to ``cap`` distinct ids and drop cues that used the rest.
 
