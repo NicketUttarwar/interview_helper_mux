@@ -3887,6 +3887,28 @@ Tests: `tests/test_audit_transition_vo_coverage.py`.
 
 ---
 
+## [121] PRODUCT: the walk skipped vo_line_adjudicate as a prerequisite when G1 was not pending, but the VO stage's gate still demanded it
+
+**Stage / area:** `homunculus.runtime._seed_prereq_block`
+**Status:** fixed.
+
+Every fresh run since exec_084 carried "Prerequisite stage vo_line_adjudicate
+is not complete" (exec_096 again, with every other prerequisite landed
+ahead). The walk's prerequisite check and the stage's own gate both start
+from the earliest incomplete seed stage, but the walk added an exception
+for the adjudication stage: skip it when the G1 gate is not pending. The
+stage gate (`maybe_require_upstream_llm_progress`) consults only the
+ordering authority (entry 62) and has no such exception, so the walk
+dispatched vo_synthesize straight into the gate's refusal, and the resume
+loop ran the adjudication afterwards.
+
+Fix: the walk clears the block only when adjudication is sealed and
+seed-complete (the seal helper still marks a stale stamp done when G1 is
+green and the WAVs are fresh); otherwise it runs the stage ahead, as it does
+for every other prerequisite. Both checks now read the same rule.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
