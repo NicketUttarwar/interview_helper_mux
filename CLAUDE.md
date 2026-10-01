@@ -83,8 +83,12 @@ Engine proofs (2026-09-30): `exec_062` full-auto through the GUI path, 72 of
 72, 4.3-minute master from the 6-minute clip (entries 84, 85). `exec_063`
 partially-accelerated through the GUI endpoints, 72 of 72 after entries 94
 to 98 were fixed along the way (the engine was restarted three times on the
-same run; each restart re-verified analysis in about 10 s). Stage cache
-(entry 93) lives at `C:\mux-local\stage_cache` here.
+same run; each restart re-verified analysis in about 10 s). `exec_065`
+(2026-10-01) the same path on the latest code, 72 of 72, found entries 102
+to 104 and 108. Stage cache (entry 93) lives at `C:\mux-local\stage_cache`
+here. The resume harness (entry 105, `tools/resume_harness.py`) rewinds a
+completed run to each phase boundary and kills the engine mid-stage; its
+boundaries preset found entries 111 and 112.
 
 Ordering exceptions ("may X run before Y is complete") live only in
 `src/interview_mux/ordering_authority.py` (entry 62). Add new ones there; a
@@ -94,6 +98,19 @@ Whether a segment may come off air is decided only in
 `src/interview_mux/removal_authority.py` (entry 74), at the two write points
 (air-order commit, NLE exclude). Local hard-keep guards are early exits, not
 the decision.
+
+Documents derived from the selection (the lay-up plan, the sound design plan's
+cue anchors) follow every selection commit in one place,
+`src/interview_mux/selection_dependents.py` (entry 113), called from the
+selection's single write point. Do not add per-stage carve-outs for "the plan
+is stale after an omit"; extend the reconcile. A remap stage's writes on remap
+paths must declare `mutation_class="segment_id_remap"`; a static test sweeps
+for it.
+
+A run is complete (Partial DONE) only when the package stage's marker exists
+and the package is no newer than the master it was cut from (entries 111,
+112). Ship stages whose outputs predate the master run again; ones whose
+outputs are current but unmarked after a re-entry get their markers back.
 
 Two diagnostics when a run stops somewhere new: `MUX_TRACE_WRITES=1` records
 every manifest/boundaries write with stage and caller frames to
