@@ -4405,6 +4405,58 @@ def _brief_remap_permitted(ctx: Any) -> bool:
     return False
 
 
+def persist_segment_id_remap(ctx: Any, rel: str, doc: dict[str, Any]) -> bool:
+    """Land a split's id remap on ``rel`` under a key the ownership table accepts.
+
+    A split renames a parent segment to its children everywhere the id is
+    stored. The stage doing the split (ranking's CTA recut, an NLE split)
+    rarely owns all of those documents: on the one-hour source the remap of
+    ``understanding/gap_evaluations.json`` from ``full_master_ranking`` was
+    refused, which left the evaluations keyed by a segment that no longer
+    exists (ISSUES 129). Ask the table first: the active stage as it is,
+    then the active stage declaring the integrity-only mutation class, then
+    the document's owner with that class. An id remap changes no judgement,
+    so presenting the owner is the same rule the transitions and gap report
+    remaps already follow (ISSUES 101). Returns True when the write ran.
+    """
+    from interview_mux.artifact_ownership import owner_of, write_permitted
+    from interview_mux.write_staging import active_stage_id
+
+    active = str(active_stage_id() or "").strip()
+    if not active:
+        ctx.write_json(rel, doc, skip_handoff=True)
+        return True
+    candidates: list[tuple[str, str | None]] = [(active, None), (active, "segment_id_remap")]
+    owner = str(owner_of(rel) or "").strip()
+    if owner and owner != active:
+        candidates += [(owner, "segment_id_remap"), (owner, None)]
+    for key, mutation in candidates:
+        try:
+            ok, _why = write_permitted(
+                ctx, rel, key, role="producer", verb="persist", mutation_class=mutation
+            )
+        except Exception:
+            ok = False
+        if not ok:
+            continue
+        kw: dict[str, Any] = {"skip_handoff": True, "stage_key": key}
+        if mutation:
+            kw["mutation_class"] = mutation
+        ctx.write_json(rel, doc, **kw)
+        return True
+    try:
+        ctx.log(
+            f"segment id remap not landed on {rel}: no key accepted "
+            f"(active {active}, owner {owner or 'unknown'})",
+            level="warning",
+            stage=active,
+            detail={"event": "segment_id_remap_refused", "path": rel, "owner": owner},
+        )
+    except Exception:
+        pass
+    return False
+
+
 def propagate_nle_split_segment_refs(
     ctx: Any,
     parent_id: str,
@@ -4465,8 +4517,8 @@ def propagate_nle_split_segment_refs(
                         changed = True
             if changed:
                 repaired, _ = repair_coverage_audit(ctx, audit)
-                ctx.write_json("master/coverage_audit.json", repaired, skip_handoff=True)
-                updated.append("master/coverage_audit.json")
+                if persist_segment_id_remap(ctx, "master/coverage_audit.json", repaired):
+                    updated.append("master/coverage_audit.json")
 
     if ctx.artifact_exists("master/narrative_plan.json"):
         plan = ctx.read_json("master/narrative_plan.json")
@@ -4493,8 +4545,8 @@ def propagate_nle_split_segment_refs(
                         changed = True
             if changed:
                 enriched = enrich_narrative_plan_for_persist(ctx, plan)
-                ctx.write_json("master/narrative_plan.json", enriched, skip_handoff=True)
-                updated.append("master/narrative_plan.json")
+                if persist_segment_id_remap(ctx, "master/narrative_plan.json", enriched):
+                    updated.append("master/narrative_plan.json")
 
     if ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")
@@ -4575,8 +4627,8 @@ def propagate_nle_split_segment_refs(
                     row["segment_id"] = child_ids[0]
                     changed = True
             if changed:
-                ctx.write_json("understanding/gap_evaluations.json", ge, skip_handoff=True)
-                updated.append("understanding/gap_evaluations.json")
+                if persist_segment_id_remap(ctx, "understanding/gap_evaluations.json", ge):
+                    updated.append("understanding/gap_evaluations.json")
 
     return updated
 

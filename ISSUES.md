@@ -4244,6 +4244,85 @@ Tests: `tests/test_unspeakable_required_line_released.py` (6).
 
 ---
 
+## [129] PRODUCT: a split's id remap of `gap_evaluations.json` was refused from `full_master_ranking` (exec_102, one-hour source)
+
+**Stage / area:** `artifact_repairs.propagate_nle_split_segment_refs`
+**Status:** fixed.
+
+**Symptom:** twice during ranking on the one-hour source,
+`side-effect write skipped: understanding/gap_evaluations.json is not
+full_master_ranking's to write (owner missing_framing)`. The ledger's caller
+frames (entry 128) name the site: `propagate_nle_split_segment_refs`, once
+from the NLE split and once from the CTA recut. Before entry 127 the same
+write raised `AuthorityDenied`, which logged an error line and counted
+toward a no-heal halt against ranking; after it, the write is skipped
+quietly. Neither is right: the evaluations stay keyed by a parent segment
+that no longer exists.
+
+**Cause:** the function renames a split parent to its children in every
+document that stores the id. Transitions and the gap report already present
+their owner's key for this (entry 101). Three other documents were written
+unkeyed, as whichever stage was active: the coverage audit, the narrative
+plan, and the gap evaluations. The six-minute clip has no CTA recut and no
+split during ranking, so it never took the path.
+
+**Fix:** `persist_segment_id_remap(ctx, rel, doc)` asks the table which key
+may write: the active stage, then the active stage declaring
+`segment_id_remap`, then the document's owner with that class. An id remap
+changes no judgement, so presenting the owner is the rule already in use
+for transitions and the gap report. When no key is accepted it logs a
+warning and returns False instead of raising. The three unkeyed writes now
+go through it.
+
+Tests: `tests/test_segment_id_remap_owner_key.py` (5).
+
+---
+
+## [130] PRODUCT: edl refused "NLE operator edits not committed on disk selection" with no operator and no exit (exec_102, one-hour source)
+
+**Stage / area:** `nle_state.apply_nle_to_selection`, `stages.assembly.run_edl`
+**Status:** fixed.
+
+**Symptom:** delivery halted at `edl` with `SystemExit: edl: NLE operator
+edits not committed on disk selection` (the message goes on to say the NLE
+must land through the selection owner first), again on the resume, and
+again on the second wind. No error-level line
+is logged (it is a halt, not a failure), no stage can act on it, and the run
+has no operator at the timeline.
+
+**Cause:** `split_segment_at_cuts` seeds `sequence_order` from the whole
+manifest when no operator order exists, so the timeline keeps children at
+their parent's position. `nle_has_operator_edits` is true for any non-empty
+order, and `apply_nle_to_selection` then has to tell that mirrored spine
+from a real reorder. Its test was length: ignore the order when it covers
+every on-air id and is at least 1.25 times as long. On the one-hour source
+68 manifest ids against 60 on air is 1.13, so the spine was taken for an
+operator reorder. At ranking it overrode the ranked order with source
+order; later selection writers restored theirs; edl compared the two and
+refused. The six-minute clip airs a small share of its manifest, so it
+always passed the ratio.
+
+**Fix:**
+
+- **A spine is recognised by what it is.** `is_source_spine`: the order
+  covers every on-air id and runs in source order (by `start_ms`, children
+  included). That is no reorder and is ignored for ordering; exclude and
+  split overlays still apply. The length rule stays for the cases it
+  catches. A subset in source order, or an order with an unknown start
+  time, is not called a spine, and a real full-cover reorder is still
+  honoured.
+- **An engine-driven run has an exit.** When the NLE order and the disk
+  selection hold the same segments in a different order and the run is
+  driven by the engine (full-auto or partially-accelerated), edl builds from
+  the committed selection, which is the air-order authority the stage's own
+  comment names, and logs a warning with the count of differing positions.
+  Different segment sets still refuse, and a manual run keeps the refusal:
+  there the operator can land the timeline through the selection owner.
+
+Tests: `tests/test_nle_source_spine_is_not_a_reorder.py` (8).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

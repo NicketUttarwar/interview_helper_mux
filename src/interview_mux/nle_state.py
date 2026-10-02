@@ -316,6 +316,14 @@ def apply_nle_to_selection(
         long_dump = len(order) >= max(len(base_order) + 1, int(len(base_order) * 1.25))
         if full_cover and long_dump:
             operator_moved = []
+        # The length test above misses the same spine when most of the source
+        # airs: 68 manifest ids against 60 on air is under the 1.25 ratio, so
+        # the mirrored spine was taken for an operator reorder, overrode the
+        # ranking order, and edl then refused a selection that "did not carry
+        # the operator's edits" (ISSUES 130). What makes it a spine is not
+        # its length: it covers every on-air id and runs in source order.
+        elif full_cover and is_source_spine(moved_in_base, segments_by_id):
+            operator_moved = []
 
     if operator_moved:
         # Overlay: keep app relative order for untouched ids; splice operator
@@ -406,6 +414,28 @@ def apply_nle_to_selection(
         "excluded_ids": sorted(excluded_ids),
     }
     return result
+
+
+def is_source_spine(
+    ids: list[str], segments_by_id: dict[str, dict[str, Any]] | None
+) -> bool:
+    """True when ``ids`` run in source order: the manifest spine, not a reorder.
+
+    ``split_segment_at_cuts`` seeds ``sequence_order`` from the whole manifest
+    when no operator order exists, so the timeline keeps children at their
+    parent's position. That list says nothing about what the operator wants
+    on air. An unknown start time means the claim cannot be made.
+    """
+    if not segments_by_id or len(ids) < 2:
+        return False
+    starts: list[int] = []
+    for sid in ids:
+        row = segments_by_id.get(sid) or {}
+        try:
+            starts.append(int(row["start_ms"]))
+        except (KeyError, TypeError, ValueError):
+            return False
+    return all(a <= b for a, b in zip(starts, starts[1:]))
 
 
 def segments_by_id_with_nle(ctx: RunContext) -> dict[str, dict[str, Any]]:

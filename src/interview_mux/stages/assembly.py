@@ -101,6 +101,51 @@ def nle_committed_on_disk(
     return True
 
 
+def _selection_stands_over_nle_order(
+    ctx: RunContext, disk_order: list[str], nle_order: list[str]
+) -> bool:
+    """Whether edl may build from the disk order although the NLE order differs.
+
+    Only when the two orders hold the same segments (so nothing the NLE
+    excludes or splits is missing from the selection) and the run is driven
+    by the engine. The refusal tells an operator to land the timeline through
+    the selection owner; an engine-driven run has no operator at the
+    timeline, no stage that could do it, and the selection was committed by
+    stages that ran after whatever wrote the NLE order, so the halt had no
+    exit (exec_102 stopped here three times, second wind included). A manual
+    run keeps the refusal.
+    """
+    if not disk_order or set(disk_order) != set(nle_order) or len(disk_order) != len(nle_order):
+        return False
+    try:
+        from interview_mux.automation_run import (
+            automation_driver_env_enabled,
+            automation_driver_run,
+        )
+
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        driven = bool(automation_driver_env_enabled()) or bool(
+            automation_driver_run(meta if isinstance(meta, dict) else {})
+        )
+    except Exception:
+        driven = False
+    if not driven:
+        return False
+    moved = sum(1 for a, b in zip(disk_order, nle_order) if a != b)
+    ctx.log(
+        "edl: the NLE sequence order differs from the committed selection "
+        f"({moved} of {len(disk_order)} positions); the selection is the air order",
+        level="warning",
+        stage="edl",
+        detail={
+            "event": "selection_stands_over_nle_order",
+            "disk_head": disk_order[:8],
+            "nle_head": nle_order[:8],
+        },
+    )
+    return True
+
+
 def _segment_by_id(ctx: RunContext) -> dict[str, dict]:
     return segments_by_id_with_nle(ctx)
 
@@ -1446,11 +1491,18 @@ def run_edl(ctx: RunContext) -> None:
                 str(s) for s in (preview.get("ordered_segment_ids") or []) if s
             ]
             if not nle_committed_on_disk(disk_order, nle_order, disk_selection):
-                raise SystemExit(
-                    "edl: NLE operator edits not committed on disk selection — "
-                    "land NLE via selection owner before edl "
-                    f"(disk={disk_order[:8]} nle={nle_order[:8]})"
-                )
+                if not _selection_stands_over_nle_order(ctx, disk_order, nle_order):
+                    raise SystemExit(
+                        "edl: NLE operator edits not committed on disk selection; "
+                        "land NLE via selection owner before edl "
+                        f"(disk={disk_order[:8]} nle={nle_order[:8]})"
+                    )
+                # Same segments, different order, nobody at the timeline: the
+                # committed selection is the air order (ISSUES 130). Keep the
+                # NLE's non-order overlays, drop its order.
+                preview = dict(preview)
+                preview["ordered_segment_ids"] = list(disk_order)
+                nle_order = list(disk_order)
             selection = preview
             ctx.log(
                 f"EDL: NLE already on disk selection — {len(nle_order)} segments.",
