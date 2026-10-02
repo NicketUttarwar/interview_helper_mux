@@ -80,6 +80,40 @@ def _collapse_overlapping_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
     return out2
 
 
+#: Exclusion reasons written by the selection sanitizer's own lattice steps.
+LATTICE_DROP_REASONS: frozenset[str] = frozenset(
+    {"cap_same_family_on_air", "sanitize_duplicate_source_span"}
+)
+
+
+def lattice_dropped_ids(ctx: RunContext) -> set[str]:
+    """Ids the committed selection excludes for a lattice reason.
+
+    The family cap keeps at most ``max_same_family_on_air`` children of one
+    parent on air and prefers hard keeps when it chooses. The transferred
+    keep list is cut to the same budget, but from the whole admitted story
+    set, so the two can pick different members: on the one-hour source an
+    overlap union folded seg_002h into seg_002g, the keep list's eighth slot
+    moved to seg_002i, which the cap had excluded, and every later selection
+    commit was refused with ``hard_keep_missing_from_order:seg_002i``.
+    """
+    if not ctx.artifact_exists("master/selection.json"):
+        return set()
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for row in (sel or {}).get("excluded_segment_ids") or [] if isinstance(sel, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("reason") or "") in LATTICE_DROP_REASONS:
+            sid = str(row.get("segment_id") or "")
+            if sid:
+                out.add(sid)
+    return out
+
+
 def _blank_excluded_ids(ctx: RunContext) -> set[str]:
     """IDs already dropped as blank/unusable — delegates to playability SSOT."""
     try:
@@ -257,7 +291,11 @@ def hard_keep_segment_ids(
         # Parent hard-keep transfers onto the keepable recut remainder —
         # but only one representative per overlapping source span / family budget.
         if story and (ids & banned):
-            ids |= _collapse_overlapping_keeps(ctx, set(story))
+            # A child the selection lattice itself took off air (family cap,
+            # duplicate source span) is not part of the transfer: the lattice
+            # ruled on the family with the keeps in hand, and the transfer
+            # must not hand its ruling back as a demand (ISSUES 132).
+            ids |= _collapse_overlapping_keeps(ctx, set(story) - lattice_dropped_ids(ctx))
         ids -= banned
     except Exception:
         pass

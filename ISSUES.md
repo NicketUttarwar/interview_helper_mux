@@ -4323,6 +4323,76 @@ Tests: `tests/test_nle_source_spine_is_not_a_reorder.py` (8).
 
 ---
 
+## [131] PRODUCT: the walk dispatched `mix` into its own refusal instead of running `junction_snip_qa` first (exec_102, one-hour source)
+
+**Stage / area:** `homunculus.agenda._run_seed_prerequisites_first`
+**Status:** fixed.
+
+**Symptom:** `incomplete_cut_unresolved: Mix refused: live incomplete-cut
+residuals on_a_roll` (seg_056, seg_057), `Failed: Stage mix`, the recovery
+playbook pinning `junction_snip_qa`, and the delivery pass ending FAIL before
+the resume did what the refusal said. Two error lines on a path that is the
+designed order.
+
+**Cause:** the order is already decided in one place: `junction_precedes_mix`
+says junction runs ahead of the first mix when the live EDL carries critical
+incomplete-cut residuals, and `ordering_authority` exempts junction from the
+seed order for exactly that. Nothing asked before dispatching mix. The walk
+found out from mix's loud failure, the same shape as entries 106, 119 and
+121. Residuals of this kind need a long timeline with mid-thought joins; the
+six-minute clip produced none.
+
+**Fix:** `_junction_owes_recut_before_mix` reads the two rules the stages
+themselves use, mix's refusal (`live_incomplete_cut_critical_findings`) and
+the ordering exemption for junction ahead of mix. When both hold, the walk
+runs `junction_snip_qa` before `mix`, once per walk, under the seed order's
+demand (entry 127). A junction failure is raised as the prerequisite failure
+in the words the walk's parser understands. Without the exemption junction
+is not sent ahead, since its dispatch would only refuse on the seed order.
+
+Tests: `tests/test_junction_runs_ahead_of_mix.py` (7).
+
+---
+
+## [132] PRODUCT: the transferred keep list demanded a child the family cap had taken off air (exec_102, one-hour source)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids`
+**Status:** fixed.
+
+**Symptom:** with junction running ahead of mix (entry 131), its ladder
+omitted one hanging clip and remastered, then `Junction remediation run 1
+could not remaster: sanitize_refused:selection:
+hard_keep_missing_from_order:seg_002i`, `Failed: Stage junction_snip_qa`.
+
+**Cause:** seg_002 is a hard keep and a CTA parent, split into twelve
+children, ten of them admitted story. Two places cut that family to the
+same budget (`max_same_family_on_air`, 8) from different inputs:
+
+- the selection sanitizer's family cap works on what is on air and prefers
+  hard keeps: it aired a to h and excluded i and j
+  (`cap_same_family_on_air`);
+- the keep transfer in `hard_keep_segment_ids` works on the whole admitted
+  story set, collapses overlapping spans, then takes the first eight.
+
+They agreed until an overlap union folded seg_002h into seg_002g. The
+transfer then collapsed g and h into one, its eighth slot moved to
+seg_002i, and the keep list demanded a segment the cap had excluded. The
+lattice lint (`hard_keep_missing_from_order`) is critical, so every later
+selection commit was refused, here junction's. The six-minute clip has no
+twelve-way split.
+
+**Fix:** a child the committed selection excludes for a lattice reason
+(`cap_same_family_on_air`, `sanitize_duplicate_source_span`) is left out of
+the transfer (`lattice_dropped_ids`). The lattice ruled on the family with
+the keeps in hand; the transfer must not hand that ruling back as a demand.
+A child excluded for any other reason is still a transferred keep, so a
+wrongful drop is still refused, and with no selection on disk every story
+child is still offered to ranking.
+
+Tests: `tests/test_hard_keep_transfer_respects_family_cap.py` (5).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

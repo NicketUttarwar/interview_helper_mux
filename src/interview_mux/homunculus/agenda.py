@@ -2256,6 +2256,36 @@ def _run_seed_prerequisites_first(
     if stage not in DELIVERY_ORDER:
         return []
     ran: list[str] = []
+    if stage == "mix" and _junction_owes_recut_before_mix(ctx, retried):
+        # Mix refuses while the live EDL carries critical incomplete-cut
+        # residuals and names junction_snip_qa as the owner. The walk used to
+        # learn that from the refusal: an error line, "Failed: Stage mix", a
+        # recovery playbook, a failed delivery pass (ISSUES 131). Ask the same
+        # check first and run the owner ahead.
+        retried.add("junction_snip_qa")
+        ctx.log(
+            "seed walk: running junction_snip_qa before mix "
+            "(live incomplete-cut residuals need recut, fuse or omit)",
+            level="info",
+            stage="mix",
+            detail={"event": "seed_prereq_ahead", "prereq": "junction_snip_qa"},
+        )
+        try:
+            if ctx.is_done("junction_snip_qa"):
+                unmark_stage_only(ctx, "junction_snip_qa")
+            _run_demanded_prereq(ctx, "junction_snip_qa", stage, run_stage)
+        except Exception as exc:  # noqa: BLE001 - re-raised as the stage's prerequisite failure
+            ctx.log(
+                f"seed walk: junction_snip_qa did not land ahead of mix: "
+                f"{type(exc).__name__}: {str(exc)[:160]}",
+                level="warning",
+                stage="mix",
+            )
+            raise SeedPrerequisiteFailed(
+                f"Prerequisite stage junction_snip_qa is not complete ahead of mix: "
+                f"{type(exc).__name__}: {str(exc)[:200]}"
+            ) from exc
+        ran.append("junction_snip_qa")
     for _ in range(len(DELIVERY_ORDER)):
         try:
             blocked = _seed_prereq_block(ctx, stage)
@@ -2296,6 +2326,28 @@ def _run_seed_prerequisites_first(
 
 class SeedPrerequisiteFailed(RuntimeError):
     """A prerequisite the walk ran ahead of a stage did not land (ISSUES 119)."""
+
+
+def _junction_owes_recut_before_mix(ctx: RunContext, retried: set[str]) -> bool:
+    """Whether mix would refuse for live incomplete-cut residuals junction may fix now.
+
+    Reads the two rules the stages themselves use: mix's refusal
+    (``live_incomplete_cut_critical_findings``) and the ordering exemption
+    that lets junction run while mix is incomplete (entry 62). Both must
+    hold; if junction may not run ahead, dispatching it would only trade one
+    refusal for another. Once per walk.
+    """
+    if "junction_snip_qa" in retried:
+        return False
+    try:
+        from interview_mux.junction_snip_qa import live_incomplete_cut_critical_findings
+        from interview_mux.ordering_authority import ordering_exempt
+
+        if not live_incomplete_cut_critical_findings(ctx):
+            return False
+        return bool(ordering_exempt(ctx, "junction_snip_qa", "mix"))
+    except Exception:
+        return False
 
 
 def _run_demanded_prereq(ctx: RunContext, prereq: str, consumer: str, run_stage: Any) -> None:
