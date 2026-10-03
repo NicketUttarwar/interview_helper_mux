@@ -4854,8 +4854,26 @@ survivor spans the source rows it absorbed (its own row and every
 `fused_from` id still in the document). Any other row keeps its own source
 times.
 
-Tests: `tests/test_fuse_keeps_source_spans.py` (2; both fail on the unfixed
-code with the trimmed span, `(340000, 400000)` instead of `(100000, 400000)`).
+**Guard for the class:** any writer can narrow or drop source rows. Today that
+means connector fuse, resplit, the chapter-close hitch and overlap repair, and
+any future one. `RunContext.write_json` now passes every write of
+`segments/boundaries.json` through
+`boundary_coverage_guard.preserve_speech_coverage`. It compares the transcript
+words the map on disk covers with the words the new map covers. If a stretch
+of at least 8 words and 3 s of speech would become uncovered, it acts:
+- A row that still exists is widened back over its own source span, inside
+  the gap.
+- A dropped row is restored, clipped to the gap.
+
+It logs `boundary_speech_coverage_preserved`. Edge nudges below that size
+pass through unchanged. The fresh map from `boundary_detection` is the
+model's output and is not compared. With the original fuse writer restored,
+the guard alone keeps the 100-400 s span in the run-7 shape.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (6). The two writer tests fail
+on the unfixed code with the trimmed span, `(340000, 400000)` instead of
+`(100000, 400000)`. The two any-writer tests (narrowed row, dropped row) fail
+without the guard.
 
 ---
 

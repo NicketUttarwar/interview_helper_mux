@@ -89,3 +89,78 @@ def test_unfused_rows_keep_their_source_times(ctx) -> None:
     ]
     _write_boundaries(ctx, surviving, consumed=set(), pass_id="post_sanitize")
     assert _bounds(ctx)["seg_001"] == (0, 100_000)
+
+
+# The family: any rewrite of the source map that would uncover speech it covered.
+
+
+def _speech(ctx, until_ms: int = 500_000) -> None:
+    words = [
+        {"text": "word", "start_ms": t, "end_ms": t + 400, "speaker_id": "spk_1", "confidence": 0.9}
+        for t in range(0, until_ms, 500)
+    ]
+    dest = ctx.final_path("transcript", "full.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps({"text": "", "words": words, "segments": []}), encoding="utf-8")
+
+
+def _write(ctx, rows, writer: str) -> None:
+    ctx.write_json("segments/boundaries.json", {"boundaries": rows}, stage_key=writer)
+
+
+def test_any_writer_narrowing_a_row_keeps_its_speech(ctx) -> None:
+    _speech(ctx)
+    _write(
+        ctx,
+        [
+            _row("seg_001", 0, 100_000),
+            _row("seg_002", 340_000, 400_000, fused_from=["seg_002", "seg_003"]),
+            _row("seg_004", 400_000, 450_000),
+            _row("seg_005", 450_000, 500_000),
+        ],
+        "chapter_close_hitch",
+    )
+    assert _bounds(ctx)["seg_002"] == (100_000, 400_000)
+
+
+def test_any_writer_dropping_a_row_keeps_its_speech(ctx) -> None:
+    _speech(ctx)
+    _write(
+        ctx,
+        [_row("seg_001", 0, 100_000), _row("seg_002", 100_000, 400_000), _row("seg_005", 450_000, 500_000)],
+        "boundary_topic_resplit",
+    )
+    b = _bounds(ctx)
+    assert b["seg_004"] == (400_000, 450_000)
+
+
+def test_a_fresh_detection_map_is_not_second_guessed(ctx) -> None:
+    _speech(ctx)
+    _write(ctx, [_row("seg_001", 0, 100_000), _row("seg_002", 100_000, 400_000)], "boundary_detection")
+    assert set(_bounds(ctx)) == {"seg_001", "seg_002"}
+
+
+def test_an_edge_nudge_of_a_few_words_is_left_alone(ctx) -> None:
+    _speech(ctx)
+    _write(
+        ctx,
+        [
+            _row("seg_001", 0, 101_500),
+            _row("seg_002", 101_500, 400_000, fused_from=["seg_002", "seg_003"]),
+            _row("seg_004", 400_000, 450_000),
+            _row("seg_005", 450_000, 500_000),
+        ],
+        "connector_fuse_pass",
+    )
+    assert _bounds(ctx)["seg_002"] == (101_500, 400_000)
+    _write(
+        ctx,
+        [
+            _row("seg_001", 0, 100_000),
+            _row("seg_002", 102_000, 400_000, fused_from=["seg_002", "seg_003"]),
+            _row("seg_004", 400_000, 450_000),
+            _row("seg_005", 450_000, 500_000),
+        ],
+        "connector_fuse_pass",
+    )
+    assert _bounds(ctx)["seg_002"] == (102_000, 400_000)
