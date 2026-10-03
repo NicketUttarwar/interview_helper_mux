@@ -1028,7 +1028,12 @@ def clear_pending_approval(ctx: RunContext, stage_id: str) -> None:
 def _staging_lock(ctx: RunContext, stage_id: str) -> FileLock:
     root = staging_root(ctx, stage_id)
     root.mkdir(parents=True, exist_ok=True)
-    return FileLock(lock_path_for(root / ".staging.lock"))
+    # The staging root's .write.lock is also the file_store lock for files at that
+    # root; a second, non-singleton instance on it raised filelock's same-thread
+    # "Deadlock: ... held by a different FileLock instance" (ISSUES 145).
+    from interview_mux.file_store import write_lock
+
+    return write_lock(root / ".staging.lock")
 
 
 _LARGE_FLUSH_BYTES = 8 << 20  # 8 MiB

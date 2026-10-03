@@ -367,6 +367,11 @@ def record_attempt(
         "product_fingerprint": product_fp,
         "matrix_version": matrix_ver,
         "attempts": int(prev.get("attempts") or 0) + (1 if outcome == "started" else 0),
+        "transient_failures": (
+            int(prev.get("transient_failures") or 0) + 1
+            if outcome == "failed_transient"
+            else (0 if outcome == "done" else int(prev.get("transient_failures") or 0))
+        ),
         "updated_at": _now(),
         "first_seen_at": str(prev.get("first_seen_at") or _now()),
     }
@@ -426,6 +431,9 @@ def no_delta_refusal(
     }
 
 
+MAX_TRANSIENT_RETRIES = 3
+
+
 def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
     """Refuse to re-offer a stage already attempted at this state with no progress.
 
@@ -439,7 +447,14 @@ def memo_skip(ctx: RunContext, stage: str) -> tuple[str, dict[str, Any]] | None:
     row = memo_row(ctx, stage)
     if not row:
         return None
-    if str(row.get("outcome") or "") not in {"failed", "refused"}:
+    outcome = str(row.get("outcome") or "")
+    if outcome == "failed_transient":
+        # Retry a network/provider failure at the same state, a few times; a
+        # dead network must still end the walk rather than loop forever.
+        if int(row.get("transient_failures") or 0) <= MAX_TRANSIENT_RETRIES:
+            return None
+        outcome = "failed"
+    if outcome not in {"failed", "refused"}:
         return None
     live_fp, live_mv = _live_product_stamps()
     stamped_fp = str(row.get("product_fingerprint") or "")
@@ -529,7 +544,7 @@ def clear_failed_refused_memo_rows(ctx: RunContext) -> int:
     for sid, row in stages.items():
         if not isinstance(row, dict):
             continue
-        if str(row.get("outcome") or "") in {"failed", "refused"}:
+        if str(row.get("outcome") or "") in {"failed", "failed_transient", "refused"}:
             cleared += 1
             continue
         kept[sid] = row
@@ -558,6 +573,7 @@ def resume_after_intervene(
     for sid, row in rows.items():
         failed = isinstance(row, dict) and str(row.get("outcome") or "") in {
             "failed",
+            "failed_transient",
             "refused",
         }
         if failed and (not wanted or sid in wanted):

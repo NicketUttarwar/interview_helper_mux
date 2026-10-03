@@ -246,7 +246,8 @@ def _truncation_blocked_envelope(
 #: Transient OpenAI failures (rate limit, connection, timeout, 5xx) used to end
 #: the attempt at once, and a stage with two attempts could die on two blips.
 #: They are retried here with backoff before the attempt is judged (ISSUES 125).
-TRANSIENT_RETRY_ATTEMPTS = 4
+TRANSIENT_RETRY_ATTEMPTS = 7
+TRANSIENT_RETRY_MAX_DELAY_SECONDS = 60.0
 TRANSIENT_RETRY_BASE_SECONDS = 2.0
 
 
@@ -266,6 +267,33 @@ def is_transient_openai_error(exc: BaseException) -> bool:
     if isinstance(exc, openai.APIStatusError):
         status = int(getattr(exc, "status_code", 0) or 0)
         return status == 429 or status >= 500
+    return False
+
+
+def is_transient_failure(exc: BaseException | None) -> bool:
+    """A stage failure caused by the network or the provider, not by the run's state."""
+    markers = (
+        "connection error",
+        "apiconnectionerror",
+        "timed out",
+        "timeout",
+        "server error",
+        "service unavailable",
+        "bad gateway",
+        "temporarily unavailable",
+    )
+    seen: set[int] = set()
+    cur = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        text = str(cur).lower()
+        if "request too large" in text:
+            return False
+        if is_transient_openai_error(cur) or isinstance(cur, (ConnectionError, TimeoutError)):
+            return True
+        if any(marker in text for marker in markers):
+            return True
+        cur = cur.__cause__ or cur.__context__
     return False
 
 
@@ -289,7 +317,13 @@ def create_with_transient_retry(
             if not is_transient_openai_error(exc) or i >= attempts:
                 raise
             last = exc
-            delay = TRANSIENT_RETRY_BASE_SECONDS * (2 ** (i - 1))
+            # Backoff spans about two minutes in all, so a short network drop
+            # is waited out inside the call instead of failing the stage (run 8:
+            # "Connection error" for four minutes stopped the walk).
+            delay = min(
+                TRANSIENT_RETRY_MAX_DELAY_SECONDS,
+                TRANSIENT_RETRY_BASE_SECONDS * (2 ** (i - 1)),
+            )
             if ctx is not None:
                 try:
                     ctx.log(

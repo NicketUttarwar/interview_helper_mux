@@ -1048,6 +1048,13 @@ def build_layup_compose_input(
             "convey what IS known from comprehensible_text + corpus; never invent "
             "unclear tokens; keep air text speakable (no bracket placeholders)."
         ),
+        "airable_copy_doctrine": (
+            "Every lay-up text is spoken on air by the host voice. Write what the "
+            "host says to the listener, never notes about the tape: no role labels "
+            "(the host, the guest, the interviewer, our speaker), no he/she/him/her "
+            "(use the name once or they), no 'X explains/says/adds that'. State the "
+            "fact, then the forward cue."
+        ),
         "order_lock_note": (
             "Do not emit order_lock or order_content_hash — code stamps them "
             "from master/selection.json after compose."
@@ -1250,6 +1257,13 @@ def _nugget_claim_text(nugget: dict[str, Any] | None) -> str:
         or nugget.get("summary")
         or ""
     ).strip()
+
+
+def _nugget_spoken_claim(nugget: dict[str, Any] | None) -> str:
+    """A nugget claim as it may be spoken: claims are notes about the tape, not air copy."""
+    from interview_mux.spoken_copy_guard import scrub_spoken_register
+
+    return scrub_spoken_register(_nugget_claim_text(nugget))
 
 
 def _nugget_preview_ok(
@@ -2332,7 +2346,11 @@ def repair_or_skip_spoken_copy_layups(
         for row in _manifest_segments(ctx)
         if isinstance(row, dict) and row.get("segment_id")
     }
-    from interview_mux.spoken_copy_guard import spoken_copy_violations
+    from interview_mux.spoken_copy_guard import (
+        is_register_violation,
+        scrub_spoken_register,
+        spoken_copy_violations,
+    )
     from interview_mux.gap_vo_prior_context import (
         _target_aware_forward_cues,
         has_forward_cue,
@@ -2509,6 +2527,26 @@ def repair_or_skip_spoken_copy_layups(
             "strict_grounding": False,
         }
         violations = spoken_copy_violations(text, evidence=evidence, seen_texts=seen)
+        if text and any(is_register_violation(v) for v in violations):
+            # Role labels, gendered pronouns and name attribution are wording,
+            # not substance: scrub the row's own copy first so its nugget body
+            # survives, instead of skipping it and reopening the nugget for a
+            # recovery that pastes the same note-style claim back (client run:
+            # "The host recap adds that…", "Who is he…", stage refused).
+            scrubbed = scrub_spoken_register(text)
+            if scrubbed and scrubbed != text:
+                text = scrubbed
+                row["text"] = scrubbed
+                row["word_count"] = _word_count(scrubbed)
+                notes.append(
+                    {
+                        "action": "repair_spoken_copy_layup",
+                        "target_segment_id": target,
+                        "line_id": row.get("line_id"),
+                        "from": "register_scrub",
+                    }
+                )
+                violations = spoken_copy_violations(text, evidence=evidence, seen_texts=seen)
         # vo_value restatement / missing forward cue can fail delivery even when
         # spoken_copy_guard's coarser restatement check is quiet.
         soft_bad = False
@@ -2547,8 +2585,10 @@ def repair_or_skip_spoken_copy_layups(
 
         setup = _strip_name_attribution_clause(str(row.get("setup_from_nuggets") or "").strip())
         nugget_bits = [
-            _strip_name_attribution_clause(
-                str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
+            scrub_spoken_register(
+                _strip_name_attribution_clause(
+                    str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
+                )
             )
             for nid in row_nugget_ids(row)
         ]
@@ -3818,7 +3858,7 @@ def _unskip_row_with_nuggets(
     row["nugget_ids"] = ids
     row["selected_nugget_ids"] = ids
     setup = str(row.get("setup_from_nuggets") or "").strip()
-    bits = [_nugget_claim_text(nug_by_id.get(nid)) for nid in ids]
+    bits = [_nugget_spoken_claim(nug_by_id.get(nid)) for nid in ids]
     bits = [b.rstrip(".") + "." for b in bits if b]
     body = setup or " ".join(bits[:2])
     if not str(row.get("setup_from_nuggets") or "").strip() and bits:
@@ -3971,7 +4011,7 @@ def recover_open_high_salience_nuggets(
             ids = list(dict.fromkeys([*row_nugget_ids(row), nid]))
             row["nugget_ids"] = ids
             row["selected_nugget_ids"] = ids
-            bit = _nugget_claim_text(nug)
+            bit = _nugget_spoken_claim(nug)
             text = str(row.get("text") or "")
             if bit and bit.casefold() not in text.casefold():
                 row["text"] = f"{bit.rstrip('.')}. {text}".strip()
@@ -5374,7 +5414,31 @@ def ensure_deterministic_floor_before_refuse(
             notes.extend(f"recover_high:{n}" for n in rec_notes)
         except Exception as exc:
             notes.append(f"recover_high_failed:{type(exc).__name__}")
+        # Copy the recovery attached or unskipped must pass the same spoken
+        # guard as model copy before QC sees it; a row it cannot make airable
+        # is skipped. A high-salience nugget that still has no legal line is
+        # parked on the orientation (the existing last resort) rather than
+        # refusing the stage on every pass until the budget runs out.
+        try:
+            out, heal_notes = repair_or_skip_spoken_copy_layups(ctx, out)
+            notes.extend(
+                f"post_recover_copy:{n.get('action')}:{n.get('target_segment_id')}"
+                for n in heal_notes
+                if isinstance(n, dict)
+            )
+        except Exception as exc:
+            notes.append(f"post_recover_copy_failed:{type(exc).__name__}")
         qc = evaluate_layup_qc(ctx, out)
+        if not qc.get("ok") and any(
+            str(e).startswith("open_high_salience_nuggets=") for e in (qc.get("errors") or [])
+        ):
+            try:
+                out, park_notes = park_open_high_salience_on_orientation(ctx, out)
+                notes.extend(f"recover_high:{n}" for n in park_notes)
+                if park_notes:
+                    qc = evaluate_layup_qc(ctx, out)
+            except Exception as exc:
+                notes.append(f"orientation_park_failed:{type(exc).__name__}")
     # Same gap for must-keep talking points: the recovery that attaches an open
     # id to a layup already carrying it, or discharges it when selected native
     # text already covers it, was never called (exec_050 tp_001/tp_002,

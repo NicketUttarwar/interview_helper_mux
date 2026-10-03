@@ -4942,6 +4942,115 @@ unfixed code).
 
 ---
 
+## [144] PRODUCT: lay-up copy written as notes about the tape ("the host", "he") refused the stage, and recovery kept reintroducing it until the budget ran out (client run exec_014, Mohan source)
+
+**Stage / area:** `nugget_layup.repair_or_skip_spoken_copy_layups`,
+`nugget_layup.recover_open_high_salience_nuggets`, `_unskip_row_with_nuggets`,
+`ensure_deterministic_floor_before_refuse`, `spoken_copy_guard`
+**Status:** FIXED
+
+**Seen (client):** `nugget_layup_compose` hard-stopped on spoken-copy QC,
+first for `seg_001d`, then `seg_023`, on `spoken_speaker_role_label` and
+`spoken_gendered_pronoun`. The surviving line was "The host recap adds that the
+assay discussed covers more than a thousand genes. Who is he — and why start
+there?". QC also reported `open_high_salience_nuggets=['nug_016']`. The
+recovery escalated to `budget_exhausted`, the stage never became seed-complete,
+and the run stopped at 48/72.
+
+**Chain:**
+1. The model wrote lay-up copy as editor notes. For role labels and gendered
+   pronouns, the spoken-copy heal only tried rewrites built from planner
+   fields. It never applied the existing scrubbers
+   (`rewrite_speaker_role_labels`, `scrub_spoken_gendered_pronouns`) to the
+   line itself, so an unhealable row was skipped.
+2. The skip reopened its high-salience nugget.
+   `recover_open_high_salience_nuggets` attached the nugget by pasting its
+   raw `text_claim` into a spoken line. Corpus claims are analysis notes
+   ("The host recap adds that…"), so the recovery itself produced illegal
+   copy.
+3. Nothing re-checked spoken copy after the recovery. QC refused, and every
+   retry repeated the same steps.
+
+**Fix (the class, not the line):**
+- `spoken_copy_guard.scrub_spoken_register` removes role and name
+  attribution lead-ins ("The host … adds that"), then applies the shared
+  role-label and pronoun rewrites, keeping the claim. Client line becomes:
+  "The assay discussed covers more than a thousand genes. Who are they, and
+  why start there?"
+- The heal scrubs register violations in place first, the same pattern as
+  edit-structure refs, so the nugget body survives instead of being skipped.
+- Every place a corpus claim becomes spoken copy (recovery attach, unskip)
+  uses `_nugget_spoken_claim`, so recovery cannot inject note-style copy.
+- After recovery, the spoken heal runs again. A high-salience nugget that
+  still has no legal line is parked on the orientation, the existing last
+  resort, instead of refusing the stage on every pass.
+- The compose input carries `airable_copy_doctrine`.
+
+Tests: `tests/test_layup_airable_copy.py` (3; the heal and recovery tests fail
+on the unfixed code: the row is skipped, and the recovered line keeps "the
+host").
+
+---
+
+## [145] PRODUCT: a second FileLock instance on a held .write.lock raised filelock's same-thread "Deadlock" (client run exec_014, master/.write.lock)
+
+**Stage / area:** `session_log.append_log`, `operator_action_trace`,
+`write_staging._staging_lock`, `file_store.write_lock`
+**Status:** FIXED
+
+**Seen (client):** on the final resume, the incomplete lay-up prerequisite
+collided with "a different-holder deadlock on master/.write.lock". It was
+wrapped as `SeedPrerequisiteFailed` and the orchestrator stopped.
+
+**Cause:** filelock 3.13+ raises `Deadlock: lock ... is already held by a
+different FileLock instance in this thread` when a second instance blocks on
+a path the thread already holds. `file_store.write_lock` is a per-path
+singleton for exactly this reason. But `session_log` (gui_log),
+`operator_action_trace` and the staging lock each built their own
+`FileLock(lock_path_for(...))` on the same `.write.lock` files. Logging while
+a write in that folder held the lock raised the deadlock. Reproduced: holding
+`write_lock(run_dir/"run_meta.json")` and appending a log line raises it on
+the unfixed code.
+
+**Fix:** all three use `file_store.write_lock`. A sweep test fails if any
+module outside `file_store` builds a FileLock on a `.write.lock` again.
+
+Tests: `tests/test_write_lock_single_instance.py` (2; both fail on the unfixed
+code, the second with the exact Deadlock error).
+
+---
+
+## [146] PRODUCT: a four-minute network outage ended the run: calls gave up after 14 seconds and the attempt memo refused the retry (macOS exec_008)
+
+**Stage / area:** `stages/llm_runner.create_with_transient_retry`,
+`homunculus.runtime` (failure outcome), `dispatch_delta.memo_skip`
+**Status:** FIXED
+
+**Seen:** from 13:52 UTC every OpenAI call failed with `Connection error`.
+`full_master_ranking` failed, and then
+`dispatch refused for incomplete critical full_master_ranking (attempt_memo)
+— stopping walk`. The run ended at 42/72 with `Delivery incomplete after
+conductor`.
+
+**Cause:** transient retry used 4 attempts over 14 seconds. The failed stage
+was recorded as `failed`. The memo refuses a `failed` stage whose state and
+progress tokens are unchanged, which is always true after a network outage.
+
+**Fix:**
+- Retries back off up to 60 s per wait across 7 attempts, about two minutes
+  in all.
+- A stage whose failure is transient (OpenAI connection, timeout, rate limit
+  or 5xx, or a built-in `ConnectionError` or `TimeoutError` anywhere in the
+  cause chain) is recorded as `failed_transient`. The memo does not refuse it
+  for up to `MAX_TRANSIENT_RETRIES` (3) in a row, then treats it as failed so
+  a dead network still ends the walk. A "request too large" error is not
+  transient. Restart clean-up clears `failed_transient` rows like `failed`
+  ones.
+
+Tests: `tests/test_transient_failure_retries.py` (5).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
