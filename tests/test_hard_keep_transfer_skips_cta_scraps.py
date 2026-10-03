@@ -92,3 +92,24 @@ def test_a_child_excluded_for_a_non_editorial_reason_is_still_a_keep(ctx) -> Non
     dest = ctx.final_path("master", "selection.json")
     dest.write_text(json.dumps(sel), encoding="utf-8")
     assert "seg_035i" in hk.hard_keep_segment_ids(ctx)
+
+
+def test_an_editorial_exclusion_outside_the_banned_families_is_not_transferred(
+    ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The class: the transfer offers the whole story set, so any editorial ruling counts."""
+    man = ctx.read_json("segments/manifest.json")
+    man["segments"].append(
+        {"segment_id": "seg_060", "start_ms": 120000, "end_ms": 124000, "text": "Thanks for listening, see you next week."}
+    )
+    ctx.final_path("segments", "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    sel = ctx.read_json("master/selection.json")
+    sel["excluded_segment_ids"].append({"segment_id": "seg_060", "reason": OUTRO_REASON})
+    ctx.final_path("master", "selection.json").write_text(json.dumps(sel), encoding="utf-8")
+    monkeypatch.setattr(
+        "interview_mux.media_ip_cta.admitted_story_segment_ids",
+        lambda _c: {"seg_002a", "seg_002b", "seg_035g", "seg_035h", "seg_035i", "seg_060"},
+    )
+    keeps = hk.hard_keep_segment_ids(ctx)
+    assert "seg_060" not in keeps
+    assert "seg_002a" in keeps

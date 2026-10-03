@@ -4563,6 +4563,16 @@ tests fail on the unfixed code). Replayed on a copy of exec_003: unmodified
 code keeps g, h, i and sanitize refuses; fixed code keeps none and sanitize
 passes.
 
+
+**Guard for the class (follow-up):** the transfer offers the whole admitted
+story set, not only children of the banned parents. So an editorially
+excluded segment from any other family (CTA, outro, blank, fragmentary tail)
+could still come back as a demand. The ruled-out set is now
+`lattice_dropped_ids | editorial_excluded_ids`, every editorial exclusion in
+the committed selection, whatever its parent. A non-editorial exclusion
+(budget, ranking) is still transferable. Test:
+`test_an_editorial_exclusion_outside_the_banned_families_is_not_transferred`
+(fails on the unfixed code).
 ---
 
 ## [137] PRODUCT: 46 nullable enums rejected null, so valid LLM replies failed verification and were discarded; a budget refusal was logged as an OpenAI failure (macOS exec_004)

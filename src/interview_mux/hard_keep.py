@@ -114,6 +114,32 @@ def lattice_dropped_ids(ctx: RunContext) -> set[str]:
     return out
 
 
+def editorial_excluded_ids(ctx: RunContext) -> set[str]:
+    """Every id the committed selection excludes for a CTA, outro, blank or fragment reason."""
+    if not ctx.artifact_exists("master/selection.json"):
+        return set()
+    try:
+        from interview_mux.media_ip_cta import is_editorial_exclude_reason
+
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return set()
+    if not isinstance(sel, dict):
+        return set()
+    rationales = sel.get("exclude_rationales") if isinstance(sel.get("exclude_rationales"), dict) else {}
+    out: set[str] = set()
+    for row in sel.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "")
+            reason = str(rationales.get(sid) or "")
+        if sid and is_editorial_exclude_reason(reason):
+            out.add(sid)
+    return out
+
+
 def editorial_dropped_cta_children(ctx: RunContext, parents: set[str]) -> set[str]:
     """Children of banned CTA parents the committed selection excludes as CTA scraps.
 
@@ -335,9 +361,9 @@ def hard_keep_segment_ids(
             # banned parent (ISSUES 136).
             # The transfer offers the whole admitted story set, not only the
             # kept parent's children, so check against every banned parent.
-            ruled_out = lattice_dropped_ids(ctx) | editorial_dropped_cta_children(
-                ctx, banned
-            )
+            # Any editorial exclusion is a ruling, whichever family the id
+            # belongs to: the transfer offers the whole story set.
+            ruled_out = lattice_dropped_ids(ctx) | editorial_excluded_ids(ctx)
             ids |= _collapse_overlapping_keeps(ctx, set(story) - ruled_out)
         ids -= banned
     except Exception:
