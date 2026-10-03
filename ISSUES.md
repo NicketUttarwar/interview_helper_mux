@@ -4723,6 +4723,53 @@ unfixed code).
 
 ---
 
+## [140] PRODUCT: owner-keyed side-effect writes were staged under the active stage and discarded at its flush; the tier-D waive never unseated the plan (macOS exec_001, 003, 004, 006)
+
+**Stage / area:** `RunContext.write_json`, `write_staging.keyed_write_lost_at_flush`,
+`write_staging.flush_stage_writes`, `execution_contract._tier_d_logged_waive`
+**Status:** FIXED
+
+**Seen:** four of six one-hour runs logged
+`side-effect write skipped: mastering/mastering_plan.json is not
+gap_framing_compose's to write (owner air_contract_sanitize)`. The callers were
+`run_execution_invariants`, then `run_vo_contract_ladder`, then
+`_tier_d_logged_waive`, then `write_plan`.
+
+**Chain:**
+1. The VO contract ladder runs inside `gap_framing_compose`. Its tier-D waive
+   marks the line not on air in the gap report (that write lands) and unseats
+   it in the mastering plan.
+2. The plan write was unkeyed. `gap_framing_compose` has no ALLOW row for the
+   plan, so entry 127's rule skipped it as a foreign side effect. The plan
+   kept seating a line the gap report had waived.
+3. Keying the write as the seat owner is not enough on its own. A write made
+   while a stage is active is staged under that stage. At commit,
+   `flush_stage_writes` keeps only paths the stage shows or owns and silently
+   drops the rest. So an owner-keyed write passed the ownership check, then
+   vanished at flush with no log. This applies to every owner-keyed write made
+   under another stage, not only this one (for example the
+   `stamp_gap_omit_flags` seat stamps in `air_script.py` when run from a
+   non-owner stage).
+
+**Fix:**
+- `_tier_d_logged_waive` presents the seat owner with the omit-stamp reason
+  (`stage_key="air_contract_sanitize"`, `seat_reason="stamp_gap_omit_flags"`),
+  the pattern from entry 101. Unseating only shrinks seats, which the freeze
+  permits.
+- **Guard for the class:** `RunContext.write_json` asks
+  `keyed_write_lost_at_flush` whether an owner-keyed write would be discarded
+  by the active stage's flush. The predicate is the flush's own test (not
+  operator-visible and not owned by the active stage). If it would be, the
+  write goes to the committed tree through `write_mirrored_json`, the same
+  route `skip_handoff` writes already take. Writes the active stage keeps are
+  unchanged, and so are unkeyed writes.
+
+Tests: `tests/test_foreign_side_effect_writes.py` (3 new) and
+`tests/test_execution_contract_ladder.py::test_tier_d_waive_unseats_the_plan_when_compose_hosts_the_ladder`
+(all 4 fail on the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

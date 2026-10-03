@@ -522,7 +522,14 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
                 ]
             plan = dict(plan)
             plan["air_script"] = script
-            write_plan(ctx, plan)
+            # Unseating mirrors the gap line's not-on-air mark below. Unkeyed,
+            # the ladder's host stage (gap_framing_compose) wrote it as a
+            # foreign side effect and it was skipped, so the plan kept seating a
+            # line the gap report waived (ISSUES 140). Present the seat owner
+            # with the omit-stamp reason, as stamp_gap_omit_flags does.
+            write_plan(
+                ctx, plan, seat_reason="stamp_gap_omit_flags", stage_key="air_contract_sanitize"
+            )
             written.append("mastering/mastering_plan.json")
 
     if not ctx.artifact_exists("understanding/gap_report.json"):

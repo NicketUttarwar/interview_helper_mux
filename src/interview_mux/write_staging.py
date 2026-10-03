@@ -1052,6 +1052,28 @@ def _owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> bool:
         return False
 
 
+def keyed_write_lost_at_flush(ctx: RunContext, rel: str, stage_key: str | None) -> bool:
+    """True when a write presented as ``stage_key`` would be staged and then discarded.
+
+    A helper that names an owner (a seat stamp as ``air_contract_sanitize``, a
+    tier-D unseat) passes the ownership check as that owner, but the file is
+    staged under whichever stage is active. That stage's flush keeps only
+    what it shows or owns, so the write was dropped with no log at all
+    (ISSUES 140). Mirrors the flush's own test so only writes that would be
+    lost are rerouted.
+    """
+    sid = str(_active_stage.get() or "").strip()
+    sk = str(stage_key or "").strip()
+    if not sid or not sk or sk == sid:
+        return False
+    rel = str(rel or "").replace("\\", "/").lstrip("/")
+    if is_operational_path(rel) or is_vo_pickup_rel(rel) or stage_sealed_here(ctx, sid):
+        return False
+    if operator_visible_staging_path(sid, rel):
+        return False
+    return not _owned_staging_path(ctx, sid, rel)
+
+
 def _log_undeclared_owned_staging_path(ctx: RunContext, stage_id: str, rel: str) -> None:
     """Note an owned path that no StageInfo declares, so the GUI will not list it."""
     try:

@@ -314,3 +314,52 @@ def test_policy_cascade_suppresses_identical_failure(ctx: RunContext) -> None:
         error_class="vo_contract_repair",
     )
     assert not row.get("halt")
+
+
+def test_tier_d_waive_unseats_the_plan_when_compose_hosts_the_ladder(ctx: RunContext) -> None:
+    """ISSUES 140: the plan unseat was a skipped foreign write under gap_framing_compose.
+
+    Four of six one-hour runs logged ``side-effect write skipped:
+    mastering/mastering_plan.json`` from this waive, leaving the plan seating a
+    line the gap report had marked not on air.
+    """
+    import json
+
+    from interview_mux import write_staging as ws
+    from interview_mux.execution_contract import _tier_d_logged_waive, classify_vo_violation
+
+    lid = "vo_bridge_seg_004"
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {"air_script": {"beats": [], "vo_seats": {"seated_line_ids": [lid, "vo_keep"], "omitted_line_ids": []}}},
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": lid,
+                    "delivery": "synthesize",
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_004",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "Here is why that matters.",
+                }
+            ]
+        },
+    )
+    violation = classify_vo_violation(f"seated synthesize {lid} has skip/omit flags")
+    ws.enter_stage_staging("gap_framing_compose")
+    try:
+        _tier_d_logged_waive(ctx, violation)
+    finally:
+        ws.exit_stage_staging()
+    ledger = Path(ctx.run_dir) / "operator" / "foreign_writes_skipped.jsonl"
+    assert not ledger.exists() or "mastering_plan" not in ledger.read_text(encoding="utf-8")
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    seats = ((load_plan_raw(ctx) or {}).get("air_script") or {}).get("vo_seats") or {}
+    assert lid not in (seats.get("seated_line_ids") or [])
+    assert "vo_keep" in (seats.get("seated_line_ids") or [])
