@@ -3918,6 +3918,15 @@ def recover_open_high_salience_nuggets(
     }
     aired = aired_nugget_ids(out)
     opening = _opening_owned_targets(ctx)
+    try:
+        from interview_mux.media_ip_cta import never_touch_segment_ids
+
+        # A row on a never-touch CTA target is skipped again when the plan is
+        # prepared for persist, which reopens the nugget after QC looked clean
+        # (exec_010: nug_003 -> seg_007, nug_011 -> seg_032, both re-skipped).
+        opening = set(opening) | set(never_touch_segment_ids(ctx) or [])
+    except Exception:
+        pass
     ordered = [str(x) for x in (out.get("ordered_segment_ids") or _ordered_ids(ctx)) if x]
     by_id = {
         str(row.get("segment_id") or ""): row

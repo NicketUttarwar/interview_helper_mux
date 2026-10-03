@@ -5063,6 +5063,55 @@ Tests: `tests/test_transient_failure_retries.py` (5).
 
 ---
 
+## [147] PRODUCT: the sponsor-outro tail of the closing segment stayed on air as "story", layup refused it as post-roll, and its high-salience recovery landed on never-touch targets (macOS exec_010, step 47)
+
+**Stage / area:** `media_ip_cta.on_air_orphaned_cta_scrap_ids`,
+`media_ip_cta.is_selection_cta_omit_need` (reason vocabulary),
+`nugget_layup.recover_open_high_salience_nuggets`,
+`stages/analysis_extended.run_nugget_layup_compose` (persist)
+**Status:** FIXED
+
+**Seen:** run 10 reached `nugget_layup_compose` (step 47) and failed twice.
+1. The model answered `status=partial` with a blocking need: "Remove
+   seg_038g … seg_038k from the locked air order. They are
+   post-roll/end-credit or corrupt fragments after the coherent close in
+   seg_037".
+2. On the retry: `open_high_salience_nuggets=['nug_003', 'nug_011']`.
+
+**Chain:**
+1. `seg_038` (sponsor read and credits) closes the tape. The recut excluded
+   `seg_038a-f` as `media_ip_cta` and admitted the remainder `g-k` as story:
+   "The Life Sciences DNA.", "I'm Daniel Levine. Thanks for joining us.", and
+   undecodable fragments.
+2. `on_air_orphaned_cta_scrap_ids` skips anything admitted as story, and its
+   text check missed four of the five. The excluded siblings are gone from the
+   live manifest, so position could not be judged from it either.
+3. Layup's selection need was meant to become a host-executed CTA omit
+   (`llm_simple` demotes such needs). But `is_editorial_exclude_reason`
+   matched neither "post-roll", "end-credit" nor "corrupt fragments", so the
+   need stayed blocking.
+4. On the retry, `recover_open_high_salience_nuggets` placed `nug_003` and
+   `nug_011` on rows targeting `seg_007` and `seg_032`, which are never-touch
+   CTA segments. Persist prep re-skipped those rows, the nuggets reopened, and
+   QC refused after the orientation-park step had already passed.
+
+**Fix:**
+- **Closing outro tail:** for an excluded CTA parent that closes the tape, its
+  on-air children after the last editorially excluded sibling are scraps even
+  when admitted as story. Excluded siblings are read from the selection and
+  ordered by split suffix. A CTA parent mid-tape keeps its story children.
+- Undecodable STT text (`U+FFFD`) is a scrap.
+- The outro vocabulary covers post-roll, end credit, closing credit, end card
+  and "after the close". The fragment vocabulary covers corrupt, garbled and
+  unintelligible fragments. Budget-type reasons stay non-editorial.
+- High-salience recovery never targets never-touch CTA segments.
+- After persist prep, if open high-salience nuggets are the only QC errors,
+  they are parked on the orientation before the stage would refuse.
+
+Tests: `tests/test_closing_outro_tail.py` (4; three fail on the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

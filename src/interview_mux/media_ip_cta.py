@@ -79,6 +79,18 @@ _OUTRO_REASON_TOKENS = (
     "direct listener",
     "contact the programme",
     "contact the program",
+    # exec_010: "post-roll/end-credit or corrupt fragments after the coherent
+    # close" was not read as an outro, so layup's selection need stayed blocking.
+    "post_roll",
+    "postroll",
+    "post roll",
+    "end_credit",
+    "end credit",
+    "closing_credit",
+    "closing credit",
+    "end card",
+    "after the coherent close",
+    "after the close",
 )
 _SELECTION_RERUN_STAGES = frozenset(
     {
@@ -111,6 +123,11 @@ _FRAGMENTARY_TAIL_TOKENS = (
     "empty/heavily degraded",
     "blank/heavily degraded",
     "empty, so no listener",
+    "corrupt fragment",
+    "corrupted fragment",
+    "garbled",
+    "unintelligible fragment",
+    "fragments after",
 )
 
 REASON = "media_ip_cta"
@@ -1872,6 +1889,9 @@ def looks_like_orphaned_cta_scrap(text: str) -> bool:
         return True
     if _looks_like_degraded_signoff(raw):
         return True
+    if "\ufffd" in raw:
+        # Undecodable STT output (exec_010 seg_038k "usHS\ufffd bone…") is never story.
+        return True
     from interview_mux.homunculus.values import normalize_omit_text
 
     words = normalize_omit_text(raw).split()
@@ -1931,8 +1951,12 @@ def on_air_orphaned_cta_scrap_ids(
     except Exception:
         story = set()
     by_id = _segments_by_id(ctx)
+    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel)
     out: list[str] = []
     for sid in ordered:
+        if sid in tail:
+            out.append(sid)
+            continue
         if sid in story:
             continue
         if not any(_is_nle_child(sid, parent) for parent in parents if parent):
@@ -1942,6 +1966,60 @@ def on_air_orphaned_cta_scrap_ids(
             out.append(sid)
     return out
 
+
+def _split_suffix_key(sid: str, parent: str) -> tuple[int, str]:
+    suffix = str(sid)[len(str(parent)) :]
+    return (len(suffix), suffix)
+
+
+def _closing_outro_tail_ids(
+    by_id: dict[str, Any],
+    ordered: list[str],
+    parents: set[str],
+    selection: dict[str, Any],
+) -> set[str]:
+    """Children after the sponsor read in an excluded CTA parent that closes the tape.
+
+    A recut admits the non-CTA remainder of a CTA parent as story. When that
+    parent is the last thing on the tape, the remainder after the excluded
+    sponsor/credit reads is the sign-off and credits, not story (exec_010:
+    seg_038a-f excluded as media_ip_cta; g-k "The Life Sciences DNA.", "I'm
+    Daniel Levine. Thanks for joining us.", corrupt fragments stayed on air
+    and nugget_layup_compose refused them as post-roll on every attempt).
+    Excluded siblings are often gone from the live manifest, so they are read
+    from the selection and ordered by split suffix (a, b, ... aa).
+    """
+    ends = [int((row or {}).get("end_ms") or 0) for row in by_id.values() if isinstance(row, dict)]
+    if not ends:
+        return set()
+    tape_end = max(ends)
+    rationales = (
+        selection.get("exclude_rationales")
+        if isinstance(selection.get("exclude_rationales"), dict)
+        else {}
+    )
+    excluded: set[str] = set()
+    for row in selection.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "")
+            reason = str(rationales.get(sid) or "")
+        if sid and is_editorial_exclude_reason(reason):
+            excluded.add(sid)
+    out: set[str] = set()
+    roots = {p for p in parents if p and not any(_is_nle_child(p, q) for q in parents if q and q != p)}
+    for parent in roots:
+        on_air = [sid for sid in ordered if sid != parent and _is_nle_child(sid, parent)]
+        gone = [sid for sid in excluded if sid != parent and _is_nle_child(sid, parent)]
+        if not on_air or not gone:
+            continue
+        if tape_end - max(int((by_id.get(k) or {}).get("end_ms") or 0) for k in on_air) > 5000:
+            continue
+        last_gone = max(_split_suffix_key(k, parent) for k in gone)
+        out |= {k for k in on_air if _split_suffix_key(k, parent) > last_gone}
+    return out
 
 def _reverse_jump_keep_ids(reason: str) -> set[str]:
     """Air-order destinations named only as reverse-jump landings — do not omit."""
