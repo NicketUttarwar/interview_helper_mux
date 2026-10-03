@@ -1304,6 +1304,11 @@ def _write_boundaries(
     if not isinstance(doc, dict):
         return
     times = {str(s["segment_id"]): s for s in segments if s.get("segment_id")}
+    source = {
+        str(r.get("segment_id") or ""): r
+        for r in (doc.get("boundaries") or [])
+        if isinstance(r, dict) and r.get("segment_id")
+    }
     rows: list[dict[str, Any]] = []
     for row in doc.get("boundaries") or []:
         if not isinstance(row, dict):
@@ -1313,12 +1318,23 @@ def _write_boundaries(
             continue
         merged = dict(row)
         seg = times.get(sid)
-        if seg is not None:
-            merged["start_ms"] = _ms(seg, "start_ms")
-            merged["end_ms"] = _ms(seg, "end_ms")
-            if seg.get("fused_from"):
-                merged["fused_from"] = list(seg["fused_from"])
-                merged["fuse_pass_id"] = pass_id or None
+        if seg is not None and seg.get("fused_from"):
+            # Span the source rows this slab absorbed, never the manifest row:
+            # rerun_air_bounds_on_fused clamps the manifest to its keeper
+            # window, and copying that here on the next round erased the rest of
+            # the slab from the source map (exec_007: a 2271-2948 s slab clamped
+            # to 2818 s, nine minutes of speech uncovered, coverage 0.84, every
+            # delivery stage refused the map as unsafe cuts; ISSUES 142).
+            spans = [
+                (_ms(source[x], "start_ms"), _ms(source[x], "end_ms"))
+                for x in {sid, *[str(f) for f in seg["fused_from"]]}
+                if x in source
+            ]
+            if spans:
+                merged["start_ms"] = min(a for a, _ in spans)
+                merged["end_ms"] = max(b for _, b in spans)
+            merged["fused_from"] = list(seg["fused_from"])
+            merged["fuse_pass_id"] = pass_id or None
         rows.append(merged)
     rows.sort(key=lambda r: _ms(r, "start_ms"))
     out = dict(doc)

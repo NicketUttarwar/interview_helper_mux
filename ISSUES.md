@@ -4816,6 +4816,49 @@ the unfixed code).
 
 ---
 
+## [142] PRODUCT: a fused slab's keeper trim was copied into the source boundaries on the next fuse round; nine minutes of speech left the map and delivery refused it as unsafe cuts (macOS exec_007)
+
+**Stage / area:** `segment_fuse._write_boundaries`, `segment_fuse.rerun_air_bounds_on_fused`,
+`stages/segmentation.evaluate_boundary_quality`
+**Status:** FIXED
+
+**Seen:** run 7 stopped with every delivery stage failing
+`Boundary detection produced unsafe cuts; delivery is blocked`
+(`coarse_or_invalid_segmentation`: 23 segments, mean 130 s, coverage 0.84).
+The recovery re-ran the segmentation chain, which re-read the damaged
+boundaries, and the run ended with `Delivery blocked: analysis incomplete:
+gap_framing_compose`.
+`segments/boundaries.json` had no row for 2271-2818 s. That stretch held 1295
+transcript words, 16 percent of the tape. The model's own boundary reply
+covered it (`seg_037` to `seg_046`).
+
+**Chain:**
+1. In the second segmentation session, `connector_fuse_pass` fused a slab
+   spanning 2271-2948 s.
+2. `rerun_air_bounds_on_fused` clamped that slab's manifest row to its
+   ideal-cut keeper window, starting at 2818 s. That is intended: the keeper
+   trim is an on-air decision and the code says it must not reach the
+   boundaries, because doing so once dropped coverage to 25 percent.
+3. The next fuse round's `_write_boundaries` copied every surviving manifest
+   row's start and end into `segments/boundaries.json`, trimmed rows
+   included. The trim reached the source map anyway, one round later.
+4. Coverage fell under 0.85 with too few rows to count as fine-grained, so
+   the quality check rejected the map at delivery. Re-running segmentation
+   started from the damaged boundaries and could not restore the lost span.
+
+Whether this path occurs depends on which slabs the model fuses and where the
+ideal cuts fall, so it differs per run on the same source.
+
+**Fix:** `_write_boundaries` never takes times from the manifest. A fused
+survivor spans the source rows it absorbed (its own row and every
+`fused_from` id still in the document). Any other row keeps its own source
+times.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (2; both fail on the unfixed
+code with the trimmed span, `(340000, 400000)` instead of `(100000, 400000)`).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
