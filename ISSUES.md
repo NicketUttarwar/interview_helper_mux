@@ -4898,6 +4898,50 @@ without the guard.
 
 ---
 
+## [143] PRODUCT: the boundary quality gate judged the hitch's editorial keeper map as source segmentation, so pass or fail depended on how much the ideal cuts dropped (macOS exec_006, 007, 008)
+
+**Stage / area:** `stages/segmentation._assert_boundary_quality`,
+`chapter_close_hitch` (keeper map), `boundary_coverage_guard`
+**Status:** FIXED
+
+**Seen:** the final `segments/boundaries.json` of every run is the
+chapter-close hitch's keeper map (`proposed_split_reason: chapter_close_hitch`).
+The hitch keeps the tape the episode keeps and leaves editorial cuts out. The
+map it replaced is archived as `mastering/chapter_close_hitch/pre_keepers.json`.
+The delivery quality gate measured coverage on the keeper map:
+
+| run | map before hitch | keeper map | gate |
+|---|---|---|---|
+| exec_006 | 0.99, 32 rows | 0.93, 30 rows | pass |
+| exec_007 | 0.72, 38 rows | 0.84, 23 rows | reject (needs 0.85 below 30 rows) |
+| exec_008 | 1.00, 34 rows | 0.74, 31 rows | pass only because 31 rows clears the fine-grained floor of 30 by one |
+
+Two rules disagree. The hitch says this file is the keep map, and the gate
+says it is the source segmentation and must cover the tape. How much the
+ideal cuts drop is the model's choice and varies per run. So the same source
+passed or failed on an editorial decision, not on segmentation quality.
+(exec_007 also had real damage before the hitch, entry 142.)
+
+**Fix:**
+- When the hitch has rewritten the map and the keeper map fails on coverage,
+  the gate judges the segmentation the hitch was given (`pre_keepers`). If
+  that passes, delivery proceeds and logs
+  `boundary_quality_judged_on_hitch_source`. Malformed rows in the current map
+  still fail. A source map that fails on its own still fails.
+- The speech-coverage guard from entry 142 exempts the hitch's write. Its
+  omissions are editorial, and its source is archived. Every other writer
+  stays guarded.
+
+Applied to the saved state: exec_006 and exec_008 pass as before. exec_007's
+source map (0.725, 38 rows) clears the existing fine-grained thresholds. The
+damage behind it is now prevented by entry 142.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (hitch exemption, gate judged
+on the hitch source, damaged source still fails; the first two fail on the
+unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

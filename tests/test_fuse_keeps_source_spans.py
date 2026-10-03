@@ -118,7 +118,7 @@ def test_any_writer_narrowing_a_row_keeps_its_speech(ctx) -> None:
             _row("seg_004", 400_000, 450_000),
             _row("seg_005", 450_000, 500_000),
         ],
-        "chapter_close_hitch",
+        "edl_overlap_repair",
     )
     assert _bounds(ctx)["seg_002"] == (100_000, 400_000)
 
@@ -164,3 +164,46 @@ def test_an_edge_nudge_of_a_few_words_is_left_alone(ctx) -> None:
         "connector_fuse_pass",
     )
     assert _bounds(ctx)["seg_002"] == (102_000, 400_000)
+
+
+def test_the_hitch_keeper_map_may_leave_editorial_cuts_out(ctx) -> None:
+    """ISSUES 143: the hitch writes keepers; its source map is archived as pre_keepers."""
+    _speech(ctx)
+    _write(ctx, [_row("seg_001", 0, 100_000), _row("seg_004", 400_000, 500_000)], "chapter_close_hitch")
+    assert set(_bounds(ctx)) == {"seg_001", "seg_004"}
+
+
+def _pre_keepers(ctx, rows) -> None:
+    dest = ctx.final_path("mastering", "chapter_close_hitch", "pre_keepers.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps({"keepers": rows}), encoding="utf-8")
+
+
+def _coarse_keepers(ctx) -> None:
+    # Few long keepers with a wide editorial cut: rejected when judged on their own.
+    dest = ctx.final_path("segments", "boundaries.json")
+    dest.write_text(
+        json.dumps({"boundaries": [_row("seg_001", 0, 150_000), _row("seg_002", 350_000, 500_000)]}),
+        encoding="utf-8",
+    )
+
+
+def test_quality_is_judged_on_the_map_the_hitch_was_given(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.stages import segmentation as seg
+
+    monkeypatch.setattr(seg, "_transcript_duration_ms", lambda c: 500_000)
+    _coarse_keepers(ctx)
+    assert seg.evaluate_boundary_quality(ctx.read_json("segments/boundaries.json"), duration_ms=500_000)["reject"]
+    _pre_keepers(ctx, [{"segment_id": f"seg_{i:03d}", "start_ms": i * 20_000, "end_ms": (i + 1) * 20_000} for i in range(25)])
+    seg._assert_boundary_quality(ctx)  # no raise
+
+
+def test_a_source_map_damaged_before_the_hitch_still_fails(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.loud_fail import LoudStageFailure
+    from interview_mux.stages import segmentation as seg
+
+    monkeypatch.setattr(seg, "_transcript_duration_ms", lambda c: 500_000)
+    _coarse_keepers(ctx)
+    _pre_keepers(ctx, [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 150_000}, {"segment_id": "seg_002", "start_ms": 350_000, "end_ms": 500_000}])
+    with pytest.raises(LoudStageFailure):
+        seg._assert_boundary_quality(ctx)

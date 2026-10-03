@@ -12,7 +12,8 @@ can put it back: re-running segmentation starts from the damaged file
 disk. Where the new map leaves real speech uncovered that the old map
 covered, a row that still exists is widened back over it, or a dropped row is
 restored clipped to the gap. The fresh map from boundary detection is the
-model's own output and is not compared with anything.
+model's own output and is not compared with anything, and the chapter-close
+hitch's keeper map leaves editorial cuts out on purpose.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from __future__ import annotations
 from typing import Any
 
 FRESH_MAP_WRITERS = frozenset({"boundary_detection"})
+# The hitch writes its keeper map: editorial cuts are left out on purpose and
+# the map it replaced is archived as its pre_keepers (ISSUES 143).
+EDITORIAL_MAP_WRITERS = frozenset({"chapter_close_hitch"})
 MIN_LOST_WORDS = 8
 MIN_LOST_SPEECH_MS = 3000
 
@@ -94,7 +98,7 @@ def _gap_around(start: int, end: int, new: list[tuple[int, int]]) -> tuple[int, 
 def preserve_speech_coverage(
     ctx: Any, doc: dict[str, Any], *, writer: str
 ) -> dict[str, Any]:
-    if str(writer or "").strip() in FRESH_MAP_WRITERS or not isinstance(doc, dict):
+    if str(writer or "").strip() in FRESH_MAP_WRITERS | EDITORIAL_MAP_WRITERS or not isinstance(doc, dict):
         return doc
     try:
         prior = ctx.read_json("segments/boundaries.json") if ctx.artifact_exists("segments/boundaries.json") else None
