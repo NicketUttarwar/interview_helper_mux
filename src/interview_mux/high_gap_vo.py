@@ -392,6 +392,16 @@ def seed_uncovered_high_gaps_deterministic(
         rationale = "Auto-seeded for high-severity gap missing an interviewer line."
         if confusion:
             rationale = f"{rationale} Mission: {confusion[:160]}"
+        # An earlier pass may have left an inactive row under the same id (omitted,
+        # skipped or blank). Appending beside it made dedupe_line_ids keep that
+        # first, inactive row and drop the new seed, so the high gap stayed
+        # uncovered on every attempt (exec_002 vo_seed_seg_021).
+        seed_id = f"vo_seed_{sid}"
+        lines[:] = [
+            ln
+            for ln in lines
+            if not (isinstance(ln, dict) and str(ln.get("line_id") or "") == seed_id)
+        ]
         lines.append(
             {
                 "line_id": f"vo_seed_{sid}",

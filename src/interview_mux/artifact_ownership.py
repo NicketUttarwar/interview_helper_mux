@@ -13,6 +13,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Iterable, Literal
 
 WriteMode = Literal[
@@ -215,6 +216,7 @@ class AuthorityDenied(PermissionError):
         epoch: str = "",
         suggested_owner: str = "",
         verb: str = "persist",
+        reason: str = "",
     ) -> None:
         super().__init__(message)
         self.path = path
@@ -223,6 +225,12 @@ class AuthorityDenied(PermissionError):
         self.epoch = epoch
         self.suggested_owner = suggested_owner
         self.verb = verb
+        self.reason = reason
+
+    @property
+    def foreign(self) -> bool:
+        """The writer has no row for this path at all (a side effect, ISSUES 127)."""
+        return self.verb == "persist" and is_foreign_refusal(self.reason)
 
     def fingerprint(self) -> str:
         return (
@@ -2426,9 +2434,142 @@ def assert_write(
         epoch=epoch,
         suggested_owner=suggested,
         verb=verb,
+        reason=reason,
     )
     _log_authority_denied(ctx, exc)
     raise exc
+
+
+#: Run-relative ledger of side-effect writes the ownership table skipped.
+FOREIGN_WRITE_LEDGER_REL = "operator/foreign_writes_skipped.jsonl"
+
+#: Documents with their own commit path. Their writers already catch a refusal
+#: and retry as the owner or through the committed-tree writer (the live EDL,
+#: the selection's single write point, the manifest and boundaries remaps,
+#: the one-writer commits for transitions, the gap report and the sound
+#: design plan). A silent skip would bypass those fallbacks, so an unkeyed
+#: foreign write to one of these still raises.
+FOREIGN_SKIP_EXEMPT: frozenset[str] = frozenset(
+    {
+        "master/edl.json",
+        "master/selection.json",
+        "master/transitions.json",
+        "master/air_order.json",
+        "segments/manifest.json",
+        "segments/boundaries.json",
+        "understanding/gap_report.json",
+        "understanding/sound_design_plan.json",
+    }
+)
+
+
+def is_foreign_refusal(reason: str) -> bool:
+    """True for the table's last fall-through: the writer is neither a producer
+    of the path nor named by any ALLOW row. Explicit DENY rows, freeze blocks
+    and mutation-class requirements are rules about writers that do have a
+    relationship with the path and are not foreign."""
+    return str(reason or "").startswith("not_allow:owner=")
+
+
+def skip_foreign_side_effect(
+    ctx: Any,
+    path: str,
+    *,
+    stage_key: str | None,
+    role: str | None,
+    mutation_class: str | None = None,
+) -> bool:
+    """Whether this write is a side effect the active stage has no right to (ISSUES 127).
+
+    Shared helpers (seat sync, id remaps, orientation republish) run under
+    whichever stage happens to be active and write documents that stage does
+    not own. Such a write used to raise ``AuthorityDenied`` from deep inside
+    the stage's finish path: the stage's real work was already on disk, the
+    denial was logged at error level, and it was counted toward a no-heal
+    halt against the active stage. The write was never going to land either
+    way; what the refusal should cost is the write, not the stage.
+
+    Only the inferred-writer case is softened: a caller that names a
+    ``stage_key`` or a ``role`` is making an ownership claim and still gets
+    the exception, so every existing fallback (retry as owner, mirrored
+    write) keeps working. Returns True when the write must be skipped.
+    """
+    if stage_key or str(role or "").strip():
+        return False
+    try:
+        from interview_mux.write_staging import active_stage_id
+
+        active = str(active_stage_id() or "").strip()
+    except Exception:
+        return False
+    if not active:
+        return False
+    try:
+        ok, reason = write_permitted(
+            ctx, path, active, role="producer", verb="persist", mutation_class=mutation_class
+        )
+    except Exception:
+        return False
+    if ok or not is_foreign_refusal(reason):
+        return False
+    rel = _norm_path(path)
+    if rel in FOREIGN_SKIP_EXEMPT:
+        return False
+    owner = str(reason).split("=", 1)[-1]
+    # Name the helper that made the write: the ledger is how a skipped write
+    # is traced back to code (exec_011's was never identified from its log).
+    callers: list[str] = []
+    try:
+        import traceback
+
+        for frame in traceback.extract_stack()[:-1]:
+            name = str(frame.filename).replace("\\", "/")
+            if "/interview_mux/" not in name:
+                continue
+            base = name.rsplit("/interview_mux/", 1)[-1]
+            if base in {"artifact_ownership.py", "run_context.py", "write_staging.py"}:
+                continue
+            callers.append(f"{base}:{frame.lineno}:{frame.name}")
+        callers = callers[-5:]
+    except Exception:
+        callers = []
+    try:
+        ctx.log(
+            f"side-effect write skipped: {rel} is not {active}'s to write "
+            f"(owner {owner or 'unknown'}); the owner rewrites it",
+            level="warning",
+            stage=active,
+            detail={
+                "foreign_write_skipped": True,
+                "path": rel,
+                "owner": owner,
+                "epoch": str(current_epoch(ctx) or ""),
+                "callers": callers,
+            },
+        )
+    except Exception:
+        pass
+    try:
+        from datetime import datetime, timezone
+
+        ledger = Path(ctx.run_dir) / FOREIGN_WRITE_LEDGER_REL
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with open(ledger, "a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "path": rel,
+                        "stage": active,
+                        "owner": owner,
+                        "callers": callers,
+                        "at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    return True
 
 
 def refuse_and_pin(
@@ -2639,7 +2780,9 @@ def _log_authority_denied(ctx: Any, exc: AuthorityDenied) -> None:
     try:
         ctx.log(
             fp,
-            level="error",
+            # A writer with no row for the path is a side effect of shared
+            # helper code, not a broken producer (ISSUES 127).
+            level="warning" if getattr(exc, "foreign", False) else "error",
             stage=exc.stage_key or "authority",
             detail={
                 "authority_denied": True,
@@ -2693,43 +2836,13 @@ def _log_authority_denied(ctx: Any, exc: AuthorityDenied) -> None:
         ctx.mutate_run_meta(_esr)
     except Exception:
         pass
-    try:
-        from interview_mux.identical_failures import record_identical_failure, _write, read_identical_failures
-
-        row = record_identical_failure(
-            ctx,
-            failed_stage=exc.stage_key or "authority",
-            producer=exc.suggested_owner,
-            reason=exc.fingerprint(),
-        )
-        # R5-A: second identical AuthorityDeny fingerprint → hard halt, no heal loop.
-        n = int(row.get("count") or 0) if isinstance(row, dict) else 0
-        sig = str(row.get("signature") or "") if isinstance(row, dict) else ""
-        if n >= 2 and sig:
-            try:
-                doc = read_identical_failures(ctx)
-                sigs = dict(doc.get("signatures") or {})
-                prow = dict(sigs.get(sig) or row)
-                prow["halt"] = True
-                prow["halt_after"] = 2
-                prow["authority_denied_no_heal"] = True
-                sigs[sig] = prow
-                doc["signatures"] = sigs
-                _write(ctx, doc)
-            except Exception:
-                pass
-
-            def _halt_meta(meta: dict[str, Any]) -> None:
-                meta["authority_denied_halted"] = fp
-                meta["authority_denied_no_heal"] = True
-                meta["last_suggested_pin"] = exc.suggested_owner
-
-            try:
-                ctx.mutate_run_meta(_halt_meta)
-            except Exception:
-                pass
-    except Exception:
-        pass
+    # No identical-failure row and no halt is stamped here (ISSUES 127). This
+    # function runs when the denial is raised, before anyone knows whether the
+    # caller handles it, and most callers do (retry as the owner, mirrored
+    # write, skip). Counting at raise time turned two handled denials into
+    # ``authority_denied_no_heal`` against whichever stage was active. A denial
+    # that does fail a stage is counted where every other stage failure is:
+    # in the walk's failure path, under the same cap and the same fallbacks.
 
 
 # ---------------------------------------------------------------------------

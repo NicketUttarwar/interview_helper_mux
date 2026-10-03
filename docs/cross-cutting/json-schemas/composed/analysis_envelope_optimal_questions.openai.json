@@ -73,7 +73,8 @@
                   "segment_summary",
                   "episode_preface",
                   "story_bridge",
-                  "extracted_context"
+                  "extracted_context",
+                  null
                 ]
               },
               "text": {
@@ -202,7 +203,8 @@
                 "enum": [
                   "analytical",
                   "consumer",
-                  "neutral"
+                  "neutral",
+                  null
                 ]
               },
               "trim_hint_ms": {
@@ -220,7 +222,8 @@
                   "low",
                   "medium",
                   "high",
-                  "critical"
+                  "critical",
+                  null
                 ]
               },
               "blocking": {

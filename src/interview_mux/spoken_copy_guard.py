@@ -182,6 +182,33 @@ def sentence_keys(text: str) -> list[str]:
     return keys
 
 
+#: Violations a line can be cured of by dropping the offending sentence.
+REPEATED_SENTENCE_VIOLATIONS: frozenset[str] = frozenset(
+    {"spoken_repeated_sentence", "spoken_repeated_sentence_in_line"}
+)
+
+
+def strip_repeated_sentences(text: str, seen_texts: Iterable[str] | None = None) -> str:
+    """Drop sentences another line already voiced, and repeats inside the line.
+
+    Sharded compose writes each shard without seeing the others, so two
+    shards can open a context line with the same sentence. The rest of the
+    line is still the model's own grounded copy; only the repeat has to go
+    (ISSUES 128). Returns the remaining text, possibly empty.
+    """
+    seen_keys = {key for seen in (seen_texts or []) for key in sentence_keys(str(seen))}
+    sentences = re.findall(r"[^.!?]+[.!?]+|[^.!?]+$", normalize_script(text))
+    local: set[str] = set()
+    kept: list[str] = []
+    for sentence in sentences:
+        keys = sentence_keys(sentence)
+        if keys and any(key in seen_keys or key in local for key in keys):
+            continue
+        local.update(keys)
+        kept.append(sentence.strip())
+    return normalize_script(" ".join(kept))
+
+
 def dedupe_sentences(text: str) -> str:
     """Remove repeated complete sentences, retaining the final voiced form.
 
@@ -713,6 +740,19 @@ def guard_spoken_copy(
                     stripped = re.sub(rf"\b{re.escape(token)}\b", "", stripped)
         stripped = normalize_script(stripped)
         if stripped and not spoken_copy_violations(stripped, evidence=ev, seen_texts=seen_texts):
+            fallback = stripped
+    if original and set(violations) & REPEATED_SENTENCE_VIOLATIONS:
+        # The line's own copy minus the repeated sentence beats a generic
+        # hinge, and beats blocking a required line outright (ISSUES 128).
+        # A remnant under six words is a hinge, not a line ("What broke
+        # next?"), and is not kept.
+        stripped = strip_repeated_sentences(original, seen_texts)
+        if (
+            stripped
+            and stripped != original
+            and len(stripped.split()) >= 6
+            and not spoken_copy_violations(stripped, evidence=ev, seen_texts=seen_texts)
+        ):
             fallback = stripped
     fallback_errors = (
         spoken_copy_violations(fallback, evidence=ev, seen_texts=seen_texts)

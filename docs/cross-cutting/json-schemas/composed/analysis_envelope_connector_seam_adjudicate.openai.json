@@ -46,7 +46,8 @@
                 ],
                 "enum": [
                   "into_earlier",
-                  "into_later"
+                  "into_later",
+                  null
                 ]
               },
               "reason_code": {
@@ -63,7 +64,8 @@
                   "topic_shift",
                   "speaker_change",
                   "other",
-                  "island_straddle"
+                  "island_straddle",
+                  null
                 ]
               },
               "rationale": {

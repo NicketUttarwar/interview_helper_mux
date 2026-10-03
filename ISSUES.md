@@ -4067,6 +4067,586 @@ second wind, gate wait untouched).
 
 ---
 
+## [127] PRODUCT: a refused side-effect write halted the stage that happened to be active, and the dispatch door then refused the only repair (macOS exec_011)
+
+**Stage / area:** `artifact_ownership` (denial accounting), `run_context.write_json`,
+`write_staging.write_committed_json`, `dispatch_door`, `homunculus.agenda` (seed
+prerequisites), `fallback_backstop`, `media_ip_cta`
+**Status:** fixed at the choke points. The exact helper that made the write in
+exec_011 is not identified (see "What is not proven").
+
+**Reported (one-hour source, 53 segments, three compose shards):** the run died
+with `seed order: complete gap_framing_compose before running delivery_brief_build`.
+`gap_framing_compose` had done its work (27 interviewer lines, high-gap seeding),
+then logged
+`authority_denied:persist:mastering/mastering_plan.json:gap_framing_compose:pre_soft_freeze:air_contract_sanitize`,
+its marker did not stay, every re-entry of compose was refused as `no_delta`,
+and the walk cycled brief, compose, brief until the identical-failure cap.
+
+**Chain, each link confirmed in the code:**
+
+1. Shared helpers (seat sync, id remaps, orientation republish) run under
+   whichever stage is active and write documents that stage does not own. The
+   ownership table has no row for `gap_framing_compose` on the mastering plan,
+   so the write is refused (`not_allow:owner=air_contract_sanitize`).
+2. `_log_authority_denied` ran at raise time, before anyone knew whether the
+   caller handled the denial, and most callers do. It logged at error level,
+   recorded an identical failure against the active stage, and on the second
+   identical fingerprint stamped `halt` with `authority_denied_no_heal`. Two
+   handled denials were enough to halt compose with no heal. This is why the
+   run completes in forensics mode: `is_halted` returns False there.
+3. The dispatch door's `no_delta` guard refuses a stage whose hard inputs are
+   byte-identical to its last success while its outputs are on disk. It does
+   not ask whether the stage is still complete. Compose's inputs had not
+   changed and `gap_report.json` was on disk, so the door refused it at the
+   walk layer (advance) and again at the dispatch layer, where
+   `dispatch_stage` returns silently on a refusal.
+4. The walk's prerequisite retry therefore "ran" compose (a silent no-op) and
+   retried the consumer, which raised the same seed-order error. Three of
+   those reached the cap.
+5. The fallback ladder of entries 124 and 125 was then applied to the blocked
+   consumer (`delivery_brief_build`), not to the incomplete prerequisite.
+
+**Why the six-minute clip never showed it:** about ten segments, so compose
+takes the single-batch path, has no CTA recut and few high gaps, and its
+finish path makes no foreign write. The maintainer's question was right: the
+short source does not exercise this path.
+
+**Fix (rules, not carve-outs):**
+
+- **A denial is counted where it fails a stage, not where it is raised.**
+  `_log_authority_denied` no longer records an identical failure or stamps a
+  halt. A denial that escapes a stage is counted by the walk's failure path
+  under the ordinary cap, with the ordinary fallbacks.
+- **A refused side-effect write costs the write, not the stage.**
+  `skip_foreign_side_effect`: when the writer is inferred from the active
+  stage (no `stage_key`, no `role`) and the table's answer is the last
+  fall-through (`not_allow:owner=...`, the stage has no row for the path at
+  all), `write_json` and `write_committed_json` skip the write, log a warning
+  naming the owner, and append to `operator/foreign_writes_skipped.jsonl`.
+  A caller that names a key or a role still gets `AuthorityDenied`, so every
+  existing fallback (retry as owner, mirrored write) is unchanged, and
+  explicit DENY rows, freeze blocks and mutation-class rules still raise.
+  Documents with their own commit path (EDL, selection, air order,
+  transitions, manifest, boundaries, gap report, sound design plan) are
+  exempt and still raise, because their writers catch the refusal and retry
+  as the owner. An AST sweep of every try block with an unkeyed write and a
+  writing handler found one site outside those documents that relied on the
+  refusal (`vo_bind_authority`, the bind-failure omit on the mastering
+  plan); it now names the seat owner up front, and a static test keeps that
+  pattern out.
+  A foreign denial that is raised logs at warning level, not error.
+- **The door does not hold a prerequisite the seed order has just demanded.**
+  `demand_seed_prereq` marks the stage while the walk runs it as a
+  prerequisite; `evaluate_dispatch` then skips `no_delta` and the attempt
+  memo for that stage only. The dispatch caps still apply, and the walk asks
+  once per prerequisite. The mix and junction ping-pong the guard was built
+  for is untouched (its tests pass unchanged).
+- **A prerequisite left incomplete says why.** After a demanded run the walk
+  offers the marker to the heal ladder (which marks only a complete body) and
+  otherwise logs `stage_artifact_incompleteness` for the prerequisite, so the
+  log carries the cause and not only the consumer's seed-order line.
+- **The fallback at the cap goes to the incomplete prerequisite.** A
+  `seed order: complete X before running Y` failure applies the ladder to X
+  (keep its prior committed artifact through the heal ladder) and records
+  `unblocks: Y`. Y is never skipped through its stub for X's failure.
+- `media_ip_cta._publish_story_children_sources` asked for a writer by
+  denial: first as `full_master_ranking`, then as the active stage, then a
+  mirrored write. It now asks `write_permitted` which key may write and
+  falls to the mirrored write without logging two denials.
+
+**Guardrails around the same chain** (each one closes a way the walk could
+still be left with an incomplete stage it will not run):
+
+- **A refused stage that is not complete is run, not skipped.** At the walk
+  layer a `no_delta` refusal means "the last success stands". The walk now
+  checks that: a seed-complete stage is advanced past as
+  before; a stage whose body is complete on disk gets its marker back
+  through the heal ladder; a stage that is neither is run once in that walk
+  under the demand. The audio stages the guard was built for (mix, junction,
+  MMAudio, VO synthesis, music, master) are excluded and keep the refusal.
+  The attempt memo ("already failed at this state") is left alone: voiding
+  it would bring back the re-walk of failed stages it exists to stop.
+- **An incomplete prerequisite gets its own recovery playbook.** A stage that
+  raises is handed to `handle_stage_failure`; a stage that returned without
+  becoming complete was not, and recovery ran for the consumer instead. The
+  prerequisite's incompleteness reason now goes through the same controller
+  once, and the marker is offered again afterwards.
+- **The second wind resets the door's memory too.** `_second_wind` cleared
+  the failure counters but left `operator/dispatch_memo.json`, so its one
+  re-entry could be refused by the same rows. It now drops the memo rows of
+  every stage that is not seed-complete, and when the stopping error names
+  a prerequisite it applies the fallback ladder to that prerequisite first.
+- **The verdict shows what the self-correction did.**
+  `operator/run_verdict.json` gains `fallback_decisions` (last ten) and
+  `foreign_writes_skipped` (stage:path, distinct). Neither fails the
+  verdict; both are the first place to look when a run stopped or a passing
+  run sounds wrong.
+
+**Reproduced on the one-hour source (exec_102, 2026-10-02).** The keyless
+replays of sharded compose on a clone of exec_055 never made the write, in
+five states. The first fresh one-hour run on this code did, at the same point
+as exec_011: after compose's second pass landed its lines, the completion
+path promoted orphan markers and ran the delivery sanitizers inline
+(`gap_report_sanitize`, the pass-2 skip copy of `gap_framing_recompose`,
+which is the "skip-copy landed done in the noise" of the report), the
+execution contract's seat sync stayed read-only three times, and a fourth
+helper wrote the plan unkeyed. The log line is now a warning,
+`side-effect write skipped: mastering/mastering_plan.json is not
+gap_framing_compose's to write (owner air_contract_sanitize)`, the stage
+completed, and the walk went on to the brief. The ledger row now also
+records the calling frames inside the package, so the next occurrence names
+the helper.
+
+Tests: `tests/test_foreign_side_effect_writes.py` (24). Existing
+`tests/test_p15_no_delta_guard.py` and `tests/test_fallback_backstop.py`
+pass unchanged.
+
+---
+
+## [128] PRODUCT: one unspeakable required line failed the whole of sharded `gap_framing_compose` (exec_102, one-hour source)
+
+**Stage / area:** `spoken_copy_guard.guard_spoken_copy`, `artifact_repairs.repair_gap_report`
+**Status:** fixed.
+
+**Symptom:** four compose shards returned (65 segments), then
+`required gap VO blocked by spoken_copy_guard (vo_context_seg_062):
+spoken_repeated_sentence, no_grounded_fallback`, `Failed: Stage
+gap_framing_compose`. The engine re-entered analysis and paid for all four
+shards again; the second roll happened to pass.
+
+**Cause:** each shard is written without sight of the others, so two shards
+can open a context line with the same sentence. The guard flags the second
+as a repeated sentence (a hard structure violation: it sounds like a
+synthesis fault). Its only remedy was a grounded hinge built from topic
+evidence, there was none, so the verdict was `block`, and for a required
+line that is not a lay-up the repair raised a loud failure. One line in 65
+segments took the stage down. The six-minute clip has one shard, so it
+cannot produce a cross-shard repeat.
+
+**Fix:**
+
+- **Cure before blocking.** `strip_repeated_sentences` drops the sentences
+  another line already voiced, and repeats inside the line. When the rest is
+  still a line (six words or more) and passes the guard, it is the fallback:
+  the model's own grounded copy minus the repeat. A shorter remnant ("What
+  broke next?") is a hinge, not a line, and is not kept.
+- **Release instead of failing.** A required line the guard still cannot
+  make speakable is released (`release_unspeakable_required_vo`, logged as a
+  warning with the violations) in both branches that used to raise
+  (`required gap VO blocked`, `required high-gap VO omitted after rewrite`).
+  The high-gap seed that follows the repair covers the segment with a stock
+  phrase the guard accepts (entry 123), and the completion check still
+  refuses the stage if a high gap ends up uncovered. Same rule as entry 123:
+  a line whose copy the guard refuses is released, not asserted.
+
+Tests: `tests/test_unspeakable_required_line_released.py` (6).
+
+---
+
+## [129] PRODUCT: a split's id remap of `gap_evaluations.json` was refused from `full_master_ranking` (exec_102, one-hour source)
+
+**Stage / area:** `artifact_repairs.propagate_nle_split_segment_refs`
+**Status:** fixed.
+
+**Symptom:** twice during ranking on the one-hour source,
+`side-effect write skipped: understanding/gap_evaluations.json is not
+full_master_ranking's to write (owner missing_framing)`. The ledger's caller
+frames (entry 128) name the site: `propagate_nle_split_segment_refs`, once
+from the NLE split and once from the CTA recut. Before entry 127 the same
+write raised `AuthorityDenied`, which logged an error line and counted
+toward a no-heal halt against ranking; after it, the write is skipped
+quietly. Neither is right: the evaluations stay keyed by a parent segment
+that no longer exists.
+
+**Cause:** the function renames a split parent to its children in every
+document that stores the id. Transitions and the gap report already present
+their owner's key for this (entry 101). Three other documents were written
+unkeyed, as whichever stage was active: the coverage audit, the narrative
+plan, and the gap evaluations. The six-minute clip has no CTA recut and no
+split during ranking, so it never took the path.
+
+**Fix:** `persist_segment_id_remap(ctx, rel, doc)` asks the table which key
+may write: the active stage, then the active stage declaring
+`segment_id_remap`, then the document's owner with that class. An id remap
+changes no judgement, so presenting the owner is the rule already in use
+for transitions and the gap report. When no key is accepted it logs a
+warning and returns False instead of raising. The three unkeyed writes now
+go through it.
+
+Tests: `tests/test_segment_id_remap_owner_key.py` (5).
+
+---
+
+## [130] PRODUCT: edl refused "NLE operator edits not committed on disk selection" with no operator and no exit (exec_102, one-hour source)
+
+**Stage / area:** `nle_state.apply_nle_to_selection`, `stages.assembly.run_edl`
+**Status:** fixed.
+
+**Symptom:** delivery halted at `edl` with `SystemExit: edl: NLE operator
+edits not committed on disk selection` (the message goes on to say the NLE
+must land through the selection owner first), again on the resume, and
+again on the second wind. No error-level line
+is logged (it is a halt, not a failure), no stage can act on it, and the run
+has no operator at the timeline.
+
+**Cause:** `split_segment_at_cuts` seeds `sequence_order` from the whole
+manifest when no operator order exists, so the timeline keeps children at
+their parent's position. `nle_has_operator_edits` is true for any non-empty
+order, and `apply_nle_to_selection` then has to tell that mirrored spine
+from a real reorder. Its test was length: ignore the order when it covers
+every on-air id and is at least 1.25 times as long. On the one-hour source
+68 manifest ids against 60 on air is 1.13, so the spine was taken for an
+operator reorder. At ranking it overrode the ranked order with source
+order; later selection writers restored theirs; edl compared the two and
+refused. The six-minute clip airs a small share of its manifest, so it
+always passed the ratio.
+
+**Fix:**
+
+- **A spine is recognised by what it is.** `is_source_spine`: the order
+  covers every on-air id and runs in source order (by `start_ms`, children
+  included). That is no reorder and is ignored for ordering; exclude and
+  split overlays still apply. The length rule stays for the cases it
+  catches. A subset in source order, or an order with an unknown start
+  time, is not called a spine, and a real full-cover reorder is still
+  honoured.
+- **An engine-driven run has an exit.** When the NLE order and the disk
+  selection hold the same segments in a different order and the run is
+  driven by the engine (full-auto or partially-accelerated), edl builds from
+  the committed selection, which is the air-order authority the stage's own
+  comment names, and logs a warning with the count of differing positions.
+  Different segment sets still refuse, and a manual run keeps the refusal:
+  there the operator can land the timeline through the selection owner.
+
+Tests: `tests/test_nle_source_spine_is_not_a_reorder.py` (8).
+
+---
+
+## [131] PRODUCT: the walk dispatched `mix` into its own refusal instead of running `junction_snip_qa` first (exec_102, one-hour source)
+
+**Stage / area:** `homunculus.agenda._run_seed_prerequisites_first`
+**Status:** fixed.
+
+**Symptom:** `incomplete_cut_unresolved: Mix refused: live incomplete-cut
+residuals on_a_roll` (seg_056, seg_057), `Failed: Stage mix`, the recovery
+playbook pinning `junction_snip_qa`, and the delivery pass ending FAIL before
+the resume did what the refusal said. Two error lines on a path that is the
+designed order.
+
+**Cause:** the order is already decided in one place: `junction_precedes_mix`
+says junction runs ahead of the first mix when the live EDL carries critical
+incomplete-cut residuals, and `ordering_authority` exempts junction from the
+seed order for exactly that. Nothing asked before dispatching mix. The walk
+found out from mix's loud failure, the same shape as entries 106, 119 and
+121. Residuals of this kind need a long timeline with mid-thought joins; the
+six-minute clip produced none.
+
+**Fix:** `_junction_owes_recut_before_mix` reads the two rules the stages
+themselves use, mix's refusal (`live_incomplete_cut_critical_findings`) and
+the ordering exemption for junction ahead of mix. When both hold, the walk
+runs `junction_snip_qa` before `mix`, once per walk, under the seed order's
+demand (entry 127). A junction failure is raised as the prerequisite failure
+in the words the walk's parser understands. Without the exemption junction
+is not sent ahead, since its dispatch would only refuse on the seed order.
+
+Tests: `tests/test_junction_runs_ahead_of_mix.py` (7).
+
+---
+
+## [132] PRODUCT: the transferred keep list demanded a child the family cap had taken off air (exec_102, one-hour source)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids`
+**Status:** fixed.
+
+**Symptom:** with junction running ahead of mix (entry 131), its ladder
+omitted one hanging clip and remastered, then `Junction remediation run 1
+could not remaster: sanitize_refused:selection:
+hard_keep_missing_from_order:seg_002i`, `Failed: Stage junction_snip_qa`.
+
+**Cause:** seg_002 is a hard keep and a CTA parent, split into twelve
+children, ten of them admitted story. Two places cut that family to the
+same budget (`max_same_family_on_air`, 8) from different inputs:
+
+- the selection sanitizer's family cap works on what is on air and prefers
+  hard keeps: it aired a to h and excluded i and j
+  (`cap_same_family_on_air`);
+- the keep transfer in `hard_keep_segment_ids` works on the whole admitted
+  story set, collapses overlapping spans, then takes the first eight.
+
+They agreed until an overlap union folded seg_002h into seg_002g. The
+transfer then collapsed g and h into one, its eighth slot moved to
+seg_002i, and the keep list demanded a segment the cap had excluded. The
+lattice lint (`hard_keep_missing_from_order`) is critical, so every later
+selection commit was refused, here junction's. The six-minute clip has no
+twelve-way split.
+
+**Fix:** a child the committed selection excludes for a lattice reason
+(`cap_same_family_on_air`, `sanitize_duplicate_source_span`) is left out of
+the transfer (`lattice_dropped_ids`). The lattice ruled on the family with
+the keeps in hand; the transfer must not hand that ruling back as a demand.
+A child excluded for any other reason is still a transferred keep, so a
+wrongful drop is still refused, and with no selection on disk every story
+child is still offered to ranking.
+
+Tests: `tests/test_hard_keep_transfer_respects_family_cap.py` (5).
+
+---
+
+## [133] ENV + PRODUCT: DeepFilterNet ran without its native build; preclean logged an error-level runtime failure on every Mac without Rust (macOS exec_001)
+
+**Stage / area:** `audio_preclean`, `deepfilter_runner`, `scripts/lib/bootstrap_local_runtimes.sh`
+**Status:** FIXED
+
+**Seen:** first seconds of a fresh partially accelerated run on a new Mac:
+`[ERROR] [audio_preclean] Local runtime failed (exit 1): deepfilter/deepfilter_enhance_batch.py`
+with `DeepFilterNet import failed: No module named 'df'`. The stage then fell
+back to ffmpeg denoise, so the run continued, but with an error on the log and
+a different preclean than a machine with Rust.
+
+**Cause:** the bootstrap skips the Rust (`maturin`) build of DeepFilterNet's
+native `df` module when `rustc` is missing, and only prints a WARN. The runner
+treated "repo directory exists" as "stack is runnable", spawned the batch
+script, and the script died on import. Two machines with the same repo got
+different audio: one DeepFilterNet, one ffmpeg.
+
+**Fix:**
+- `deepfilter_runner._require_deepfilter_stack` probes `import df.enhance` in
+  the DeepFilter venv once per process before any spawn. An unbuilt stack is a
+  quiet `DeepFilterUnavailable`, which the existing ffmpeg fallback handles at
+  warning level. No subprocess, no error-level log.
+- The bootstrap installs Rust with Homebrew on macOS when it is missing, so
+  the build is no longer silently skipped.
+- `tools/env_sync.py` (new) checks every local runtime's key import, including
+  `df.enhance`, and offers a bootstrap re-run when one fails.
+
+Tests: `tests/test_deepfilter_runner.py::test_enhance_wav_unbuilt_stack_refuses_before_spawn`.
+
+---
+
+## [134] PRODUCT: a high gap ended every compose attempt neither covered nor demoted, so the barrier refused until the class cap halted the run (macOS exec_002, one-hour source)
+
+**Stage / area:** `gap_framing_compose` (`_seed_uncovered_high_gaps_before_heal`),
+`high_gap_vo.seed_uncovered_high_gaps_deterministic`, `high_gap_vo.resolve_seats`
+**Status:** FIXED
+
+**Seen:** fresh partially accelerated run on the one-hour source, 14 high
+gaps. Compose failed with
+`Pre-flush commit barrier failed: high gap segment seg_048 has no interviewer line`,
+then on retry `seg_021`, then `class_failure gap_framing_compose/high_gap_unframed x4/3 halt=True`
+and `dispatch refused gap_framing_compose: max_invokes_per_identity`. The run
+stopped at `error`.
+
+**Chain (reproduced offline on a copy of exec_002's state; unmodified code
+fails, fixed code passes):**
+1. Each pass the repair restamps air-contract omits, so several high-gap lines,
+   including earlier seeds such as `vo_seed_seg_021`, sit in the report with
+   `skipped_optional` and `air_script_omit`.
+2. `targeted_segment_ids` correctly ignores inactive rows, so the seeder sees
+   seg_021 as uncovered and **appends a second row with the same id**
+   `vo_seed_seg_021`.
+3. `resolve_seats` runs next, counts seg_021 as covered by the new seed, and
+   does not demote it.
+4. `dedupe_line_ids` runs after that and keeps the **first** row with the id,
+   the inactive one. The live seed is dropped.
+5. seg_021 is now neither covered nor demoted. The barrier refuses. Every
+   attempt repeats the same sequence until the class cap halts the run.
+
+The six-minute clip has one or two high gaps and never builds up omitted seeds
+across passes, so it cannot show this.
+
+**Fix:**
+- **One row per seed id.** The seeder removes an inactive row under the same
+  `vo_seed_<seg>` id before appending, so dedupe cannot keep the dead copy.
+- **Seats are settled last.** If high gaps are still uncovered after the
+  in-stage seeding, `_seed_uncovered_high_gaps_before_heal` runs
+  `resolve_seats(intent="repair")` on the final staged report, so each high
+  gap is either covered or demoted with `severity_demotion_reason` before the
+  completion check (logged as `high_gap_final_seat_settle`). This is the
+  repair path's own demotion rule, applied after the repairs that can undo a
+  seed rather than before them.
+
+Tests: `tests/test_high_gap_seed_settles_before_barrier.py` (2; both fail on
+the unfixed code).
+
+---
+
+## [135] PRODUCT: a lay-up plan made only of typed skips replaced a body that met the hosted VO floor, and loud-failed as "unsatisfiable" (macOS exec_003, one-hour source)
+
+**Stage / area:** `nugget_layup_compose`, `nugget_layup.publish_layup_plan_to_gap_report`,
+`raise_hosted_vo_floor_unsatisfiable`
+**Status:** FIXED
+
+**Seen:** first run past stage 47 on the one-hour source:
+`[ERROR] hosted_vo_floor met have=6 need=3`, then
+`hosted_vo_floor_unsatisfiable (active_synthetic=0 < min=3; eligible_nuggets=0) — escalate once, do not recompose`,
+`Failed: Stage nugget_layup_compose`. The engine walked back to
+`gap_framing_compose`.
+
+**Cause:**
+1. The model returned a plan of 21 rows, all typed skips
+   (`no_eligible_unspent_nugget`, `native_self_orients`,
+   `self_explanatory_native`, `media_ip_cta_hole`), with the warning "All
+   corpus nuggets are already represented in selected native audio". That is
+   a correct plan: there was nothing unspent to lay up.
+2. The gap report on disk already had 6 active synthetic lines from compose,
+   above the floor of 3.
+3. The publish rule "a hollow plan keeps the prior body when it meets the
+   floor" treated a plan as hollow only when `layups` was empty or carried
+   `compose_restart`. 21 skip rows are not empty, so publish tried to replace
+   6 lines with 0 and raised.
+4. The error text came from the floor snapshot, which reads the committed
+   body, so the first error line said "floor met".
+
+**Fix:**
+- A plan whose candidate body has no active synthetic line is hollow for this
+  rule (`active_new == 0`), so a body that meets the floor is kept verbatim,
+  through the same path the empty-plan case already used.
+- The loud failure names the candidate counts instead of the snapshot's prose.
+
+Tests: `tests/test_nugget_layup.py::test_publish_keeps_prior_body_when_plan_is_all_typed_skips`
+(fails on the unfixed code). Replayed on a copy of exec_003: unmodified code
+raises, fixed code publishes with 6 active lines.
+
+---
+
+## [136] PRODUCT: the transferred keep list demanded sponsor-outro scraps the selection had excluded (macOS exec_003, one-hour source)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids` (CTA parent keep transfer),
+`selection_order_sanitize`
+**Status:** FIXED
+
+**Seen:** `sanitize_refused:selection: hard_keep_missing_from_order:seg_035g,seg_035h,seg_035i`,
+`Failed: Stage selection_order_sanitize` twice, then
+`dispatch refused for incomplete critical selection_order_sanitize`, and the
+run halted with `Delivery incomplete after conductor`.
+
+**Cause:**
+1. seg_035 is the sponsor outro (sponsor thanks, production credits, "follow
+   us", contact email, host sign-off; `cta_region: whole`). Split into
+   children: a to f excluded as `media_ip_cta`; g, h, i are 2-second tail
+   fragments ("The Life Sciences DNA.", "I'm Daniel Levine. Thanks for
+   joining", "joining us.") that media_ip_cta's recut listed as admitted story.
+2. Ranking and the lay-up producer then excluded g, h, i with an outro /
+   degraded-CTA reason ("empty, heavily degraded transcript after the CTA cut").
+3. A different banned CTA parent was a hard keep. The keep transfer offers
+   the **whole** admitted story set, not just that parent's children, and
+   only subtracts lattice drops (entry 132). g, h, i were handed back as
+   demands, and the lattice lint refused every selection commit.
+
+**Fix:** same shape as entry 132. A child of any banned CTA parent that the
+committed selection excludes for an editorial reason (CTA, outro, fragmentary
+tail, blank: `is_editorial_exclude_reason`) is not part of the transfer
+(`editorial_dropped_cta_children`). A child excluded for any other reason is
+still a transferred keep, so a wrongful drop is still refused.
+
+Tests: `tests/test_hard_keep_transfer_skips_cta_scraps.py` (3; the two bug
+tests fail on the unfixed code). Replayed on a copy of exec_003: unmodified
+code keeps g, h, i and sanitize refuses; fixed code keeps none and sanitize
+passes.
+
+---
+
+## [137] PRODUCT: 46 nullable enums rejected null, so valid LLM replies failed verification and were discarded; a budget refusal was logged as an OpenAI failure (macOS exec_004)
+
+**Stage / area:** `openai_structured_output._make_nullable`,
+`schema_nullability._add_null_to_type`, `openai_schema_semantic_lint`,
+`docs/cross-cutting/json-schemas/{artifacts,composed}`, `stages/llm_runner`
+**Status:** FIXED
+
+**Seen:** `[ERROR] [connector_seam_adjudicate] OpenAI chat.completions failed (gpt-5.6-terra, advisory)`,
+then `Seam adjudication LLM unavailable for 15 pair(s): limit_exhausted:connector_seam_adjudicate:max_invokes_per_identity`.
+The run continued, but with no LLM seam verdicts.
+
+**Cause:**
+1. The seam schema declares `fuse_direction` as `"type": ["string", "null"]`
+   with `"enum": ["into_earlier", "into_later"]`. JSON Schema applies `enum`
+   independently of `type`, so null is always rejected.
+2. Every `stay_independent` verdict correctly has no direction, so every
+   reply failed verification (`None is not one of [...]`), the stage retried
+   until the per-identity invoke cap, and all fifteen verdicts were dropped.
+   This happens on every run and silently lowers seam quality; it is not
+   specific to this source.
+3. The same shape existed in 46 nodes across 21 schemas. Three were
+   hand-written artifact schemas; the rest came from the strict-mode
+   composer, which makes optional fields nullable by adding `"null"` to
+   `type` but never added null to `enum`.
+4. The cap refusal (`LimitExhausted`) is raised before any request is sent,
+   but `llm_runner` logged it as `OpenAI chat.completions failed` at error
+   level.
+
+**Fix:**
+- `_make_nullable` and `_add_null_to_type` add `null` to `enum` whenever they
+  make an enum node nullable. The three artifact schemas list null
+  (three-line diff). The 39 composed schemas were regenerated with
+  `tools/codegen_openai_schemas.py`; files committed with CRLF keep CRLF, so
+  the diff is 18 files, 86 lines.
+- The semantic schema lint accepts null in the enum of a nullable node.
+- `LimitExhausted` is logged as `LLM call not sent ... ` at warning level and
+  re-raised for the caller's fallback.
+- Verified against the live API: OpenAI strict structured output accepts the
+  regenerated seam schema and returns `fuse_direction: null` for a
+  `stay_independent` verdict, which now validates.
+
+Tests: `tests/test_nullable_enum_lists_null.py` (4), including a sweep that
+fails if any committed schema has a nullable enum without null.
+
+---
+
+## [138] PRODUCT: a repaired role/tape conflict left a stale blocking stamp on speakers.json, unmarking speaker_roles after G0 and deadlocking the walk; a live run was stamped "Server restarted" (macOS exec_005)
+
+**Stage / area:** `llm_preflight._preflight_missing_framing`,
+`speaker_role_evidence.stamp_role_tape_conflict`,
+`deterministic_lint._lint_speaker_roles`, `homunculus` seed walk,
+`gui_job_reconcile._reconcile_job_file`
+**Status:** FIXED
+
+**Seen:** run halted with `RuntimeError: seed order: complete speaker_roles before running missing_framing`.
+Every remedy was refused: `cannot run speaker_roles: timeline artifacts exist after G0`.
+The second wind repeated it and the run stopped (`complete=False`, 29 stages).
+Twice in the same minute the GUI job flipped to `interrupted` with
+"Server restarted — infrastructure interrupt" while serve and the driver were
+both alive.
+
+**Chain (replayed on a copy of exec_005):**
+1. `missing_framing`'s preflight linted the manifest for interviewer/guest
+   labels that contradict the tape and found it blocking (8 of 52).
+2. It called `repair_role_tape_segment_types`, which re-read the manifest from
+   disk, retyped the segments and committed it. The live manifest now lints
+   clean (0 of 44).
+3. The preflight then re-linted **the copy it had read before the repair**,
+   still saw 8 conflicts, and stamped a blocking `role_tape_conflict` onto
+   `understanding/speakers.json`.
+4. Nothing could clear that stamp: the clearing write in the repair was
+   unkeyed, and an unkeyed write from `missing_framing` to a file
+   `speaker_roles` owns is a foreign side effect that is skipped (entry 127).
+5. `speakers.json` completeness and the speaker lint read the stamp, not the
+   manifest, so `speaker_roles` read as partial. The hollow guard unmarked it.
+6. `speaker_roles` is protected after G0 and may not rerun, so the heal could
+   not re-mark it and the walk could not run it: a deadlock.
+
+Separately, the orchestrator releases `.run.lock` between phases. A GUI poll
+in that gap found a running job with no lock and stamped it interrupted.
+
+**Fix:**
+- The preflight re-reads the manifest after the repair before re-linting.
+- When the live manifest is clean, the preflight replaces a stale blocking
+  stamp with the fresh lint, so every reader agrees.
+- `stamp_role_tape_conflict` and the repair's clearing write name the owner
+  (`stage_key="speaker_roles"`), so they are not skipped as foreign writes.
+- `_lint_speaker_roles` re-checks a blocking stamp against the live manifest.
+- The job reconciler does not mark a job interrupted while the run's claimed
+  driver process (`operator/driver_claim.json`) is alive.
+
+Replay on the exec_005 state: unmodified code leaves speakers.json partial and
+the heal refuses; fixed code clears the stamp, the heal re-marks
+`speaker_roles`, and it is seed-complete.
+
+Tests: `tests/test_role_tape_conflict_stale_stamp.py` (4; all fail on the
+unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

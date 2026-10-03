@@ -524,8 +524,28 @@ class Orchestrator:
             self.ctx.mutate_run_meta(_clear_need)
         except Exception:
             pass
+        # The dispatch door's memory is reset with the counters: a stage it
+        # refused as "nothing changed" or "already tried" is exactly what the
+        # re-entry has to be able to run (ISSUES 127).
+        memo_cleared = 0
+        try:
+            from interview_mux.dispatch_delta import forget_incomplete_stage_rows
+
+            memo_cleared = int(forget_incomplete_stage_rows(self.ctx) or 0)
+        except Exception:
+            memo_cleared = 0
+        # A failure that names an incomplete prerequisite gets the fallback
+        # ladder on that prerequisite before the re-entry.
+        try:
+            from interview_mux.fallback_backstop import apply_declared_fallback
+
+            if "seed order: complete " in err:
+                apply_declared_fallback(self.ctx, "", err)
+        except Exception:
+            pass
         self.log(
-            f"=== second wind: reset {cleared} failure counter(s) after "
+            f"=== second wind: reset {cleared} failure counter(s) and "
+            f"{memo_cleared} dispatch memo row(s) after "
             f"{err[:120]!r}; re-entering once ==="
         )
         a = self._phase("analysis", run_analysis)
@@ -742,6 +762,24 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
         package_current = bool(package_bound_to_current_master(ctx))
     except Exception:
         package_current = False
+    def _jsonl_rows(rel: str) -> list[dict[str, Any]]:
+        path = run_dir / rel
+        rows: list[dict[str, Any]] = []
+        try:
+            if path.is_file():
+                for line in path.read_text(encoding="utf-8").splitlines()[-200:]:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(row, dict):
+                        rows.append(row)
+        except OSError:
+            pass
+        return rows
+
+    fallbacks = _jsonl_rows("operator/fallback_decisions.jsonl")
+    foreign = _jsonl_rows("operator/foreign_writes_skipped.jsonl")
     verdict = {
         "version": 1,
         "run_id": ctx.run_id,
@@ -756,6 +794,16 @@ def run_verdict(ctx: RunContext, *, complete: bool, error: str = "") -> dict[str
         "publish_outputs": outputs,
         "publish_skipped": skipped,
         "package_current": package_current,
+        # What the self-correction layers did (entries 124 to 127). Neither
+        # fails the verdict; both are the first place to look when a run
+        # passed but sounds wrong, or stopped.
+        "fallback_decisions": [
+            {k: row.get(k) for k in ("stage", "fallback", "unblocks", "reason") if row.get(k)}
+            for row in fallbacks[-10:]
+        ],
+        "foreign_writes_skipped": sorted(
+            {f"{row.get('stage')}:{row.get('path')}" for row in foreign if row.get("path")}
+        )[:40],
         "stopped_on": str(error or "")[:300],
         "pass": bool(complete and outputs_ok and not error_lines and not stale),
         "at": datetime.now(timezone.utc).isoformat(),

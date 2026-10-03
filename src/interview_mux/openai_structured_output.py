@@ -131,19 +131,34 @@ def _sanitize_strict_node(schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def _null_in_enum(prop: dict[str, Any]) -> dict[str, Any]:
+    """A nullable node with an ``enum`` must list null too.
+
+    JSON Schema applies ``enum`` independently of ``type``, so
+    ``{"type": ["string", "null"], "enum": ["a", "b"]}`` still rejects null.
+    Verification then failed every legitimate null (exec_004:
+    connector_seam_adjudicate ``fuse_direction`` on ``stay_independent``),
+    retried to the invoke cap and dropped all fifteen LLM seam verdicts.
+    """
+    enum = prop.get("enum")
+    if isinstance(enum, list) and None not in enum:
+        prop["enum"] = [*enum, None]
+    return prop
+
+
 def _make_nullable(prop: dict[str, Any]) -> dict[str, Any]:
     prop = copy.deepcopy(prop)
     t = prop.get("type")
     if t is None:
         inferred = _infer_json_type(prop)
         base = inferred if inferred else "object"
-        return {**prop, "type": [base, "null"]}
+        return _null_in_enum({**prop, "type": [base, "null"]})
     if isinstance(t, list):
         if "null" not in t:
             prop["type"] = [*t, "null"]
-        return prop
+        return _null_in_enum(prop)
     prop["type"] = [t, "null"]
-    return prop
+    return _null_in_enum(prop)
 
 
 def inline_local_refs(

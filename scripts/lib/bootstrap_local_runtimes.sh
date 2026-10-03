@@ -20,7 +20,15 @@ TORCH_INDEX="$("$PY_DETECT" -c 'from interview_mux.hardware_detect import torch_
 echo "Torch device: $TORCH_DEVICE (index: $TORCH_INDEX)"
 
 if ! command -v rustc >/dev/null 2>&1; then
-  echo "WARN: rustc not on PATH — DeepFilterNet native build will be skipped."
+  # DeepFilterNet's native df module needs Rust; without it preclean silently
+  # degrades to ffmpeg on one machine and not another. Install it on macOS.
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    echo "rustc not on PATH: installing Rust via Homebrew for the DeepFilterNet build ..."
+    brew install rust || true
+  fi
+fi
+if ! command -v rustc >/dev/null 2>&1; then
+  echo "WARN: rustc not on PATH. DeepFilterNet native build will be skipped (preclean falls back to ffmpeg)."
   echo "  Install Rust before preclean: brew install rust"
 fi
 

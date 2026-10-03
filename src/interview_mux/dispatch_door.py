@@ -82,6 +82,40 @@ def door_applies(ctx: RunContext, *, layer: str = "dispatch") -> bool:
         return False
 
 
+_PREREQ_ATTR = "_seed_prereq_demanded"
+
+
+def seed_prereq_demanded(ctx: RunContext) -> str:
+    """The prerequisite the walk is running on the seed order's demand, if any."""
+    return str(getattr(ctx, _PREREQ_ATTR, "") or "")
+
+
+class demand_seed_prereq:
+    """Context manager: mark ``stage`` as demanded by the seed order while it runs."""
+
+    def __init__(self, ctx: RunContext, stage: str) -> None:
+        self.ctx = ctx
+        self.stage = str(stage or "")
+        self.prev = ""
+
+    def __enter__(self) -> "demand_seed_prereq":
+        self.prev = seed_prereq_demanded(self.ctx)
+        try:
+            setattr(self.ctx, _PREREQ_ATTR, self.stage)
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        try:
+            if self.prev:
+                setattr(self.ctx, _PREREQ_ATTR, self.prev)
+            elif hasattr(self.ctx, _PREREQ_ATTR):
+                delattr(self.ctx, _PREREQ_ATTR)
+        except Exception:
+            pass
+
+
 def evaluate_dispatch(
     ctx: RunContext,
     stage: str,
@@ -129,6 +163,15 @@ def evaluate_dispatch(
         return DispatchVerdict(False, reason, detail)
 
     from interview_mux.dispatch_delta import memo_skip, no_delta_refusal
+
+    # A stage the seed-order gate has just named as an incomplete prerequisite
+    # is run, not re-argued (ISSUES 127). "Inputs unchanged since the last
+    # success" and "already offered at this state" both assume the last result
+    # stands; the gate has ruled that it does not, and refusing here left the
+    # consumer blocked on a prerequisite the door would not let run. The caps
+    # above still apply, and the walk asks once per prerequisite.
+    if seed_prereq_demanded(ctx) == sid:
+        return ALLOWED
 
     try:
         delta_hit = no_delta_refusal(ctx, sid)

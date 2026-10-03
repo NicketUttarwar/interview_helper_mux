@@ -3137,18 +3137,28 @@ def _publish_story_children_sources(
         if not isinstance(doc, dict):
             return
         if rewriter(doc):
-            try:
-                # Ranking-era remap only — never inherit layup active stage.
-                ctx.write_json(
-                    rel, doc, skip_handoff=True, stage_key="full_master_ranking"
-                )
-            except Exception:
-                try:
-                    ctx.write_json(rel, doc, skip_handoff=True)
-                except Exception:
-                    from interview_mux.write_staging import write_mirrored_json
+            # Ranking-era remap only: never inherit the active stage. Ask the
+            # table which key may write instead of finding out by denial; each
+            # probing denial was logged at error level and counted toward a
+            # halt against the stage that happened to be active (ISSUES 127).
+            from interview_mux.artifact_ownership import owner_of, write_permitted
+            from interview_mux.write_staging import write_mirrored_json
 
-                    write_mirrored_json(ctx, rel, doc)
+            for key in ("full_master_ranking", owner_of(rel)):
+                if not key:
+                    continue
+                try:
+                    ok, _why = write_permitted(ctx, rel, key, role="producer", verb="persist")
+                except Exception:
+                    ok = False
+                if not ok:
+                    continue
+                try:
+                    ctx.write_json(rel, doc, skip_handoff=True, stage_key=key)
+                    return
+                except Exception:
+                    break
+            write_mirrored_json(ctx, rel, doc)
 
     def _episode(doc: dict[str, Any]) -> bool:
         changed = False

@@ -102,6 +102,17 @@ def _remediation_in_progress(ctx: RunContext) -> bool:
     return False
 
 
+def _claimed_driver_alive(ctx: RunContext) -> bool:
+    """True when operator/driver_claim.json names a live process."""
+    try:
+        from interview_mux.driver_singleton import read_driver_claim
+
+        claim = read_driver_claim(ctx)
+        return bool(claim) and worker_pid_alive(claim.get("pid"))
+    except Exception:
+        return False
+
+
 def _live_worker(job: dict[str, Any]) -> bool:
     """True when a tracked stage subprocess is still running."""
     if worker_pid_alive(job.get("worker_pid")):
@@ -479,6 +490,12 @@ def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
     if status not in RUNNING_STATUSES:
         return False
     if not lock_held and _run_directory_lock_held(ctx.run_dir):
+        return False
+    if not lock_held and _claimed_driver_alive(ctx):
+        # The orchestrator releases .run.lock between phases; a GUI poll in that
+        # gap stamped "Server restarted" on a live run twice in exec_005 while
+        # serve and the driver were both up. A live claimed driver is not an
+        # interrupt.
         return False
     if lock_held:
         if _live_worker(data):

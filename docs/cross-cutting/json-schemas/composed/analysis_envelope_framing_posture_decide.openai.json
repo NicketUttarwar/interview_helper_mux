@@ -68,7 +68,8 @@
             "homunculus_skip",
             "feature_disabled",
             "operator_g_framing",
-            "forced_skip"
+            "forced_skip",
+            null
           ]
         },
         "advisory_only": {

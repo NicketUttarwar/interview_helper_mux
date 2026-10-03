@@ -234,7 +234,8 @@
                   "whole",
                   "start",
                   "end",
-                  "middle"
+                  "middle",
+                  null
                 ]
               },
               "cut_ms": {
@@ -259,7 +260,8 @@
                 ],
                 "enum": [
                   "story_child_first",
-                  "third_person_opener"
+                  "third_person_opener",
+                  null
                 ]
               }
             },

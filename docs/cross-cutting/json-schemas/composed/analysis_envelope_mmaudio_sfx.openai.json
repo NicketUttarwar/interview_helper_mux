@@ -74,7 +74,8 @@
                 "enum": [
                   "pass",
                   "failed",
-                  "placeholder"
+                  "placeholder",
+                  null
                 ],
                 "description": "Subprocess outcome; placeholder/silent WAV must not pass as success."
               },
@@ -178,7 +179,8 @@
                   "pass",
                   "warn",
                   "fail",
-                  "skipped"
+                  "skipped",
+                  null
                 ]
               },
               "semantic_qa_skipped_reason": {
@@ -208,7 +210,8 @@
                   "pass",
                   "refine",
                   "regenerate",
-                  "trim_hint"
+                  "trim_hint",
+                  null
                 ]
               }
             },

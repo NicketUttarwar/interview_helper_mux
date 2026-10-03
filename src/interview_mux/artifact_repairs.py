@@ -2492,6 +2492,45 @@ def _rewrite_editorial_qc_vo_lines(
     out["interviewer_lines"] = rewritten
 
 
+
+def _release_unspeakable_required_line(
+    ctx: Any,
+    row: dict[str, Any],
+    decision: dict[str, Any],
+    applied: list[dict[str, Any]],
+    out: dict[str, Any],
+) -> None:
+    """Record a required line the spoken-copy guard refused and drop it (ISSUES 128)."""
+    lid = str(row.get("line_id") or "")
+    violations = [str(v) for v in (decision.get("violations") or [])]
+    applied.append(
+        {
+            "action": "release_unspeakable_required_vo",
+            "line_id": lid,
+            "targets_segment_id": row.get("targets_segment_id"),
+            "violations": violations,
+            "guard_action": decision.get("action"),
+        }
+    )
+    try:
+        ctx.log(
+            f"gap repair: required line {lid or '(no id)'} is not speakable "
+            f"({', '.join(violations)[:160]}); released, the high-gap seed covers its segment",
+            level="warning",
+            stage=(
+                "nugget_layup_compose"
+                if bool(out.get("nugget_layup_authority"))
+                else "gap_framing_compose"
+            ),
+            detail={
+                "event": "release_unspeakable_required_vo",
+                "line_id": lid,
+                "violations": violations,
+            },
+        )
+    except Exception:
+        pass
+
 def repair_gap_report(
     ctx: Any,
     doc: dict[str, Any],
@@ -3282,28 +3321,15 @@ def repair_gap_report(
                     }
                 )
                 continue
-            # Required non-layup: never ValueError thrash (exec_11630 #13).
-            # Loud-fail pins compose/layup — never soft EDL.
-            from interview_mux.loud_fail import raise_loud_failure
-
-            pin_stage = (
-                "nugget_layup_compose"
-                if bool(out.get("nugget_layup_authority"))
-                else "gap_framing_compose"
-            )
-            raise_loud_failure(
-                ctx,
-                f"required gap VO blocked by spoken_copy_guard "
-                f"({row.get('line_id') or target}): "
-                + ", ".join(decision["violations"]),
-                stage=pin_stage,
-                reason="spoken_copy_unhealable",
-                detail={
-                    "line_id": row.get("line_id"),
-                    "violations": decision.get("violations"),
-                    "guard_action": "block",
-                },
-            )
+            # Required non-layup the guard cannot make speakable: release the
+            # line instead of failing the stage (ISSUES 128). This used to be
+            # a loud failure that threw away every shard's work for one
+            # unspeakable line, and the rerun was a fresh roll of the same
+            # dice. The high-gap seed that follows this repair covers the
+            # segment with a speakable stock phrase, and the completion check
+            # still refuses the stage if the gap ends up uncovered.
+            _release_unspeakable_required_line(ctx, row, decision, applied, out)
+            continue
         if decision["action"] == "omit":
             if required:
                 lid_omit = str(row.get("line_id") or "")
@@ -3342,15 +3368,10 @@ def repair_gap_report(
                         }
                     )
                     continue
-                from interview_mux.loud_fail import raise_loud_failure
-
-                raise_loud_failure(
-                    ctx,
-                    f"required high-gap VO omitted after rewrite ({row.get('line_id')})",
-                    stage="gap_framing_compose",
-                    reason="high_gap_uncovered",
-                    detail={"violations": decision.get("violations")},
-                )
+                # Same rule as the block branch above (ISSUES 128): release
+                # the line, let the seed cover the gap.
+                _release_unspeakable_required_line(ctx, row, decision, applied, out)
+                continue
             # R8: heal forward cue / keep framing setup lines instead of silent omit.
             cat = str(row.get("line_category") or "").lower()
             keep_framing = (
@@ -4384,6 +4405,58 @@ def _brief_remap_permitted(ctx: Any) -> bool:
     return False
 
 
+def persist_segment_id_remap(ctx: Any, rel: str, doc: dict[str, Any]) -> bool:
+    """Land a split's id remap on ``rel`` under a key the ownership table accepts.
+
+    A split renames a parent segment to its children everywhere the id is
+    stored. The stage doing the split (ranking's CTA recut, an NLE split)
+    rarely owns all of those documents: on the one-hour source the remap of
+    ``understanding/gap_evaluations.json`` from ``full_master_ranking`` was
+    refused, which left the evaluations keyed by a segment that no longer
+    exists (ISSUES 129). Ask the table first: the active stage as it is,
+    then the active stage declaring the integrity-only mutation class, then
+    the document's owner with that class. An id remap changes no judgement,
+    so presenting the owner is the same rule the transitions and gap report
+    remaps already follow (ISSUES 101). Returns True when the write ran.
+    """
+    from interview_mux.artifact_ownership import owner_of, write_permitted
+    from interview_mux.write_staging import active_stage_id
+
+    active = str(active_stage_id() or "").strip()
+    if not active:
+        ctx.write_json(rel, doc, skip_handoff=True)
+        return True
+    candidates: list[tuple[str, str | None]] = [(active, None), (active, "segment_id_remap")]
+    owner = str(owner_of(rel) or "").strip()
+    if owner and owner != active:
+        candidates += [(owner, "segment_id_remap"), (owner, None)]
+    for key, mutation in candidates:
+        try:
+            ok, _why = write_permitted(
+                ctx, rel, key, role="producer", verb="persist", mutation_class=mutation
+            )
+        except Exception:
+            ok = False
+        if not ok:
+            continue
+        kw: dict[str, Any] = {"skip_handoff": True, "stage_key": key}
+        if mutation:
+            kw["mutation_class"] = mutation
+        ctx.write_json(rel, doc, **kw)
+        return True
+    try:
+        ctx.log(
+            f"segment id remap not landed on {rel}: no key accepted "
+            f"(active {active}, owner {owner or 'unknown'})",
+            level="warning",
+            stage=active,
+            detail={"event": "segment_id_remap_refused", "path": rel, "owner": owner},
+        )
+    except Exception:
+        pass
+    return False
+
+
 def propagate_nle_split_segment_refs(
     ctx: Any,
     parent_id: str,
@@ -4444,8 +4517,8 @@ def propagate_nle_split_segment_refs(
                         changed = True
             if changed:
                 repaired, _ = repair_coverage_audit(ctx, audit)
-                ctx.write_json("master/coverage_audit.json", repaired, skip_handoff=True)
-                updated.append("master/coverage_audit.json")
+                if persist_segment_id_remap(ctx, "master/coverage_audit.json", repaired):
+                    updated.append("master/coverage_audit.json")
 
     if ctx.artifact_exists("master/narrative_plan.json"):
         plan = ctx.read_json("master/narrative_plan.json")
@@ -4472,8 +4545,8 @@ def propagate_nle_split_segment_refs(
                         changed = True
             if changed:
                 enriched = enrich_narrative_plan_for_persist(ctx, plan)
-                ctx.write_json("master/narrative_plan.json", enriched, skip_handoff=True)
-                updated.append("master/narrative_plan.json")
+                if persist_segment_id_remap(ctx, "master/narrative_plan.json", enriched):
+                    updated.append("master/narrative_plan.json")
 
     if ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")
@@ -4554,8 +4627,8 @@ def propagate_nle_split_segment_refs(
                     row["segment_id"] = child_ids[0]
                     changed = True
             if changed:
-                ctx.write_json("understanding/gap_evaluations.json", ge, skip_handoff=True)
-                updated.append("understanding/gap_evaluations.json")
+                if persist_segment_id_remap(ctx, "understanding/gap_evaluations.json", ge):
+                    updated.append("understanding/gap_evaluations.json")
 
     return updated
 

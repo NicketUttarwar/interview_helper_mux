@@ -1,0 +1,51 @@
+{
+  "tools": {
+    "python3.12": "3.12.15",
+    "ffmpeg": "7.1.1",
+    "node": "25.8.1",
+    "npm": "11.11.0",
+    "rustc": "1.98.1"
+  },
+  "hardware": {
+    "macos": "26.5",
+    "arch": "arm64",
+    "chip": "Apple M1",
+    "ram_gb": "8"
+  },
+  "models": {
+    "facebook/musicgen-large": "15ccdc92099879e47b6da12c350cdb71d4eab3ca",
+    "facebook/musicgen-medium": "d3bd7b00761b78ad7a8a05145ee31e7832e9916c",
+    "facebook/musicgen-melody-large": "6fdf8d3d815995108c9bdb5183414ff464b171ac",
+    "facebook/musicgen-small": "4c8334b02c6ec4e8664a91979669a501ec497792"
+  },
+  "venvs": {
+    ".venv": {
+      "python": "3.12.15",
+      "freeze": ".venv.freeze.txt"
+    },
+    "ASSETS/local_chatterbox/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_chatterbox__venv.freeze.txt"
+    },
+    "ASSETS/local_deepfilter/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_deepfilter__venv.freeze.txt"
+    },
+    "ASSETS/local_llm/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_llm__venv.freeze.txt"
+    },
+    "ASSETS/local_mmaudio/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_mmaudio__venv.freeze.txt"
+    },
+    "ASSETS/local_musicgen/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_musicgen__venv.freeze.txt"
+    },
+    "ASSETS/local_speech/venv": {
+      "python": "3.12.15",
+      "freeze": "ASSETS__local_speech__venv.freeze.txt"
+    }
+  }
+}

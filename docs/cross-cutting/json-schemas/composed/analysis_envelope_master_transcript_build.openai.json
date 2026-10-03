@@ -90,7 +90,8 @@
                 "enum": [
                   "speech",
                   "vo_pickup",
-                  "transition"
+                  "transition",
+                  null
                 ]
               },
               "asset_id": {

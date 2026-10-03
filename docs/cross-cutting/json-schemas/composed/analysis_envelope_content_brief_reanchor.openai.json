@@ -166,7 +166,8 @@
                   "opinion",
                   "prediction",
                   "anecdote",
-                  "definition"
+                  "definition",
+                  null
                 ]
               },
               "speaker_role": {
@@ -176,7 +177,8 @@
                 ],
                 "enum": [
                   "interviewee",
-                  "interviewer"
+                  "interviewer",
+                  null
                 ]
               },
               "approx_time_range": {

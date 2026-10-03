@@ -23,15 +23,56 @@ def deepfilter_cfg() -> dict[str, Any]:
     return merged_config().get("deepfilter") or {}
 
 
+_IMPORT_PROBE: dict[str, str] = {}
+
+
+def _require_deepfilter_stack() -> None:
+    """Refuse before spawning when the DeepFilterNet stack cannot run.
+
+    A repo on disk is not a runnable stack: without Rust the bootstrap skips
+    the native ``df`` build, and the batch script then dies on import with an
+    error-level runtime failure. Probe the venv once per process instead, so a
+    missing build is a quiet DeepFilterUnavailable that the ffmpeg fallback
+    handles.
+    """
+    import subprocess
+
+    from interview_mux.local_runtime import resolve_venv_dir
+    from interview_mux.venv_paths import venv_python
+
+    repo = deepfilter_repo_dir()
+    if not repo.is_dir():
+        raise DeepFilterUnavailable(f"DeepFilterNet repo missing at {repo}")
+    py = venv_python(resolve_venv_dir("deepfilter"))
+    key = str(py)
+    if key not in _IMPORT_PROBE:
+        if not Path(py).exists():
+            _IMPORT_PROBE[key] = f"venv python missing at {py}"
+        else:
+            try:
+                r = subprocess.run(
+                    [str(py), "-c", "import df.enhance"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                _IMPORT_PROBE[key] = "" if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                _IMPORT_PROBE[key] = f"import probe failed: {exc}"
+    if _IMPORT_PROBE[key]:
+        raise DeepFilterUnavailable(
+            "DeepFilterNet not installed (run ./scripts/bootstrap_venv.sh with Rust): "
+            + _IMPORT_PROBE[key]
+        )
+
+
 def enhance_wav(
     input_path: Path,
     output_path: Path,
     *,
     ctx: RunContext | None = None,
 ) -> None:
-    repo = deepfilter_repo_dir()
-    if not repo.is_dir():
-        raise DeepFilterUnavailable(f"DeepFilterNet repo missing at {repo}")
+    _require_deepfilter_stack()
     cfg = deepfilter_cfg()
     args = [
         "--input-wav",
@@ -110,9 +151,7 @@ def enhance_wav_batch(
         enhance_wav(pairs[0][0], pairs[0][1], ctx=ctx)
         return
 
-    repo = deepfilter_repo_dir()
-    if not repo.is_dir():
-        raise DeepFilterUnavailable(f"DeepFilterNet repo missing at {repo}")
+    _require_deepfilter_stack()
     cfg = deepfilter_cfg()
     payload: dict[str, Any] = {
         "model": cfg.get("model", "DeepFilterNet3"),
