@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
-
-from interview_mux.file_store import lock_path_for
+from interview_mux.file_store import write_lock
 
 
 def log_path(run_dir: Path) -> Path:
@@ -44,7 +42,7 @@ def append_log(
     path = log_path(run_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(entry, ensure_ascii=False) + "\n"
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         with path.open("a", encoding="utf-8") as f:
             f.write(line)
     from interview_mux.process_logging import mirror_operator_entry
@@ -87,7 +85,7 @@ def read_log(
     path = log_path(run_dir)
     if not path.is_file():
         return []
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         if tail is not None and tail > 0 and not stage and not since_ts:
             raw_lines = _read_tail_lines(path, tail)
         else:

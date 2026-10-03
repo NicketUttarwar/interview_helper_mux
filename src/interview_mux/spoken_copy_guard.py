@@ -418,6 +418,42 @@ REGISTER_VIOLATION_CODES = frozenset(
 )
 
 
+_ROLE_ATTRIBUTION_LEAD = re.compile(
+    r"\b(?:the|our|this)\s+(?:host|guest|interviewer|interviewee|speaker)(?:'s)?"
+    r"(?:\s+(?:recap|summary|note|point|answer|comment|remark))?\s+"
+    r"(?:adds?|says?|explains?|notes?|describes?|elaborates?|argues?|mentions?|"
+    r"recalls?|stresses?|emphasi[sz]es?|points\s+out|suggests?|claims?)\s+(?:that\s+)?",
+    re.IGNORECASE,
+)
+
+
+def scrub_spoken_register(text: str) -> str:
+    """Make a line airable for the register rules without changing its claim.
+
+    Nugget claims and planner prose are written as notes about the tape ("The
+    host recap adds that…", "Who is he…"). Pasted into a lay-up they fail
+    ``spoken_speaker_role_label`` / ``spoken_gendered_pronoun`` /
+    ``spoken_name_attribution`` and the stage refuses (client run, nug_016
+    before seg_023). Drop attribution lead-ins, then the shared role-label and
+    pronoun rewrites.
+    """
+    from interview_mux.spoken_meta_lint import (
+        rewrite_speaker_role_labels,
+        scrub_spoken_gendered_pronouns,
+    )
+
+    t = _ROLE_ATTRIBUTION_LEAD.sub("", str(text or ""))
+    t = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), t.strip())
+    t = _strip_name_attribution_clause(t)
+    t = rewrite_speaker_role_labels(t)
+    t = scrub_spoken_gendered_pronouns(t)
+    t = re.sub(r"\bis\s+they\b", "are they", t, flags=re.IGNORECASE)
+    t = re.sub(r"\bwas\s+they\b", "were they", t, flags=re.IGNORECASE)
+    t = re.sub(r"\bdoes\s+they\b", "do they", t, flags=re.IGNORECASE)
+    t = normalize_script(t)
+    return t[:1].upper() + t[1:] if t else t
+
+
 def violation_code(violation: str) -> str:
     return str(violation or "").split(":", 1)[0]
 

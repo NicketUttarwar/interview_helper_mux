@@ -9,9 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from filelock import FileLock
-
-from interview_mux.file_store import lock_path_for
+from interview_mux.file_store import write_lock
 
 ACTION_TRACE_REL = "operator/action_trace.jsonl"
 TraceStatus = Literal["running", "ok", "error"]
@@ -38,7 +36,7 @@ def _append_line(run_dir: Path, record: dict[str, Any]) -> None:
     path = _trace_path(run_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False) + "\n"
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         with path.open("a", encoding="utf-8") as f:
             f.write(line)
     from interview_mux.operator_snapshots import record_action_trace_manifest
@@ -118,7 +116,7 @@ def read_action_trace(run_dir: Path, *, tail: int = 50) -> list[dict[str, Any]]:
     path = _trace_path(run_dir)
     if not path.is_file():
         return []
-    with FileLock(lock_path_for(path)):
+    with write_lock(path):
         lines = path.read_text(encoding="utf-8").splitlines()
     entries: list[dict[str, Any]] = []
     for line in lines:

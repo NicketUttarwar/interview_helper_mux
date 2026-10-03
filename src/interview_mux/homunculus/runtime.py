@@ -523,7 +523,18 @@ def dispatch_stage(
                     )
     except Exception as exc:
         inflight.discard(identity)
-        note_dispatch_outcome(ctx, stage, outcome="failed", source=source)
+        try:
+            from interview_mux.stages.llm_runner import is_transient_failure
+
+            transient = is_transient_failure(exc)
+        except Exception:
+            transient = False
+        # A network or provider failure says nothing about the run's state; the
+        # attempt memo must not refuse the retry as "same state, no progress"
+        # (run 8: Connection error, then attempt_memo stopped the walk).
+        note_dispatch_outcome(
+            ctx, stage, outcome="failed_transient" if transient else "failed", source=source
+        )
         if stage == "speaker_roles":
             try:
                 from interview_mux.recovery_controller import classify_error_class

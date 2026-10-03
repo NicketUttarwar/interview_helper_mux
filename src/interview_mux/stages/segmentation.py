@@ -348,6 +348,25 @@ def _transcript_duration_ms(ctx: RunContext) -> int:
         return 0
 
 
+def _hitch_source_quality(ctx: RunContext, duration_ms: int) -> dict | None:
+    """Quality of the segmentation the chapter-close hitch replaced, or None if it has not run."""
+    rel = "mastering/chapter_close_hitch/pre_keepers.json"
+    try:
+        if not ctx.artifact_exists(rel):
+            return None
+        doc = ctx.read_json(rel)
+    except Exception:
+        return None
+    rows = [
+        {"segment_id": str(k.get("segment_id") or f"pre_{i}"), "start_ms": k.get("start_ms"), "end_ms": k.get("end_ms")}
+        for i, k in enumerate((doc.get("keepers") or []) if isinstance(doc, dict) else [])
+        if isinstance(k, dict)
+    ]
+    if not rows:
+        return None
+    return evaluate_boundary_quality({"boundaries": rows}, duration_ms=duration_ms)
+
+
 def _assert_boundary_quality(ctx: RunContext) -> None:
     """Reject truly unsafe boundaries — judge metrics, not LLM warning prose.
 
@@ -435,6 +454,27 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             level="warning",
             stage="boundary_detection",
         )
+
+    if report.get("reject") and not report.get("invalid_segment_ids"):
+        hitch_source = _hitch_source_quality(ctx, duration_ms)
+        if hitch_source is not None and not hitch_source.get("reject"):
+            # The chapter-close hitch rewrites this file as its keeper map: the
+            # tape it keeps, with editorial cuts left out on purpose. Coverage
+            # of an editorial selection is not segmentation quality, and how
+            # much the ideal cuts drop varies per run (exec_007 keepers 0.84
+            # rejected, exec_008 0.74 passed by one row). Judge the map the
+            # hitch was given; a map damaged before the hitch still fails
+            # (ISSUES 143).
+            ctx.log(
+                "boundary quality: hitch keeper map covers "
+                f"{report.get('coverage_ratio')} of the tape by editorial choice; "
+                f"the segmentation it was given passes (coverage "
+                f"{hitch_source.get('coverage_ratio')}, n={hitch_source.get('segment_count')})",
+                level="info",
+                stage="boundary_detection",
+                detail={"event": "boundary_quality_judged_on_hitch_source", "keepers": report, "source": hitch_source},
+            )
+            return
 
     if report.get("reject"):
         from interview_mux.loud_fail import raise_loud_failure

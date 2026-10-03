@@ -270,6 +270,18 @@ class RunContext:
                     )
             except Exception:
                 pass
+            if rel == "segments/boundaries.json":
+                # Any rewrite of the source map keeps the speech the map already
+                # covered (ISSUES 142: a trimmed fused slab erased nine minutes).
+                try:
+                    from interview_mux.boundary_coverage_guard import preserve_speech_coverage
+                    from interview_mux.write_staging import active_stage_id
+
+                    data = preserve_speech_coverage(
+                        self, data, writer=str(stage_key or active_stage_id() or "")
+                    )
+                except Exception:
+                    pass
 
             data = prepare_edl_payload_for_disk(self, rel, data)
             payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)

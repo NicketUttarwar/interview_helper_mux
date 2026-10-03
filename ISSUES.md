@@ -4476,6 +4476,17 @@ across passes, so it cannot show this.
 Tests: `tests/test_high_gap_seed_settles_before_barrier.py` (2; both fail on
 the unfixed code).
 
+
+**Guard for the class (follow-up):** the seeder fix covered one writer. Both
+gap-report dedupes kept the first row with a repeated `line_id`:
+`artifact_sanitize.gap_report.sanitize_gap_report` and
+`artifact_repairs._dedupe_interviewer_lines`, two copies of the same rule.
+Any writer that appends a live row beside a skipped or omitted row with the
+same id lost the live row. Both now keep the live copy when exactly one of
+the two is skipped or omitted (`artifact_repairs.gap_line_inactive`).
+Otherwise the first row still wins, as before. Tests:
+`tests/test_dedupe_keeps_live_line.py` (the two live-copy tests fail on the
+unfixed code).
 ---
 
 ## [135] PRODUCT: a lay-up plan made only of typed skips replaced a body that met the hosted VO floor, and loud-failed as "unsatisfiable" (macOS exec_003, one-hour source)
@@ -4552,6 +4563,16 @@ tests fail on the unfixed code). Replayed on a copy of exec_003: unmodified
 code keeps g, h, i and sanitize refuses; fixed code keeps none and sanitize
 passes.
 
+
+**Guard for the class (follow-up):** the transfer offers the whole admitted
+story set, not only children of the banned parents. So an editorially
+excluded segment from any other family (CTA, outro, blank, fragmentary tail)
+could still come back as a demand. The ruled-out set is now
+`lattice_dropped_ids | editorial_excluded_ids`, every editorial exclusion in
+the committed selection, whatever its parent. A non-editorial exclusion
+(budget, ranking) is still transferable. Test:
+`test_an_editorial_exclusion_outside_the_banned_families_is_not_transferred`
+(fails on the unfixed code).
 ---
 
 ## [137] PRODUCT: 46 nullable enums rejected null, so valid LLM replies failed verification and were discarded; a budget refusal was logged as an OpenAI failure (macOS exec_004)
@@ -4854,8 +4875,179 @@ survivor spans the source rows it absorbed (its own row and every
 `fused_from` id still in the document). Any other row keeps its own source
 times.
 
-Tests: `tests/test_fuse_keeps_source_spans.py` (2; both fail on the unfixed
-code with the trimmed span, `(340000, 400000)` instead of `(100000, 400000)`).
+**Guard for the class:** any writer can narrow or drop source rows. Today that
+means connector fuse, resplit, the chapter-close hitch and overlap repair, and
+any future one. `RunContext.write_json` now passes every write of
+`segments/boundaries.json` through
+`boundary_coverage_guard.preserve_speech_coverage`. It compares the transcript
+words the map on disk covers with the words the new map covers. If a stretch
+of at least 8 words and 3 s of speech would become uncovered, it acts:
+- A row that still exists is widened back over its own source span, inside
+  the gap.
+- A dropped row is restored, clipped to the gap.
+
+It logs `boundary_speech_coverage_preserved`. Edge nudges below that size
+pass through unchanged. The fresh map from `boundary_detection` is the
+model's output and is not compared. With the original fuse writer restored,
+the guard alone keeps the 100-400 s span in the run-7 shape.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (6). The two writer tests fail
+on the unfixed code with the trimmed span, `(340000, 400000)` instead of
+`(100000, 400000)`. The two any-writer tests (narrowed row, dropped row) fail
+without the guard.
+
+---
+
+## [143] PRODUCT: the boundary quality gate judged the hitch's editorial keeper map as source segmentation, so pass or fail depended on how much the ideal cuts dropped (macOS exec_006, 007, 008)
+
+**Stage / area:** `stages/segmentation._assert_boundary_quality`,
+`chapter_close_hitch` (keeper map), `boundary_coverage_guard`
+**Status:** FIXED
+
+**Seen:** the final `segments/boundaries.json` of every run is the
+chapter-close hitch's keeper map (`proposed_split_reason: chapter_close_hitch`).
+The hitch keeps the tape the episode keeps and leaves editorial cuts out. The
+map it replaced is archived as `mastering/chapter_close_hitch/pre_keepers.json`.
+The delivery quality gate measured coverage on the keeper map:
+
+| run | map before hitch | keeper map | gate |
+|---|---|---|---|
+| exec_006 | 0.99, 32 rows | 0.93, 30 rows | pass |
+| exec_007 | 0.72, 38 rows | 0.84, 23 rows | reject (needs 0.85 below 30 rows) |
+| exec_008 | 1.00, 34 rows | 0.74, 31 rows | pass only because 31 rows clears the fine-grained floor of 30 by one |
+
+Two rules disagree. The hitch says this file is the keep map, and the gate
+says it is the source segmentation and must cover the tape. How much the
+ideal cuts drop is the model's choice and varies per run. So the same source
+passed or failed on an editorial decision, not on segmentation quality.
+(exec_007 also had real damage before the hitch, entry 142.)
+
+**Fix:**
+- When the hitch has rewritten the map and the keeper map fails on coverage,
+  the gate judges the segmentation the hitch was given (`pre_keepers`). If
+  that passes, delivery proceeds and logs
+  `boundary_quality_judged_on_hitch_source`. Malformed rows in the current map
+  still fail. A source map that fails on its own still fails.
+- The speech-coverage guard from entry 142 exempts the hitch's write. Its
+  omissions are editorial, and its source is archived. Every other writer
+  stays guarded.
+
+Applied to the saved state: exec_006 and exec_008 pass as before. exec_007's
+source map (0.725, 38 rows) clears the existing fine-grained thresholds. The
+damage behind it is now prevented by entry 142.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (hitch exemption, gate judged
+on the hitch source, damaged source still fails; the first two fail on the
+unfixed code).
+
+---
+
+## [144] PRODUCT: lay-up copy written as notes about the tape ("the host", "he") refused the stage, and recovery kept reintroducing it until the budget ran out (client run exec_014, Mohan source)
+
+**Stage / area:** `nugget_layup.repair_or_skip_spoken_copy_layups`,
+`nugget_layup.recover_open_high_salience_nuggets`, `_unskip_row_with_nuggets`,
+`ensure_deterministic_floor_before_refuse`, `spoken_copy_guard`
+**Status:** FIXED
+
+**Seen (client):** `nugget_layup_compose` hard-stopped on spoken-copy QC,
+first for `seg_001d`, then `seg_023`, on `spoken_speaker_role_label` and
+`spoken_gendered_pronoun`. The surviving line was "The host recap adds that the
+assay discussed covers more than a thousand genes. Who is he — and why start
+there?". QC also reported `open_high_salience_nuggets=['nug_016']`. The
+recovery escalated to `budget_exhausted`, the stage never became seed-complete,
+and the run stopped at 48/72.
+
+**Chain:**
+1. The model wrote lay-up copy as editor notes. For role labels and gendered
+   pronouns, the spoken-copy heal only tried rewrites built from planner
+   fields. It never applied the existing scrubbers
+   (`rewrite_speaker_role_labels`, `scrub_spoken_gendered_pronouns`) to the
+   line itself, so an unhealable row was skipped.
+2. The skip reopened its high-salience nugget.
+   `recover_open_high_salience_nuggets` attached the nugget by pasting its
+   raw `text_claim` into a spoken line. Corpus claims are analysis notes
+   ("The host recap adds that…"), so the recovery itself produced illegal
+   copy.
+3. Nothing re-checked spoken copy after the recovery. QC refused, and every
+   retry repeated the same steps.
+
+**Fix (the class, not the line):**
+- `spoken_copy_guard.scrub_spoken_register` removes role and name
+  attribution lead-ins ("The host … adds that"), then applies the shared
+  role-label and pronoun rewrites, keeping the claim. Client line becomes:
+  "The assay discussed covers more than a thousand genes. Who are they, and
+  why start there?"
+- The heal scrubs register violations in place first, the same pattern as
+  edit-structure refs, so the nugget body survives instead of being skipped.
+- Every place a corpus claim becomes spoken copy (recovery attach, unskip)
+  uses `_nugget_spoken_claim`, so recovery cannot inject note-style copy.
+- After recovery, the spoken heal runs again. A high-salience nugget that
+  still has no legal line is parked on the orientation, the existing last
+  resort, instead of refusing the stage on every pass.
+- The compose input carries `airable_copy_doctrine`.
+
+Tests: `tests/test_layup_airable_copy.py` (3; the heal and recovery tests fail
+on the unfixed code: the row is skipped, and the recovered line keeps "the
+host").
+
+---
+
+## [145] PRODUCT: a second FileLock instance on a held .write.lock raised filelock's same-thread "Deadlock" (client run exec_014, master/.write.lock)
+
+**Stage / area:** `session_log.append_log`, `operator_action_trace`,
+`write_staging._staging_lock`, `file_store.write_lock`
+**Status:** FIXED
+
+**Seen (client):** on the final resume, the incomplete lay-up prerequisite
+collided with "a different-holder deadlock on master/.write.lock". It was
+wrapped as `SeedPrerequisiteFailed` and the orchestrator stopped.
+
+**Cause:** filelock 3.13+ raises `Deadlock: lock ... is already held by a
+different FileLock instance in this thread` when a second instance blocks on
+a path the thread already holds. `file_store.write_lock` is a per-path
+singleton for exactly this reason. But `session_log` (gui_log),
+`operator_action_trace` and the staging lock each built their own
+`FileLock(lock_path_for(...))` on the same `.write.lock` files. Logging while
+a write in that folder held the lock raised the deadlock. Reproduced: holding
+`write_lock(run_dir/"run_meta.json")` and appending a log line raises it on
+the unfixed code.
+
+**Fix:** all three use `file_store.write_lock`. A sweep test fails if any
+module outside `file_store` builds a FileLock on a `.write.lock` again.
+
+Tests: `tests/test_write_lock_single_instance.py` (2; both fail on the unfixed
+code, the second with the exact Deadlock error).
+
+---
+
+## [146] PRODUCT: a four-minute network outage ended the run: calls gave up after 14 seconds and the attempt memo refused the retry (macOS exec_008)
+
+**Stage / area:** `stages/llm_runner.create_with_transient_retry`,
+`homunculus.runtime` (failure outcome), `dispatch_delta.memo_skip`
+**Status:** FIXED
+
+**Seen:** from 13:52 UTC every OpenAI call failed with `Connection error`.
+`full_master_ranking` failed, and then
+`dispatch refused for incomplete critical full_master_ranking (attempt_memo)
+— stopping walk`. The run ended at 42/72 with `Delivery incomplete after
+conductor`.
+
+**Cause:** transient retry used 4 attempts over 14 seconds. The failed stage
+was recorded as `failed`. The memo refuses a `failed` stage whose state and
+progress tokens are unchanged, which is always true after a network outage.
+
+**Fix:**
+- Retries back off up to 60 s per wait across 7 attempts, about two minutes
+  in all.
+- A stage whose failure is transient (OpenAI connection, timeout, rate limit
+  or 5xx, or a built-in `ConnectionError` or `TimeoutError` anywhere in the
+  cause chain) is recorded as `failed_transient`. The memo does not refuse it
+  for up to `MAX_TRANSIENT_RETRIES` (3) in a row, then treats it as failed so
+  a dead network still ends the walk. A "request too large" error is not
+  transient. Restart clean-up clears `failed_transient` rows like `failed`
+  ones.
+
+Tests: `tests/test_transient_failure_retries.py` (5).
 
 ---
 
