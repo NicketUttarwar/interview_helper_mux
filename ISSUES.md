@@ -4476,6 +4476,17 @@ across passes, so it cannot show this.
 Tests: `tests/test_high_gap_seed_settles_before_barrier.py` (2; both fail on
 the unfixed code).
 
+
+**Guard for the class (follow-up):** the seeder fix covered one writer. Both
+gap-report dedupes kept the first row with a repeated `line_id`:
+`artifact_sanitize.gap_report.sanitize_gap_report` and
+`artifact_repairs._dedupe_interviewer_lines`, two copies of the same rule.
+Any writer that appends a live row beside a skipped or omitted row with the
+same id lost the live row. Both now keep the live copy when exactly one of
+the two is skipped or omitted (`artifact_repairs.gap_line_inactive`).
+Otherwise the first row still wins, as before. Tests:
+`tests/test_dedupe_keeps_live_line.py` (the two live-copy tests fail on the
+unfixed code).
 ---
 
 ## [135] PRODUCT: a lay-up plan made only of typed skips replaced a body that met the hosted VO floor, and loud-failed as "unsatisfiable" (macOS exec_003, one-hour source)

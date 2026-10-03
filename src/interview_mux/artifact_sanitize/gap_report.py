@@ -276,7 +276,9 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         lines = healed
 
     # 2. dedupe lines
-    seen_ids: set[str] = set()
+    from interview_mux.artifact_repairs import gap_line_inactive
+
+    seen_ids: dict[str, int] = {}
     seen_sig: set[tuple[str, str, str]] = set()
     deduped: list[dict[str, Any]] = []
     for row in lines:
@@ -286,6 +288,11 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
         tgt = _line_target(row)
         text = str(row.get("text") or row.get("script") or "").strip().lower()
         if lid and lid in seen_ids:
+            # Same id twice: keep the live copy over a skipped/omitted one
+            # (ISSUES 134 class: a re-seed beside an omitted seed was dropped).
+            at = seen_ids[lid]
+            if gap_line_inactive(deduped[at]) and not gap_line_inactive(row):
+                deduped[at] = row
             actions.append({"action": "dedupe_line_id", "line_id": lid})
             continue
         sig = (text, tgt, str(row.get("placement") or ""))
@@ -293,7 +300,7 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             actions.append({"action": "dedupe_text_target", "line_id": lid or tgt})
             continue
         if lid:
-            seen_ids.add(lid)
+            seen_ids[lid] = len(deduped)
         if text:
             seen_sig.add(sig)
         deduped.append(row)

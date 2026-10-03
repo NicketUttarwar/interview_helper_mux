@@ -73,6 +73,11 @@ VALID_SEGMENT_TYPES = frozenset(
 _MANIFEST_SEGMENT_ID_RE = re.compile(r"^seg_\d+[a-z]*$", re.IGNORECASE)
 
 
+def gap_line_inactive(row: Any) -> bool:
+    """A gap-report line that will not air: skipped as optional or omitted from the script."""
+    return isinstance(row, dict) and bool(row.get("skipped_optional") or row.get("air_script_omit"))
+
+
 def is_manifest_segment_id(value: str) -> bool:
     """True when ``value`` matches canonical manifest segment_id format."""
     return bool(_MANIFEST_SEGMENT_ID_RE.match(str(value).strip()))
@@ -2146,11 +2151,11 @@ def _drop_redundant_remapped_seeds(
 def _dedupe_interviewer_lines(
     out: dict[str, Any], *, applied: list[dict[str, Any]]
 ) -> None:
-    """Keep first occurrence of each line_id / identical target+text (heal loops must not stack)."""
+    """One row per line_id / identical target+text (heal loops must not stack); a live row beats a skipped one."""
     lines = out.get("interviewer_lines")
     if not isinstance(lines, list):
         return
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     seen_text: set[tuple[str, str, str]] = set()
     kept: list[dict[str, Any]] = []
     dropped = 0
@@ -2159,6 +2164,10 @@ def _dedupe_interviewer_lines(
             continue
         lid = str(row.get("line_id") or "").strip()
         if lid and lid in seen:
+            # Keep the live copy over a skipped/omitted one (ISSUES 134 class).
+            at = seen[lid]
+            if gap_line_inactive(kept[at]) and not gap_line_inactive(row):
+                kept[at] = row
             dropped += 1
             continue
         tgt = str(row.get("targets_segment_id") or "").strip()
@@ -2169,7 +2178,7 @@ def _dedupe_interviewer_lines(
             dropped += 1
             continue
         if lid:
-            seen.add(lid)
+            seen[lid] = len(kept)
         if text_norm and tgt:
             seen_text.add(tkey)
         kept.append(row)
