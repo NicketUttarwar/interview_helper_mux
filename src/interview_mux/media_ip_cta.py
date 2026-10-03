@@ -1967,6 +1967,29 @@ def on_air_orphaned_cta_scrap_ids(
     return out
 
 
+def closing_outro_tail_segment_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
+    """On-air children of a tape-closing CTA parent after its excluded sponsor reads."""
+    sel = selection
+    if sel is None:
+        if not ctx.artifact_exists("master/selection.json"):
+            return set()
+        loaded = ctx.read_json("master/selection.json")
+        sel = loaded if isinstance(loaded, dict) else {}
+    if not isinstance(sel, dict):
+        return set()
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    parents = _cta_exclude_parent_ids(sel)
+    try:
+        parents |= never_touch_segment_ids(ctx)
+    except Exception:
+        pass
+    if not ordered or not parents:
+        return set()
+    return _closing_outro_tail_ids(_segments_by_id(ctx), ordered, parents, sel)
+
+
 def _split_suffix_key(sid: str, parent: str) -> tuple[int, str]:
     suffix = str(sid)[len(str(parent)) :]
     return (len(suffix), suffix)

@@ -5112,6 +5112,37 @@ Tests: `tests/test_closing_outro_tail.py` (4; three fail on the unfixed code).
 
 ---
 
+## [148] PRODUCT: the keep-list transfer protected the closing outro tail, so removal_authority refused its omit on every pass (macOS exec_011)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids` (parent-keep transfer),
+`removal_authority.refuse_selection_removals`,
+`media_ip_cta.closing_outro_tail_segment_ids`
+**Status:** FIXED
+
+**Seen:** run 11 passed step 47. Entry 147's rule found the closing outro tail
+(`seg_032g-k`, credits and fragments after the sponsor read), but every omit
+logged `removal_authority: refused to take must-air segment(s) off the order:
+seg_032g … seg_032k (producer=media_ip_cta.orphaned_cta_child_omit)`. The
+episode ended on the outro.
+
+**Cause:** `seg_032` is a must-keep CTA parent. Its keep transfers onto the
+admitted story children, and the recut admitted the tail as story. So the tail
+was a hard keep, and `removal_authority` restores any hard keep a producer
+drops. Two rules in a circle: the CTA omit says scrap; the keep list says
+must-air because it is on air.
+
+**Fix:** the transfer's ruled-out set adds
+`closing_outro_tail_segment_ids` (entry 147's rule over the committed
+selection), alongside the lattice drops (entry 132) and editorial exclusions
+(entry 136). Replayed on a copy of exec_011: the tail leaves the hard keeps,
+`heal_on_air_cta_residue` drops it, the air order ends on `seg_031`, and
+dependents reconcile with no refusal.
+
+Test: `test_the_parent_keep_is_not_transferred_onto_the_outro_tail` (fails on
+the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

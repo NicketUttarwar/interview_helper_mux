@@ -80,3 +80,18 @@ def test_layup_outro_need_is_executed_not_blocking() -> None:
 
 def test_undecodable_text_is_a_scrap() -> None:
     assert m.looks_like_orphaned_cta_scrap("You are listening to usHS� bone and cut")
+
+
+def test_the_parent_keep_is_not_transferred_onto_the_outro_tail(tmp_path, monkeypatch) -> None:
+    """exec_011: seg_032 was a must-keep CTA parent; its keep moved onto g-k and
+    removal_authority refused the outro omit on every pass (ISSUES 148)."""
+    from interview_mux import hard_keep as hk
+
+    ctx, _sel = _ctx(tmp_path, monkeypatch)
+    dest = ctx.final_path("understanding", "ideal_cuts.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps({"must_keep_segment_ids": ["seg_038"], "cuts": []}), encoding="utf-8")
+    monkeypatch.setattr(m, "selection_cta_exclude_ids", lambda _c: {"seg_038"})
+    monkeypatch.setattr(m, "ranking_cta_omit_ids", lambda _c: set())
+    keeps = hk.hard_keep_segment_ids(ctx)
+    assert not set(TAIL) & keeps
