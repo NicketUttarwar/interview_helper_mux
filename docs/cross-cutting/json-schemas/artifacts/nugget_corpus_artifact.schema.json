@@ -45,7 +45,7 @@
           },
           "speakability": {
             "type": ["string", "null"],
-            "enum": ["high", "medium", "low", "unspeakable"]
+            "enum": ["high", "medium", "low", "unspeakable", null]
           },
           "themes": {
             "type": "array",

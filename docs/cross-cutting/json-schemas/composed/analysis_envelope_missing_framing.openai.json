@@ -61,7 +61,8 @@
                 "enum": [
                   "low",
                   "medium",
-                  "high"
+                  "high",
+                  null
                 ],
                 "type": [
                   "string",
@@ -74,7 +75,8 @@
                   "summary",
                   "preface",
                   "bridge",
-                  "none"
+                  "none",
+                  null
                 ],
                 "type": [
                   "string",

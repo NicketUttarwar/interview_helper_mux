@@ -2917,3 +2917,56 @@ def test_sealed_clears_layup_compose_shards_pending(
         lambda _ctx: "edl_sealed",
     )
     assert stage_artifact_incompleteness(ctx, "nugget_layup_compose") is None
+
+
+def test_publish_keeps_prior_body_when_plan_is_all_typed_skips(monkeypatch):
+    """exec_003: every layup row a typed skip voices nothing; keep the body that meets the floor."""
+    ctx = RunContext("exec_layup_all_skips_publish", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012", "seg_020", "seg_030"],
+        {
+            "seg_002": "Welcome.",
+            "seg_012": "Guest on CTCs.",
+            "seg_020": "More science.",
+            "seg_030": "Closing.",
+        },
+    )
+    prior_lines = [
+        {
+            "line_id": f"vo_context_seg_{sid}",
+            "gap_type": "missing_setup",
+            "placement": "before",
+            "targets_segment_id": f"seg_{sid}",
+            "delivery": "synthesize",
+            "origin": "gap_framing_compose",
+            "text": f"Context line for {sid} that sets up the next beat clearly.",
+        }
+        for sid in ("012", "020", "030")
+    ]
+    ctx.write_json(GAP_REL, {"interviewer_lines": prior_lines}, skip_handoff=True)
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    all_skips = {
+        "ordered_segment_ids": ["seg_002", "seg_012", "seg_020", "seg_030"],
+        "layups": [
+            {"target_segment_id": sid, "skip_reason_code": "no_eligible_unspent_nugget"}
+            for sid in ("seg_012", "seg_020", "seg_030")
+        ],
+        "warnings": [
+            "All corpus nuggets are already represented in selected native audio."
+        ],
+    }
+    report = publish_layup_plan_to_gap_report(ctx, all_skips)
+    kept = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict) and not ln.get("skipped_optional") and not ln.get("air_script_omit")
+    ]
+    assert len(kept) >= 3

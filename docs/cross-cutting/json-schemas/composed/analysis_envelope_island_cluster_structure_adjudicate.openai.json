@@ -38,7 +38,8 @@
           ],
           "enum": [
             "left",
-            "right"
+            "right",
+            null
           ]
         },
         "cut_hinge_block_ids": {

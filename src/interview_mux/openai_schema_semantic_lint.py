@@ -47,6 +47,10 @@ def _enum_values_compatible(node: dict[str, Any], effective_type: str | None) ->
     enum_vals = node.get("enum")
     if not enum_vals:
         return True
+    t = node.get("type")
+    if isinstance(t, list) and "null" in t:
+        # A nullable enum must list null: enum is checked apart from type.
+        enum_vals = [v for v in enum_vals if v is not None]
     if effective_type == "string":
         return all(isinstance(v, str) for v in enum_vals)
     if effective_type == "number":

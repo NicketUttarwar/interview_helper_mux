@@ -445,6 +445,21 @@ def _execute_openai_envelope_call(
 
         resp = create_with_transient_retry(_create, ctx=ctx, stage=stage_key)
     except Exception as exc:
+        from interview_mux.homunculus.budget import LimitExhausted
+
+        if isinstance(exc, LimitExhausted):
+            # The run's own invoke budget refused the call before any request
+            # was sent. The caller owns the fallback; logging it as an OpenAI
+            # failure at error level misreported a handled cap (exec_004
+            # connector_seam_adjudicate).
+            if ctx:
+                ctx.log(
+                    f"LLM call not sent ({stage_key}, {task_kind}): {exc}",
+                    level="warning",
+                    stage=stage_key,
+                    action_id="llm.budget_refused",
+                )
+            raise
         from interview_mux.safe_pruning import (
             SAFE_PRUNE_EXTRACT_KIND,
             SafePruneExhausted,

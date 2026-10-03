@@ -4393,6 +4393,260 @@ Tests: `tests/test_hard_keep_transfer_respects_family_cap.py` (5).
 
 ---
 
+## [133] ENV + PRODUCT: DeepFilterNet ran without its native build; preclean logged an error-level runtime failure on every Mac without Rust (macOS exec_001)
+
+**Stage / area:** `audio_preclean`, `deepfilter_runner`, `scripts/lib/bootstrap_local_runtimes.sh`
+**Status:** FIXED
+
+**Seen:** first seconds of a fresh partially accelerated run on a new Mac:
+`[ERROR] [audio_preclean] Local runtime failed (exit 1): deepfilter/deepfilter_enhance_batch.py`
+with `DeepFilterNet import failed: No module named 'df'`. The stage then fell
+back to ffmpeg denoise, so the run continued, but with an error on the log and
+a different preclean than a machine with Rust.
+
+**Cause:** the bootstrap skips the Rust (`maturin`) build of DeepFilterNet's
+native `df` module when `rustc` is missing, and only prints a WARN. The runner
+treated "repo directory exists" as "stack is runnable", spawned the batch
+script, and the script died on import. Two machines with the same repo got
+different audio: one DeepFilterNet, one ffmpeg.
+
+**Fix:**
+- `deepfilter_runner._require_deepfilter_stack` probes `import df.enhance` in
+  the DeepFilter venv once per process before any spawn. An unbuilt stack is a
+  quiet `DeepFilterUnavailable`, which the existing ffmpeg fallback handles at
+  warning level. No subprocess, no error-level log.
+- The bootstrap installs Rust with Homebrew on macOS when it is missing, so
+  the build is no longer silently skipped.
+- `tools/env_sync.py` (new) checks every local runtime's key import, including
+  `df.enhance`, and offers a bootstrap re-run when one fails.
+
+Tests: `tests/test_deepfilter_runner.py::test_enhance_wav_unbuilt_stack_refuses_before_spawn`.
+
+---
+
+## [134] PRODUCT: a high gap ended every compose attempt neither covered nor demoted, so the barrier refused until the class cap halted the run (macOS exec_002, one-hour source)
+
+**Stage / area:** `gap_framing_compose` (`_seed_uncovered_high_gaps_before_heal`),
+`high_gap_vo.seed_uncovered_high_gaps_deterministic`, `high_gap_vo.resolve_seats`
+**Status:** FIXED
+
+**Seen:** fresh partially accelerated run on the one-hour source, 14 high
+gaps. Compose failed with
+`Pre-flush commit barrier failed: high gap segment seg_048 has no interviewer line`,
+then on retry `seg_021`, then `class_failure gap_framing_compose/high_gap_unframed x4/3 halt=True`
+and `dispatch refused gap_framing_compose: max_invokes_per_identity`. The run
+stopped at `error`.
+
+**Chain (reproduced offline on a copy of exec_002's state; unmodified code
+fails, fixed code passes):**
+1. Each pass the repair restamps air-contract omits, so several high-gap lines,
+   including earlier seeds such as `vo_seed_seg_021`, sit in the report with
+   `skipped_optional` and `air_script_omit`.
+2. `targeted_segment_ids` correctly ignores inactive rows, so the seeder sees
+   seg_021 as uncovered and **appends a second row with the same id**
+   `vo_seed_seg_021`.
+3. `resolve_seats` runs next, counts seg_021 as covered by the new seed, and
+   does not demote it.
+4. `dedupe_line_ids` runs after that and keeps the **first** row with the id,
+   the inactive one. The live seed is dropped.
+5. seg_021 is now neither covered nor demoted. The barrier refuses. Every
+   attempt repeats the same sequence until the class cap halts the run.
+
+The six-minute clip has one or two high gaps and never builds up omitted seeds
+across passes, so it cannot show this.
+
+**Fix:**
+- **One row per seed id.** The seeder removes an inactive row under the same
+  `vo_seed_<seg>` id before appending, so dedupe cannot keep the dead copy.
+- **Seats are settled last.** If high gaps are still uncovered after the
+  in-stage seeding, `_seed_uncovered_high_gaps_before_heal` runs
+  `resolve_seats(intent="repair")` on the final staged report, so each high
+  gap is either covered or demoted with `severity_demotion_reason` before the
+  completion check (logged as `high_gap_final_seat_settle`). This is the
+  repair path's own demotion rule, applied after the repairs that can undo a
+  seed rather than before them.
+
+Tests: `tests/test_high_gap_seed_settles_before_barrier.py` (2; both fail on
+the unfixed code).
+
+---
+
+## [135] PRODUCT: a lay-up plan made only of typed skips replaced a body that met the hosted VO floor, and loud-failed as "unsatisfiable" (macOS exec_003, one-hour source)
+
+**Stage / area:** `nugget_layup_compose`, `nugget_layup.publish_layup_plan_to_gap_report`,
+`raise_hosted_vo_floor_unsatisfiable`
+**Status:** FIXED
+
+**Seen:** first run past stage 47 on the one-hour source:
+`[ERROR] hosted_vo_floor met have=6 need=3`, then
+`hosted_vo_floor_unsatisfiable (active_synthetic=0 < min=3; eligible_nuggets=0) — escalate once, do not recompose`,
+`Failed: Stage nugget_layup_compose`. The engine walked back to
+`gap_framing_compose`.
+
+**Cause:**
+1. The model returned a plan of 21 rows, all typed skips
+   (`no_eligible_unspent_nugget`, `native_self_orients`,
+   `self_explanatory_native`, `media_ip_cta_hole`), with the warning "All
+   corpus nuggets are already represented in selected native audio". That is
+   a correct plan: there was nothing unspent to lay up.
+2. The gap report on disk already had 6 active synthetic lines from compose,
+   above the floor of 3.
+3. The publish rule "a hollow plan keeps the prior body when it meets the
+   floor" treated a plan as hollow only when `layups` was empty or carried
+   `compose_restart`. 21 skip rows are not empty, so publish tried to replace
+   6 lines with 0 and raised.
+4. The error text came from the floor snapshot, which reads the committed
+   body, so the first error line said "floor met".
+
+**Fix:**
+- A plan whose candidate body has no active synthetic line is hollow for this
+  rule (`active_new == 0`), so a body that meets the floor is kept verbatim,
+  through the same path the empty-plan case already used.
+- The loud failure names the candidate counts instead of the snapshot's prose.
+
+Tests: `tests/test_nugget_layup.py::test_publish_keeps_prior_body_when_plan_is_all_typed_skips`
+(fails on the unfixed code). Replayed on a copy of exec_003: unmodified code
+raises, fixed code publishes with 6 active lines.
+
+---
+
+## [136] PRODUCT: the transferred keep list demanded sponsor-outro scraps the selection had excluded (macOS exec_003, one-hour source)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids` (CTA parent keep transfer),
+`selection_order_sanitize`
+**Status:** FIXED
+
+**Seen:** `sanitize_refused:selection: hard_keep_missing_from_order:seg_035g,seg_035h,seg_035i`,
+`Failed: Stage selection_order_sanitize` twice, then
+`dispatch refused for incomplete critical selection_order_sanitize`, and the
+run halted with `Delivery incomplete after conductor`.
+
+**Cause:**
+1. seg_035 is the sponsor outro (sponsor thanks, production credits, "follow
+   us", contact email, host sign-off; `cta_region: whole`). Split into
+   children: a to f excluded as `media_ip_cta`; g, h, i are 2-second tail
+   fragments ("The Life Sciences DNA.", "I'm Daniel Levine. Thanks for
+   joining", "joining us.") that media_ip_cta's recut listed as admitted story.
+2. Ranking and the lay-up producer then excluded g, h, i with an outro /
+   degraded-CTA reason ("empty, heavily degraded transcript after the CTA cut").
+3. A different banned CTA parent was a hard keep. The keep transfer offers
+   the **whole** admitted story set, not just that parent's children, and
+   only subtracts lattice drops (entry 132). g, h, i were handed back as
+   demands, and the lattice lint refused every selection commit.
+
+**Fix:** same shape as entry 132. A child of any banned CTA parent that the
+committed selection excludes for an editorial reason (CTA, outro, fragmentary
+tail, blank: `is_editorial_exclude_reason`) is not part of the transfer
+(`editorial_dropped_cta_children`). A child excluded for any other reason is
+still a transferred keep, so a wrongful drop is still refused.
+
+Tests: `tests/test_hard_keep_transfer_skips_cta_scraps.py` (3; the two bug
+tests fail on the unfixed code). Replayed on a copy of exec_003: unmodified
+code keeps g, h, i and sanitize refuses; fixed code keeps none and sanitize
+passes.
+
+---
+
+## [137] PRODUCT: 46 nullable enums rejected null, so valid LLM replies failed verification and were discarded; a budget refusal was logged as an OpenAI failure (macOS exec_004)
+
+**Stage / area:** `openai_structured_output._make_nullable`,
+`schema_nullability._add_null_to_type`, `openai_schema_semantic_lint`,
+`docs/cross-cutting/json-schemas/{artifacts,composed}`, `stages/llm_runner`
+**Status:** FIXED
+
+**Seen:** `[ERROR] [connector_seam_adjudicate] OpenAI chat.completions failed (gpt-5.6-terra, advisory)`,
+then `Seam adjudication LLM unavailable for 15 pair(s): limit_exhausted:connector_seam_adjudicate:max_invokes_per_identity`.
+The run continued, but with no LLM seam verdicts.
+
+**Cause:**
+1. The seam schema declares `fuse_direction` as `"type": ["string", "null"]`
+   with `"enum": ["into_earlier", "into_later"]`. JSON Schema applies `enum`
+   independently of `type`, so null is always rejected.
+2. Every `stay_independent` verdict correctly has no direction, so every
+   reply failed verification (`None is not one of [...]`), the stage retried
+   until the per-identity invoke cap, and all fifteen verdicts were dropped.
+   This happens on every run and silently lowers seam quality; it is not
+   specific to this source.
+3. The same shape existed in 46 nodes across 21 schemas. Three were
+   hand-written artifact schemas; the rest came from the strict-mode
+   composer, which makes optional fields nullable by adding `"null"` to
+   `type` but never added null to `enum`.
+4. The cap refusal (`LimitExhausted`) is raised before any request is sent,
+   but `llm_runner` logged it as `OpenAI chat.completions failed` at error
+   level.
+
+**Fix:**
+- `_make_nullable` and `_add_null_to_type` add `null` to `enum` whenever they
+  make an enum node nullable. The three artifact schemas list null
+  (three-line diff). The 39 composed schemas were regenerated with
+  `tools/codegen_openai_schemas.py`; files committed with CRLF keep CRLF, so
+  the diff is 18 files, 86 lines.
+- The semantic schema lint accepts null in the enum of a nullable node.
+- `LimitExhausted` is logged as `LLM call not sent ... ` at warning level and
+  re-raised for the caller's fallback.
+- Verified against the live API: OpenAI strict structured output accepts the
+  regenerated seam schema and returns `fuse_direction: null` for a
+  `stay_independent` verdict, which now validates.
+
+Tests: `tests/test_nullable_enum_lists_null.py` (4), including a sweep that
+fails if any committed schema has a nullable enum without null.
+
+---
+
+## [138] PRODUCT: a repaired role/tape conflict left a stale blocking stamp on speakers.json, unmarking speaker_roles after G0 and deadlocking the walk; a live run was stamped "Server restarted" (macOS exec_005)
+
+**Stage / area:** `llm_preflight._preflight_missing_framing`,
+`speaker_role_evidence.stamp_role_tape_conflict`,
+`deterministic_lint._lint_speaker_roles`, `homunculus` seed walk,
+`gui_job_reconcile._reconcile_job_file`
+**Status:** FIXED
+
+**Seen:** run halted with `RuntimeError: seed order: complete speaker_roles before running missing_framing`.
+Every remedy was refused: `cannot run speaker_roles: timeline artifacts exist after G0`.
+The second wind repeated it and the run stopped (`complete=False`, 29 stages).
+Twice in the same minute the GUI job flipped to `interrupted` with
+"Server restarted — infrastructure interrupt" while serve and the driver were
+both alive.
+
+**Chain (replayed on a copy of exec_005):**
+1. `missing_framing`'s preflight linted the manifest for interviewer/guest
+   labels that contradict the tape and found it blocking (8 of 52).
+2. It called `repair_role_tape_segment_types`, which re-read the manifest from
+   disk, retyped the segments and committed it. The live manifest now lints
+   clean (0 of 44).
+3. The preflight then re-linted **the copy it had read before the repair**,
+   still saw 8 conflicts, and stamped a blocking `role_tape_conflict` onto
+   `understanding/speakers.json`.
+4. Nothing could clear that stamp: the clearing write in the repair was
+   unkeyed, and an unkeyed write from `missing_framing` to a file
+   `speaker_roles` owns is a foreign side effect that is skipped (entry 127).
+5. `speakers.json` completeness and the speaker lint read the stamp, not the
+   manifest, so `speaker_roles` read as partial. The hollow guard unmarked it.
+6. `speaker_roles` is protected after G0 and may not rerun, so the heal could
+   not re-mark it and the walk could not run it: a deadlock.
+
+Separately, the orchestrator releases `.run.lock` between phases. A GUI poll
+in that gap found a running job with no lock and stamped it interrupted.
+
+**Fix:**
+- The preflight re-reads the manifest after the repair before re-linting.
+- When the live manifest is clean, the preflight replaces a stale blocking
+  stamp with the fresh lint, so every reader agrees.
+- `stamp_role_tape_conflict` and the repair's clearing write name the owner
+  (`stage_key="speaker_roles"`), so they are not skipped as foreign writes.
+- `_lint_speaker_roles` re-checks a blocking stamp against the live manifest.
+- The job reconciler does not mark a job interrupted while the run's claimed
+  driver process (`operator/driver_claim.json`) is alive.
+
+Replay on the exec_005 state: unmodified code leaves speakers.json partial and
+the heal refuses; fixed code clears the stamp, the heal re-marks
+`speaker_roles`, and it is seed-complete.
+
+Tests: `tests/test_role_tape_conflict_stale_stamp.py` (4; all fail on the
+unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

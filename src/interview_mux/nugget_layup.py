@@ -3315,8 +3315,15 @@ def publish_layup_plan_to_gap_report(
                     str(w)
                     for w in ((plan.get("warnings") or []) if isinstance(plan, dict) else [])
                 ]
-                hollow_plan = (not (plan.get("layups") or [])) or any(
-                    "compose_restart" in w for w in warnings
+                # A plan whose every row is a typed skip voices nothing, exactly
+                # like an empty plan. It must not replace a body that already
+                # meets the floor (exec_003: 21 skip rows, "all corpus nuggets
+                # are already represented in selected native audio", prior 6
+                # active lines, loud-failed as hosted_vo_floor_unsatisfiable).
+                hollow_plan = (
+                    (not (plan.get("layups") or []))
+                    or any("compose_restart" in w for w in warnings)
+                    or active_new == 0
                 )
                 if hollow_plan and prior_active >= need:
                     # Preserve prior body verbatim — no rank-select rewrite under floor
@@ -5256,10 +5263,12 @@ def raise_hosted_vo_floor_unsatisfiable(
             )
             from interview_mux.loud_fail import raise_loud_failure
 
+            # Name the candidate counts. The snapshot reads the committed body,
+            # so its prose can say "floor met" about a body this publish was
+            # about to replace (exec_003: "[ERROR] hosted_vo_floor met have=6 need=3").
             raise_loud_failure(
                 ctx,
-                snap.identity.prose
-                or (
+                (
                     "nugget_layup_compose: hosted_vo_floor_unsatisfiable "
                     f"(active_synthetic={active} < min={need}; "
                     f"eligible_nuggets={eligible_nuggets or 0}) — escalate once, do not recompose"

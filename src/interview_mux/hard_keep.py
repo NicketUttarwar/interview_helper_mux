@@ -114,6 +114,42 @@ def lattice_dropped_ids(ctx: RunContext) -> set[str]:
     return out
 
 
+def editorial_dropped_cta_children(ctx: RunContext, parents: set[str]) -> set[str]:
+    """Children of banned CTA parents the committed selection excludes as CTA scraps.
+
+    A keep inherited from a CTA parent is a guess that some of the recut is
+    story. When the selection has since excluded a child for a CTA, outro or
+    blank reason, that is a ruling on the family; handing it back as a demand
+    refused every later selection commit (exec_003: the sponsor outro seg_035,
+    children g/h/i "empty, heavily degraded transcript after the CTA cut",
+    ``hard_keep_missing_from_order:seg_035g,seg_035h,seg_035i``).
+    """
+    if not parents or not ctx.artifact_exists("master/selection.json"):
+        return set()
+    try:
+        from interview_mux.media_ip_cta import _is_nle_child, is_editorial_exclude_reason
+
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return set()
+    if not isinstance(sel, dict):
+        return set()
+    rationales = sel.get("exclude_rationales") if isinstance(sel.get("exclude_rationales"), dict) else {}
+    out: set[str] = set()
+    for row in sel.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "")
+            reason = str(rationales.get(sid) or "")
+        if not sid or not is_editorial_exclude_reason(reason):
+            continue
+        if any(_is_nle_child(sid, parent) for parent in parents):
+            out.add(sid)
+    return out
+
+
 def _blank_excluded_ids(ctx: RunContext) -> set[str]:
     """IDs already dropped as blank/unusable — delegates to playability SSOT."""
     try:
@@ -295,7 +331,14 @@ def hard_keep_segment_ids(
             # duplicate source span) is not part of the transfer: the lattice
             # ruled on the family with the keeps in hand, and the transfer
             # must not hand its ruling back as a demand (ISSUES 132).
-            ids |= _collapse_overlapping_keeps(ctx, set(story) - lattice_dropped_ids(ctx))
+            # Same for a child the selection excluded as a CTA / outro scrap of a
+            # banned parent (ISSUES 136).
+            # The transfer offers the whole admitted story set, not only the
+            # kept parent's children, so check against every banned parent.
+            ruled_out = lattice_dropped_ids(ctx) | editorial_dropped_cta_children(
+                ctx, banned
+            )
+            ids |= _collapse_overlapping_keeps(ctx, set(story) - ruled_out)
         ids -= banned
     except Exception:
         pass

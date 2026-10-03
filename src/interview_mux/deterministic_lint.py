@@ -256,6 +256,31 @@ def _content_context_long_interview_ms() -> int:
     return content_context_long_interview_ms()
 
 
+def _role_conflict_still_live(ctx: RunContext) -> bool:
+    """A role_tape_conflict stamp is only as good as the manifest it describes.
+
+    The stamp lives on speakers.json, but the conflict is in
+    segments/manifest.json, which the missing_framing preflight repairs. A
+    stamp left from before that repair failed this lint forever, the hollow
+    guard unmarked speaker_roles, and speaker_roles may not rerun after G0, so
+    the walk deadlocked (exec_005). Re-lint the live manifest; with no manifest
+    to check, trust the stamp.
+    """
+    try:
+        if not ctx.artifact_exists("segments/manifest.json"):
+            return True
+        from interview_mux.speaker_role_evidence import lint_role_tape_conflicts
+
+        manifest = ctx.read_json("segments/manifest.json")
+        return bool(
+            lint_role_tape_conflicts(manifest if isinstance(manifest, dict) else {}).get(
+                "blocking"
+            )
+        )
+    except Exception:
+        return True
+
+
 def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
     errors: list[str] = []
     speakers = artifacts.get("speakers") or []
@@ -286,7 +311,7 @@ def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str
         ):
             errors.append("conversation_hypotheses present but all speakers unknown — confirm hypothesis or assign roles")
     conflict = artifacts.get("role_tape_conflict")
-    if isinstance(conflict, dict) and conflict.get("blocking"):
+    if isinstance(conflict, dict) and conflict.get("blocking") and _role_conflict_still_live(_ctx):
         errors.append(
             "role_tape_conflict: interviewer/guest labels contradict tape — fix G0/diarization before missing_framing"
         )

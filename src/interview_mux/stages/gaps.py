@@ -1802,6 +1802,34 @@ def _seed_uncovered_high_gaps_before_heal(ctx: RunContext) -> None:
 
         written = playbook_high_gap_unframed(ctx)
         still = _high_gap_unframed_incompleteness(ctx, "gap_framing_compose")
+        if still:
+            # Repairs that run after seeding (dedupe, air-contract omit restamp)
+            # can take a seed off air after resolve_seats already counted it as
+            # covered, leaving a high gap neither covered nor demoted, and the
+            # barrier then fails every attempt (exec_002 seg_021, seg_048).
+            # Settle seats once more on the final staged report so each high gap
+            # is covered or demoted with a recorded reason before the check.
+            from interview_mux.high_gap_vo import resolve_seats
+
+            final_report = ctx.read_json("understanding/gap_report.json")
+            resolution = resolve_seats(
+                ctx,
+                intent="repair",
+                gap_report=final_report if isinstance(final_report, dict) else None,
+            )
+            still = _high_gap_unframed_incompleteness(ctx, "gap_framing_compose")
+            ctx.log(
+                f"gap_framing_compose: {resolution.demoted} high gap(s) still uncovered after "
+                "seeding demoted on the final report "
+                f"({'cleared' if not still else still})",
+                level="warning",
+                stage="gap_framing_compose",
+                detail={
+                    "event": "high_gap_final_seat_settle",
+                    "demoted": resolution.demoted,
+                    "remaining": still,
+                },
+            )
         ctx.log(
             "gap_framing_compose: high gaps without an interviewer line seeded "
             f"deterministically before completion ({'cleared' if not still else still})",

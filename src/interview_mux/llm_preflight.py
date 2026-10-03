@@ -222,12 +222,30 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
                 from interview_mux.speaker_role_evidence import repair_role_tape_segment_types
 
                 repair_role_tape_segment_types(ctx)
+                # Re-lint what the repair wrote, not the copy read before it:
+                # the stale copy re-stamped a fixed conflict as blocking onto
+                # speakers.json and deadlocked the walk (exec_005).
+                manifest = ctx.read_json("segments/manifest.json")
                 lint = lint_role_tape_conflicts(manifest if isinstance(manifest, dict) else {})
             if lint.get("blocking"):
                 stamp_role_tape_conflict(ctx, lint)
                 errors.append(
                     "speakers.json role_tape_conflict: interviewer/guest labels contradict tape"
                 )
+            else:
+                # Clear a blocking stamp the live manifest no longer supports.
+                # speakers.json completeness and lint read the stamp, not the
+                # manifest; a stale one unmarked speaker_roles, which may not
+                # rerun after G0, and the walk deadlocked (exec_005).
+                try:
+                    spk = ctx.read_json("understanding/speakers.json")
+                    stale = isinstance(spk, dict) and isinstance(
+                        spk.get("role_tape_conflict"), dict
+                    ) and spk["role_tape_conflict"].get("blocking")
+                except Exception:
+                    stale = False
+                if stale:
+                    stamp_role_tape_conflict(ctx, lint)
     # Starved host packet — fail closed before LLM spend when speakers claim a host
     # but tape has no interviewer-framed segments.
     if ctx.artifact_exists("understanding/speakers.json") and ctx.artifact_exists(

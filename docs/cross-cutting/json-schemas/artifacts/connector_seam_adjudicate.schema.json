@@ -17,7 +17,7 @@
           },
           "fuse_direction": {
             "type": ["string", "null"],
-            "enum": ["into_earlier", "into_later"]
+            "enum": ["into_earlier", "into_later", null]
           },
           "reason_code": {
             "type": "string",

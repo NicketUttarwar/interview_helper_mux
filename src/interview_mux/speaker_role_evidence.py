@@ -516,7 +516,12 @@ def repair_role_tape_segment_types(ctx: Any) -> list[dict[str, Any]]:
                 spk = ctx.read_json("understanding/speakers.json")
                 if isinstance(spk, dict):
                     spk.pop("role_tape_conflict", None)
-                    ctx.write_json("understanding/speakers.json", spk, skip_handoff=True)
+                    ctx.write_json(
+                        "understanding/speakers.json",
+                        spk,
+                        skip_handoff=True,
+                        stage_key="speaker_roles",
+                    )
             except Exception:
                 pass
     return applied
@@ -532,4 +537,9 @@ def stamp_role_tape_conflict(ctx: Any, lint: dict[str, Any]) -> None:
     if not isinstance(doc, dict):
         return
     doc["role_tape_conflict"] = lint
-    ctx.write_json("understanding/speakers.json", doc, skip_handoff=True)
+    # Name the owner: an unkeyed write from missing_framing's preflight is a
+    # foreign side effect and is skipped (ISSUES 127), so a cleared conflict
+    # never reached speakers.json and the stale stamp deadlocked exec_005.
+    ctx.write_json(
+        "understanding/speakers.json", doc, skip_handoff=True, stage_key="speaker_roles"
+    )

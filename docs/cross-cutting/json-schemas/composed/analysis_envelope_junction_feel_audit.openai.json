@@ -40,7 +40,8 @@
             "soft_pass",
             "fail",
             "remux_suggested",
-            "unavailable"
+            "unavailable",
+            null
           ]
         },
         "skipped": {

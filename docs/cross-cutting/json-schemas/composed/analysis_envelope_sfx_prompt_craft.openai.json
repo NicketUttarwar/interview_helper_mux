@@ -76,7 +76,8 @@
                   "small_44k",
                   "medium_44k",
                   "large_44k",
-                  "large_44k_v2"
+                  "large_44k_v2",
+                  null
                 ]
               },
               "cfg_strength": {

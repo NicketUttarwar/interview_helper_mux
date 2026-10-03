@@ -104,7 +104,8 @@
                   "low",
                   "medium",
                   "high",
-                  "critical"
+                  "critical",
+                  null
                 ]
               },
               "grounding_quality": {
@@ -115,7 +116,8 @@
                 "enum": [
                   "high",
                   "mixed",
-                  "weak"
+                  "weak",
+                  null
                 ]
               },
               "evidence_partial": {
@@ -151,7 +153,8 @@
                   "high",
                   "medium",
                   "low",
-                  "unspeakable"
+                  "unspeakable",
+                  null
                 ]
               },
               "themes": {

@@ -583,7 +583,8 @@
                       "air_breathe",
                       "cold_open_hook",
                       "information_package",
-                      "episode_close"
+                      "episode_close",
+                      null
                     ]
                   },
                   "know_entering": {

@@ -16,8 +16,12 @@ def _add_null_to_type(prop: dict[str, Any]) -> dict[str, Any]:
     if isinstance(t, list):
         if "null" not in t:
             prop["type"] = [*t, "null"]
-        return prop
-    prop["type"] = [t, "null"]
+    else:
+        prop["type"] = [t, "null"]
+    # enum is checked independently of type: a nullable enum must list null.
+    enum = prop.get("enum")
+    if isinstance(enum, list) and None not in enum:
+        prop["enum"] = [*enum, None]
     return prop
 
 
