@@ -4582,6 +4582,7 @@ _STALE_REF_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("narrative segment ", "master/narrative_plan.json"),
     ("coverage_audit ", "master/coverage_audit.json"),
     ("episode_structure ", "understanding/episode_structure.json"),
+    ("palette segment ", "understanding/sound_design_plan.json"),
 )
 _SEG_TOKEN_RE = re.compile(r"(?<![0-9A-Za-z_])seg_\d+[a-z]*(?![0-9A-Za-z])", re.IGNORECASE)
 
@@ -4661,18 +4662,36 @@ def heal_stale_segment_refs_from_errors(ctx: Any, errors: list[str]) -> dict[str
         )
         if rewritten == doc:
             continue
-        if persist_segment_id_remap(ctx, rel, rewritten):
-            healed[rel] = mapping
+        if not persist_segment_id_remap(ctx, rel, rewritten):
+            continue
+        try:
+            landed = ctx.read_json(rel) != doc
+        except Exception:
+            landed = False
+        if not landed:
+            # A gate below the ownership table (the seat freeze) can skip the
+            # write and return normally; report only a rewrite that is on disk.
             try:
                 ctx.log(
-                    f"{rel}: {len(mapping)} stale segment id(s) pointed at the live "
-                    "segment carrying that tape before the cross-check could halt the run",
+                    f"{rel}: stale segment id repair did not land (write skipped)",
                     level="warning",
                     stage="segment_id_remap",
-                    detail={"event": "stale_segment_refs_healed", "path": rel, "mapping": mapping},
+                    detail={"event": "stale_segment_refs_not_landed", "path": rel, "mapping": mapping},
                 )
             except Exception:
                 pass
+            continue
+        healed[rel] = mapping
+        try:
+            ctx.log(
+                f"{rel}: {len(mapping)} stale segment id(s) pointed at the live "
+                "segment carrying that tape before the cross-check could halt the run",
+                level="warning",
+                stage="segment_id_remap",
+                detail={"event": "stale_segment_refs_healed", "path": rel, "mapping": mapping},
+            )
+        except Exception:
+            pass
     return healed
 
 

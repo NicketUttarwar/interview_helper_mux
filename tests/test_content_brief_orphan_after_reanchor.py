@@ -193,3 +193,23 @@ def test_unrelated_errors_touch_nothing(ctx) -> None:
     before = ctx.final_path("understanding", "content_brief.json").read_bytes()
     assert heal_stale_segment_refs_from_errors(ctx, ["content_brief.json missing thesis"]) == {}
     assert ctx.final_path("understanding", "content_brief.json").read_bytes() == before
+
+
+def test_palette_stale_ids_route_to_the_sound_design_plan() -> None:
+    from interview_mux.artifact_repairs import _stale_ref_targets
+
+    assert _stale_ref_targets(["palette segment seg_009 not in manifest"]) == {
+        "understanding/sound_design_plan.json": {"seg_009"}
+    }
+
+
+def test_a_skipped_write_is_not_reported_as_healed(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gate below the ownership table (the seat freeze) can skip and return normally."""
+    from interview_mux import artifact_repairs
+    from interview_mux.artifact_repairs import heal_stale_segment_refs_from_errors
+
+    _put(ctx, "understanding/gap_evaluations.json", _evals(["seg_018"]))
+    monkeypatch.setattr(artifact_repairs, "persist_segment_id_remap", lambda c, rel, doc: True)
+    assert heal_stale_segment_refs_from_errors(
+        ctx, ["gap_evaluation segment_id seg_018 not in manifest"]
+    ) == {}

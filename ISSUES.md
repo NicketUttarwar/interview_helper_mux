@@ -4721,6 +4721,16 @@ with the integrity-only mutation class (`persist_segment_id_remap`). Then the
 check re-runs. Only ids the errors name are touched. A listed orphan id is
 dropped rather than mapped onto a segment that is already covered.
 
+Follow-up: the sound design plan's palette check (`palette segment X not in
+manifest`, post_sound_palettes) goes through the same path and is now mapped.
+The repair re-reads the file after writing and reports a repair only when the
+rewrite is on disk. A gate below the ownership table (the seat freeze) can
+skip a write and return normally, and the first version logged those as
+healed. Under the delivery freeze the plan stays frozen and the check reports
+as before. Replay on a copy of exec_006 with seg_009 removed: before the
+freeze the palette id moves to the live segment and the check passes. Under
+the freeze the write is skipped and logged as not landed.
+
 Replay on a copy of macOS exec_006 with `seg_017` removed from the manifest:
 unmodified code blocks `topic_coverage_audit` with four orphan errors. Fixed
 code maps `seg_017` to the adjacent `seg_016` and the orphan block is gone.
