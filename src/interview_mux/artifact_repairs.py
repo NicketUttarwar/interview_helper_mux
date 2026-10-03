@@ -4413,11 +4413,11 @@ def _span_ms(row: dict[str, Any]) -> tuple[int, int] | None:
     return (start, end) if end >= start else None
 
 
-def _orphan_brief_target(
+def _live_target(
     sid: str,
     *,
     fused: dict[str, str],
-    bound_spans: dict[str, tuple[int, int]],
+    retired_spans: dict[str, tuple[int, int]],
     live_spans: dict[str, tuple[int, int]],
 ) -> str | None:
     """The live manifest segment that now carries the tape ``sid`` stood for."""
@@ -4428,7 +4428,7 @@ def _orphan_brief_target(
         seen.add(cur)
     if cur in live_spans:
         return cur
-    span = bound_spans.get(sid)
+    span = retired_spans.get(sid)
     if span is None or not live_spans:
         return None
     a0, a1 = span
@@ -4442,36 +4442,93 @@ def _orphan_brief_target(
     return min(live_spans.items(), key=rank)[0]
 
 
+def _live_segment_spans(ctx: Any) -> dict[str, tuple[int, int]]:
+    try:
+        man = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else None
+    except Exception:
+        man = None
+    out: dict[str, tuple[int, int]] = {}
+    for seg in (man.get("segments") or []) if isinstance(man, dict) else []:
+        if isinstance(seg, dict) and seg.get("segment_id"):
+            span = _span_ms(seg)
+            if span is not None:
+                out[str(seg["segment_id"])] = span
+    return out
+
+
+def _retired_segment_spans(ctx: Any) -> dict[str, tuple[int, int]]:
+    """Tape spans of ids that may have left the manifest, from the records that kept them."""
+    out: dict[str, tuple[int, int]] = {}
+
+    def take(rows: Any) -> None:
+        for row in rows or []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                span = _span_ms(row)
+                if span is not None:
+                    out.setdefault(str(row["segment_id"]), span)
+
+    for rel, pick in (
+        ("segments/boundaries.json", lambda d: d.get("boundaries")),
+        (
+            "vernacular/resplit_report.json",
+            lambda d: [c for r in (d.get("rows") or []) if isinstance(r, dict) for c in (r.get("children") or [])],
+        ),
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if isinstance(doc, dict):
+            take(pick(doc))
+    return out
+
+
+def resolve_stale_segment_ids(ctx: Any, ids: Any) -> dict[str, str | None]:
+    """Map each id that is not in the live manifest onto the live segment carrying its tape.
+
+    Follows the connector fuse remap first, then the id's recorded span
+    (boundaries, vernacular split children) to the live segment with the most
+    overlap, else the nearest one. ``None`` means no span survives for it.
+    """
+    live = _live_segment_spans(ctx)
+    stale = sorted({str(s) for s in ids or [] if is_manifest_segment_id(str(s)) and str(s) not in live})
+    if not live or not stale:
+        return {}
+    fused: dict[str, str] = {}
+    try:
+        from interview_mux.segment_fuse import fused_id_remap
+
+        fused = fused_id_remap(ctx)
+    except Exception:
+        fused = {}
+    retired = _retired_segment_spans(ctx)
+    return {
+        sid: _live_target(sid, fused=fused, retired_spans=retired, live_spans=live)
+        for sid in stale
+    }
+
+
 def heal_content_brief_orphan_segment_ids(ctx: Any) -> dict[str, str | None]:
     """Point content_brief refs at live manifest ids when a segment left the manifest.
 
     A segment can leave the manifest after content_brief_reanchor has passed
-    (a fuse or absorb that lands on the manifest while the brief's remap is
-    skipped). The brief then cites an id the manifest no longer has, the
+    (a vernacular split, then a fuse that lands its tape under another
+    survivor). The brief then cites an id the manifest no longer has, the
     post_reanchor cross-check reports it as an orphan, and topic_coverage_audit
     refuses to start; retries hit the same fingerprint and the run stops at
-    36/72 (ISSUES 139). The tape the id stood for is still in the manifest
-    under the segment that absorbed it, so follow the fuse remap, else the
-    live segment overlapping (or nearest to) its boundary span. An id with no
-    recoverable span is dropped from the list. Returns ``{orphan: target}``.
+    36/72 (ISSUES 139). An id with no recoverable span is dropped from the
+    list. Returns ``{orphan: target}``.
     """
     rel = "understanding/content_brief.json"
     if not ctx.artifact_exists(rel) or not ctx.artifact_exists("segments/manifest.json"):
         return {}
     try:
         brief = ctx.read_json(rel)
-        man = ctx.read_json("segments/manifest.json")
     except Exception:
         return {}
-    if not isinstance(brief, dict) or not isinstance(man, dict):
-        return {}
-    live_spans: dict[str, tuple[int, int]] = {}
-    for seg in man.get("segments") or []:
-        if isinstance(seg, dict) and seg.get("segment_id"):
-            span = _span_ms(seg)
-            if span is not None:
-                live_spans[str(seg["segment_id"])] = span
-    if not live_spans:
+    if not isinstance(brief, dict):
         return {}
 
     lists: list[tuple[dict[str, Any], str]] = []
@@ -4484,40 +4541,9 @@ def heal_content_brief_orphan_segment_ids(ctx: Any) -> dict[str, str | None]:
         for key in ("segment_ids", "evidence_segment_ids"):
             if isinstance(claim.get(key), list):
                 lists.append((claim, key))
-    orphans = {
-        str(s)
-        for row, key in lists
-        for s in row[key]
-        if is_manifest_segment_id(str(s)) and str(s) not in live_spans
-    }
-    if not orphans:
+    mapping = resolve_stale_segment_ids(ctx, [s for row, key in lists for s in row[key]])
+    if not mapping:
         return {}
-
-    fused: dict[str, str] = {}
-    try:
-        from interview_mux.segment_fuse import fused_id_remap
-
-        fused = fused_id_remap(ctx)
-    except Exception:
-        fused = {}
-    bound_spans: dict[str, tuple[int, int]] = {}
-    if ctx.artifact_exists("segments/boundaries.json"):
-        try:
-            bdoc = ctx.read_json("segments/boundaries.json")
-        except Exception:
-            bdoc = None
-        for row in (bdoc.get("boundaries") or []) if isinstance(bdoc, dict) else []:
-            if isinstance(row, dict) and str(row.get("segment_id") or "") in orphans:
-                span = _span_ms(row)
-                if span is not None:
-                    bound_spans[str(row["segment_id"])] = span
-
-    mapping = {
-        sid: _orphan_brief_target(
-            sid, fused=fused, bound_spans=bound_spans, live_spans=live_spans
-        )
-        for sid in sorted(orphans)
-    }
     for row, key in lists:
         out: list[Any] = []
         for raw in row[key]:
@@ -4546,6 +4572,108 @@ def heal_content_brief_orphan_segment_ids(ctx: Any) -> dict[str, str | None]:
     except Exception:
         pass
     return mapping
+
+
+# Cross-check error prefix -> the artifact whose stale ids it names.
+_STALE_REF_ARTIFACTS: tuple[tuple[str, str], ...] = (
+    ("content_brief ", "understanding/content_brief.json"),
+    ("gap_evaluation ", "understanding/gap_evaluations.json"),
+    ("selection segment ", "master/selection.json"),
+    ("narrative segment ", "master/narrative_plan.json"),
+    ("coverage_audit ", "master/coverage_audit.json"),
+    ("episode_structure ", "understanding/episode_structure.json"),
+)
+_SEG_TOKEN_RE = re.compile(r"(?<![0-9A-Za-z_])seg_\d+[a-z]*(?![0-9A-Za-z])", re.IGNORECASE)
+
+
+def _stale_ref_targets(errors: list[str]) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for err in errors or []:
+        msg = str(err)
+        if "not in manifest" not in msg and "orphan" not in msg:
+            continue
+        for prefix, rel in _STALE_REF_ARTIFACTS:
+            if msg.startswith(prefix):
+                out.setdefault(rel, set()).update(_SEG_TOKEN_RE.findall(msg))
+                break
+    return out
+
+
+def _drop_segment_ids(value: Any, drop: set[str], orphan_drop: set[str]) -> Any:
+    from interview_mux.segment_id_remap import SEGMENT_ID_LIST_KEYS
+
+    if isinstance(value, list):
+        return [_drop_segment_ids(v, drop, orphan_drop) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out: dict[str, Any] = {}
+    for k, v in value.items():
+        if k in SEGMENT_ID_LIST_KEYS and isinstance(v, list):
+            kill = drop | orphan_drop if k == "orphan_segment_ids" else drop
+            out[k] = [
+                _drop_segment_ids(x, drop, orphan_drop)
+                for x in v
+                if not (isinstance(x, str) and x in kill)
+            ]
+        else:
+            out[k] = _drop_segment_ids(v, drop, orphan_drop)
+    return out
+
+
+def heal_stale_segment_refs_from_errors(ctx: Any, errors: list[str]) -> dict[str, dict[str, str | None]]:
+    """Repair the stale segment ids a cross-check is about to halt the run on.
+
+    The LLM's segmentation differs per run, so which ids a split, fuse or
+    absorb retires after an artifact was written differs per run too. When
+    the rewrite of a consumer did not land, the next cross-check names the
+    stale id and the run halts on a deterministic error that every retry
+    repeats (ISSUES 139). This applies the rewrite that should have landed:
+    each named id goes to the live segment now carrying its tape, through the
+    same walker the fuse remap uses, written under the owner with the
+    integrity-only mutation class. Only ids the errors name are touched, so a
+    run that passes its checks is unchanged. An id with no surviving span is
+    dropped from id lists, and a listed orphan id is dropped rather than
+    mapped onto a segment that is already covered.
+    """
+    targets = _stale_ref_targets(errors)
+    healed: dict[str, dict[str, str | None]] = {}
+    for rel, ids in targets.items():
+        if rel == "understanding/content_brief.json":
+            mapping = heal_content_brief_orphan_segment_ids(ctx)
+            if mapping:
+                healed[rel] = mapping
+            continue
+        mapping = resolve_stale_segment_ids(ctx, ids)
+        if not mapping or not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        from interview_mux.segment_id_remap import apply_segment_id_map
+
+        dropped = {sid for sid, target in mapping.items() if target is None}
+        rewritten = _drop_segment_ids(doc, dropped, set(mapping))
+        rewritten = apply_segment_id_map(
+            rewritten, {sid: t for sid, t in mapping.items() if t is not None}
+        )
+        if rewritten == doc:
+            continue
+        if persist_segment_id_remap(ctx, rel, rewritten):
+            healed[rel] = mapping
+            try:
+                ctx.log(
+                    f"{rel}: {len(mapping)} stale segment id(s) pointed at the live "
+                    "segment carrying that tape before the cross-check could halt the run",
+                    level="warning",
+                    stage="segment_id_remap",
+                    detail={"event": "stale_segment_refs_healed", "path": rel, "mapping": mapping},
+                )
+            except Exception:
+                pass
+    return healed
 
 
 def persist_segment_id_remap(ctx: Any, rel: str, doc: dict[str, Any]) -> bool:

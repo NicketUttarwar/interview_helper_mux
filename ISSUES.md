@@ -4651,7 +4651,9 @@ unfixed code).
 
 **Stage / area:** `stage_input_checks._check_topic_coverage_audit`,
 `artifact_cross_validate._validate_post_reanchor`,
-`artifact_repairs.heal_content_brief_orphan_segment_ids`
+`artifact_cross_validate.validate_cross_artifacts_healing`,
+`artifact_repairs.heal_content_brief_orphan_segment_ids`,
+`artifact_repairs.heal_stale_segment_refs_from_errors`
 **Status:** FIXED
 
 **Seen (client machine, same pinned environment):** the run stopped at 36/72
@@ -4695,11 +4697,28 @@ The brief is committed under its producer key and re-stamped, the same commit
 `_patch_brief_ids_after_resplit` uses. A warning (`content_brief_orphan_ids_healed`)
 records the mapping. It changes nothing on a run whose brief has no orphans.
 
+**Guard for the whole class:** the brief is one of six artifacts a cross-check
+can halt on for a stale segment id. The others are gap_evaluations, selection,
+narrative_plan, coverage_audit and episode_structure. The two paths that turn
+cross-check errors into a halt now go through
+`artifact_cross_validate.validate_cross_artifacts_healing`:
+- `maybe_cross_validate_after_stage` (hard checkpoint halt)
+- `progression_readiness._cross_blockers` (delivery and pre-audio readiness)
+
+When a check names a stale id, `heal_stale_segment_refs_from_errors` resolves
+each named id with `resolve_stale_segment_ids`. It follows the fuse remap,
+then the id's recorded span in `segments/boundaries.json` or
+`vernacular/resplit_report.json`. It applies the rewrite with the same walker
+the fuse remap uses (`apply_segment_id_map`) and lands it under the owner key
+with the integrity-only mutation class (`persist_segment_id_remap`). Then the
+check re-runs. Only ids the errors name are touched. A listed orphan id is
+dropped rather than mapped onto a segment that is already covered.
+
 Replay on a copy of macOS exec_006 with `seg_017` removed from the manifest:
 unmodified code blocks `topic_coverage_audit` with four orphan errors. Fixed
 code maps `seg_017` to the adjacent `seg_016` and the orphan block is gone.
 
-Tests: `tests/test_content_brief_orphan_after_reanchor.py` (4; all fail on the
+Tests: `tests/test_content_brief_orphan_after_reanchor.py` (8; all fail on the
 unfixed code).
 
 ---

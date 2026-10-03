@@ -133,3 +133,63 @@ def test_topic_coverage_audit_input_check_has_no_orphan_block(ctx) -> None:
 
     issues = collect_stage_input_issues(ctx, "topic_coverage_audit")
     assert not [i.message for i in issues if "orphan" in i.message]
+
+
+# The same class past the brief: any cross-check that would halt on a stale id
+# repairs the ids it names, then re-checks.
+
+
+def _evals(ids: list[str]) -> dict:
+    return {"evaluations": [{"segment_id": s, "self_explanatory": True} for s in ids]}
+
+
+def test_post_gaps_stale_evaluation_id_is_repaired_before_halting(ctx) -> None:
+    from interview_mux.artifact_cross_validate import (
+        validate_cross_artifacts,
+        validate_cross_artifacts_healing,
+    )
+
+    _put(ctx, "understanding/gap_evaluations.json", _evals(["seg_017", "seg_018", "seg_019"]))
+    assert validate_cross_artifacts(ctx, "post_gaps") == [
+        "gap_evaluation segment_id seg_018 not in manifest"
+    ]
+    assert validate_cross_artifacts_healing(ctx, "post_gaps") == []
+    ids = [r["segment_id"] for r in _get(ctx, "understanding/gap_evaluations.json")["evaluations"]]
+    assert ids == ["seg_017", "seg_017", "seg_019"]
+
+
+def test_vernacular_child_id_resolves_from_resplit_report(ctx) -> None:
+    from interview_mux.artifact_repairs import resolve_stale_segment_ids
+
+    _put(
+        ctx,
+        "vernacular/resplit_report.json",
+        {
+            "rows": [
+                {
+                    "parent": "seg_019",
+                    "children": [
+                        {"segment_id": "seg_019a", "start_ms": 61_500, "end_ms": 62_400},
+                        {"segment_id": "seg_019b", "start_ms": 62_400, "end_ms": 120_000},
+                    ],
+                }
+            ]
+        },
+    )
+    assert resolve_stale_segment_ids(ctx, ["seg_019a", "seg_019"]) == {"seg_019a": "seg_019"}
+
+
+def test_fuse_remap_wins_over_span(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux import segment_fuse
+    from interview_mux.artifact_repairs import resolve_stale_segment_ids
+
+    monkeypatch.setattr(segment_fuse, "fused_id_remap", lambda _ctx: {"seg_018": "seg_019"})
+    assert resolve_stale_segment_ids(ctx, ["seg_018"]) == {"seg_018": "seg_019"}
+
+
+def test_unrelated_errors_touch_nothing(ctx) -> None:
+    from interview_mux.artifact_repairs import heal_stale_segment_refs_from_errors
+
+    before = ctx.final_path("understanding", "content_brief.json").read_bytes()
+    assert heal_stale_segment_refs_from_errors(ctx, ["content_brief.json missing thesis"]) == {}
+    assert ctx.final_path("understanding", "content_brief.json").read_bytes() == before
