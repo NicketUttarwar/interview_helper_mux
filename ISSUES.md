@@ -1239,7 +1239,7 @@ meant to be supported; otherwise, end-to-end checks need a full episode.
 
 ## [32] OBSERVATION: the product's own `_meta` stamp fails its own schemas
 
-**Status:** not changed, low severity.
+**Status:** FIXED (see the note at the end of this entry).
 
 ```
 fingerprint flush skipped for understanding/sonic_context.json:
@@ -1251,6 +1251,13 @@ Shared-path writes stamp `_meta` into artifacts; the artifact schemas declare
 them and skips the fingerprint flush. The artifact itself still lands, so this
 is a warning per artifact, not a stop. Either the schemas should allow `_meta`
 or the validator should strip it before validating.
+
+**Fix (macOS one-hour runs, where it hit sonic_context, delivery_brief and
+soundscape_policy on every run):** `prompt_validation._validate_dict` validates
+without `_meta` when the schema is closed (`additionalProperties: false`) and
+does not declare `_meta`. Any other extra key still fails. A schema that
+declares `_meta` still validates it. The fingerprinted copy now lands. Tests:
+`tests/test_meta_stamp_passes_artifact_schemas.py`.
 
 ## [33] PRODUCT: the boundary-quality floor made short sources untestable
 
@@ -4767,6 +4774,35 @@ gap_framing_compose's to write (owner air_contract_sanitize)`. The callers were
 Tests: `tests/test_foreign_side_effect_writes.py` (3 new) and
 `tests/test_execution_contract_ladder.py::test_tier_d_waive_unseats_the_plan_when_compose_hosts_the_ladder`
 (all 4 fail on the unfixed code).
+
+---
+
+## [141] PRODUCT: a request too large for the org's tokens-per-minute limit was retried as transient before escalating (every macOS one-hour run)
+
+**Stage / area:** `stages/llm_runner.is_transient_openai_error`
+**Status:** FIXED
+
+**Seen:** every run logged three
+`OpenAI transient error on boundary_topic_resplit (attempt N/4): RateLimitError:
+429 Request too large for gpt-4o in organization ...`, and the same for
+`island_cluster_structure_adjudicate` on gpt-4o-mini. Only after the fourth
+attempt did the call escalate to the flagship tier, which succeeded.
+
+A 429 "Request too large" means the single request exceeds the org's
+tokens-per-minute limit. The same request can never fit, so the backoff only
+added 14 seconds and three wasted calls per occurrence.
+
+**Fix:** a "request too large" error is not transient, so it escalates on the
+first refusal. An ordinary 429 rate limit is still retried with backoff.
+
+**Machine-to-machine note:** the limit belongs to the OpenAI organization, not
+the machine. The escalated `boundary_topic_resplit` request was about 265k
+characters on the one-hour source. An organization on a lower usage tier may
+refuse it on the flagship tier as well, so env matching cannot make this
+path identical across accounts.
+
+Tests: `tests/test_fallback_backstop.py` (2 new; the escalation one fails on
+the unfixed code).
 
 ---
 

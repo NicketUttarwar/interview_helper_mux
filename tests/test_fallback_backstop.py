@@ -129,6 +129,37 @@ def test_non_transient_errors_are_not_retried() -> None:
     assert calls["n"] == 1
 
 
+def _rate_limit(message: str):
+    import httpx
+    import openai
+
+    response = httpx.Response(429, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+    return openai.RateLimitError(message, response=response, body=None)
+
+
+def test_a_request_too_large_for_the_org_limit_escalates_without_waiting() -> None:
+    """The same oversized request never fits; retries only delayed escalation."""
+    from interview_mux.stages.llm_runner import create_with_transient_retry
+
+    calls = {"n": 0}
+
+    def _call():
+        calls["n"] += 1
+        raise _rate_limit(
+            "Error code: 429 - Request too large for gpt-4o in organization org-x on tokens per min (TPM)"
+        )
+
+    with pytest.raises(Exception):
+        create_with_transient_retry(_call, stage="x", sleep=lambda s: None)
+    assert calls["n"] == 1
+
+
+def test_an_ordinary_rate_limit_is_still_retried() -> None:
+    from interview_mux.stages.llm_runner import is_transient_openai_error
+
+    assert is_transient_openai_error(_rate_limit("Rate limit reached for gpt-4o; try again in 2s"))
+
+
 def test_an_optional_stage_without_an_old_version_is_skipped_through_its_stub(ctx, monkeypatch) -> None:
     monkeypatch.setattr(fb, "prior_committed_artifact", lambda c, s: None)
     stubbed: list[str] = []
