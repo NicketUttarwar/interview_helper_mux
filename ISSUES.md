@@ -4896,6 +4896,18 @@ on the unfixed code with the trimmed span, `(340000, 400000)` instead of
 `(100000, 400000)`. The two any-writer tests (narrowed row, dropped row) fail
 without the guard.
 
+
+**Correction (exec_009):** the first version of the guard matched rows by
+`segment_id` across the rewrite. A resplit renumbers segments, so the new
+`seg_032` (1387-1491 s) was widened to the old `seg_032`'s end (1769 s). That
+overlapped eleven rows, and the nested re-classification failed with
+`boundary timeline invalid: manifest times not monotonic at seg_033`. The
+guard no longer matches ids. For each stretch of lost speech, it extends only
+the row bordering the gap, and only inside the gap. It prefers a bordering row
+that covered that speech before, otherwise the row before the gap (or the row
+after it at the start of the tape). Order and non-overlap hold for any
+renumbering writer, and no ids are created. Test:
+`test_a_renumbering_writer_never_gets_overlapping_rows`.
 ---
 
 ## [143] PRODUCT: the boundary quality gate judged the hitch's editorial keeper map as source segmentation, so pass or fail depended on how much the ideal cuts dropped (macOS exec_006, 007, 008)

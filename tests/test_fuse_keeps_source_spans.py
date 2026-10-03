@@ -131,7 +131,9 @@ def test_any_writer_dropping_a_row_keeps_its_speech(ctx) -> None:
         "boundary_topic_resplit",
     )
     b = _bounds(ctx)
-    assert b["seg_004"] == (400_000, 450_000)
+    assert b["seg_002"][1] >= 449_000  # the bordering row now carries the speech
+    spans = sorted(b.values())
+    assert all(a[1] <= c[0] for a, c in zip(spans, spans[1:]))
 
 
 def test_a_fresh_detection_map_is_not_second_guessed(ctx) -> None:
@@ -207,3 +209,37 @@ def test_a_source_map_damaged_before_the_hitch_still_fails(ctx, monkeypatch: pyt
     _pre_keepers(ctx, [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 150_000}, {"segment_id": "seg_002", "start_ms": 350_000, "end_ms": 500_000}])
     with pytest.raises(LoudStageFailure):
         seg._assert_boundary_quality(ctx)
+
+
+def test_a_renumbering_writer_never_gets_overlapping_rows(ctx) -> None:
+    """exec_009: resplit reused seg_032 for other tape; id matching widened it over 11 rows."""
+    _speech(ctx)
+    # Old map on disk: seg_002 spans 100-400 s.
+    _write(
+        ctx,
+        [
+            _row("seg_001", 0, 100_000),
+            _row("seg_002", 100_000, 200_000),
+            _row("seg_003", 200_000, 300_000),
+            _row("seg_004", 300_000, 400_000),
+            _row("seg_005", 400_000, 500_000),
+        ],
+        "boundary_detection",
+    )
+    # Renumbered rewrite: seg_002 is now 100-150 s and 300-340 s is dropped.
+    _write(
+        ctx,
+        [
+            _row("seg_001", 0, 100_000),
+            _row("seg_002", 100_000, 150_000),
+            _row("seg_003", 150_000, 300_000),
+            _row("seg_004", 340_000, 400_000),
+            _row("seg_005", 400_000, 500_000),
+        ],
+        "boundary_topic_resplit",
+    )
+    b = _bounds(ctx)
+    spans = sorted(b.values())
+    assert all(a[1] <= c[0] for a, c in zip(spans, spans[1:]))
+    assert b["seg_002"] == (100_000, 150_000)
+    assert b["seg_004"][0] <= 300_000 or b["seg_003"][1] >= 339_000
