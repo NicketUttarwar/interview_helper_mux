@@ -4647,6 +4647,63 @@ unfixed code).
 
 ---
 
+## [139] PRODUCT: a segment that left the manifest after reanchor stayed in content_brief, so topic_coverage_audit refused to start and retries were memo-refused (client Mac, one-hour source)
+
+**Stage / area:** `stage_input_checks._check_topic_coverage_audit`,
+`artifact_cross_validate._validate_post_reanchor`,
+`artifact_repairs.heal_content_brief_orphan_segment_ids`
+**Status:** FIXED
+
+**Seen (client machine, same pinned environment):** the run stopped at 36/72
+with analysis complete:
+`StageInputError: topic_coverage_audit blocked`. The cause was
+`content_brief topics[2]` and `topics[10]` citing `seg_018`. That id was a
+1.5-second clip still present in `segments/boundaries.json` but absent from
+`segments/manifest.json` (48 ids). Retries hit `attempt_memo` on the same
+fingerprint. The conductor's fallback (`selection_order_sanitize`) could not
+run because `master/selection.json` did not exist yet.
+
+**Chain:**
+1. `content_brief_reanchor` passes its post_reanchor check against the
+   manifest of that moment.
+2. Later analysis stages rewrite the manifest. `vernacular_segment_sanitize`
+   N-way splits parents that touch a protected zone. `connector_fuse_pass`
+   then fuses children and connectors back together. Usually the brief's
+   ids come back through the fuse remap. When a short clip's tape ends up
+   under a different survivor, the parent id is simply gone from the manifest
+   and nothing rewrites the brief.
+3. The delivery readiness report re-runs the post_reanchor cross-check before
+   `topic_coverage_audit`, reports each such id as an orphan, and the stage
+   input check blocks. The block is deterministic, so every retry is refused
+   by the attempt memo and the run halts.
+
+Which split or fuse sequence occurs depends on the LLM's segmentation and the
+vernacular zones, which vary per run on the same source (our six runs of the
+same tape ended with 28 to 52 manifest segments). The same pinned environment
+can still take this path on one machine and not another.
+
+**Fix:** before the readiness report, the `topic_coverage_audit` input check
+calls `heal_content_brief_orphan_segment_ids`. For each brief id missing from
+the manifest (topics, key_claims `segment_ids` / `evidence_segment_ids`):
+- Follow the connector fuse `id_remap` chain. If it lands on a live id, use it.
+- Otherwise take the id's span from `segments/boundaries.json`. Pick the live
+  manifest segment with the most overlap; with no overlap, pick the nearest.
+  That segment now carries the tape the id stood for.
+- An id with no recoverable span is dropped from the list.
+
+The brief is committed under its producer key and re-stamped, the same commit
+`_patch_brief_ids_after_resplit` uses. A warning (`content_brief_orphan_ids_healed`)
+records the mapping. It changes nothing on a run whose brief has no orphans.
+
+Replay on a copy of macOS exec_006 with `seg_017` removed from the manifest:
+unmodified code blocks `topic_coverage_audit` with four orphan errors. Fixed
+code maps `seg_017` to the adjacent `seg_016` and the orphan block is gone.
+
+Tests: `tests/test_content_brief_orphan_after_reanchor.py` (4; all fail on the
+unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

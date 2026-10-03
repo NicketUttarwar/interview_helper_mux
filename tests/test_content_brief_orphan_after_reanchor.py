@@ -1,0 +1,135 @@
+"""A segment that leaves the manifest after reanchor must not halt delivery (ISSUES 139).
+
+On a client machine the one-hour source stopped at 36/72: content_brief topics
+still cited seg_018, a 1.5-second clip that was in segments/boundaries.json but
+no longer in segments/manifest.json. The post_reanchor cross-check called it an
+orphan, topic_coverage_audit refused to start, and the attempt memo refused
+every retry on the same fingerprint.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from run_fixtures import isolated_run_ctx
+
+
+def _put(ctx, rel: str, doc: dict) -> None:
+    dest = ctx.final_path(*rel.split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def _get(ctx, rel: str) -> dict:
+    return json.loads(ctx.final_path(*rel.split("/")).read_text(encoding="utf-8"))
+
+
+def _row(sid: str, start: int, end: int) -> dict:
+    return {
+        "segment_id": sid,
+        "start_ms": start,
+        "end_ms": end,
+        "speaker_id": "spk_1",
+        "speaker_role": "interviewee",
+        "type": "interviewee_answer",
+        "topic_tags": [],
+        "text": "It changes how we treat them.",
+    }
+
+
+BOUNDS = [
+    _row("seg_017", 0, 60_000),
+    _row("seg_018", 60_000, 61_500),
+    _row("seg_019", 61_500, 120_000),
+    _row("seg_020", 120_000, 180_000),
+]
+
+
+@pytest.fixture
+def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("MUX_FORENSICS", "0")
+    c = isolated_run_ctx(tmp_path, "exec_brief_orphan")
+    _put(c, "segments/boundaries.json", {"boundaries": BOUNDS})
+    # seg_018 left the manifest after reanchor; its tape now sits in seg_017.
+    _put(
+        c,
+        "segments/manifest.json",
+        {
+            "segments": [
+                _row("seg_017", 0, 61_500),
+                _row("seg_019", 61_500, 120_000),
+                _row("seg_020", 120_000, 180_000),
+            ]
+        },
+    )
+    _put(
+        c,
+        "understanding/content_brief.json",
+        {
+            "thesis": "x",
+            "topics": [
+                {"name": "a", "summary": "s", "segment_ids": ["seg_018", "seg_020"]},
+                {"name": "b", "summary": "s", "segment_ids": ["seg_017", "seg_018"]},
+            ],
+            "key_claims": [{"claim": "c", "evidence_segment_ids": ["seg_018", "seg_099"]}],
+        },
+    )
+    return c
+
+
+def _orphans(ctx) -> list[str]:
+    from interview_mux.artifact_cross_validate import validate_cross_artifacts
+
+    return [e for e in validate_cross_artifacts(ctx, "post_reanchor") if "orphan" in e]
+
+
+def test_orphan_points_at_live_segment_carrying_its_tape(ctx) -> None:
+    from interview_mux.artifact_repairs import heal_content_brief_orphan_segment_ids
+
+    assert _orphans(ctx)
+    mapping = heal_content_brief_orphan_segment_ids(ctx)
+
+    assert mapping == {"seg_018": "seg_017", "seg_099": None}
+    brief = _get(ctx, "understanding/content_brief.json")
+    assert brief["topics"][0]["segment_ids"] == ["seg_017", "seg_020"]
+    assert brief["topics"][1]["segment_ids"] == ["seg_017"]
+    assert brief["key_claims"][0]["evidence_segment_ids"] == ["seg_017"]
+    assert _orphans(ctx) == []
+
+
+def test_split_parent_maps_to_overlapping_child(ctx) -> None:
+    from interview_mux.artifact_repairs import heal_content_brief_orphan_segment_ids
+
+    _put(
+        ctx,
+        "segments/manifest.json",
+        {
+            "segments": [
+                _row("seg_017", 0, 60_000),
+                _row("seg_018a", 60_000, 61_500),
+                _row("seg_019", 61_500, 120_000),
+                _row("seg_020", 120_000, 180_000),
+            ]
+        },
+    )
+    assert heal_content_brief_orphan_segment_ids(ctx)["seg_018"] == "seg_018a"
+    assert _orphans(ctx) == []
+
+
+def test_no_orphans_leaves_brief_untouched(ctx) -> None:
+    from interview_mux.artifact_repairs import heal_content_brief_orphan_segment_ids
+
+    heal_content_brief_orphan_segment_ids(ctx)
+    before = ctx.final_path("understanding", "content_brief.json").read_bytes()
+    assert heal_content_brief_orphan_segment_ids(ctx) == {}
+    assert ctx.final_path("understanding", "content_brief.json").read_bytes() == before
+
+
+def test_topic_coverage_audit_input_check_has_no_orphan_block(ctx) -> None:
+    from interview_mux.stage_input_checks import collect_stage_input_issues
+
+    issues = collect_stage_input_issues(ctx, "topic_coverage_audit")
+    assert not [i.message for i in issues if "orphan" in i.message]

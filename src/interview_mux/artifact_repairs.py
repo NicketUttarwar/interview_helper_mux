@@ -4405,6 +4405,149 @@ def _brief_remap_permitted(ctx: Any) -> bool:
     return False
 
 
+def _span_ms(row: dict[str, Any]) -> tuple[int, int] | None:
+    try:
+        start, end = int(row.get("start_ms")), int(row.get("end_ms"))
+    except (TypeError, ValueError):
+        return None
+    return (start, end) if end >= start else None
+
+
+def _orphan_brief_target(
+    sid: str,
+    *,
+    fused: dict[str, str],
+    bound_spans: dict[str, tuple[int, int]],
+    live_spans: dict[str, tuple[int, int]],
+) -> str | None:
+    """The live manifest segment that now carries the tape ``sid`` stood for."""
+    seen = {sid}
+    cur = sid
+    while cur in fused and fused[cur] not in seen:
+        cur = fused[cur]
+        seen.add(cur)
+    if cur in live_spans:
+        return cur
+    span = bound_spans.get(sid)
+    if span is None or not live_spans:
+        return None
+    a0, a1 = span
+
+    def rank(item: tuple[str, tuple[int, int]]) -> tuple[int, int]:
+        b0, b1 = item[1]
+        overlap = min(a1, b1) - max(a0, b0)
+        gap = max(b0 - a1, a0 - b1, 0)
+        return (-max(overlap, 0), gap)
+
+    return min(live_spans.items(), key=rank)[0]
+
+
+def heal_content_brief_orphan_segment_ids(ctx: Any) -> dict[str, str | None]:
+    """Point content_brief refs at live manifest ids when a segment left the manifest.
+
+    A segment can leave the manifest after content_brief_reanchor has passed
+    (a fuse or absorb that lands on the manifest while the brief's remap is
+    skipped). The brief then cites an id the manifest no longer has, the
+    post_reanchor cross-check reports it as an orphan, and topic_coverage_audit
+    refuses to start; retries hit the same fingerprint and the run stops at
+    36/72 (ISSUES 139). The tape the id stood for is still in the manifest
+    under the segment that absorbed it, so follow the fuse remap, else the
+    live segment overlapping (or nearest to) its boundary span. An id with no
+    recoverable span is dropped from the list. Returns ``{orphan: target}``.
+    """
+    rel = "understanding/content_brief.json"
+    if not ctx.artifact_exists(rel) or not ctx.artifact_exists("segments/manifest.json"):
+        return {}
+    try:
+        brief = ctx.read_json(rel)
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return {}
+    if not isinstance(brief, dict) or not isinstance(man, dict):
+        return {}
+    live_spans: dict[str, tuple[int, int]] = {}
+    for seg in man.get("segments") or []:
+        if isinstance(seg, dict) and seg.get("segment_id"):
+            span = _span_ms(seg)
+            if span is not None:
+                live_spans[str(seg["segment_id"])] = span
+    if not live_spans:
+        return {}
+
+    lists: list[tuple[dict[str, Any], str]] = []
+    for topic in brief.get("topics") or []:
+        if isinstance(topic, dict) and isinstance(topic.get("segment_ids"), list):
+            lists.append((topic, "segment_ids"))
+    for claim in brief.get("key_claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        for key in ("segment_ids", "evidence_segment_ids"):
+            if isinstance(claim.get(key), list):
+                lists.append((claim, key))
+    orphans = {
+        str(s)
+        for row, key in lists
+        for s in row[key]
+        if is_manifest_segment_id(str(s)) and str(s) not in live_spans
+    }
+    if not orphans:
+        return {}
+
+    fused: dict[str, str] = {}
+    try:
+        from interview_mux.segment_fuse import fused_id_remap
+
+        fused = fused_id_remap(ctx)
+    except Exception:
+        fused = {}
+    bound_spans: dict[str, tuple[int, int]] = {}
+    if ctx.artifact_exists("segments/boundaries.json"):
+        try:
+            bdoc = ctx.read_json("segments/boundaries.json")
+        except Exception:
+            bdoc = None
+        for row in (bdoc.get("boundaries") or []) if isinstance(bdoc, dict) else []:
+            if isinstance(row, dict) and str(row.get("segment_id") or "") in orphans:
+                span = _span_ms(row)
+                if span is not None:
+                    bound_spans[str(row["segment_id"])] = span
+
+    mapping = {
+        sid: _orphan_brief_target(
+            sid, fused=fused, bound_spans=bound_spans, live_spans=live_spans
+        )
+        for sid in sorted(orphans)
+    }
+    for row, key in lists:
+        out: list[Any] = []
+        for raw in row[key]:
+            s = str(raw)
+            target = mapping.get(s, s) if s in mapping else raw
+            if target is None or target in out:
+                continue
+            out.append(target)
+        row[key] = out
+
+    from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+    # Same commit as the resplit remap: brief producer key, re-stamped so the
+    # consumers' stale guards see the body that is on disk.
+    restamp_committed_artifact(
+        ctx, rel, producer_stage="content_brief_reanchor", doc=brief
+    )
+    try:
+        ctx.log(
+            f"content_brief: {len(mapping)} segment id(s) no longer in the manifest "
+            "were pointed at the live segment carrying that tape",
+            level="warning",
+            stage="content_brief_reanchor",
+            detail={"event": "content_brief_orphan_ids_healed", "mapping": mapping},
+        )
+    except Exception:
+        pass
+    return mapping
+
+
 def persist_segment_id_remap(ctx: Any, rel: str, doc: dict[str, Any]) -> bool:
     """Land a split's id remap on ``rel`` under a key the ownership table accepts.
 
