@@ -915,8 +915,12 @@ def _check_flow1_profile_gate(ctx: RunContext) -> list[StageInputIssue]:
 
 def _check_topic_coverage_audit(ctx: RunContext) -> list[StageInputIssue]:
     issues = _check_flow1_profile_gate(ctx)
+    from interview_mux.artifact_repairs import heal_content_brief_orphan_segment_ids
     from interview_mux.progression_readiness import build_delivery_readiness_report
 
+    # A segment that left the manifest after reanchor must not halt delivery
+    # at its first stage when its tape is still on the manifest (ISSUES 139).
+    heal_content_brief_orphan_segment_ids(ctx)
     report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
     for row in report.get("blockers") or []:
         if isinstance(row, dict):

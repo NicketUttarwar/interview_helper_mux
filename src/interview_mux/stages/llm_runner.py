@@ -255,6 +255,12 @@ def is_transient_openai_error(exc: BaseException) -> bool:
         import openai
     except Exception:  # noqa: BLE001
         return False
+    if "request too large" in str(exc).lower():
+        # A 429 for a single request above the org's tokens-per-minute limit.
+        # The same request can never fit, so waiting only burns 14 seconds and
+        # four calls before the tier escalation that does succeed (every
+        # one-hour run: boundary_topic_resplit, island_cluster_structure_adjudicate).
+        return False
     if isinstance(exc, (openai.RateLimitError, openai.APIConnectionError, openai.APITimeoutError)):
         return True
     if isinstance(exc, openai.APIStatusError):

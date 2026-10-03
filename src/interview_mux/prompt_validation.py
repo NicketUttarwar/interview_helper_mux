@@ -329,6 +329,17 @@ def format_validation_feedback(
 def _validate_dict(data: dict[str, Any], schema: dict[str, Any] | None) -> list[str]:
     if not schema:
         return []
+    if (
+        isinstance(data, dict)
+        and "_meta" in data
+        and schema.get("additionalProperties") is False
+        and "_meta" not in (schema.get("properties") or {})
+    ):
+        # ``_meta`` is the pipeline's own stamp (producer, content hash), never
+        # part of a stage's contract. Schemas that predate it rejected every
+        # fingerprinted copy and the fingerprint flush was skipped on each run
+        # (ISSUES 32: sonic_context, delivery_brief, soundscape_policy).
+        data = {k: v for k, v in data.items() if k != "_meta"}
     validator = Draft202012Validator(schema)
     errors: list[str] = []
     for err in sorted(validator.iter_errors(data), key=lambda e: list(e.path)):

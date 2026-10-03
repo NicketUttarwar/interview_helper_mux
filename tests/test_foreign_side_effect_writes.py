@@ -386,3 +386,37 @@ def test_no_unkeyed_plan_write_relies_on_a_refusal_to_reach_its_owner_keyed_retr
                         if name == "persist_frozen_seat_doc":
                             offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == []
+
+
+# ISSUES 140: a write keyed as the owner passed the ownership check but was
+# staged under the active stage, whose flush discarded it without a log.
+
+
+def test_owner_keyed_write_under_another_stage_lands_committed(ctx) -> None:
+    ws.enter_stage_staging("gap_framing_compose")
+    try:
+        ctx.write_json(
+            PLAN,
+            {"narrative_mode": "sparse_source", "marker": "seat_owner"},
+            stage_key="air_contract_sanitize",
+        )
+        assert not (Path(ctx.run_dir) / ".pending_writes" / "gap_framing_compose" / "mastering").exists()
+        ws.flush_stage_writes(ctx, "gap_framing_compose")
+    finally:
+        ws.exit_stage_staging()
+    assert _plan_on_disk(ctx)["marker"] == "seat_owner"
+
+
+def test_the_active_stage_still_stages_its_own_outputs(ctx) -> None:
+    ws.enter_stage_staging("air_contract_sanitize")
+    try:
+        assert not ws.keyed_write_lost_at_flush(ctx, PLAN, "air_contract_sanitize")
+        ctx.write_json(PLAN, {"narrative_mode": "sparse_source", "marker": "staged"}, stage_key="air_contract_sanitize")
+        assert _plan_on_disk(ctx)["marker"] == "owner"
+        assert (Path(ctx.run_dir) / ".pending_writes" / "air_contract_sanitize" / PLAN).is_file()
+    finally:
+        ws.exit_stage_staging()
+
+
+def test_no_active_stage_is_unchanged(ctx) -> None:
+    assert not ws.keyed_write_lost_at_flush(ctx, PLAN, "air_contract_sanitize")

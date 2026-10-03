@@ -254,6 +254,33 @@ def validate_cross_artifacts(ctx: RunContext, checkpoint: str) -> list[str]:
         return _validate_post_edl_audit(ctx)
     return [f"Unknown cross-validate checkpoint: {checkpoint}"]
 
+def validate_cross_artifacts_healing(ctx: RunContext, checkpoint: str) -> list[str]:
+    """``validate_cross_artifacts``, repairing stale segment ids before they halt.
+
+    Which ids a split or fuse retires depends on the LLM's segmentation, so a
+    consumer left citing one is a per-run accident, not a bad artifact. The
+    named ids are rewritten onto the live segment carrying their tape and the
+    checkpoint is re-run (ISSUES 139). Other errors are returned unchanged.
+    """
+    errors = validate_cross_artifacts(ctx, checkpoint)
+    if not errors:
+        return errors
+    try:
+        from interview_mux.artifact_repairs import heal_stale_segment_refs_from_errors
+
+        if heal_stale_segment_refs_from_errors(ctx, errors):
+            return validate_cross_artifacts(ctx, checkpoint)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            ctx.log(
+                f"stale segment id repair skipped ({checkpoint}): {exc}",
+                level="warning",
+                stage="segment_id_remap",
+            )
+        except Exception:
+            pass
+    return errors
+
 def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
     """Run checkpoint validation after an LLM stage when flow hardening is enabled."""
     if not flow_hardening_enabled():
@@ -295,7 +322,7 @@ def maybe_cross_validate_after_stage(ctx: RunContext, stage_key: str) -> None:
                 )
             return
 
-        errors = validate_cross_artifacts(ctx, checkpoint)
+        errors = validate_cross_artifacts_healing(ctx, checkpoint)
         if not errors:
             return
         summary = "; ".join(errors[:4])

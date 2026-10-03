@@ -1239,7 +1239,7 @@ meant to be supported; otherwise, end-to-end checks need a full episode.
 
 ## [32] OBSERVATION: the product's own `_meta` stamp fails its own schemas
 
-**Status:** not changed, low severity.
+**Status:** FIXED (see the note at the end of this entry).
 
 ```
 fingerprint flush skipped for understanding/sonic_context.json:
@@ -1251,6 +1251,13 @@ Shared-path writes stamp `_meta` into artifacts; the artifact schemas declare
 them and skips the fingerprint flush. The artifact itself still lands, so this
 is a warning per artifact, not a stop. Either the schemas should allow `_meta`
 or the validator should strip it before validating.
+
+**Fix (macOS one-hour runs, where it hit sonic_context, delivery_brief and
+soundscape_policy on every run):** `prompt_validation._validate_dict` validates
+without `_meta` when the schema is closed (`additionalProperties: false`) and
+does not declare `_meta`. Any other extra key still fails. A schema that
+declares `_meta` still validates it. The fingerprinted copy now lands. Tests:
+`tests/test_meta_stamp_passes_artifact_schemas.py`.
 
 ## [33] PRODUCT: the boundary-quality floor made short sources untestable
 
@@ -4644,6 +4651,211 @@ the heal refuses; fixed code clears the stamp, the heal re-marks
 
 Tests: `tests/test_role_tape_conflict_stale_stamp.py` (4; all fail on the
 unfixed code).
+
+---
+
+## [139] PRODUCT: a segment that left the manifest after reanchor stayed in content_brief, so topic_coverage_audit refused to start and retries were memo-refused (client Mac, one-hour source)
+
+**Stage / area:** `stage_input_checks._check_topic_coverage_audit`,
+`artifact_cross_validate._validate_post_reanchor`,
+`artifact_cross_validate.validate_cross_artifacts_healing`,
+`artifact_repairs.heal_content_brief_orphan_segment_ids`,
+`artifact_repairs.heal_stale_segment_refs_from_errors`
+**Status:** FIXED
+
+**Seen (client machine, same pinned environment):** the run stopped at 36/72
+with analysis complete:
+`StageInputError: topic_coverage_audit blocked`. The cause was
+`content_brief topics[2]` and `topics[10]` citing `seg_018`. That id was a
+1.5-second clip still present in `segments/boundaries.json` but absent from
+`segments/manifest.json` (48 ids). Retries hit `attempt_memo` on the same
+fingerprint. The conductor's fallback (`selection_order_sanitize`) could not
+run because `master/selection.json` did not exist yet.
+
+**Chain:**
+1. `content_brief_reanchor` passes its post_reanchor check against the
+   manifest of that moment.
+2. Later analysis stages rewrite the manifest. `vernacular_segment_sanitize`
+   N-way splits parents that touch a protected zone. `connector_fuse_pass`
+   then fuses children and connectors back together. Usually the brief's
+   ids come back through the fuse remap. When a short clip's tape ends up
+   under a different survivor, the parent id is simply gone from the manifest
+   and nothing rewrites the brief.
+3. The delivery readiness report re-runs the post_reanchor cross-check before
+   `topic_coverage_audit`, reports each such id as an orphan, and the stage
+   input check blocks. The block is deterministic, so every retry is refused
+   by the attempt memo and the run halts.
+
+Which split or fuse sequence occurs depends on the LLM's segmentation and the
+vernacular zones, which vary per run on the same source (our six runs of the
+same tape ended with 28 to 52 manifest segments). The same pinned environment
+can still take this path on one machine and not another.
+
+**Fix:** before the readiness report, the `topic_coverage_audit` input check
+calls `heal_content_brief_orphan_segment_ids`. For each brief id missing from
+the manifest (topics, key_claims `segment_ids` / `evidence_segment_ids`):
+- Follow the connector fuse `id_remap` chain. If it lands on a live id, use it.
+- Otherwise take the id's span from `segments/boundaries.json`. Pick the live
+  manifest segment with the most overlap; with no overlap, pick the nearest.
+  That segment now carries the tape the id stood for.
+- An id with no recoverable span is dropped from the list.
+
+The brief is committed under its producer key and re-stamped, the same commit
+`_patch_brief_ids_after_resplit` uses. A warning (`content_brief_orphan_ids_healed`)
+records the mapping. It changes nothing on a run whose brief has no orphans.
+
+**Guard for the whole class:** the brief is one of six artifacts a cross-check
+can halt on for a stale segment id. The others are gap_evaluations, selection,
+narrative_plan, coverage_audit and episode_structure. The two paths that turn
+cross-check errors into a halt now go through
+`artifact_cross_validate.validate_cross_artifacts_healing`:
+- `maybe_cross_validate_after_stage` (hard checkpoint halt)
+- `progression_readiness._cross_blockers` (delivery and pre-audio readiness)
+
+When a check names a stale id, `heal_stale_segment_refs_from_errors` resolves
+each named id with `resolve_stale_segment_ids`. It follows the fuse remap,
+then the id's recorded span in `segments/boundaries.json` or
+`vernacular/resplit_report.json`. It applies the rewrite with the same walker
+the fuse remap uses (`apply_segment_id_map`) and lands it under the owner key
+with the integrity-only mutation class (`persist_segment_id_remap`). Then the
+check re-runs. Only ids the errors name are touched. A listed orphan id is
+dropped rather than mapped onto a segment that is already covered.
+
+Follow-up: the sound design plan's palette check (`palette segment X not in
+manifest`, post_sound_palettes) goes through the same path and is now mapped.
+The repair re-reads the file after writing and reports a repair only when the
+rewrite is on disk. A gate below the ownership table (the seat freeze) can
+skip a write and return normally, and the first version logged those as
+healed. Under the delivery freeze the plan stays frozen and the check reports
+as before. Replay on a copy of exec_006 with seg_009 removed: before the
+freeze the palette id moves to the live segment and the check passes. Under
+the freeze the write is skipped and logged as not landed.
+
+Replay on a copy of macOS exec_006 with `seg_017` removed from the manifest:
+unmodified code blocks `topic_coverage_audit` with four orphan errors. Fixed
+code maps `seg_017` to the adjacent `seg_016` and the orphan block is gone.
+
+Tests: `tests/test_content_brief_orphan_after_reanchor.py` (8; all fail on the
+unfixed code).
+
+---
+
+## [140] PRODUCT: owner-keyed side-effect writes were staged under the active stage and discarded at its flush; the tier-D waive never unseated the plan (macOS exec_001, 003, 004, 006)
+
+**Stage / area:** `RunContext.write_json`, `write_staging.keyed_write_lost_at_flush`,
+`write_staging.flush_stage_writes`, `execution_contract._tier_d_logged_waive`
+**Status:** FIXED
+
+**Seen:** four of six one-hour runs logged
+`side-effect write skipped: mastering/mastering_plan.json is not
+gap_framing_compose's to write (owner air_contract_sanitize)`. The callers were
+`run_execution_invariants`, then `run_vo_contract_ladder`, then
+`_tier_d_logged_waive`, then `write_plan`.
+
+**Chain:**
+1. The VO contract ladder runs inside `gap_framing_compose`. Its tier-D waive
+   marks the line not on air in the gap report (that write lands) and unseats
+   it in the mastering plan.
+2. The plan write was unkeyed. `gap_framing_compose` has no ALLOW row for the
+   plan, so entry 127's rule skipped it as a foreign side effect. The plan
+   kept seating a line the gap report had waived.
+3. Keying the write as the seat owner is not enough on its own. A write made
+   while a stage is active is staged under that stage. At commit,
+   `flush_stage_writes` keeps only paths the stage shows or owns and silently
+   drops the rest. So an owner-keyed write passed the ownership check, then
+   vanished at flush with no log. This applies to every owner-keyed write made
+   under another stage, not only this one (for example the
+   `stamp_gap_omit_flags` seat stamps in `air_script.py` when run from a
+   non-owner stage).
+
+**Fix:**
+- `_tier_d_logged_waive` presents the seat owner with the omit-stamp reason
+  (`stage_key="air_contract_sanitize"`, `seat_reason="stamp_gap_omit_flags"`),
+  the pattern from entry 101. Unseating only shrinks seats, which the freeze
+  permits.
+- **Guard for the class:** `RunContext.write_json` asks
+  `keyed_write_lost_at_flush` whether an owner-keyed write would be discarded
+  by the active stage's flush. The predicate is the flush's own test (not
+  operator-visible and not owned by the active stage). If it would be, the
+  write goes to the committed tree through `write_mirrored_json`, the same
+  route `skip_handoff` writes already take. Writes the active stage keeps are
+  unchanged, and so are unkeyed writes.
+
+Tests: `tests/test_foreign_side_effect_writes.py` (3 new) and
+`tests/test_execution_contract_ladder.py::test_tier_d_waive_unseats_the_plan_when_compose_hosts_the_ladder`
+(all 4 fail on the unfixed code).
+
+---
+
+## [141] PRODUCT: a request too large for the org's tokens-per-minute limit was retried as transient before escalating (every macOS one-hour run)
+
+**Stage / area:** `stages/llm_runner.is_transient_openai_error`
+**Status:** FIXED
+
+**Seen:** every run logged three
+`OpenAI transient error on boundary_topic_resplit (attempt N/4): RateLimitError:
+429 Request too large for gpt-4o in organization ...`, and the same for
+`island_cluster_structure_adjudicate` on gpt-4o-mini. Only after the fourth
+attempt did the call escalate to the flagship tier, which succeeded.
+
+A 429 "Request too large" means the single request exceeds the org's
+tokens-per-minute limit. The same request can never fit, so the backoff only
+added 14 seconds and three wasted calls per occurrence.
+
+**Fix:** a "request too large" error is not transient, so it escalates on the
+first refusal. An ordinary 429 rate limit is still retried with backoff.
+
+**Machine-to-machine note:** the limit belongs to the OpenAI organization, not
+the machine. The escalated `boundary_topic_resplit` request was about 265k
+characters on the one-hour source. An organization on a lower usage tier may
+refuse it on the flagship tier as well, so env matching cannot make this
+path identical across accounts.
+
+Tests: `tests/test_fallback_backstop.py` (2 new; the escalation one fails on
+the unfixed code).
+
+---
+
+## [142] PRODUCT: a fused slab's keeper trim was copied into the source boundaries on the next fuse round; nine minutes of speech left the map and delivery refused it as unsafe cuts (macOS exec_007)
+
+**Stage / area:** `segment_fuse._write_boundaries`, `segment_fuse.rerun_air_bounds_on_fused`,
+`stages/segmentation.evaluate_boundary_quality`
+**Status:** FIXED
+
+**Seen:** run 7 stopped with every delivery stage failing
+`Boundary detection produced unsafe cuts; delivery is blocked`
+(`coarse_or_invalid_segmentation`: 23 segments, mean 130 s, coverage 0.84).
+The recovery re-ran the segmentation chain, which re-read the damaged
+boundaries, and the run ended with `Delivery blocked: analysis incomplete:
+gap_framing_compose`.
+`segments/boundaries.json` had no row for 2271-2818 s. That stretch held 1295
+transcript words, 16 percent of the tape. The model's own boundary reply
+covered it (`seg_037` to `seg_046`).
+
+**Chain:**
+1. In the second segmentation session, `connector_fuse_pass` fused a slab
+   spanning 2271-2948 s.
+2. `rerun_air_bounds_on_fused` clamped that slab's manifest row to its
+   ideal-cut keeper window, starting at 2818 s. That is intended: the keeper
+   trim is an on-air decision and the code says it must not reach the
+   boundaries, because doing so once dropped coverage to 25 percent.
+3. The next fuse round's `_write_boundaries` copied every surviving manifest
+   row's start and end into `segments/boundaries.json`, trimmed rows
+   included. The trim reached the source map anyway, one round later.
+4. Coverage fell under 0.85 with too few rows to count as fine-grained, so
+   the quality check rejected the map at delivery. Re-running segmentation
+   started from the damaged boundaries and could not restore the lost span.
+
+Whether this path occurs depends on which slabs the model fuses and where the
+ideal cuts fall, so it differs per run on the same source.
+
+**Fix:** `_write_boundaries` never takes times from the manifest. A fused
+survivor spans the source rows it absorbed (its own row and every
+`fused_from` id still in the document). Any other row keeps its own source
+times.
+
+Tests: `tests/test_fuse_keeps_source_spans.py` (2; both fail on the unfixed
+code with the trimmed span, `(340000, 400000)` instead of `(100000, 400000)`).
 
 ---
 

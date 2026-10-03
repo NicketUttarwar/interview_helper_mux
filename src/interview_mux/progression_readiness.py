@@ -136,9 +136,9 @@ def _p0_spine_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
     return out
 
 def _cross_blockers(ctx: RunContext, checkpoint: str) -> list[ProgressionBlocker]:
-    from interview_mux.artifact_cross_validate import validate_cross_artifacts
+    from interview_mux.artifact_cross_validate import validate_cross_artifacts_healing
 
-    errors = validate_cross_artifacts(ctx, checkpoint)
+    errors = validate_cross_artifacts_healing(ctx, checkpoint)
     return [
         ProgressionBlocker(
             layer="cross",

@@ -318,6 +318,12 @@ class RunContext:
                     f"{rel}: schema validation failed — " + "; ".join(errors[:6])
                 )
             data = payload
+        if not skip_handoff and stage_key:
+            from interview_mux.write_staging import keyed_write_lost_at_flush
+
+            # An owner-keyed side effect staged under another stage is discarded
+            # by that stage's flush; land it where the owner's writes land.
+            skip_handoff = keyed_write_lost_at_flush(self, str(rel), stage_key)
         if skip_handoff:
             from interview_mux.write_staging import write_mirrored_json
 
