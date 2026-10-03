@@ -27,7 +27,6 @@ MANIFEST = LOCK_DIR / "manifest.json"
 BREW = "/opt/homebrew/bin/brew"
 PIP_TIMEOUT = 1800
 FORMULAS = {"python3.12": "python@3.12", "ffmpeg": "ffmpeg", "node": "node", "rustc": "rust"}
-BUILD_ONLY = {"node", "npm", "rustc"}
 MODEL_TIMEOUT = 7200
 
 VENVS = {".venv": ROOT / ".venv"} | {
@@ -143,27 +142,13 @@ def check_system(ref: dict) -> None:
             rec(BAD, k, f"missing, reference {want}")
             if k in FORMULAS and Path(BREW).exists():
                 fixes.append((f"brew install {FORMULAS[k]}", [BREW, "install", FORMULAS[k]], 1800))
-        elif k in BUILD_ONLY:
-            # Builds the GUI bundle (committed) or DeepFilterNet's native lib;
-            # never runs in the pipeline, so a different version cannot change output.
-            rec(WARN, k, f"yours={have} reference={want} (build-time only, does not affect runs)")
-        elif have.split(".")[0] == want.split(".")[0]:
-            # Same major line; Homebrew serves only its current release, so the patch cannot be pinned.
-            rec(WARN, k, f"yours={have} reference={want} (same major; Homebrew cannot pin an exact patch)")
+        elif have.split(".")[0:2] == want.split(".")[0:2] or k in ("npm",):
+            # Same minor line; Homebrew serves only its current patch, so this cannot be pinned exactly.
+            rec(WARN, k, f"yours={have} reference={want} (Homebrew cannot pin an exact patch)")
         else:
-            major = want.split(".")[0]
-            formula = FORMULAS.get(k, k)
-            versioned = f"{formula.split('@')[0]}@{major}"
-            rec(BAD, k, f"yours={have} reference={want}: install the {major}.x line with Homebrew's {versioned}")
-            if k in FORMULAS and k != "python3.12" and Path(BREW).exists():
-                # brew upgrade can never go down a major version; switch to the
-                # versioned keg instead (undo: brew unlink {versioned} && brew link {formula}).
-                base = formula.split("@")[0]
-                fixes.append((f"brew install {versioned}", [BREW, "install", versioned], 1800))
-                fixes.append((f"brew unlink {base}", [BREW, "unlink", base], 300))
-                fixes.append(
-                    (f"brew link --force --overwrite {versioned}", [BREW, "link", "--force", "--overwrite", versioned], 300)
-                )
+            rec(BAD, k, f"yours={have} reference={want}")
+            if k in FORMULAS and Path(BREW).exists():
+                fixes.append((f"brew upgrade {FORMULAS[k]}", [BREW, "upgrade", FORMULAS[k]], 1800))
 
 
 def check_venvs(ref: dict, prune: bool) -> None:
