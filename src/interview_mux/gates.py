@@ -196,12 +196,15 @@ def sync_post_listen_gate_state(ctx: RunContext) -> dict:
     if bool(sound_cfg.get("block_mix_on_mmaudio_qa_fail", False)):
         from interview_mux.mmaudio_asset_qa import load_mmaudio_qa
 
+        from interview_mux.mix_completeness import qa_failures_that_block_mix
+
         qa = load_mmaudio_qa(ctx)
-        for row in qa.get("assets") or []:
-            if isinstance(row, dict) and row.get("verdict") == "fail":
-                aid = str(row.get("asset_id") or "")
-                if aid:
-                    blocked.add(aid)
+        failed = {
+            str(row.get("asset_id") or "")
+            for row in (qa.get("assets") or [])
+            if isinstance(row, dict) and row.get("verdict") == "fail" and row.get("asset_id")
+        }
+        blocked |= qa_failures_that_block_mix(ctx, failed)
 
     state = {
         "mode": mode,

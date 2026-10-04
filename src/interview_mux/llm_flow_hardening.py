@@ -152,6 +152,10 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                         if aid:
                             failing.append(aid)
                 if failing:
+                    from interview_mux.mix_completeness import qa_failures_that_block_mix
+
+                    failing = sorted(qa_failures_that_block_mix(ctx, failing))
+                if failing:
                     exit_msg = f"Mix gate: mmaudio_qa failed asset(s): {', '.join(sorted(set(failing))[:6])}"
                     ctx.log(exit_msg, level="error", stage=stage_key)
                     raise SystemExit(exit_msg)
