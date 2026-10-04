@@ -342,7 +342,13 @@ def _tier_a_publish_orientation(ctx: RunContext) -> list[str]:
     from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
 
     written: list[str] = []
-    plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    if not ctx.artifact_exists(PLAN_REL):
+        # Before nugget_layup_compose has run there is no plan to publish; an
+        # empty publish can never meet the hosted VO floor and raised
+        # hosted_vo_floor_unsatisfiable at error level from the invariant
+        # ladder (exec_015, ISSUES 156). The next tier handles this state.
+        return written
+    plan = ctx.read_json(PLAN_REL)
     publish_layup_plan_to_gap_report(ctx, plan if isinstance(plan, dict) else None)
     written.append("understanding/gap_report.json")
     if ctx.artifact_exists(PLAN_REL):

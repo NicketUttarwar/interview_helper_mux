@@ -5362,6 +5362,36 @@ Tests: `tests/test_sentence_start_word_is_not_an_entity.py` (2).
 
 ---
 
+## [156] PRODUCT: the VO contract ladder's tier A published an empty layup plan before layup had run, raising hosted_vo_floor_unsatisfiable at error level (macOS exec_015)
+
+**Stage / area:** `execution_contract._tier_a_publish_orientation`
+**Status:** FIXED
+
+**Seen:** at 41/72, between `narrative_arc_plan` and delivery,
+`nugget_layup_compose: hosted_vo_floor_unsatisfiable (active_synthetic=0 <
+min=3; eligible_nuggets=0)` twice at error level, from `invariant vo_contract
+ladder tier_a_publish_orientation failed`. The ladder moved on and the run
+continued.
+
+**Cause:** tier A reads `understanding/nugget_layup_plan.json` as `{}` when it
+does not exist and publishes it. Before `nugget_layup_compose` (and before
+`nugget_corpus_mine`) an empty plan can never meet the hosted VO floor, so
+the publish raised every time the invariant ran early.
+
+**Fix:** tier A returns without writing when no layup plan exists yet. The
+next tier handles that state, as it already does when tier A applies nothing.
+
+**Also seen, recovered:** `narrative_arc_plan` answered `partial` once,
+asking for an `episode_structure` rerun because the structure separated
+`seg_024` from its answer `seg_025`. The stage's own retry completed. The
+locked volleys `detect_speaker_volleys` produced on that run overlapped and
+did not contain the pair the model named (see entry 50 on the detector's
+reach). Left as is.
+
+Tests: `tests/test_tier_a_waits_for_layup_plan.py` (1).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
