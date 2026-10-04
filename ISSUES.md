@@ -5718,6 +5718,39 @@ Tests: `tests/test_music_stingers_and_outro_land.py` (3).
 
 ---
 
+## [166] PRODUCT (audit): the rest of the 164/165 families, found by a sweep on exec_017's artifacts
+
+**Status:** FIXED (low-impact items listed as open)
+
+**Class:** entry 164 measured air position by raw clip index although
+segments are split into letter children; entry 165 truncated a fractional
+rate, keyed a dedupe by a shared lane instead of a role, and let a coverage
+report hide drops. A read-only sweep probed each candidate against exec_017's
+artifacts.
+
+| # | where | on exec_017 | fix |
+|---|---|---|---|
+| 1 | `sound_design` music coverage (`master/music_cue_coverage.json`) | generated-but-unplaced assets were erased from the report, so the ten dropped stingers and the dropped outro left `missing_asset_ids: []` and `preserved: true` | recorded as `unplaced_asset_ids` / `unplaced_assets` (with role); an unplaced bookend clears `preserved`. A cap drop still does not fail the mix |
+| 2 | `artifact_repairs.repair_sound_design_plan` bed quartile seeds and palette expansion | seeds by clip index landed on 12 s intro and outro children (bed islands at 61 s and 1017 s); 6 of 9 added anchors were intro or outro pieces | `_duration_spread_ids` and `quartile_segment_buckets`: each duration quarter without a bed gets one on its longest segment |
+| 3 | `creative_delivery.hydrate_flow_cue_segments`, anchor fallback | an unanchored cold open took a transition slot (after `seg_017`) and shifted later stingers; the fallback read `cue.role` only | bookends anchored by effective role first: cold open before the first id, outro after the last |
+| 4 | `listenability_guards.host_vo_coverage_ratio` | 2/24 = 0.083 below the 0.12 floor (false advisory) | counted by parent family (0.30 on exec_017) |
+| 5 | late opening landing against `opening_body_start_index` in `bridge_completeness.forbidden_bridge_pairs`, `artifact_repairs` transition prune, `deterministic_lint`, `stages/selection` transition filter, `air_order_integrity` chapter mask | 5 pairs inside the intro marked forbidden | `air_order_integrity.family_air_positions`: every child takes its family's first position (no forbidden pairs on exec_017) |
+| 6 | `soundscape_policy` density scaling | `int(v * scale)`: cap 2 gave {0,0,0}, cap 4 lost 2 slots | largest remainder, at least one slot per budgeted role the cap affords |
+| 7 | `music_lane.collapse_duplicate_music_cues` | legacy `motif` / `full_bed` still collapsed into each other | bookend keys normalised (motif = cold open, full_bed = outro) |
+| 8 | `story_health` | verdict `fail` with missing reorder bridges while bridge completeness was complete | same inputs as completeness: justified skips, live EDL, forbidden pairs (exec_017 now `pass`) |
+
+**Open, low impact:** `ensure_hook_early` and related hook-in-first-three
+checks count by index (no hook declared on exec_017); the non-creative
+stinger trim in `artifact_repairs` (`int(cap*minutes)`, off by default); the
+hard-keep partial-family check at `air_order_integrity` keeps per-clip
+position on purpose; `spoken_copy_guard`'s `before_air_index` branch is
+never fed. `opening_orientation` reads exec_017's host intro as interviewee
+(`native_open_already_orients` False); not yet investigated.
+
+Tests: `tests/test_split_children_and_music_family.py` (6).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

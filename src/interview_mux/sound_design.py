@@ -768,6 +768,12 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                         break
                 except OSError:
                     continue
+        # Recorded, not erased: dropping these from the report hid ten dropped
+        # stingers and the closing outro on exec_017 (ISSUES 166). A cap drop
+        # is legitimate and does not fail the mix; an unplaced bookend is a
+        # loss and clears ``preserved`` below.
+        unplaced_rows: list[dict[str, Any]] = []
+        unplaced_bookends: list[str] = []
         if generated_ok:
             ctx.log(
                 f"mix: generated but unplaced music assets (lane/cap): {sorted(generated_ok)}",
@@ -775,6 +781,18 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 stage="mix",
             )
             missing_music_assets = [a for a in missing_music_assets if a not in generated_ok]
+            from interview_mux.music_lane import effective_cue_role as _role_of
+
+            for aid in sorted(generated_ok):
+                asset_row = coverage_assets.get(aid) if isinstance(coverage_assets, dict) else None
+                role = ""
+                for cue in placeable_coverage_cues:
+                    if str(cue.get("asset_id") or "") == aid:
+                        role = str(_role_of(cue, asset_row or {}) or "")
+                        break
+                unplaced_rows.append({"asset_id": aid, "music_role": role})
+                if role in {"theme_cold_open", "theme_outro"}:
+                    unplaced_bookends.append(aid)
         realized_duration_rows = [
             {
                 "asset_id": str(cue.get("asset_id") or ""),
@@ -807,6 +825,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 "planned_asset_ids": sorted(planned_music_assets),
                 "realized_asset_ids": sorted(realized_music_assets),
                 "missing_asset_ids": missing_music_assets,
+                "unplaced_asset_ids": [r["asset_id"] for r in unplaced_rows],
+                "unplaced_assets": unplaced_rows,
+                "unplaced_bookend_asset_ids": unplaced_bookends,
                 "shortened_preserved_asset_ids": shortened_preserved_assets,
                 "realized_cues": realized_duration_rows,
                 "intentionally_skipped_bed_asset_ids": sorted(
@@ -815,7 +836,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 "base_timeline_ms": len(base),
                 "post_overlay_timeline_ms": post_overlay_timeline_ms,
                 "preserved": not missing_music_assets
-                and not shortened_preserved_assets,
+                and not shortened_preserved_assets
+                and not unplaced_bookends,
             },
         )
         if missing_music_assets or shortened_preserved_assets:

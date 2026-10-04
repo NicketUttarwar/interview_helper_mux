@@ -213,6 +213,25 @@ def opening_tape_segment_ids(
     return out
 
 
+def family_air_positions(order: list[str]) -> dict[str, int]:
+    """Air position of each id counted in parent families, not split children.
+
+    ``opening_body_start_index`` (3) means "the fourth thing on air". An intro
+    cut into eight letter children put its own fourth piece at index 3, so
+    transitions and bridges inside the intro read as landing on late opening
+    tape and were pruned or linted (exec_017, ISSUES 166). Every child takes
+    the position of its family's first appearance.
+    """
+    out: dict[str, int] = {}
+    family_pos: dict[str, int] = {}
+    for sid in order:
+        fam = _parent_seg_id(sid)
+        if fam not in family_pos:
+            family_pos[fam] = len(family_pos)
+        out[sid] = family_pos[fam]
+    return out
+
+
 def opening_tape_airs_late(speech: list[str], opening_ids: set[str]) -> bool:
     """True when opening-window tape airs after the episode has moved on.
 
@@ -447,7 +466,7 @@ def chapter_opening_mask_violations(
     chapters = selection.get("chapters") or []
     if not isinstance(chapters, list) or len(chapters) < 2:
         return []
-    pos = {sid: idx for idx, sid in enumerate(ordered)}
+    pos = family_air_positions(ordered)
     late_chapter_indices = set(range(max(0, len(chapters) // 2), len(chapters)))
     violations: list[dict[str, Any]] = []
     for ch_idx, ch in enumerate(chapters):

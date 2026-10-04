@@ -217,8 +217,10 @@ def collapse_duplicate_music_cues(
         # left anchored after the last segment collapsed the episode's outro
         # (exec_017: compose_close_bed dropped, no close music; ISSUES 165).
         lane_key = lane if lane != LANE_OTHER else role or str(cue.get("asset_id") or "")
-        if role in {"theme_cold_open", "theme_outro"}:
-            lane_key = f"{lane}:{role}"
+        if lane == LANE_BOOKEND:
+            # Legacy names share the lane: motif opens, full_bed closes.
+            bookend = {"motif": "theme_cold_open", "full_bed": "theme_outro"}.get(role, role)
+            lane_key = f"{lane}:{bookend}"
         key = (placement, sid, lane_key)
         if sid and key in seen:
             applied.append(

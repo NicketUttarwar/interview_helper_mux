@@ -77,11 +77,41 @@ def evaluate_story_health(
     # Bridge completeness for declared reorder pairs (pair-specific glue only)
     from interview_mux.bridge_completeness import missing_reorder_bridges
 
-    for miss in missing_reorder_bridges(
+    # Same inputs as bridge completeness and the mint: justified layup skips,
+    # hitch air already seated in the EDL, and pairs the mint must never
+    # bridge. Without them this read "fail" with 4 missing bridges while
+    # bridge completeness was complete (exec_017, ISSUES 166).
+    skip_ids = None
+    edl_doc = None
+    if ctx is not None:
+        try:
+            from interview_mux.bridge_completeness import justified_skip_before_ids
+
+            skip_ids = justified_skip_before_ids(ctx)
+            if ctx.artifact_exists("master/edl.json"):
+                edl_doc = ctx.read_json("master/edl.json")
+        except Exception:
+            skip_ids, edl_doc = None, None
+    misses = missing_reorder_bridges(
         reorder_bridges if isinstance(reorder_bridges, dict) else None,
         gap_report=gap_report if isinstance(gap_report, dict) else None,
         transitions=transitions if isinstance(transitions, dict) else None,
-    ):
+        justified_skip_before_ids=skip_ids,
+        edl=edl_doc if isinstance(edl_doc, dict) else None,
+    )
+    if ctx is not None and misses:
+        try:
+            from interview_mux.bridge_completeness import forbidden_bridge_pairs
+
+            forbidden = forbidden_bridge_pairs(ctx, misses)
+            misses = [
+                m
+                for m in misses
+                if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden
+            ]
+        except Exception:
+            pass
+    for miss in misses:
         a = miss.get("after_segment_id")
         b = miss.get("before_segment_id")
         issues.append(

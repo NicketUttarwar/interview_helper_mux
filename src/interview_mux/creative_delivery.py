@@ -241,6 +241,19 @@ def hydrate_flow_cue_segments(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
             str(t["after_segment_id"]) for t in rows if isinstance(t, dict) and t.get("after_segment_id")
         ]
 
+    assets_by_id = {
+        str(a.get("asset_id") or ""): a
+        for a in (sdp.get("assets") or [])
+        if isinstance(a, dict) and a.get("asset_id")
+    }
+    order: list[str] = []
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            order = [str(x) for x in ((sel or {}).get("ordered_segment_ids") or []) if x]
+    except Exception:
+        order = []
+
     stinger_idx = 0
     for cue in cues:
         if not isinstance(cue, dict):
@@ -248,6 +261,33 @@ def hydrate_flow_cue_segments(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
         cue_id = str(cue.get("cue_id") or "")
         placement = str(cue.get("placement") or "")
         seg_from_id = _segment_from_cue_id(cue_id)
+
+        # Bookends are anchored by role, before the transition/chapter fill:
+        # an unanchored cold open took a transition slot (after seg_017 on
+        # exec_017) and shifted every later stinger; an outro belongs after
+        # the last segment (ISSUES 166).
+        unanchored = not (
+            cue.get("segment_id") or cue.get("after_segment_id") or cue.get("before_segment_id")
+        )
+        if unanchored and order and placement in {"after_segment", "before_segment"}:
+            try:
+                from interview_mux.music_lane import effective_cue_role
+
+                role = str(effective_cue_role(cue, assets_by_id.get(str(cue.get("asset_id") or ""), {})) or "")
+            except Exception:
+                role = str(cue.get("role") or "")
+            if role == "theme_cold_open":
+                cue["placement"] = "before_segment"
+                cue["segment_id"] = order[0]
+                cue["before_segment_id"] = order[0]
+                actions.append(f"hydrate:{cue_id}:cold_open_before={order[0]}")
+                continue
+            if role == "theme_outro":
+                cue["placement"] = "after_segment"
+                cue["segment_id"] = order[-1]
+                cue["after_segment_id"] = order[-1]
+                actions.append(f"hydrate:{cue_id}:outro_after={order[-1]}")
+                continue
 
         if placement == "under_segment" and not cue.get("segment_id"):
             sid = str(cue.get("under_segment_id") or "") or seg_from_id

@@ -5802,7 +5802,9 @@ def prune_reverse_jump_transitions(
     if not starts:
         return out, notes
     order = [str(s) for s in (ordered or []) if s]
-    pos = {sid: idx for idx, sid in enumerate(order)}
+    from interview_mux.air_order_integrity import family_air_positions
+
+    pos = family_air_positions(order)
     opening_ids = opening_tape_segment_ids(order, starts)
     margin = reverse_jump_margin_ms(ctx=ctx)
     body_start = opening_body_start_index(ctx=ctx)
@@ -5863,6 +5865,49 @@ def repair_transitions(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
     if after != before and not applied:
         applied.append({"action": "normalize_transitions", "before": before, "after": after})
     return out, applied
+
+
+def _cue_role_for_anchor(cue: dict[str, Any], plan: dict[str, Any]) -> str:
+    """The cue's effective role, read through its asset when the cue omits it."""
+    try:
+        from interview_mux.music_lane import effective_cue_role
+
+        assets = {
+            str(a.get("asset_id") or ""): a
+            for a in (plan.get("assets") or [])
+            if isinstance(a, dict)
+        }
+        return str(effective_cue_role(cue, assets.get(str(cue.get("asset_id") or ""), {})) or "")
+    except Exception:
+        return str(cue.get("role") or "")
+
+
+def _duration_spread_ids(order: list[str], durs: dict[str, int], parts: int) -> list[str]:
+    """Longest segment in each of ``parts`` equal-duration slices of ``order``.
+
+    Positions by clip index land on short split children (an intro cut into
+    eight pieces filled the first quarter of the list), so bed seeds became
+    12-second islands at the very start and end of the episode (exec_017,
+    ISSUES 166). Duration slices follow what the listener hears.
+    """
+    if not order or parts <= 0:
+        return []
+    total = sum(max(0, int(durs.get(s, 0) or 0)) for s in order)
+    if total <= 0:
+        step = max(1, len(order) // parts)
+        return [order[min(len(order) - 1, i * step + step // 2)] for i in range(parts)]
+    target = total / float(parts)
+    buckets: list[list[str]] = [[] for _ in range(parts)]
+    acc = 0
+    for sid in order:
+        qi = min(parts - 1, int(acc // target)) if target > 0 else 0
+        buckets[qi].append(sid)
+        acc += max(0, int(durs.get(sid, 0) or 0))
+    out: list[str] = []
+    for bucket in buckets:
+        if bucket:
+            out.append(max(bucket, key=lambda s: int(durs.get(s, 0) or 0)))
+    return out
 
 
 def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -6072,15 +6117,17 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     if selection_ids and len(bed_anchor_pool) < max(4, min(12, len(selection_ids) // 3 or 1)):
         expanded: list[str] = list(bed_anchor_pool)
         seen_anchor = set(expanded)
-        n = len(selection_ids)
-        for frac in (0.12, 0.37, 0.62, 0.87):
-            sid = selection_ids[min(n - 1, max(0, int(n * frac)))]
-            if sid not in seen_anchor and sid not in banned_bed_segs:
-                expanded.append(sid)
-                seen_anchor.add(sid)
-        # Also take every ~Nth selected segment for denser contiguous coverage.
-        step = max(1, n // 8)
-        for sid in selection_ids[::step]:
+        try:
+            from interview_mux.listenability_guards import _seg_durs
+
+            anchor_durs = _seg_durs(ctx) if ctx is not None else {}
+        except Exception:
+            anchor_durs = {}
+        # Quarter points, then eighths for denser contiguous coverage, by
+        # duration rather than clip index (ISSUES 166).
+        for sid in _duration_spread_ids(selection_ids, anchor_durs, 4) + _duration_spread_ids(
+            selection_ids, anchor_durs, 8
+        ):
             if sid not in seen_anchor and sid not in banned_bed_segs:
                 expanded.append(sid)
                 seen_anchor.add(sid)
@@ -6582,11 +6629,20 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         "contiguous_with_existing_bed": was_adjacent,
                     }
                 )
-            # Quartile presence: ensure at least one bed in each half of the order.
+            # Quartile presence: every duration quarter of the order carries a
+            # bed, seeded on its longest segment. Clip-index quarters landed on
+            # 12 s intro and outro children (exec_017, ISSUES 166).
             if selection_ids and bed_asset:
-                n = len(selection_ids)
-                for label, idx in (("q1", n // 4), ("q3", (3 * n) // 4)):
-                    sid = selection_ids[min(n - 1, max(0, idx))]
+                from interview_mux.listenability_guards import quartile_segment_buckets
+
+                quartile_picks: list[tuple[str, str]] = []
+                for qi, bucket in enumerate(quartile_segment_buckets(selection_ids, seg_durs)):
+                    if not bucket or any(s in bedded for s in bucket):
+                        continue
+                    quartile_picks.append(
+                        (f"q{qi + 1}", max(bucket, key=lambda s: seg_durs.get(s, 0)))
+                    )
+                for label, sid in quartile_picks:
                     if sid in bedded:
                         continue
                     seed_i += 1
@@ -6870,7 +6926,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             if (
                 place == "after_segment"
                 and not (cue.get("after_segment_id") or cue.get("segment_id"))
-                and str(cue.get("role") or "") == "theme_cold_open"
+                and _cue_role_for_anchor(cue, out) == "theme_cold_open"
                 and first
             ):
                 # A cold open belongs at the top; the last-id default put the
