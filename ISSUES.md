@@ -5419,6 +5419,35 @@ Tests: `tests/test_cta_wording_overlap_ignores_story.py` (2).
 
 ---
 
+## [158] PRODUCT: a hosted-VO floor miss after layup authority pinned gap_framing_compose, which the sole-writer rule refuses, so the run looped authority_denied to the invoke cap (macOS exec_015)
+
+**Stage / area:** `stage_completion.high_gap_heal_resume_stage`,
+`artifact_ownership.assert_gap_report_body_sole_writer`
+**Status:** FIXED
+
+**Seen:** after layup failed QC (entry 157), recovery skipped its CTA rows and
+the gap report had 0 active synthetic lines. `Cleared stale
+.stage_done/gap_framing_compose: hosted_vo_floor — resume
+gap_framing_compose`, then compose failed three times with
+`authority_denied:persist:understanding/gap_report.json:gap_framing_compose:
+pre_soft_freeze:nugget_layup_compose (gap_body_sole_writer)`. Then
+`max_invokes_per_identity`, and `Delivery blocked — analysis incomplete:
+gap_framing_compose` stopped the run at 45/72. The VO contract warning in the
+same log already named the right owner (`resume nugget_layup_compose`).
+
+**Cause:** `high_gap_heal_resume_stage` pins compose unless layup claimed air
+for a missing high gap. Once the gap report carries `nugget_layup_authority`,
+`assert_gap_report_body_sole_writer` accepts only layup, so the pinned stage
+can never land the floor.
+
+**Fix:** with layup authority stamped and a layup plan on disk, the resume is
+`nugget_layup_compose`, the only stage that can write the body (the walk runs
+its seed prerequisites first). An orphan stamp without a plan keeps the compose
+pin, as HG-5 designed. `test_hg5_recovery_empty_plan_pins_framing` now asserts
+the layup pin and that recovery never resumes at compose in that state.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

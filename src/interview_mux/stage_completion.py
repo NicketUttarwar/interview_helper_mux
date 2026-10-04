@@ -3166,6 +3166,21 @@ def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
 
         if not nugget_layup_enabled():
             return "gap_framing_compose"
+        # The resume must be a stage that can write the body. After
+        # nugget_layup_authority the sole-writer rule refuses compose, so
+        # pinning it looped authority_denied to the invoke cap and stopped the
+        # run (exec_015, ISSUES 158).
+        try:
+            from interview_mux.artifact_ownership import gap_report_body_owner
+
+            # With a plan on disk layup can run; an orphan stamp (no plan) keeps
+            # the compose pin by design (HG-5).
+            if ctx.artifact_exists("understanding/gap_report.json") and ctx.artifact_exists(PLAN_REL):
+                body_owner = gap_report_body_owner(ctx.read_json("understanding/gap_report.json"))
+                if body_owner == "nugget_layup_compose":
+                    return "nugget_layup_compose"
+        except Exception:
+            pass
         if ctx.artifact_exists(PLAN_REL):
             try:
                 if layup_claimed_air_missing_high_gap(ctx):
