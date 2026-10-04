@@ -1909,14 +1909,23 @@ def run_high_value_cluster_fuse_rounds(
         if round_applied == 0:
             break
         if sig and sig == last_sig:
+            # The same plans twice means no further change is reachable: the
+            # pass has converged on its last applied state, it is not
+            # flip-flopping. Recorded as critical, this read as an unresolved
+            # cut residual at the post-junction publishability checkpoint two
+            # hours later and blocked junction_snip_qa, which cannot change a
+            # fuse decision (exec_019, ISSUES 168). Advisory only.
             rounds[-1]["oscillation_halt"] = True
+            rounds[-1]["converged_repeat"] = True
             try:
                 from interview_mux.delivery_guardrails import record_delivery_residual
 
                 record_delivery_residual(
                     ctx,
                     kind="fuse_oscillation",
-                    severity="critical",
+                    # "warning" is not a residual severity and is coerced to
+                    # critical; advisory is the non-blocking level.
+                    severity="advisory",
                     stage=fuse_writer_stage(pass_id),
                     detail={
                         "pass_id": pass_id,
@@ -2230,15 +2239,19 @@ def run_connector_fuse_pass(
             rounds_doc["fixed_point"] = True
             break
         if sig and sig == last_sig:
+            # Same as the per-cluster loop: an identical repeat is a stable
+            # state no later stage can change, so it is advisory, not a
+            # blocking cut residual (ISSUES 168).
             rounds_doc["oscillation_halt"] = True
             rounds_doc["fixed_point"] = False
+            rounds_doc["converged_repeat"] = True
             try:
                 from interview_mux.delivery_guardrails import record_delivery_residual
 
                 record_delivery_residual(
                     ctx,
                     kind="fuse_oscillation",
-                    severity="critical",
+                    severity="advisory",
                     stage=writer,
                     detail={
                         "pass_id": pass_id,

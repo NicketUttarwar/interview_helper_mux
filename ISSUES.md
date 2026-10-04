@@ -5791,6 +5791,40 @@ on the unfixed code).
 
 ---
 
+## [168] PRODUCT: a fuse pass that re-planned the same merges was recorded as a critical cut residual, which blocked junction_snip_qa two hours later (macOS exec_019)
+
+**Stage / area:** `segment_fuse.run_high_value_cluster_fuse_rounds` and the
+connector fuse round loop, `delivery_guardrails.record_delivery_residual`,
+`publishability_boundary` (post_junction)
+**Status:** FIXED
+
+**Seen:** at 20:13 `junction_snip_qa` failed with `PublishabilityBlocked:
+publishability blocked at post_junction: incomplete_cut_unresolved —
+critical_residuals=1 kinds=['fuse_oscillation'] sources=['delivery_ledger']
+blocking=[]`. The only residual was `fuse_oscillation` (critical, open),
+recorded by `connector_fuse_pass` at 18:16 when round 2's plan signature
+equalled round 1's. The retry passed and the walk went on to
+`master_finalize`, but the run logged an error and spent a retry.
+
+**Cause:** both fuse round loops treat "this round planned exactly the
+previous round's merges" as an oscillation and record a critical residual.
+An identical repeat is a stable state: no further round, junction step or
+EDL rebuild can change it, so a blocking cut residual can never clear. A
+genuine A to B to A flip-flop would not even match this check. Separately,
+`record_delivery_residual` accepts only `critical`, `soft` and `advisory`
+and coerces anything else (including `warning`) to critical; the first
+attempt at this fix used `warning` and its test caught that it still blocked.
+
+**Fix:** both loops record the repeat as `advisory` with the detail kept
+(`converged_repeat` on the round). Advisory rows are not counted by
+`critical_residual_view`. The three other `record_delivery_residual` callers
+already pass a valid severity.
+
+Tests: `tests/test_fuse_repeat_is_not_a_critical_cut.py` (3, including one
+that pins the coercion of an unknown severity to critical).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
