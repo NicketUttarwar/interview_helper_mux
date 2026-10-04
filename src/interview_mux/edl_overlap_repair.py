@@ -217,54 +217,62 @@ def _rebuild_clips(
     union_start: int,
     union_end: int,
 ) -> list[Any]:
-    first_idx = last_idx = None
+    """Seat the union at the survivor's own air slot; drop consumed clips in place.
+
+    ``retire_consumed_ids_from_selection`` keeps the survivor where it sits in
+    the selection, so the EDL must too. Seating it at the first member's slot
+    moved it ahead of a segment airing between the members (exec_019:
+    seg_019 -> seg_017 put seg_017 before seg_018), and EDL narrative QC then
+    refused the EDL for not matching the selection (ISSUES 167). VO pickups
+    that targeted any member follow the survivor.
+    """
     survivor_clip: dict[str, Any] | None = None
     before_vo: list[dict[str, Any]] = []
     after_vo: list[dict[str, Any]] = []
-    prefix: list[Any] = []
-    middle: list[Any] = []
-    suffix: list[Any] = []
-
-    for i, clip in enumerate(clips):
+    for clip in clips:
         if not isinstance(clip, dict):
             continue
         ctype = str(clip.get("type") or "")
         sid = str(clip.get("segment_id") or "")
+        if ctype == "speech" and sid == survivor and survivor_clip is None:
+            row = dict(clip)
+            row["segment_id"] = survivor
+            row["source_start_ms"] = union_start
+            row["source_end_ms"] = union_end
+            row["duration_ms"] = max(0, union_end - union_start)
+            survivor_clip = row
+        elif ctype == "vo_pickup" and str(clip.get("targets_segment_id") or "") in members:
+            if str(clip.get("placement") or "").lower() == "after":
+                after_vo.append(dict(clip))
+            else:
+                before_vo.append(dict(clip))
+    if survivor_clip is None:
+        return list(clips)
+
+    out: list[Any] = []
+    seated = False
+    for clip in clips:
+        if not isinstance(clip, dict):
+            out.append(clip)
+            continue
+        ctype = str(clip.get("type") or "")
+        sid = str(clip.get("segment_id") or "")
         if ctype == "speech" and sid in members:
-            if first_idx is None:
-                first_idx = i
-            last_idx = i
-            if sid == survivor and survivor_clip is None:
-                row = dict(clip)
-                row["segment_id"] = survivor
-                row["source_start_ms"] = union_start
-                row["source_end_ms"] = union_end
-                row["duration_ms"] = max(0, union_end - union_start)
-                survivor_clip = row
+            if sid == survivor and not seated:
+                out.extend(before_vo)
+                out.append(survivor_clip)
+                out.extend(after_vo)
+                seated = True
             continue
         if ctype == "transition":
             after_id = str(clip.get("after_segment_id") or "")
             before_id = str(clip.get("before_segment_id") or "")
             if after_id in members and before_id in members:
                 continue
-        target = str(clip.get("targets_segment_id") or "")
-        if ctype == "vo_pickup" and target in members:
-            if str(clip.get("placement") or "").lower() == "after":
-                after_vo.append(dict(clip))
-            else:
-                before_vo.append(dict(clip))
+        if ctype == "vo_pickup" and str(clip.get("targets_segment_id") or "") in members:
             continue
-        if first_idx is None:
-            prefix.append(clip)
-        elif last_idx is not None and i > last_idx:
-            suffix.append(clip)
-        else:
-            middle.append(clip)
-
-    if survivor_clip is None:
-        return list(clips)
-
-    return prefix + before_vo + [survivor_clip] + after_vo + middle + suffix
+        out.append(clip)
+    return out
 
 
 def _union_manifest_row(

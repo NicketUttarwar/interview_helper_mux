@@ -5751,6 +5751,46 @@ Tests: `tests/test_split_children_and_music_family.py` (6).
 
 ---
 
+## [167] PRODUCT: the EDL overlap merge seated the union at the consumed id's slot while the selection kept it at the survivor's, so EDL narrative QC refused the EDL (macOS exec_019, step 58)
+
+**Stage / area:** `edl_overlap_repair._rebuild_clips`,
+`retire_consumed_ids_from_selection`
+**Status:** FIXED (one open observation below)
+
+**Seen:** `EDL overlap merge: seg_019→seg_017`, then `EDL narrative QC
+failed (3 issue(s)): master/edl.json: speech clips do not match final
+selection ordered_segment_ids; expected [... seg_016, seg_018, seg_017,
+seg_020 ...], got [... seg_016, seg_017, seg_018, seg_020 ...]`, plus a
+chapter overlap and a volley split that follow from the same order. The walk
+unmarked four upstream producers as hollow and re-ran them (layup recomposed
+and two VO takes were purged for re-synthesis) before rebuilding the EDL.
+
+**Cause:** the air order at VO time was `seg_019, seg_018, seg_017`, and
+`seg_019` overlapped `seg_017` in source tape. `_rebuild_clips` put the union
+at the first member's slot (`seg_019`'s) and moved `seg_018`, which aired
+between the members, after it. `retire_consumed_ids_from_selection` drops
+the consumed id in place and keeps the survivor where it already airs. The
+two orders disagreed whenever a segment aired between the members.
+`seg_017`'s span (1716 to 1892 s) is wholly after `seg_018` (1668 to 1716 s),
+so the selection's order was also tape order.
+
+**Fix:** the union is seated at the survivor's own air slot; consumed clips
+are dropped in place, transitions between members are dropped as before,
+and VO pickups that targeted any member follow the survivor. The EDL and the
+selection now agree by construction.
+
+**Open observation:** in the same recovery, layup logged `seat_freeze: skip
+write understanding/gap_report.json` and then `Purged stale VO for
+vo_layup_seg_024 / seg_031 (spoken_text_change)` 30 ms later. If the text
+change never landed, those re-syntheses repeat identical audio (wasted
+minutes, not a wrong master: synthesis renders from the committed text). Not
+yet traced to the write that triggered the cascade.
+
+Tests: `tests/test_overlap_merge_keeps_selection_order.py` (3; the first fails
+on the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
