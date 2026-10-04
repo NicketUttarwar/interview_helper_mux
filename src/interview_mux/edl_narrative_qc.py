@@ -153,7 +153,9 @@ def _validate_vo_after_legal_hinge(
         # can satisfy the demand then, so it is a warning, not a stop
         # (ISSUES entry 59). A reachable close still makes it an error,
         # because the EDL build extends or trims to it.
-        if words and end_ms is not None and not _hinge_reachable(speech, words, end_ms):
+        if words and end_ms is not None and not _hinge_reachable(
+            speech, words, end_ms, _extension_horizon_ms(edl, end_ms)
+        ):
             try:
                 ctx.log(
                     f'{ctype} after "{after}": source never completes the thought '
@@ -170,8 +172,18 @@ def _validate_vo_after_legal_hinge(
         )
 
 
-def _hinge_reachable(speech: dict[str, Any], words: list[dict[str, Any]], end_ms: int) -> bool:
-    """True when a QC-legal close exists inside the clip or shortly after it."""
+def _hinge_reachable(
+    speech: dict[str, Any],
+    words: list[dict[str, Any]],
+    end_ms: int,
+    horizon_ms: int | None = None,
+) -> bool:
+    """True when a QC-legal close exists inside the clip or shortly after it.
+
+    ``horizon_ms`` is where the EDL builder must stop extending (40 ms before
+    the next on-air tape): a close beyond it is not reachable, so demanding it
+    asks an edl rebuild for a cut it is not allowed to make (ISSUES 151).
+    """
     try:
         start = int(speech.get("source_start_ms") or 0)
     except (TypeError, ValueError):
@@ -179,7 +191,21 @@ def _hinge_reachable(speech: dict[str, Any], words: list[dict[str, Any]], end_ms
     lo = max(start, end_ms - HINGE_SEARCH_MS)
     if first_qc_hinge_between(words, lo, end_ms - 1) is not None:
         return True
-    return first_qc_hinge_between(words, end_ms, end_ms + HINGE_SEARCH_MS) is not None
+    hi = end_ms + HINGE_SEARCH_MS
+    if horizon_ms is not None:
+        hi = min(hi, horizon_ms)
+    if hi <= end_ms:
+        return False
+    return first_qc_hinge_between(words, end_ms, hi) is not None
+
+
+def _extension_horizon_ms(edl: dict[str, Any], end_ms: int) -> int | None:
+    starts = [
+        int(c.get("source_start_ms") or 0)
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "speech" and int(c.get("source_start_ms") or 0) >= end_ms
+    ]
+    return (min(starts) - 40) if starts else None
 
 
 def _speech_order(edl: dict[str, Any]) -> list[str]:
