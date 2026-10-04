@@ -637,3 +637,59 @@ def test_apply_episode_vo_identity_fills_missing_layup_voice() -> None:
     assert edl["clips"][0]["voice_speaker_id"] == "spk_1"
     assert "voice_speaker_id" not in edl["clips"][1]
 
+
+
+def _framing_plan(ctx, framing_ids, sources) -> None:
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "succinct_master_intent": True,
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {"framing_line_ids": framing_ids, "source_segment_ids": sources}
+                    ],
+                }
+            ],
+        },
+    )
+
+
+def test_framing_that_airs_under_another_line_id_frames_the_block() -> None:
+    """Client exec_015: the plan named vo_question_seg_007; a seated VO for the same
+    segment aired before the block; EDL QC refused 3x until the invoke cap (ISSUES 150)."""
+    ctx = RunContext("run_edl_framing_other_id", create=True)
+    _write_story_artifacts(ctx)
+    report = ctx.read_json("understanding/gap_report.json")
+    planned = dict(report["interviewer_lines"][0])
+    planned["line_id"] = "vo_question_seg_b"
+    report["interviewer_lines"].append(planned)
+    write_fixture_json(ctx, "understanding/gap_report.json", report, stage_key="gap_framing_compose")
+    _framing_plan(ctx, ["vo_question_seg_b"], ["seg_b"])
+    edl = _good_edl()
+    for clip in edl["clips"]:
+        if clip.get("type") == "vo_pickup":
+            clip["timeline_start_ms"] = 900
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("preceding framing VO" in e for e in errors)
+
+
+def test_a_reordered_block_is_framed_at_its_first_airing_member() -> None:
+    ctx = RunContext("run_edl_framing_reorder", create=True)
+    _write_story_artifacts(ctx)
+    _framing_plan(ctx, ["line_001"], ["seg_c", "seg_b"])
+    edl = _good_edl()
+    for clip in edl["clips"]:
+        if clip.get("type") == "vo_pickup":
+            clip["timeline_start_ms"] = 900
+    assert not any("preceding framing VO" in e for e in validate_flow1_edl_narrative(ctx, edl))
+
+
+def test_a_block_with_no_framing_on_air_still_fails() -> None:
+    ctx = RunContext("run_edl_framing_none", create=True)
+    _write_story_artifacts(ctx)
+    _framing_plan(ctx, ["line_001"], ["seg_b"])
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
+    assert any("preceding framing VO" in e for e in validate_flow1_edl_narrative(ctx, edl))

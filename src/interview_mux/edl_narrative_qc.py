@@ -515,6 +515,11 @@ def _validate_framing_before_impact(
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
     }
+    vo_targets = [
+        (_as_id(c.get("targets_segment_id")), int(c.get("timeline_start_ms") or 0))
+        for _, c in timeline
+        if c.get("type") == "vo_pickup" and _as_id(c.get("targets_segment_id"))
+    ]
     # Only enforce framing ids that still exist in the committed gap_report
     # AND that air-script actually seated (EDL omits the rest).
     live_line_ids: set[str] = set()
@@ -569,9 +574,12 @@ def _validate_framing_before_impact(
             primaries = [str(s) for s in (block.get("source_segment_ids") or []) if s]
             if not primaries:
                 continue
-            primary = primaries[0]
-            if primary not in speech_positions:
+            # The block opens at whichever member airs first: ranking may reorder
+            # a block (client exec_015: seg_007 aired before seg_006).
+            on_air = [sid for sid in primaries if sid in speech_positions]
+            if not on_air:
                 continue
+            primary = min(on_air, key=lambda sid: speech_positions[sid])
             framing_ids = [
                 _as_id(lid)
                 for lid in (block.get("framing_line_ids") or [])
@@ -591,6 +599,12 @@ def _validate_framing_before_impact(
             if speech_ms is None:
                 continue
             preceding = [vo_by_line[lid] for lid in framing_ids if lid in vo_by_line and vo_by_line[lid] < speech_ms]
+            if not preceding:
+                # The framing that airs may carry another id than the compose-era
+                # plan names (layup owns the body after its authority stamp): a
+                # seated VO for a block member that airs before the block frames it.
+                members = set(on_air)
+                preceding = [ms for tgt, ms in vo_targets if tgt in members and ms < speech_ms]
             if not preceding:
                 from interview_mux.stage_completion import high_gap_heal_resume_stage
 

@@ -5173,6 +5173,37 @@ Tests: `tests/test_musicgen_low_ram_ladder.py` (3).
 
 ---
 
+## [150] PRODUCT: EDL narrative QC required the impact block's framing VO by the compose-era line id and against the plan's first segment, so a framed cut was refused until the invoke cap (client exec_015, step 58 edl)
+
+**Stage / area:** `edl_narrative_qc._validate_framing_before_impact`
+**Status:** FIXED
+
+**Seen (client):** `edl` stopped at 58/72 with
+`impact segment seg_006 lacks preceding framing VO (vo_question_seg_007).
+Re-run gap_framing_compose (never soft-pass EDL)`, three times, then
+`max_invokes_per_identity (3/3)` and the walk stopped. The EDL had built 50
+events and passed structural QC.
+
+**Cause:** the check took the impact block's `source_segment_ids[0]` as the
+segment that must be preceded. It then looked for a VO clip whose `line_id`
+was exactly one of the block's planned `framing_line_ids`. Ranking may reorder
+a block (the client air order had seg_007 before seg_006). After
+`nugget_layup_authority`, layup owns the gap-report body, so the VO that airs
+before a segment can carry another id than the compose-era plan names. Either
+way a cut whose block was framed failed. The pinned heal (re-run
+gap_framing_compose) changes neither the air order nor the EDL's VO ids, so
+every retry failed the same way.
+
+**Fix:** the block opens at its first-airing member. It counts as framed when
+a VO clip airs before that member and is either one of the planned framing
+lines or a seated VO targeting a member of the block. A block with no framing
+VO on air still fails.
+
+Tests: `tests/test_edl_narrative_qc.py` (3 new; the other-line-id test fails
+on the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
