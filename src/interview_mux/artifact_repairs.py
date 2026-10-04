@@ -6867,6 +6867,19 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 cue["segment_id"] = first
                 cue["before_segment_id"] = first
                 applied.append({"action": "default_before_anchor", "cue_id": cue.get("cue_id"), "to": first})
+            if (
+                place == "after_segment"
+                and not (cue.get("after_segment_id") or cue.get("segment_id"))
+                and str(cue.get("role") or "") == "theme_cold_open"
+                and first
+            ):
+                # A cold open belongs at the top; the last-id default put the
+                # opening motif after the final segment (exec_017, ISSUES 165).
+                cue["placement"] = "before_segment"
+                cue["segment_id"] = first
+                cue["before_segment_id"] = first
+                applied.append({"action": "default_cold_open_anchor", "cue_id": cue.get("cue_id"), "to": first})
+                continue
             if place == "after_segment" and not (cue.get("after_segment_id") or cue.get("segment_id")) and last:
                 cue["after_segment_id"] = last
                 cue["segment_id"] = last

@@ -5642,6 +5642,82 @@ the unfixed code, where `try_mark_done` returned True with nothing committed).
 
 ---
 
+## [164] PRODUCT: an intro cut into many pieces read as "opening tape airing late", which failed the listen-delight ship gate (cut_integrity 0.5) and the post-master intro check (macOS exec_017)
+
+**Stage / area:** `listen_delight._late_opening_native_in_edl_ok`,
+`post_master_quality._pmq_no_late_opening_native`
+(`spoken_native_intro_duplicate`)
+**Status:** FIXED
+
+**Seen:** run 17 reached G-Publish with 0 errors, but `listen_delight_audit`
+scored overall 0.8607 (min 0.9) with `cut_integrity` 0.5, below the
+catastrophic 0.7, and `finishability` 0.79. It passed only through
+`catastrophic_as_advisory`. Post-master quality failed
+`spoken_native_intro_duplicate`. The advisory also wrote an active remutate
+plan after the master, so the hollow-done guard unmarked `edl`,
+`junction_snip_qa` and `listen_delight_audit`. The EDL was rebuilt twice,
+identically under the hard freeze, until `max_invokes_per_identity`, which
+left the run at 63/72 at the gate.
+
+**Cause:** both checks call an opening-window clip "late" when its index in
+the speech list is at or past 25% of the clip count. The episode opened with
+its intro in tape order, cut into eight children (`seg_001d`..`seg_001k`,
+indices 0 to 7 of 24), so the last two pieces were "late". Junction residuals
+were 0 and real hanging ends were 2 of 24.
+
+**Fix:** one shared rule, `air_order_integrity.opening_tape_airs_late`.
+Opening tape is late only when a quarter of the speech clips from outside
+the opening have already aired before it. A split intro and a cold-open hook
+are allowed; opening tape returning mid-episode is still caught. On
+exec_017's state, `cut_integrity` is 0.9333 and listen-delight passes
+(overall 0.9419, no failed dimensions), so the post-master remutate would
+not have fired.
+
+Tests: `tests/test_split_intro_is_not_late_opening.py` (4).
+
+---
+
+## [165] PRODUCT: the mix dropped every planned stinger (a 0.4/min rate truncated to 0) and the closing outro (deduped against a cold open anchored at the end) (macOS exec_017)
+
+**Stage / area:** `sound_design.flow1_overlays_from_sdp`,
+`acoustic_profile`, `music_lane.collapse_duplicate_music_cues`,
+`artifact_repairs` (cue anchor fallback)
+**Status:** FIXED
+
+**Seen:** post-master quality failed `episode_close_outro_present`
+(`required: true, realized: false`). Of 18 planned music cues, the mix
+realized only the cold-open motif and the underscore beds. The log showed
+`mix: stinger cap reached (0/timeline) — dropped
+onecell_documentary_stinger_method` ten times, then `generated but unplaced
+music assets (lane/cap): [stinger_method, full_bed_close]`. Both assets had
+been generated. `music_cue_coverage.missing_asset_ids` was empty, so the drop
+was not visible there either.
+
+**Cause:**
+1. `soundscape_policy` sets `stinger_max_per_minute: 0.4`, a rate. The mix
+   did `int(contract.get("stinger_max_per_minute", 4))`, which is 0, times
+   integer minutes, so the cap was 0. `acoustic_profile` had the same
+   `int()`.
+2. The air script creates the cold-open cue `before_segment` the first
+   segment. On the plan it arrived as `after_segment` with no anchor, and
+   the anchor fallback gives any such cue the last selection id. The mix
+   places cold opens in the opening window regardless of anchor, so the
+   motif still played at the top. But `collapse_duplicate_music_cues` keys
+   cues by (placement, anchor, lane), and the cold open and the outro share
+   the bookend lane, so the outro was dropped as its duplicate.
+
+**Fix:** the cap is the rate times real timeline minutes (at least 1 when the
+rate allows any); the profile keeps the rate as a float. Bookends are keyed
+by role in the dedupe, so a cold open and an outro are never duplicates. The
+anchor fallback sends an unanchored cold open to `before_segment` the first
+id. On exec_017's state the mix now places the cold open at 10.7 s, 6
+stingers (cap 7; 3 dropped by the policy cap as intended), 5 beds and the
+closing outro at the end of the timeline (17.9 s).
+
+Tests: `tests/test_music_stingers_and_outro_land.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -213,6 +213,29 @@ def opening_tape_segment_ids(
     return out
 
 
+def opening_tape_airs_late(speech: list[str], opening_ids: set[str]) -> bool:
+    """True when opening-window tape airs after the episode has moved on.
+
+    "Late" counts the non-opening speech clips already aired, not the raw clip
+    index. An intro cut into many short pieces fills the first quarter of the
+    clip list on its own; by index its last pieces read as "late" although the
+    episode opens with them in tape order (exec_017: seg_001d..k at indices
+    0-7 of 24 set cut_integrity to 0.5, below the catastrophic floor;
+    ISSUES 164). A cold-open hook before the intro stays allowed.
+    """
+    if not speech or not opening_ids:
+        return False
+    threshold = max(1, int(len(speech) * 0.25))
+    aired_elsewhere = 0
+    for sid in speech:
+        if sid in opening_ids:
+            if aired_elsewhere >= threshold:
+                return True
+        else:
+            aired_elsewhere += 1
+    return False
+
+
 def _guest_first_open_established(
     ordered: list[str],
     starts: dict[str, int],

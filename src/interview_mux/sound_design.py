@@ -1416,9 +1416,17 @@ def flow1_overlays_from_sdp(
     if not excluded and landmarks.get("vo_windows"):
         excluded = list(landmarks["vo_windows"])
     out: list[dict[str, Any]] = []
-    stinger_cap = int(contract.get("stinger_max_per_minute", 4))
-    timeline_minutes = max(1, max((end for _s, end in segment_timing.values()), default=60000) // 60000)
-    max_stingers = stinger_cap * timeline_minutes
+    # The policy states a rate (0.4/min on exec_017); int() truncated it to 0,
+    # so every planned stinger was dropped ("stinger cap reached (0/timeline)")
+    # (ISSUES 165). Rate times real timeline minutes, at least one when the
+    # rate allows any.
+    stinger_rate = float(contract.get("stinger_max_per_minute", 4) or 0.0)
+    timeline_minutes = max(
+        1.0, max((end for _s, end in segment_timing.values()), default=60000) / 60000.0
+    )
+    max_stingers = int(stinger_rate * timeline_minutes) if stinger_rate > 0 else 0
+    if stinger_rate > 0:
+        max_stingers = max(1, max_stingers)
     stinger_count = 0
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
     underbed_level_adjust_db = float(contract.get("underbed_level_adjust_db") or 0.0)
