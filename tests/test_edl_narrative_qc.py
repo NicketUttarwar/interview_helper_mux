@@ -693,3 +693,73 @@ def test_a_block_with_no_framing_on_air_still_fails() -> None:
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
     assert any("preceding framing VO" in e for e in validate_flow1_edl_narrative(ctx, edl))
+
+
+def test_orientation_beside_the_first_segments_vo_is_not_a_stack() -> None:
+    """ISSUES 151: the builder seats orientation + the opening line together."""
+    from interview_mux.edl_narrative_qc import _validate_single_synthetic_between_natives
+
+    edl = {
+        "clips": [
+            {"type": "vo_pickup", "line_id": "vo_preface_episode_orientation", "episode_orientation": True},
+            {"type": "silence"},
+            {"type": "vo_pickup", "line_id": "vo_layup_seg_001"},
+            {"type": "speech", "segment_id": "seg_001"},
+            {"type": "vo_pickup", "line_id": "vo_layup_seg_004"},
+            {"type": "transition", "after_segment_id": "seg_001", "before_segment_id": "seg_004"},
+            {"type": "speech", "segment_id": "seg_004"},
+        ]
+    }
+    errors: list[str] = []
+    _validate_single_synthetic_between_natives(edl, errors)
+    assert len(errors) == 1 and "vo_layup_seg_004" in errors[0]
+
+
+def test_clone_seam_the_builder_kept_by_listening_is_not_refused() -> None:
+    """ISSUES 151: id-equal voices the acoustic listen proved different stay on air."""
+    from interview_mux.edl_narrative_qc import _validate_clone_voice_adjacency
+
+    ctx = RunContext("run_edl_clone_kept", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", speaker_id="spk_guest"),
+            minimal_manifest_segment("seg_b", speaker_id="spk_host"),
+            minimal_manifest_segment("seg_c", speaker_id="spk_guest"),
+        ),
+    )
+    edl = _good_edl()
+    for clip in edl["clips"]:
+        if clip.get("type") == "vo_pickup":
+            clip["voice_speaker_id"] = "spk_host"
+    selection = {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]}
+    refused: list[str] = []
+    _validate_clone_voice_adjacency(ctx, edl, selection, refused)
+    assert refused
+    edl["warnings"] = {"clone_adjacency_id_mismatch_kept": ["line_001"]}
+    kept: list[str] = []
+    _validate_clone_voice_adjacency(ctx, edl, selection, kept)
+    assert kept == []
+
+
+def test_chapters_listed_out_of_air_order_do_not_overlap() -> None:
+    from interview_mux.edl_narrative_qc import _validate_chapter_continuity
+
+    selection = {
+        "chapters": [
+            {"chapter_id": "A", "segment_ids": ["s5", "s6"]},
+            {"chapter_id": "B", "segment_ids": ["s1", "s2"]},
+        ]
+    }
+    errors: list[str] = []
+    _validate_chapter_continuity(selection, ["s1", "s2", "s5", "s6"], errors)
+    assert errors == []
+
+
+def test_zero_length_framing_vo_at_the_same_start_still_precedes() -> None:
+    ctx = RunContext("run_edl_framing_tie", create=True)
+    _write_story_artifacts(ctx)
+    _framing_plan(ctx, ["line_001"], ["seg_b"])
+    edl = _good_edl()  # VO and seg_b both start at 1000 ms; the VO is listed first
+    assert not any("preceding framing VO" in e for e in validate_flow1_edl_narrative(ctx, edl))

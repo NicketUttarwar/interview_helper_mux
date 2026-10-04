@@ -761,6 +761,21 @@ def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
     if not gap_framing_cfg().get("allow_replace_source_segments", True):
         return set()
     out: set[str] = set()
+    report = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else {}
+    )
+    lines = [ln for ln in (report.get("interviewer_lines") or []) if isinstance(ln, dict)] if isinstance(report, dict) else []
+    # Only framing that airs can stand in for source tape: a skipped or omitted
+    # line covers nothing, and excluding its segment would drop the content
+    # while EDL QC refused the segment on air with no heal able to change it
+    # (ISSUES 151).
+    live_ids = {
+        str(ln.get("line_id") or "")
+        for ln in lines
+        if ln.get("line_id") and not ln.get("skipped_optional") and not ln.get("air_script_omit")
+    }
     plan = load_gap_framing_plan(ctx)
     if isinstance(plan, dict):
         for act in plan.get("acts") or []:
@@ -769,19 +784,18 @@ def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
             for block in act.get("impact_blocks") or []:
                 if not isinstance(block, dict):
                     continue
+                framing = {str(x) for x in (block.get("framing_line_ids") or []) if x}
+                if lines and framing and not (framing & live_ids):
+                    continue
                 for sid in block.get("excluded_redundant_segment_ids") or []:
                     if sid:
                         out.add(str(sid))
-    report = (
-        ctx.read_json("understanding/gap_report.json")
-        if ctx.artifact_exists("understanding/gap_report.json")
-        else {}
-    )
-    for line in (report.get("interviewer_lines") or []) if isinstance(report, dict) else []:
-        if isinstance(line, dict):
-            for sid in line.get("replaces_source_segments") or []:
-                if sid:
-                    out.add(str(sid))
+    for line in lines:
+        if str(line.get("line_id") or "") not in live_ids:
+            continue
+        for sid in line.get("replaces_source_segments") or []:
+            if sid:
+                out.add(str(sid))
     # A hard keep stays on air even when a framing line covers it. Removing it
     # here keeps every consumer (framing apply, ranking, framing guard, EDL QC)
     # on the same answer; entry 55 fixed only the apply side and edl QC then

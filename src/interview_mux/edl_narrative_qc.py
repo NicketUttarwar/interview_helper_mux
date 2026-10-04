@@ -315,6 +315,9 @@ def _validate_chapter_continuity(
             )
         chapter_ranges.append((idxs[0], idxs[-1], label))
 
+    # Compare chapters in air order, not list order: disjoint contiguous
+    # chapters listed out of order read as "overlap" (ISSUES 151).
+    chapter_ranges.sort(key=lambda row: row[0])
     for i in range(len(chapter_ranges) - 1):
         _, end_a, label_a = chapter_ranges[i]
         start_b, _, label_b = chapter_ranges[i + 1]
@@ -510,13 +513,19 @@ def _validate_framing_before_impact(
         return
     timeline = _clip_timeline_index(edl)
     speech_positions = {sid: idx for idx, sid in enumerate(speech)}
+    # Position = (timeline start, clip index): a zero-length VO shares its start
+    # with the speech it precedes, and the clip list order breaks the tie.
+    def _pos(clip: dict[str, Any]) -> tuple[int, int]:
+        return (int(clip.get("timeline_start_ms") or 0), clip_index.get(id(clip), 0))
+
+    clip_index = {id(c): i for i, c in enumerate(c for c in (edl.get("clips") or []) if isinstance(c, dict))}
     vo_by_line = {
-        _as_id(c.get("line_id")): int(c.get("timeline_start_ms") or 0)
+        _as_id(c.get("line_id")): _pos(c)
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
     }
     vo_targets = [
-        (_as_id(c.get("targets_segment_id")), int(c.get("timeline_start_ms") or 0))
+        (_as_id(c.get("targets_segment_id")), _pos(c))
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("targets_segment_id"))
     ]
@@ -593,7 +602,7 @@ def _validate_framing_before_impact(
             if not framing_ids:
                 continue
             speech_ms = next(
-                (int(c.get("timeline_start_ms") or 0) for _, c in timeline if c.get("type") == "speech" and _as_id(c.get("segment_id")) == primary),
+                (_pos(c) for _, c in timeline if c.get("type") == "speech" and _as_id(c.get("segment_id")) == primary),
                 None,
             )
             if speech_ms is None:
@@ -776,8 +785,20 @@ def _validate_gap_placements(
     from interview_mux.spoken_copy_guard import sentence_keys
 
     seen_sentence_owners: dict[str, str] = {}
+    # Only lines that air can collide on air. The builder already refuses a
+    # repeat among the lines it seats; a line that is omitted, not record or
+    # synthesize, or absent from the EDL never speaks (ISSUES 151).
+    aired_ids = {
+        _as_id(c.get("line_id"))
+        for c in clips
+        if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
+    }
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        if line.get("air_script_omit") or str(line.get("delivery") or "") not in {"record", "synthesize"}:
+            continue
+        if aired_ids and _as_id(line.get("line_id")) not in aired_ids:
             continue
         lid = _as_id(line.get("line_id")) or _as_id(line.get("targets_segment_id")) or "?"
         for key in sentence_keys(str(line.get("text") or "")):
@@ -846,9 +867,21 @@ def _validate_clone_voice_adjacency(
         for clip in (edl.get("clips") or [])
         if isinstance(clip, dict) and clip.get("type") != "silence"
     ]
+    # The builder keeps a seam when the acoustic listen says the voices differ
+    # even though the speaker ids match; refusing it on id equality alone asks
+    # an EDL rebuild to undo the builder's own verified decision (ISSUES 151).
+    warnings = edl.get("warnings") if isinstance(edl.get("warnings"), dict) else {}
+    kept_by_listen = {str(k) for k in (warnings.get("clone_adjacency_id_mismatch_kept") or []) if k}
     for index, clip in enumerate(audible):
         clip_type = str(clip.get("type") or "")
         if clip_type not in {"vo_pickup", "transition"}:
+            continue
+        seam_key = (
+            _as_id(clip.get("line_id"))
+            if clip_type == "vo_pickup"
+            else f"transition:{_as_id(clip.get('after_segment_id'))}->{_as_id(clip.get('before_segment_id'))}"
+        )
+        if seam_key and seam_key in kept_by_listen:
             continue
         line = lines.get(_as_id(clip.get("line_id"))) if clip_type == "vo_pickup" else None
         voice = _as_id(clip.get("voice_speaker_id") or (line or {}).get("voice_speaker_id"))
@@ -1035,7 +1068,12 @@ def _validate_single_synthetic_between_natives(
         }:
             run.append(audible[i])
             i += 1
-        if len(run) <= 1:
+        # The episode orientation is an opening preface the builder seats beside
+        # the first segment's own VO (straight open, or a cold open's deferred
+        # hook line); it is not a second insert at a mid-episode seam.
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        if len([c for c in run if not is_episode_orientation(c)]) <= 1:
             continue
         labels: list[str] = []
         for clip in run:

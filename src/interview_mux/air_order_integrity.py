@@ -465,7 +465,10 @@ def collect_violations(
     if ctx.artifact_exists("understanding/reorder_bridges.json"):
         try:
             bridges = ctx.read_json("understanding/reorder_bridges.json")
-            for row in (bridges.get("bridges") if isinstance(bridges, dict) else []) or []:
+            # The file's key is "pairs"; "bridges" was never written, so every
+            # declared reorder pair was ignored (ISSUES 151).
+            rows = (bridges.get("pairs") or bridges.get("bridges")) if isinstance(bridges, dict) else []
+            for row in rows or []:
                 if not isinstance(row, dict):
                     continue
                 a = str(row.get("after_segment_id") or "")
