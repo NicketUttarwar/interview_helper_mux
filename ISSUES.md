@@ -5335,6 +5335,33 @@ Tests: `tests/test_bind_heal_records_durable_take.py` (2).
 
 ---
 
+## [155] PRODUCT: post-master quality refused the finished master on an ordinary sentence-opening word read as an unsupported name (macOS exec_014, master_finalize)
+
+**Stage / area:** `spoken_copy_guard.spoken_copy_violations` (strict grounding),
+`post_master_quality` check `spoken_vo_speakable`
+**Status:** FIXED
+
+**Seen:** at 66/72, `master_finalize: Post-master quality failed:
+spoken_vo_speakable` with `gap[vo_layup_seg_017]:spoken_unsupported_entity:
+Reaching` for "Reaching routine care raises two practical tests...".
+
+**Cause:** `_PROPER_NAME` matches every capitalised word of three or more
+letters, sentence starts included. `_ENTITY_IGNORE` and `_IMPERATIVE_IGNORE`
+are hand lists that cannot cover every word a model starts a sentence with.
+The layup stage checks the same copy without strict grounding and passes it.
+Post-master quality runs strict, so a line that was already synthesized and
+mixed is refused at the last stage.
+
+**Fix:** a single capitalised word that opens a sentence and has an ordinary
+English word form (-ing, -ed, -ly, -tion, -ment, -ness, -ity and similar) is
+not treated as a name. Multi-word names, mid-sentence names, and
+sentence-opening words without such a form are still checked, so an invented
+"Zorblat" is refused at either position.
+
+Tests: `tests/test_sentence_start_word_is_not_an_entity.py` (2).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
