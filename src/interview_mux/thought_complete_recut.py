@@ -718,6 +718,7 @@ def apply_thought_complete_to_clips(
 
     drop: set[str] = set()
     remainder_shifted = False
+    consumed = {str(x) for x in (detail.get("consumed_segment_ids") or []) if x}
     for j in range(hang_index + 1, len(clips)):
         other = clips[j]
         if str(other.get("type") or "") != "speech":
@@ -727,6 +728,13 @@ def apply_thought_complete_to_clips(
             continue
         oss = int(other.get("source_start_ms") or 0)
         ose = int(other.get("source_end_ms") or oss)
+        # Only tape that continues from the hanging clip can be consumed. A
+        # reordered callback from earlier on tape is never inside the
+        # extension, and dropping it silently lost the segment (ISSUES 151).
+        if oss + 40 < prior_end:
+            break
+        if consumed and oid not in consumed and ose <= keep_end:
+            break
         if ose <= keep_end:
             drop.add(oid)
             continue
