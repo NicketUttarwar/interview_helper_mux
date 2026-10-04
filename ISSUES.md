@@ -5568,7 +5568,7 @@ unfixed code, one keeps the post-layup behaviour).
 
 **Stage / area:** `artifact_completeness.make_stage_persist`, `merge_artifact`,
 `_deep_merge`; seen on `edl_narrative_audit` and `narrative_arc_plan`
-**Status:** FIXED (one follow-up open, below)
+**Status:** FIXED
 
 **Seen:** `edl_narrative_audit` pass 1 failed on one seam (`seg_019 →
 seg_015` lands mid-thought) and logged `fail after demote — leaving for
@@ -5605,13 +5605,40 @@ shard). The keyed manifest and speakers merges are unchanged.
 `segments/boundaries.json` with `boundary_detection` and has no row floor if
 the model returns only the split rows.
 
-**Open follow-up:** when the pre-flush barrier refuses a stage's commit, the
-stage still logs `Stage finished` and the done marker is cleared afterwards.
-The loop is visible only as `identical_failure` counts. With the merge fixed
-this path no longer fires on a demoted audit, but a refused commit should
-fail the stage with the barrier's reason.
+**Follow-up:** a refused commit still logged `Stage finished`. That is
+fixed in entry 163.
 
 Tests: `tests/test_stage_persist_replaces_lists.py` (6).
+
+---
+
+## [163] PRODUCT: when the commit barrier refused a stage's staged outputs, mark_done swallowed the refusal and sealed the stage with nothing committed (macOS exec_016, step 58)
+
+**Stage / area:** `RunContext.mark_done` (auto-flush before seal)
+**Status:** FIXED
+
+**Seen:** three times on `edl_narrative_audit`: `mark_done(...):
+auto-flushing pending writes before seal`, then 0.17 s later `Stage finished`
+with the committed audit unchanged since pass 1. That was too fast for a
+flush, which promotes a 326 MB memory file. Then `Cleared stale .stage_done/...
+newer uncommitted pending`, and the thrash cap. On a clone of the run the
+pre-flush barrier returned `halt` for that audit (entry 162).
+
+**Cause:** the auto-flush runs inside `mark_done`'s pre-seal block, which
+ends `except _AD: raise / except Exception: pass`. The barrier refusal is a
+`WriteApprovalBlockedError`, not an `AuthorityDenied`, so it was swallowed
+and the done marker was touched with the staged outputs never committed. The
+comment above the auto-flush (exec_13177) says this split-brain is what it was
+added to prevent.
+
+**Fix:** a barrier refusal during the auto-flush is logged with its reason and
+re-raised as `authority_denied:mark_done:commit_barrier:<stage>`, the same
+shape as "pending writes remain after auto-flush". `try_mark_done` returns
+False, and `_auto_complete_or_raise` fails the stage loudly instead of
+reporting success. Other flush errors still propagate as before.
+
+Tests: `tests/test_mark_done_refuses_on_commit_barrier.py` (2; both fail on
+the unfixed code, where `try_mark_done` returned True with nothing committed).
 
 ---
 

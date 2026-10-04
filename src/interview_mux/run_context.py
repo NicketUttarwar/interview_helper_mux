@@ -793,6 +793,30 @@ class RunContext:
                         self._heal_flushing_stage = stage
                         try:
                             _commit_stage_writes(self, stage)
+                        except Exception as flush_exc:
+                            from interview_mux.write_staging import WriteApprovalBlockedError
+
+                            if not isinstance(flush_exc, WriteApprovalBlockedError):
+                                raise
+                            # The commit barrier refused the staged outputs. The
+                            # broad except below used to swallow this and seal
+                            # the stage with nothing committed, so it logged
+                            # "Stage finished" and the completeness check then
+                            # cleared it, looping to the thrash cap (exec_016,
+                            # ISSUES 163). Refuse the seal with the reason.
+                            self.log(
+                                f"Refusing mark_done({stage}): commit barrier refused "
+                                f"staged outputs: {str(flush_exc)[:300]}",
+                                level="warning",
+                                stage=stage,
+                            )
+                            raise _AD(
+                                f"authority_denied:mark_done:commit_barrier:{stage}",
+                                path="",
+                                stage_key=stage,
+                                suggested_owner=stage,
+                                verb="mark_done",
+                            ) from flush_exc
                         finally:
                             self._heal_flushing_stage = None
                         if self.is_done(stage):
