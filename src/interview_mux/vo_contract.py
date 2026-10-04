@@ -366,10 +366,26 @@ def validate_vo_contract(ctx: RunContext) -> list[str]:
             issues.append(f"line {lid} is both seated and omitted")
         elif not _gap_row_has_omit_flags(row):
             issues.append(f"omitted {lid} lacks skip/omit flags in gap_report")
-    missing = seated_vo_missing_ids(ctx)
-    for lid in missing:
-        issues.append(f"seated synthesize {lid} missing WAV")
+    if vo_wavs_due(ctx):
+        missing = seated_vo_missing_ids(ctx)
+        for lid in missing:
+            issues.append(f"seated synthesize {lid} missing WAV")
     return issues
+
+
+def vo_wavs_due(ctx: RunContext) -> bool:
+    """True once vo_synthesize has landed, so a seated line without a WAV is a defect.
+
+    Before that every seated synthesize line lacks a WAV by construction. The
+    invariant ladder treated that as a contract violation and its tier D
+    waived the run's only host line, dropping the hosted floor to 0 and
+    looping layup (exec_016, ISSUES 160). vo_synthesize's own completeness
+    check still demands every WAV.
+    """
+    try:
+        return bool(ctx.is_done("vo_synthesize"))
+    except Exception:
+        return True
 
 
 def _gap_row_has_omit_flags(row: dict[str, Any]) -> bool:

@@ -5492,6 +5492,47 @@ on the unfixed code with the exec_016 message).
 
 ---
 
+## [160] PRODUCT: the VO contract invariant read "seated line missing WAV" before vo_synthesize as a violation, and the ladder's tier D waived the run's only host line, looping layup (macOS exec_016, steps 47 to 51)
+
+**Stage / area:** `vo_contract.validate_vo_contract`,
+`execution_invariants.invariant_vo_contract`,
+`execution_contract._tier_d_logged_waive`
+**Status:** FIXED
+
+**Seen:** layup published one live host line (`vo_layup_seg_024`; the floor
+of 3 was short with the pool exhausted, entry 159). At 11:38, around step 51
+and before `vo_synthesize`, the VO contract repair plan recorded `seated
+synthesize vo_layup_seg_024 missing WAV` with `consumer_stage: invariant`.
+The ladder ran tiers A to D, and tier D marked the line
+`execution_contract_waive` / `tier_d_logged_waive`. The gap report then had 0
+active lines, `hosted_vo_floor_unmet: need=3 active=0 — resume
+nugget_layup_compose` repeated with `identical_failure ... x38/3`, the walk
+dropped layup's done marker, and layup re-ran (done fell from 51 to 50).
+
+**Cause:** two gaps in one family (a check demanding output from a stage
+that has not run, as in entry 156):
+1. `validate_vo_contract` reports every seated synthesize line without a WAV.
+   Before `vo_synthesize` that is every seated line, by construction.
+   `stage_input_checks` already filtered it for four named stages; the
+   invariant ladder (`consumer_stage="invariant"`) did not.
+2. Tier D could waive the last live host line. Zero active lines is the
+   catastrophic floor state; nothing downstream can recover it, so it can
+   only loop back to layup.
+
+**Fix:**
+1. `vo_contract.vo_wavs_due(ctx)`: missing-WAV violations are reported only
+   once `vo_synthesize` is done. This is in `validate_vo_contract` itself, so
+   every caller gets it. `vo_synthesize`'s own completeness check is
+   unchanged and still demands every WAV.
+2. `_tier_d_would_hollow_hosted_floor`: when hosted framing requires
+   synthetic VO, tier D refuses to waive the last live host line (logged as
+   `tier_d_refused_last_host_line`), as it already refused a required
+   orientation.
+
+Tests: `tests/test_vo_contract_not_due_before_synth.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

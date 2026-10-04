@@ -441,6 +441,36 @@ def _tier_d_target_is_required_orientation(
     return bool(lid) and (lid == oid or lid == ORIENTATION_LINE_ID)
 
 
+def _tier_d_would_hollow_hosted_floor(
+    ctx: RunContext,
+    gap: dict[str, Any] | None,
+    lid: str,
+) -> bool:
+    """True when waiving ``lid`` would leave a hosted show with no live host line.
+
+    Zero active lines is the catastrophic floor state; no later stage can
+    recover it, so layup is pinned and the ladder waives its line again
+    (exec_016, ISSUES 160). Like a required orientation, the last line is
+    not waivable; the miss escalates to its producer instead.
+    """
+    if not isinstance(gap, dict) or not lid:
+        return False
+    try:
+        from interview_mux.gap_fill_eligibility import hosted_framing_requires_synthetic_vo
+        from interview_mux.vo_contract import _count_active_hosted_synth
+
+        if not hosted_framing_requires_synthetic_vo(ctx):
+            return False
+        rows = [r for r in (gap.get("interviewer_lines") or []) if isinstance(r, dict)]
+        target = [r for r in rows if str(r.get("line_id") or "").strip() == lid]
+        if not target or _count_active_hosted_synth(target) < 1:
+            return False
+        rest = [r for r in rows if str(r.get("line_id") or "").strip() != lid]
+        return _count_active_hosted_synth(rest) < 1
+    except Exception:
+        return False
+
+
 def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list[str]:
     try:
         from interview_mux.seat_authority import gate_seat_mutation
@@ -496,6 +526,18 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
                 ctx,
                 action="tier_d_refused_required_orientation",
                 detail=lid or "orientation",
+            )
+        except Exception:
+            pass
+        return []
+
+    if _tier_d_would_hollow_hosted_floor(ctx, gap_early, lid):
+        try:
+            ctx.log(
+                "tier_d_refused_last_host_line",
+                level="warning",
+                stage="execution_contract",
+                detail={"line_id": lid},
             )
         except Exception:
             pass
