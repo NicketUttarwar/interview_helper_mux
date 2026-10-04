@@ -1775,22 +1775,28 @@ def normalize_media_ip_cta_rows(selection: dict[str, Any]) -> dict[str, Any]:
             if key not in row:
                 continue
             val = row.get(key)
+            if val is None:
+                # The LLM envelope allows null; the selection schema does not.
+                # Copied through, it refused the selection commit and the lock
+                # re-applied it on every retry (ISSUES 169).
+                continue
+            if key in {"mixed_with_story", "must_keep_in_clip", "cta_open"}:
+                item[key] = bool(_truthy(val))
+                continue
             if key == "cut_ms":
                 if isinstance(val, (int, float)):
                     item[key] = [int(val)]
                 elif isinstance(val, list):
                     item[key] = [int(x) for x in val if isinstance(x, (int, float))]
-            elif key == "cta_region" and str(val) not in {
-                "whole",
-                "start",
-                "end",
-                "middle",
-            }:
+            elif key == "cta_region":
+                region = str(val).strip().lower()
+                if region in {"whole", "start", "end", "middle"}:
+                    item[key] = region
                 continue
-            elif key == "open_choice" and str(val) not in {
-                "story_child_first",
-                "third_person_opener",
-            }:
+            elif key == "open_choice":
+                choice = str(val).strip().lower()
+                if choice in {"story_child_first", "third_person_opener"}:
+                    item[key] = choice
                 continue
             else:
                 item[key] = val
