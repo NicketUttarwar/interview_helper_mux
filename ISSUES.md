@@ -5277,6 +5277,35 @@ Tests: `tests/test_relabel_chapters_contiguous.py` (3).
 
 ---
 
+## [153] PRODUCT: the orientation retarget in vo_line_adjudicate passed write_permitted, then failed the gap-body sole-writer rule as an error-level authority denial (macOS exec_014)
+
+**Stage / area:** `opening_orientation.retarget_orientation_to_open`,
+`stages/vo_line_adjudicate._prep_opening_orientation`
+**Status:** FIXED
+
+**Seen:** at 55/72, `authority_denied:persist:understanding/gap_report.json:
+vo_line_adjudicate:soft_freeze:nugget_layup_compose
+(gap_body_sole_writer:nugget_layup_compose)`. The stage then logged
+"opening orientation prep incomplete" and finished without the retarget.
+
+**Cause:** the retarget asks `write_permitted` first, which allowed
+`vo_line_adjudicate`. The write itself then ran
+`assert_gap_report_body_sole_writer`, which after `nugget_layup_authority`
+accepts only the body owner. Two rules, two answers. The retarget relabels the
+orientation line's target, the same kind of change as an id remap, and those
+already present the body owner (`gap_report_remap_owner`, entries 101 and 129).
+
+**Fix:** when the body owner differs from the calling stage, the retarget
+writes as the owner with the integrity-only `segment_id_remap` class. If the
+owner still refuses, it keeps the retarget in memory and logs at info, the
+same as the frozen branch above it, instead of raising. Reproduced on a copy
+of exec_014: the unfixed call raises `AuthorityDenied`; the fixed call writes
+the orientation onto `seg_005`.
+
+Tests: `tests/test_orientation_retarget_presents_body_owner.py` (2).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
