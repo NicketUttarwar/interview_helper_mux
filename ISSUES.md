@@ -5143,6 +5143,36 @@ the unfixed code).
 
 ---
 
+## [149] ENV + PRODUCT: on an 8 GB Mac every music stem started at MusicGen-large, thrashed swap to the hang timeout, and one stem stalled 80 minutes while disk fell to 257 MB (macOS exec_011)
+
+**Stage / area:** `musicgen_runner` model ladder, `mmaudio_sfx`
+**Status:** FIXED
+
+**Seen:** run 11 reached `mmaudio_sfx` with 64/72 stages done and no errors.
+The first stem's MusicGen-large process was killed at the timeout (`Heavy
+task killed: musicgen rc=-9`) and retried as large. Two stems took about 2
+hours. A third process sat 80 minutes in uninterruptible wait (`UN`, 1 MB
+resident). Swap grew to 17.6 GB and free disk fell to 257 MB before space was
+cleared. Run 6 showed the same thrash on the same machine.
+
+**Cause:** the ladder always starts at the configured `musicgen-large`, and
+melody conditioning loads `musicgen-melody-large`. Neither fits the unified
+memory of an 8 GB Apple Silicon machine next to the pipeline. The ladder only
+steps down after a 15 to 40 minute timeout per attempt, per stem.
+
+**Fix:** when installed RAM is known and below
+`musicgen.large_min_ram_gb` (default 12), the ladder starts at
+`musicgen-medium`, which is where it ends up on such a machine anyway, and
+step 0 does not use melody conditioning (same footprint as large). The plan
+meta records `musicgen_large_skipped_low_ram_gb`. 16 GB and larger machines,
+and machines where RAM cannot be read, are unchanged. A test fixture fixes
+reported RAM at 32 GB so ladder tests do not depend on the machine running
+them.
+
+Tests: `tests/test_musicgen_low_ram_ladder.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
