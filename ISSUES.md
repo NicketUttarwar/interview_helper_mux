@@ -5564,6 +5564,57 @@ unfixed code, one keeps the post-layup behaviour).
 
 ---
 
+## [162] PRODUCT: a stage's persisted output was unioned with the doc already on disk, so a re-audit could never clear its own complaint and a retry kept the failed attempt's chapters (macOS exec_016, step 58)
+
+**Stage / area:** `artifact_completeness.make_stage_persist`, `merge_artifact`,
+`_deep_merge`; seen on `edl_narrative_audit` and `narrative_arc_plan`
+**Status:** FIXED (one follow-up open, below)
+
+**Seen:** `edl_narrative_audit` pass 1 failed on one seam (`seg_019 →
+seg_015` lands mid-thought) and logged `fail after demote — leaving for
+operator`. Pass 2's own reply had the same complaint, and its repair demoted
+it under the frozen order (verdict `warn`). But the staged file read `verdict:
+fail` with pass 1's blocking issue, in pass 1's wording, plus pass 1's repair
+entries. The pre-flush commit barrier refused it (reproduced on a clone of the
+run: `halt`, first reason = pass 1's complaint). The stage still logged
+`Stage finished`, then `Cleared stale .stage_done/edl_narrative_audit: ...
+newer uncommitted pending`. Pass 3 went the same way, then `Delivery incomplete
+after conductor — edl_narrative_audit thrash cap` stopped the run at 57/72.
+The audit also warned that the persisted narrative plan had duplicate
+chapter ids: `ch_05` appeared twice, and the chapters came from two
+different narrative plans.
+
+**Cause:** every `make_stage_persist` write uses `merge_from_disk=True`.
+`_deep_merge` unions lists with the disk copy and skips an empty patch list
+(`if not val: continue`). So a cleared `blocking_issues: []` kept the old
+issue, and the verdict was re-derived as `fail`. The narrative plan's failed
+`partial` attempt and its retry were unioned the same way. The
+`<key>_replace` escape hatch is never set by any caller.
+
+**Fix:** a read-only trace of every caller confirmed that each persist
+carries the attempt's complete document, and sharded stages merge in memory
+before one persist. So `make_stage_persist` now passes `replace_lists`: the
+attempt's lists, empty ones included, replace the disk lists. `_meta` still
+deep-merges and omitted keys survive. The two single-owner verdict reports
+(`master/edl_narrative_audit.json`, `master/coverage_audit.json`) are
+replaced wholesale apart from `_meta`, so stale `repair_notes` cannot carry
+over either. Direct `merge_from_disk=True` callers keep the old union
+(gap_framing_compose relies on it to keep seeded lines through an empty
+shard). The keyed manifest and speakers merges are unchanged.
+`boundary_topic_resplit` keeps the union for now: it shares
+`segments/boundaries.json` with `boundary_detection` and has no row floor if
+the model returns only the split rows.
+
+**Open follow-up:** when the pre-flush barrier refuses a stage's commit, the
+stage still logs `Stage finished` and the done marker is cleared afterwards.
+The loop is visible only as `identical_failure` counts. With the merge fixed
+this path no longer fires on a demoted audit, but a refused commit should
+fail the stage with the barrier's reason.
+
+Tests: `tests/test_stage_persist_replaces_lists.py` (6).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

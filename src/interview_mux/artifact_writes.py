@@ -116,6 +116,8 @@ def write_validated_artifact(
     *,
     merge_from_disk: bool = False,
     stage_key: str | None = None,
+    replace_lists: bool = False,
+    full_replace: bool = False,
 ) -> Any:
     """
     Merge (optional), validate against on-disk schema, write JSON, log failures.
@@ -131,7 +133,14 @@ def write_validated_artifact(
             raw = ctx.read_json(rel_path)
             if isinstance(raw, dict):
                 existing = raw
-        out = merge_artifact(rel_path, existing, data, stage_key=stage_key)
+        out = merge_artifact(
+            rel_path,
+            existing,
+            data,
+            stage_key=stage_key,
+            replace_lists=replace_lists,
+            full_replace=full_replace,
+        )
 
     out = _prepare_segment_artifact(ctx, rel_path, out, stage_key=stage_key)
     _validate_canonical_segment_ids(rel_path, out)
