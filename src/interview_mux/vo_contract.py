@@ -639,7 +639,20 @@ def _record_hosted_floor_unmet(
     Under hard freeze with a true shortage and progress floors off, escalate to
     ``hosted_vo_floor_unsatisfiable`` (empty heal pin). When progress floors are
     on, always advisory-continue with whatever active count exists.
+
+    Before nugget_layup_compose has written a plan the body is analysis-era:
+    a shortfall there is not layup's failure even when layup is seed-front
+    (its own preflight), so it stays advisory, with no identical failure,
+    needs_operator or unsatisfiable stamp (exec_016: x3/3 halt=True before
+    layup's first call; ISSUES 161).
     """
+    layup_has_run = True
+    try:
+        from interview_mux.nugget_layup import PLAN_REL
+
+        layup_has_run = bool(ctx.artifact_exists(PLAN_REL))
+    except Exception:
+        layup_has_run = True
     try:
         from interview_mux.floor_progress import hosted_vo_aspirational, proceed_on_floor_miss
 
@@ -675,7 +688,7 @@ def _record_hosted_floor_unmet(
     try:
         from interview_mux.seat_authority import hard_freeze_active
 
-        if hard_freeze_active(ctx) and int(active) < int(need):
+        if layup_has_run and hard_freeze_active(ctx) and int(active) < int(need):
             from interview_mux.nugget_layup import stamp_hosted_vo_floor_unsatisfiable
 
             stamp_hosted_vo_floor_unsatisfiable(ctx, need=need, active=active)
@@ -713,6 +726,7 @@ def _record_hosted_floor_unmet(
     except Exception:
         # Prefer advisory over operator thrash when seed-front is unknown.
         layup_is_front = False
+    layup_is_front = layup_is_front and layup_has_run
 
     try:
         ctx.log(

@@ -5533,6 +5533,37 @@ Tests: `tests/test_vo_contract_not_due_before_synth.py` (3).
 
 ---
 
+## [161] PRODUCT (audit): checks that ran before the stage producing what they check
+
+**Status:** FIXED (found by a code audit after entries 156 and 160; #1 was
+also live on macOS exec_016)
+
+**Class:** a check runs before the producer of the artifact it inspects,
+reads the artifact's legitimate absence as a defect, and then logs an error,
+runs a repair that destroys valid state, or pins a resume that loops.
+Entries 156 (tier A published an empty layup plan) and 160 (missing WAV
+before `vo_synthesize`, tier D waived the only host line) were the first two
+members found on runs. Entry 156 fixed one instance without a family sweep,
+which is why 160 reached a run. This entry is that sweep.
+
+| # | check | premature demand | consequence | fix |
+|---|---|---|---|---|
+| 1 | `vo_contract._record_hosted_floor_unmet`, reached from layup's own preflight (`stage_input_checks._vo_contract_issues` → `ensure_hosted_framing_vo_seats`) | hosted floor judged on the analysis-era body before layup had written lines; layup counted as seed-front | `identical_failure nugget_layup_compose` toward the halt cap before layup ever ran (exec_016: `x3/3 halt=True` at 11:24:18, first layup call 11:25:49); `needs_operator` / unsatisfiable stamps; reseat beats layup then replaced | a floor miss is layup's failure only once its plan exists (advisory before, stamp kept); the layup preflight skips the reseat until the plan exists (`_hosted_floor_due`) |
+| 2 | `execution_contract._tier_c_vo_adjudicate_heal` (EDL VO coverage ladder) | lines with no WAV at all, which only `vo_synthesize` can produce | unmarked `vo_line_adjudicate`, which rewrites gap text and purges valid WAVs | acts on `wav_stale` rows only; missing WAVs go to the exhaust path, which pins `vo_synthesize` (HV-2) |
+| 3 | `execution_contract._tier_d_logged_waive` | a `missing_wav` violation after synthesis (a line the floor just reseated) | waived that line again: reseat/waive ping-pong below the floor | tier D refuses `missing_wav` (`tier_d_refused_missing_wav`) |
+| 4 | `execution_contract._tier_b_gap_recompose` | ran before layup had a plan | recompose took its skip-copy branch and force-marked `gap_framing_recompose` done, so its layup authority pass was skipped later | returns when layup is enabled and has no plan yet, as tier A does |
+
+The audit also examined and cleared about twenty other checks:
+`assert_books_agree`, floor snapshot `have()`, the cross-validate
+checkpoints, the per-stage input checks, `vo_sanitary_errors`, `check_g1_vo`
+and others. Each one is already guarded, or reads only its own or an
+earlier stage's output.
+
+Tests: `tests/test_checks_wait_for_their_producer.py` (6; five fail on the
+unfixed code, one keeps the post-layup behaviour).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

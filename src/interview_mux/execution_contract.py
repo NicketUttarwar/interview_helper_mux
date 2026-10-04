@@ -40,6 +40,16 @@ _PLAN_MUTATING_LADDER_TIERS: frozenset[str] = frozenset(
 )
 
 
+def _layup_pending(ctx: RunContext) -> bool:
+    """True when layup is enabled and has not written its plan yet."""
+    try:
+        from interview_mux.nugget_layup import PLAN_REL, nugget_layup_enabled
+
+        return bool(nugget_layup_enabled()) and not ctx.artifact_exists(PLAN_REL)
+    except Exception:
+        return False
+
+
 def _consumer_is_analysis_era(consumer_stage: str) -> bool:
     stage = str(consumer_stage or "").strip()
     if not stage:
@@ -374,6 +384,11 @@ def _tier_b_gap_recompose(ctx: RunContext) -> list[str]:
                 return []
         except Exception:
             return []
+    if _layup_pending(ctx):
+        # Without a layup plan the recompose takes its skip-copy branch and
+        # force-marks gap_framing_recompose done, so its authority pass is
+        # skipped after layup lands (ISSUES 161; tier A has the same guard).
+        return []
     from interview_mux.refinement_passes import run_gap_framing_recompose
 
     run_gap_framing_recompose(ctx)
@@ -491,6 +506,19 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
     from interview_mux.opening_orientation import ORIENTATION_LINE_ID, is_episode_orientation
     from interview_mux.vo_contract import mark_gap_line_not_on_air
 
+    if violation is not None and violation.kind == "missing_wav":
+        # A missing WAV is vo_synthesize's hole; the exhaust path pins it.
+        # Waiving the line removed what the floor had just reseated (ISSUES 161).
+        try:
+            ctx.log(
+                "tier_d_refused_missing_wav",
+                level="warning",
+                stage="execution_contract",
+                detail={"line_id": violation.line_id or ""},
+            )
+        except Exception:
+            pass
+        return []
     lid = (
         str(violation.line_id or "").strip()
         if violation and violation.line_id
@@ -1095,8 +1123,11 @@ def _tier_b_vo_seated_coverage(ctx: RunContext) -> list[str]:
 def _tier_c_vo_adjudicate_heal(ctx: RunContext) -> list[str]:
     from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
 
-    stale = compact_vo_coverage_stale_or_missing(ctx)
+    stale = compact_vo_coverage_stale_or_missing(ctx, coverage={"wav_stale"})
     if not stale:
+        # A line with no WAV at all is vo_synthesize's hole (HV-2): re-running
+        # adjudicate rewrote gap text and purged valid WAVs (ISSUES 161). The
+        # exhaust path pins vo_synthesize.
         return []
     (ctx.run_dir / ".stage_done" / "vo_line_adjudicate").unlink(missing_ok=True)
     cleared = _vo_coverage_clear(ctx, reason="tier_c_adjudicate_heal")
