@@ -7,6 +7,8 @@ resynth → omit only when no stem exists anywhere. Process omit never beats WAV
 
 from __future__ import annotations
 
+import time
+
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -235,6 +237,7 @@ def _try_resynth_seated_line(ctx: RunContext, line: dict[str, Any]) -> bool:
             if not ok:
                 return False
 
+        started = time.time()
         s2s_runner.synthesize_line(ctx, dict(line), mode="synthesize")
         promote_owner_vo_pickup(ctx)
         return True
@@ -245,7 +248,27 @@ def _try_resynth_seated_line(ctx: RunContext, line: dict[str, Any]) -> bool:
             promote_owner_vo_pickup(ctx)
         except Exception:
             pass
-        return _line_wav_present(ctx, line)
+        present = _line_wav_present(ctx, line)
+        if present:
+            # Record the take the renderer just wrote, as the normal path does,
+            # or the render assert reads the old script hash and fails the stage
+            # (exec_014 vo_preface_episode_orientation, ISSUES 154). A WAV older
+            # than this attempt is not a new take and is left alone.
+            try:
+                from interview_mux.vo_synthesis_audit import line_vo_wav_path, record_synthesis
+
+                wav = line_vo_wav_path(ctx, line)
+                if wav is not None and wav.is_file() and wav.stat().st_mtime >= started - 1:
+                    record_synthesis(
+                        ctx,
+                        dict(line),
+                        backend="chatterbox",
+                        out_wav=wav,
+                        wav_just_rendered=True,
+                    )
+            except Exception:
+                pass
+        return present
     finally:
         if nested:
             if parent:

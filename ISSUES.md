@@ -5306,6 +5306,35 @@ Tests: `tests/test_orientation_retarget_presents_body_owner.py` (2).
 
 ---
 
+## [154] PRODUCT: a bind-heal take Chatterbox wrote before erroring was accepted but never recorded, so vo_synthesize failed on a stale script hash (macOS exec_014)
+
+**Stage / area:** `vo_bind_authority._try_resynth_seated_line`,
+`vo_contract.assert_seated_vo_rendered`, `vo_synthesis_audit.record_synthesis`
+**Status:** FIXED
+
+**Seen:** at 55/72, `vo_synthesize: seated synthesize VO not rendered:
+vo_preface_episode_orientation`, right after `seated bind heal
+resynth=['vo_preface_episode_orientation']` and `local_runtime chatterbox rc=0
+parsed=True cause=runtime_error`. The orientation WAV was on disk, but
+`synthesis_entry_matches_line` returned `stale_script_hash`. The next attempt
+re-rendered and passed. The run recovered, but the stage logged a failure.
+
+**Cause:** the heal re-renders a seated line through
+`s2s_runner.synthesize_line`. Chatterbox can write the WAV and then fail its
+JSON report. The heal then accepts the durable bytes as success, but only the
+normal path calls `record_synthesis`, so the synthesis report kept the
+previous script hash. The render assert compares hashes and refused the take
+it had just accepted.
+
+**Fix:** in that except path, if the line's WAV was written during this
+attempt (mtime at or after the attempt start), record it with
+`wav_just_rendered=True`, exactly as the normal path records a take. A WAV
+older than the attempt is not recorded as new.
+
+Tests: `tests/test_bind_heal_records_durable_take.py` (2).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
