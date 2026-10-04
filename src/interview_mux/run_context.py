@@ -326,6 +326,27 @@ class RunContext:
                 pass
             errors = validate_artifact_write(rel, payload)
             if errors:
+                # Conform to the artifact's own schema (nulls, loose scalars,
+                # case-variant enums, unknown keys) and validate again. Only
+                # runs on a refused write, so a valid document is never
+                # changed (ISSUES 169).
+                try:
+                    from interview_mux.schema_conform import artifact_schema_for, conform_to_schema
+
+                    conformed, notes = conform_to_schema(payload, artifact_schema_for(rel))
+                    if notes and not validate_artifact_write(rel, conformed):
+                        self.log(
+                            f"{rel}: conformed to schema before write ({len(notes)} fix(es)): "
+                            + "; ".join(notes[:6]),
+                            level="warning",
+                            stage=stage_key or None,
+                            detail={"schema_conform": notes[:40]},
+                        )
+                        payload = conformed
+                        errors = []
+                except Exception:
+                    pass
+            if errors:
                 raise ValueError(
                     f"{rel}: schema validation failed — " + "; ".join(errors[:6])
                 )

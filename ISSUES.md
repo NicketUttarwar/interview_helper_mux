@@ -5825,6 +5825,57 @@ that pins the coercion of an unknown severity to critical).
 
 ---
 
+## [169] PRODUCT: an LLM null that its envelope allows was refused by a stricter artifact schema, and the CTA lock re-applied it on every retry, stopping delivery at full_master_ranking (client run, step 44)
+
+**Stage / area:** `RunContext.write_json` (validation), new
+`schema_conform.py`, `media_ip_cta.normalize_media_ip_cta_rows`,
+`media_ip_cta._reapply_locked` / `extract_judgments`
+**Status:** FIXED
+
+**Seen (client):** delivery entry blocked on `full_master_ranking`:
+`master/selection.json` never committed because schema validation rejected
+`media_ip_cta[1].mixed_with_story` = null (segment seg_035); the schema
+requires a boolean. `selection_order_sanitize` and the rest of delivery could
+not proceed and the orchestrator halted after retries.
+
+**Cause:**
+1. The LLM envelope allows null there (entry 137 made enums nullable so valid
+   replies stop failing); `normalize_media_ip_cta_rows` copied every optional
+   value through verbatim, null included.
+2. After the first failure the judgment was locked in
+   `mastering/media_ip_cta.json`; `_reapply_locked` re-injects the locked
+   judgments on every retry, so a later valid reply could not clear it.
+3. Family: some write validators relax optional leaves to accept null
+   (`_validate_by_artifact_schema` -> `with_nullable_optional_leaves`); others,
+   including `master/selection.json`, the EDL, the narrative audit, the
+   synthesis report and the acoustic profile, call `_validate_dict` on the raw
+   schema. The same reply was admitted for one artifact and refused for
+   another. The existing `omit_nullable_null_leaves_for_disk` only covers
+   paths listed by hand per stage, and `mixed_with_story` was not listed.
+
+**Fix:**
+1. `normalize_media_ip_cta_rows` drops null optional fields, coerces
+   `mixed_with_story`, `must_keep_in_clip` and `cta_open` to booleans, and
+   matches `cta_region` / `open_choice` case-insensitively. `extract_judgments`
+   runs the same normaliser, so a lock file already holding the null heals on
+   the next retry.
+2. Family: `schema_conform.conform_to_schema` repairs a document against the
+   artifact's own schema, and `write_json` runs it only after validation has
+   failed, then validates again, so a valid document is never changed. It
+   drops null optionals the schema cannot take, defaults a required null to
+   False / [] / {} for booleans, arrays and objects (a required string or
+   number still fails), coerces scalars to the declared type, matches enums
+   case-insensitively, drops null array items and unknown keys under
+   `additionalProperties: false`, and logs every fix. The schema is derived
+   from each write validator, so 73 of 74 validators are covered without a
+   list (the exception is `mastering/research/waves.json`, a hand-written
+   check).
+
+Tests: `tests/test_schema_conform_on_write.py` (6, including a real
+`write_json` that the old code refused).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
