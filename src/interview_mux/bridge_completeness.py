@@ -160,6 +160,49 @@ def justified_skip_before_ids(ctx: Any) -> set[str]:
     return skip
 
 
+def forbidden_bridge_pairs(ctx: Any, pairs: list[dict[str, Any]] | None = None) -> set[tuple[str, str]]:
+    """Pairs a spoken transition may never glue, by the transitions lint's own rules.
+
+    The transitions stage drops model rows that jump back on tape or land on late
+    opening tape, and ``_lint_transitions`` refuses them. Completeness and the
+    mint must agree, or the mint re-creates the dropped row and the lint refuses
+    it on every attempt (ISSUES 151).
+    """
+    try:
+        from interview_mux.air_order_integrity import (
+            opening_body_start_index,
+            opening_tape_segment_ids,
+            pair_source_gap_ms,
+            resolved_segment_starts,
+            reverse_jump_margin_ms,
+        )
+
+        sel = ctx.read_json("master/selection.json") if ctx.artifact_exists("master/selection.json") else {}
+        order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+        if not order:
+            return set()
+        starts = resolved_segment_starts(ctx)
+        pos = {sid: i for i, sid in enumerate(order)}
+        opening = opening_tape_segment_ids(order, starts)
+        margin = reverse_jump_margin_ms(ctx=ctx)
+        body_start = opening_body_start_index(ctx=ctx)
+    except Exception:
+        return set()
+    rows = pairs if pairs is not None else [
+        {"after_segment_id": a, "before_segment_id": b} for a, b in zip(order, order[1:])
+    ]
+    out: set[tuple[str, str]] = set()
+    for row in rows:
+        a = str(row.get("after_segment_id") or row.get("after_id") or "")
+        b = str(row.get("before_segment_id") or row.get("before_id") or "")
+        if not a or not b:
+            continue
+        gap = pair_source_gap_ms(a, b, starts)
+        if (gap is not None and int(gap) < -margin) or (b in opening and pos.get(b, 0) >= body_start):
+            out.add((a, b))
+    return out
+
+
 def missing_reorder_bridges(
     reorder_bridges: dict[str, Any] | None,
     *,
@@ -186,6 +229,7 @@ def missing_reorder_bridges(
         bridged |= hitch_covered_pairs(clips)
     skip_before = {str(x) for x in (justified_skip_before_ids or set()) if str(x).strip()}
     vo_before_targets: set[str] = set()
+    vo_after_targets: set[str] = set()
     if isinstance(gap_report, dict):
         for ln in gap_report.get("interviewer_lines") or []:
             if not isinstance(ln, dict) or ln.get("skipped_optional"):
@@ -193,11 +237,17 @@ def missing_reorder_bridges(
             delivery = str(ln.get("delivery") or "").lower()
             if delivery and delivery not in {"record", "synthesize"}:
                 continue
-            if str(ln.get("placement") or "before").strip() != "before":
-                continue
             tid = str(ln.get("targets_segment_id") or "").strip()
-            if tid:
+            if not tid:
+                continue
+            placement = str(ln.get("placement") or "before").strip()
+            if placement == "before":
                 vo_before_targets.add(tid)
+            elif placement == "after":
+                # A line seated after A covers A->B exactly as
+                # gap_framing._gap_line_covers_seam counts it; clone adjacency
+                # moves layup lines there (ISSUES 151).
+                vo_after_targets.add(tid)
     missing: list[dict[str, Any]] = []
     for pair in reorder_bridges.get("pairs") or []:
         if not isinstance(pair, dict):
@@ -206,7 +256,7 @@ def missing_reorder_bridges(
         b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
         if not a or not b:
             continue
-        if (a, b) in bridged or b in vo_before_targets or b in skip_before:
+        if (a, b) in bridged or b in vo_before_targets or a in vo_after_targets or b in skip_before:
             continue
         missing.append(
             {

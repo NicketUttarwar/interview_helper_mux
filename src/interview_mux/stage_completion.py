@@ -2146,12 +2146,21 @@ def stage_artifact_incompleteness(
                 else None
             )
             tr = ctx.read_json("master/transitions.json")
+            # Same inputs as the mint (seam_glue passes the live EDL): hitch air
+            # already seated covers its pair, or the mint skips it and this
+            # check demands it forever (ISSUES 151).
+            edl_doc = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
             miss = missing_reorder_bridges(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
                 gap_report=gap if isinstance(gap, dict) else None,
                 transitions=tr if isinstance(tr, dict) else None,
                 justified_skip_before_ids=justified_skip_before_ids(ctx),
+                edl=edl_doc if isinstance(edl_doc, dict) else None,
             )
+            from interview_mux.bridge_completeness import forbidden_bridge_pairs
+
+            forbidden = forbidden_bridge_pairs(ctx, miss)
+            miss = [m for m in miss if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
             if miss:
                 return (
                     "bridge_completeness incomplete — resume transitions "
