@@ -69,6 +69,35 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
                 level="info",
                 stage="edl_narrative_audit",
             )
+            # The freeze policy allows narrative_metadata_align under the hard
+            # freeze: chapter labels may still follow the locked order. Skipping
+            # them left a true chapter_continuity_broken blocker that no pass
+            # could clear (exec_013, ISSUES 152).
+            try:
+                from interview_mux.artifact_ownership import freeze_write_allowed
+                from interview_mux.artifact_repairs import relabel_chapters_contiguous
+
+                if freeze_write_allowed(ctx, "edl_narrative_audit", "narrative_metadata_align"):
+                    sel_now = ctx.read_json("master/selection.json")
+                    relabeled, changed = relabel_chapters_contiguous(
+                        sel_now if isinstance(sel_now, dict) else {}
+                    )
+                    if changed:
+                        from interview_mux.air_order_boundary import commit_selection_mutation
+
+                        commit_selection_mutation(
+                            ctx,
+                            relabeled,
+                            producer="edl_narrative_metadata_align",
+                            stage_key="edl_narrative_audit",
+                            checkpoint_mode="detect",
+                            merge_from_disk=False,
+                            write_committed=True,
+                            mutation_class="narrative_metadata_align",
+                        )
+                        notes.append({"action": "relabel_chapters_contiguous_hard_freeze"})
+            except Exception as exc:
+                notes.append({"action": "relabel_chapters_failed", "error": type(exc).__name__})
             notes.extend(align_narrative_plan_to_selection(ctx))
         else:
             from interview_mux.edl_narrative_remutate import (

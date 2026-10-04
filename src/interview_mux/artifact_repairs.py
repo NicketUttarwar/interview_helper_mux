@@ -4704,6 +4704,63 @@ def heal_stale_segment_refs_from_errors(ctx: Any, errors: list[str]) -> dict[str
     return healed
 
 
+def relabel_chapters_contiguous(selection: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Chapter labels that follow the locked air order; the order itself is untouched.
+
+    Each on-air segment keeps its chapter where possible. A chapter that comes
+    back after another chapter's run has the returning run merged into the
+    chapter before it, and an on-air segment no chapter owns joins its
+    neighbour. Used under the hard freeze, where the air order (and the WAVs
+    rendered against it) is locked but the labels may still be repaired
+    (ISSUES 152).
+    """
+    order = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    chapters = [dict(ch) for ch in (selection.get("chapters") or []) if isinstance(ch, dict)]
+    if not order or not chapters:
+        return selection, False
+    owner: dict[str, int] = {}
+    for idx, ch in enumerate(chapters):
+        for sid in ch.get("segment_ids") or []:
+            owner.setdefault(str(sid), idx)
+    labels: list[int | None] = [owner.get(sid) for sid in order]
+    # Unowned segments join the nearest owned neighbour (prefer the one before).
+    for i, lab in enumerate(labels):
+        if lab is None:
+            prev = next((labels[j] for j in range(i - 1, -1, -1) if labels[j] is not None), None)
+            nxt = next((labels[j] for j in range(i + 1, len(labels)) if labels[j] is not None), None)
+            labels[i] = prev if prev is not None else nxt
+    if any(lab is None for lab in labels):
+        return selection, False
+    # A label that reappears after another run merges into the run before it.
+    seen: set[int] = set()
+    current: int | None = None
+    for i, lab in enumerate(labels):
+        if lab != current:
+            if lab in seen and current is not None:
+                labels[i] = current
+                continue
+            current = lab
+            seen.add(lab)
+        else:
+            labels[i] = current
+    new_members: dict[int, list[str]] = {}
+    for sid, lab in zip(order, labels):
+        new_members.setdefault(int(lab), []).append(sid)
+    out_chapters: list[dict[str, Any]] = []
+    for idx in sorted(new_members, key=lambda k: order.index(new_members[k][0])):
+        ch = dict(chapters[idx])
+        ch["segment_ids"] = new_members[idx]
+        out_chapters.append(ch)
+    changed = [list(c.get("segment_ids") or []) for c in out_chapters] != [
+        [str(x) for x in (c.get("segment_ids") or [])] for c in chapters
+    ]
+    if not changed:
+        return selection, False
+    out = dict(selection)
+    out["chapters"] = out_chapters
+    return out, True
+
+
 def persist_segment_id_remap(ctx: Any, rel: str, doc: dict[str, Any]) -> bool:
     """Land a split's id remap on ``rel`` under a key the ownership table accepts.
 

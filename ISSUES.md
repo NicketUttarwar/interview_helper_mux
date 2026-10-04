@@ -5244,6 +5244,39 @@ Each fix keeps the check strict for genuinely bad states. Tests:
 
 ---
 
+## [152] PRODUCT: under the hard freeze the EDL audit repair skipped every selection write, so a true chapter_continuity_broken blocker could never clear (macOS exec_013)
+
+**Stage / area:** `audit_repair_loop.maybe_repair_after_narrative_audit`,
+`artifact_repairs.relabel_chapters_contiguous`
+**Status:** FIXED
+
+**Seen:** run 13 reached `edl_narrative_audit` at 57/72 with no errors before
+it. Then: `edl_narrative_audit fail after demote — leaving for operator (3
+notes; no remutate)`. The blocker was `chapter_continuity_broken`: selection
+chapter 2 held `seg_016, seg_021, seg_023` at air positions 11, 12 and 15,
+with chapter 3 (`seg_017, seg_018`) at 13 and 14 in between. The opening
+`seg_001d-k` belonged to no selection chapter.
+
+**Cause:** the repair loop checks `hard_freeze_active` and, if set, skips all
+selection writes (`skip_selection_write_hard_freeze`). It only aligns the
+narrative plan. The freeze policy (`FREEZE_WRITE_POLICY`) explicitly allows
+`edl_narrative_audit` / `narrative_metadata_align` under `hard_freeze`. So
+chapter labels, which change no audio, were never repaired. The disk-stale
+demote correctly found the claim true, and the audit stayed failed on every
+pass.
+
+**Fix:** under the hard freeze, when the policy allows it, the loop commits
+`relabel_chapters_contiguous`. Each chapter becomes a contiguous run of the
+locked air order. A chapter that returns after another run merges into the run
+before it. An unowned on-air segment joins its neighbour. `ordered_segment_ids`
+is never changed. Replayed on a copy of exec_013: chapters become positions
+0-10, 11-12, 13-15, 16-17 and 18-21, the stale demote applies, and the verdict
+moves from fail to warn.
+
+Tests: `tests/test_relabel_chapters_contiguous.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
