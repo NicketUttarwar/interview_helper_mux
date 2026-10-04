@@ -5446,6 +5446,18 @@ its seed prerequisites first). An orphan stamp without a plan keeps the compose
 pin, as HG-5 designed. `test_hg5_recovery_empty_plan_pins_framing` now asserts
 the layup pin and that recovery never resumes at compose in that state.
 
+**Follow-up (same family):** the floor snapshot in exec_015 was built with
+`stage_id="gap_framing_compose"`, and `hosted_vo_authority.resume_producer`
+returned that id unchanged before reaching the fixed function. One helper,
+`stage_completion.writable_gap_body_stage`, now maps a compose pin to layup
+whenever layup owns the body. It is applied in `high_gap_heal_resume_stage`,
+both floor branches of the compose incompleteness check,
+`hosted_vo_authority.resume_producer`, and the generic
+`thrash_hardening.resume_producer`.
+
+Tests: `tests/test_gap_body_resume_is_writable.py` (3; the first fails
+without the follow-up).
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)

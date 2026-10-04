@@ -149,6 +149,14 @@ def premature_fail_class(resume: str) -> str:
 def resume_producer(ctx: RunContext, pin: str) -> str:
     """Return the live producer for a resume pin, never a blocked consumer."""
     candidate = str(pin or "").strip()
+    if candidate == "gap_framing_compose":
+        # Never a stage the gap-body sole-writer rule refuses (ISSUES 158).
+        try:
+            from interview_mux.stage_completion import writable_gap_body_stage
+
+            candidate = writable_gap_body_stage(ctx, candidate)
+        except Exception:
+            pass
     if candidate == "edl":
         try:
             from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
