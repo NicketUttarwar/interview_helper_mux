@@ -1184,6 +1184,9 @@ def build_flow1_edl(
     return {
         "version": 1,
         "ordered_segment_ids": air_ordered,
+        # Recorded so EDL QC can tell a deliberate unplayable omission from a
+        # mismatch when the selection commit of the drop was refused (ISSUES 151).
+        "omitted_unplayable_segment_ids": sorted(set(omitted_unplayable)),
         "clips": clips,
         "gap_placements": gap_placements,
         "timeline_duration_ms": timeline_ms,

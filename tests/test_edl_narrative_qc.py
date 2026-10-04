@@ -809,3 +809,19 @@ def test_a_close_beyond_the_next_on_air_tape_is_not_reachable() -> None:
     speech = {"source_start_ms": 0}
     assert _hinge_reachable(speech, words, 1800) == _hinge_reachable(speech, words, 1800, None)
     assert not _hinge_reachable(speech, words, 1800, horizon_ms=2000)
+
+
+def test_an_edl_omitting_an_unplayable_segment_keeps_parity() -> None:
+    """ISSUES 151: the selection commit of the drop can be refused under a freeze."""
+    from interview_mux.edl_narrative_qc import _validate_selection_parity
+
+    errors: list[str] = []
+    _validate_selection_parity(
+        {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]},
+        ["seg_a", "seg_c"],
+        errors,
+        {"omitted_unplayable_segment_ids": ["seg_b"]},
+    )
+    assert errors == []
+    _validate_selection_parity({"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]}, ["seg_a", "seg_c"], errors, {})
+    assert errors

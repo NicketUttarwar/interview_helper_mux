@@ -262,8 +262,12 @@ def _validate_selection_parity(
     selection: dict[str, Any],
     speech: list[str],
     errors: list[str],
+    edl: dict[str, Any] | None = None,
 ) -> None:
     selected = _id_list(selection.get("ordered_segment_ids"))
+    omitted = set(_id_list((edl or {}).get("omitted_unplayable_segment_ids")))
+    if omitted:
+        selected = [sid for sid in selected if sid not in omitted]
     if selected and speech != selected:
         errors.append(
             "master/edl.json: speech clips do not match final selection "
@@ -473,12 +477,11 @@ def _validate_transitions(
                 f'master/edl.json: missing transition clip between "{after}" '
                 f'and "{before}" from transitions.json. Re-run edl.'
             )
-        elif pair not in adjacency and after in speech and before in speech:
-            errors.append(
-                f'master/transitions.json: transition "{after}" -> "{before}" '
-                "does not match adjacent final EDL speech order. Re-run transitions "
-                "after full_master_ranking/NLE edits."
-            )
+        # A planned pair that is no longer adjacent never airs: the builder seats
+        # only adjacent pairs and the loop below still refuses any non-adjacent
+        # transition clip. Refusing the stale row asked for a transitions rerun
+        # that the seat freeze skips, so edl rebuilt the same cut to the cap
+        # (ISSUES 151).
 
     for pair in edl_transition_pairs:
         if pair not in adjacency:
@@ -1058,7 +1061,7 @@ def validate_flow1_edl_narrative(
     if not speech:
         return ["master/edl.json: no speech clips available for narrative validation"]
 
-    _validate_selection_parity(selection, speech, errors)
+    _validate_selection_parity(selection, speech, errors, edl)
     _validate_coverage_survives_edl(coverage, speech, errors)
     _validate_chapter_continuity(selection, speech, errors)
     _validate_ordering_constraints(narrative_plan, speech, errors)

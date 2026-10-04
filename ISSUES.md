@@ -5204,6 +5204,46 @@ on the unfixed code).
 
 ---
 
+## [151] PRODUCT (audit): delivery checks that refused a valid state or demanded what their heal cannot produce
+
+**Status:** FIXED (found by a code audit after entry 150, before any run hit
+them)
+
+**Class:** a deterministic delivery check refuses a state that is valid, or
+asks for something only another stage could produce, so the pinned heal
+(usually an edl rebuild from the same inputs) repeats the same failure until
+`identical_failure` or `max_invokes_per_identity` stops the run. Entries 139,
+147 and 150 were instances found on runs. This entry closes the rest an audit
+of `edl_narrative_qc`, the transitions and bridge-completeness path, and the
+mix gates found in the code.
+
+| # | check | refused / demanded | fix |
+|---|---|---|---|
+| 1 | `gap_framing.ranking_exclude_segment_ids` (feeds EDL QC framing-covered) | segments "covered" by skipped or omitted framing lines, which never air | only lines that air cover source tape; plan blocks count only when a framing line is live |
+| 2 | `edl_narrative_qc._validate_single_synthetic_between_natives` | orientation seated beside the opening line's VO (straight open, or cold-open deferred hook line), which the builder does on purpose | the episode orientation does not count toward the one-insert limit |
+| 3 | `_validate_clone_voice_adjacency` | seams the builder kept because the acoustic listen proved the voices differ (`clone_adjacency_id_mismatch_kept`) | honour the builder's record |
+| 4 | `air_order_integrity.collect_violations` | read `bridges.get("bridges")`; the file key is `pairs`, so declared reorder pairs were never honoured | read `pairs` |
+| 5 | `_validate_chapter_continuity` | chapters listed out of air order read as "overlap" | sort by air position |
+| 6 | `_validate_framing_before_impact` | a zero-length VO at the same start as its speech | order by (start, clip index) |
+| 7 | gap-report spoken-sentence collision | collisions with lines that never air | compare only lines that aired in the EDL (record/synthesize, not omitted) |
+| 8 | `bridge_completeness.missing_reorder_bridges` | an "after" line on the prior native covers the seam for `_gap_line_covers_seam` but not here | count it |
+| 9 | transitions completeness (stage_completion, edl preflight) | hitch air in the EDL counted at mint time only | pass the EDL to both |
+| 10 | mint vs `_lint_transitions` | the mint re-created pairs the lint forbids (reverse jump, late opening tape) | `forbidden_bridge_pairs` excluded from mint and completeness |
+| 11 | mix gate (`require_spend_artifacts_complete`, post-listen gate, `_missing_sfx_from_mmaudio_qa`) | QA failures of assets that are not placed (unreferenced, `music_omitted`, remediation `skip_cue`) | `qa_failures_that_block_mix` |
+| 12 | `transition_vo.synthesize_spoken_transitions` | one ungrounded row raised out of the loop, leaving every later pair unsynthesized | record the row as blocked and continue |
+| 13 | `current_transition_pairs_missing` | WAVs for planned pairs no longer adjacent on air | only adjacent pairs |
+| 14 | `thought_complete_recut.apply_thought_complete_to_clips` | dropped a reordered callback from earlier tape as "consumed" | only tape that continues from the hanging clip (and listed consumed ids) |
+| 15 | `_validate_vo_after_legal_hinge` | a legal close beyond the builder's extension horizon (40 ms before the next on-air tape) | search only up to that horizon; beyond it is the entry-59 warning |
+| 16 | `_validate_transitions` | stale transitions.json rows for pairs no longer adjacent (never air) | not an error; non-adjacent transition clips in the EDL are still refused |
+| 17 | `_validate_selection_parity` | segments the builder omitted as unplayable when the selection commit was refused | the EDL records `omitted_unplayable_segment_ids`; QC honours them |
+
+Each fix keeps the check strict for genuinely bad states. Tests:
+`tests/test_edl_narrative_qc.py` (new cases), `test_bridge_cover_rules_agree.py`,
+`test_mix_gate_placed_assets_only.py`,
+`test_thought_complete_keeps_reordered_callback.py`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
