@@ -5392,6 +5392,33 @@ Tests: `tests/test_tier_a_waits_for_layup_plan.py` (1).
 
 ---
 
+## [157] PRODUCT: layup QC read a story line as "reuses dropped CTA wording" because never-touch texts are whole mixed segments (macOS exec_015, step 47)
+
+**Stage / area:** `media_ip_cta.air_overlaps_never_touch`, `nugget_layup.evaluate_layup_qc`
+**Status:** FIXED
+
+**Seen:** `Nugget layup QC failed: never_touch_cta[seg_014]: lay-up reuses
+dropped CTA wording`, then `Failed: Stage nugget_layup_compose`. The line was
+story copy: "Blood tests may reveal molecular changes before imaging does...
+circulating tumour cell is captured alive...".
+
+**Cause:** `never_touch_texts` are whole segment transcripts. A mixed CTA
+parent (`seg_001`: the sponsor intro plus about 650 words of interview)
+carries all the story vocabulary around the sponsor read. `_overlap` divides
+shared tokens by the smaller set, which is the short layup line, so the story
+line overlapped the parent at 0.59 against a 0.45 threshold.
+
+**Fix:** only wording that does not also air as story counts. Tokens of the
+on-air selection's segments are removed from each never-touch text before
+the comparison, and the share is taken over the line's own tokens. Sponsor
+copy ("sponsored by Agilisium Labs ...") is still refused. With no selection
+yet, the previous measure applies. On exec_015's state the seg_014 line now
+passes and a sponsor-copy line is still flagged.
+
+Tests: `tests/test_cta_wording_overlap_ignores_story.py` (2).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

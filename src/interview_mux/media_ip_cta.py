@@ -772,16 +772,45 @@ def is_lets_hear_hinge(text: str) -> bool:
     return any(p in key for p in _LETS_HEAR_RE)
 
 
+def _on_air_story_tokens(ctx: RunContext) -> set[str]:
+    """Tokens of the tape that airs: wording shared with it is story, not CTA."""
+    try:
+        if not ctx.artifact_exists("master/selection.json"):
+            return set()
+        sel = ctx.read_json("master/selection.json")
+        order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+    except Exception:
+        return set()
+    by_id = _segments_by_id(ctx)
+    out: set[str] = set()
+    for sid in order:
+        out |= _tokens(str((by_id.get(sid) or {}).get("text") or ""))
+    return out
+
+
 def air_overlaps_never_touch(ctx: RunContext, text: str, *, min_overlap: float = 0.45) -> bool:
-    """True when clone VO reuses dropped CTA wording (token overlap)."""
+    """True when clone VO reuses dropped CTA wording (token overlap).
+
+    Never-touch texts are whole segments, and a mixed CTA parent carries
+    minutes of story around the sponsor read. Only wording that does not also
+    air as story counts, or every story line on the parent's topic read as CTA
+    reuse (exec_015: a CTC layup overlapped seg_001's 650-token intro at 0.59
+    and layup QC refused it; ISSUES 157).
+    """
     air = _tokens(text)
     if len(air) < 4:
         return False
+    story = _on_air_story_tokens(ctx)
     for blob in never_touch_texts(ctx):
         other = _tokens(blob)
+        if story:
+            other = other - story
         if len(other) < 4:
             continue
-        if _overlap(air, other) >= min_overlap:
+        if story:
+            if len(air & other) / float(len(air)) >= min_overlap:
+                return True
+        elif _overlap(air, other) >= min_overlap:
             return True
     return False
 
