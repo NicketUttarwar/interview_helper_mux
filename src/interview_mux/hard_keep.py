@@ -364,6 +364,15 @@ def hard_keep_segment_ids(
             # Any editorial exclusion is a ruling, whichever family the id
             # belongs to: the transfer offers the whole story set.
             ruled_out = lattice_dropped_ids(ctx) | editorial_excluded_ids(ctx)
+            # The closing outro tail of a sponsor parent is credits, not story;
+            # transferring the parent's keep onto it made removal_authority
+            # refuse the CTA omit on every pass (exec_011 seg_032g-k, ISSUES 148).
+            try:
+                from interview_mux.media_ip_cta import closing_outro_tail_segment_ids
+
+                ruled_out |= closing_outro_tail_segment_ids(ctx)
+            except Exception:
+                pass
             ids |= _collapse_overlapping_keeps(ctx, set(story) - ruled_out)
         ids -= banned
     except Exception:

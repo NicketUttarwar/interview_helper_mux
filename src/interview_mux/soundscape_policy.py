@@ -126,7 +126,21 @@ def _density_from_sources(
         total = dens["max_beds"] + dens["max_punctuators"] + dens["max_foley"]
         if total > cap and total > 0:
             scale = cap / total
-            dens = {k: max(0, int(v * scale)) for k, v in dens.items()}
+            # Largest remainder, at least one slot for every budgeted role the
+            # cap can afford: int(v * scale) turned {2, 2, 1} under cap 2 into
+            # {0, 0, 0} (ISSUES 166).
+            raw = {k: v * scale for k, v in dens.items()}
+            alloc = {k: int(x) for k, x in raw.items()}
+            budgeted = [k for k, v in dens.items() if v > 0]
+            if len(budgeted) <= cap:
+                for k in budgeted:
+                    alloc[k] = max(1, alloc[k])
+            for k in sorted(raw, key=lambda k: raw[k] - int(raw[k]), reverse=True):
+                if sum(alloc.values()) >= cap:
+                    break
+                if dens[k] > alloc[k]:
+                    alloc[k] += 1
+            dens = alloc
             # Ensure sum <= cap by trimming foley then punctuators
             while sum(dens.values()) > cap:
                 if dens["max_foley"] > 0:

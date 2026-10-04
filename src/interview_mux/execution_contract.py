@@ -40,6 +40,16 @@ _PLAN_MUTATING_LADDER_TIERS: frozenset[str] = frozenset(
 )
 
 
+def _layup_pending(ctx: RunContext) -> bool:
+    """True when layup is enabled and has not written its plan yet."""
+    try:
+        from interview_mux.nugget_layup import PLAN_REL, nugget_layup_enabled
+
+        return bool(nugget_layup_enabled()) and not ctx.artifact_exists(PLAN_REL)
+    except Exception:
+        return False
+
+
 def _consumer_is_analysis_era(consumer_stage: str) -> bool:
     stage = str(consumer_stage or "").strip()
     if not stage:
@@ -342,7 +352,13 @@ def _tier_a_publish_orientation(ctx: RunContext) -> list[str]:
     from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
 
     written: list[str] = []
-    plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    if not ctx.artifact_exists(PLAN_REL):
+        # Before nugget_layup_compose has run there is no plan to publish; an
+        # empty publish can never meet the hosted VO floor and raised
+        # hosted_vo_floor_unsatisfiable at error level from the invariant
+        # ladder (exec_015, ISSUES 156). The next tier handles this state.
+        return written
+    plan = ctx.read_json(PLAN_REL)
     publish_layup_plan_to_gap_report(ctx, plan if isinstance(plan, dict) else None)
     written.append("understanding/gap_report.json")
     if ctx.artifact_exists(PLAN_REL):
@@ -368,6 +384,11 @@ def _tier_b_gap_recompose(ctx: RunContext) -> list[str]:
                 return []
         except Exception:
             return []
+    if _layup_pending(ctx):
+        # Without a layup plan the recompose takes its skip-copy branch and
+        # force-marks gap_framing_recompose done, so its authority pass is
+        # skipped after layup lands (ISSUES 161; tier A has the same guard).
+        return []
     from interview_mux.refinement_passes import run_gap_framing_recompose
 
     run_gap_framing_recompose(ctx)
@@ -435,6 +456,36 @@ def _tier_d_target_is_required_orientation(
     return bool(lid) and (lid == oid or lid == ORIENTATION_LINE_ID)
 
 
+def _tier_d_would_hollow_hosted_floor(
+    ctx: RunContext,
+    gap: dict[str, Any] | None,
+    lid: str,
+) -> bool:
+    """True when waiving ``lid`` would leave a hosted show with no live host line.
+
+    Zero active lines is the catastrophic floor state; no later stage can
+    recover it, so layup is pinned and the ladder waives its line again
+    (exec_016, ISSUES 160). Like a required orientation, the last line is
+    not waivable; the miss escalates to its producer instead.
+    """
+    if not isinstance(gap, dict) or not lid:
+        return False
+    try:
+        from interview_mux.gap_fill_eligibility import hosted_framing_requires_synthetic_vo
+        from interview_mux.vo_contract import _count_active_hosted_synth
+
+        if not hosted_framing_requires_synthetic_vo(ctx):
+            return False
+        rows = [r for r in (gap.get("interviewer_lines") or []) if isinstance(r, dict)]
+        target = [r for r in rows if str(r.get("line_id") or "").strip() == lid]
+        if not target or _count_active_hosted_synth(target) < 1:
+            return False
+        rest = [r for r in rows if str(r.get("line_id") or "").strip() != lid]
+        return _count_active_hosted_synth(rest) < 1
+    except Exception:
+        return False
+
+
 def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list[str]:
     try:
         from interview_mux.seat_authority import gate_seat_mutation
@@ -455,6 +506,19 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
     from interview_mux.opening_orientation import ORIENTATION_LINE_ID, is_episode_orientation
     from interview_mux.vo_contract import mark_gap_line_not_on_air
 
+    if violation is not None and violation.kind == "missing_wav":
+        # A missing WAV is vo_synthesize's hole; the exhaust path pins it.
+        # Waiving the line removed what the floor had just reseated (ISSUES 161).
+        try:
+            ctx.log(
+                "tier_d_refused_missing_wav",
+                level="warning",
+                stage="execution_contract",
+                detail={"line_id": violation.line_id or ""},
+            )
+        except Exception:
+            pass
+        return []
     lid = (
         str(violation.line_id or "").strip()
         if violation and violation.line_id
@@ -490,6 +554,18 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
                 ctx,
                 action="tier_d_refused_required_orientation",
                 detail=lid or "orientation",
+            )
+        except Exception:
+            pass
+        return []
+
+    if _tier_d_would_hollow_hosted_floor(ctx, gap_early, lid):
+        try:
+            ctx.log(
+                "tier_d_refused_last_host_line",
+                level="warning",
+                stage="execution_contract",
+                detail={"line_id": lid},
             )
         except Exception:
             pass
@@ -1047,8 +1123,11 @@ def _tier_b_vo_seated_coverage(ctx: RunContext) -> list[str]:
 def _tier_c_vo_adjudicate_heal(ctx: RunContext) -> list[str]:
     from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
 
-    stale = compact_vo_coverage_stale_or_missing(ctx)
+    stale = compact_vo_coverage_stale_or_missing(ctx, coverage={"wav_stale"})
     if not stale:
+        # A line with no WAV at all is vo_synthesize's hole (HV-2): re-running
+        # adjudicate rewrote gap text and purged valid WAVs (ISSUES 161). The
+        # exhaust path pins vo_synthesize.
         return []
     (ctx.run_dir / ".stage_done" / "vo_line_adjudicate").unlink(missing_ok=True)
     cleared = _vo_coverage_clear(ctx, reason="tier_c_adjudicate_heal")

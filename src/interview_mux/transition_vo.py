@@ -528,17 +528,38 @@ def synthesize_spoken_transitions(
                 by_id,
             )
             alt = str(default_bridge_text(pair) or "").strip()
-            if not alt:
-                raise ValueError(
-                    f"transition text blocked before synthesis "
-                    f"({after_id}->{before_id}): ungrounded seam"
+            guarded = None
+            if alt:
+                try:
+                    guarded = assert_guarded_spoken_copy(
+                        alt,
+                        evidence=bridge_guard_evidence(pair),
+                        purpose=f"transition[{after_id}->{before_id}]",
+                        ctx=ctx,
+                    )
+                except ValueError:
+                    guarded = None
+            if guarded is None:
+                # One ungrounded row (often a pair whose ids a fuse or hitch
+                # retired) used to raise out of the loop and leave every later
+                # pair unsynthesized, which mix then refused (ISSUES 151).
+                results.append(
+                    {
+                        "after_segment_id": after_id,
+                        "before_segment_id": before_id,
+                        "status": "blocked_ungrounded",
+                    }
                 )
-            guarded = assert_guarded_spoken_copy(
-                alt,
-                evidence=bridge_guard_evidence(pair),
-                purpose=f"transition[{after_id}->{before_id}]",
-                ctx=ctx,
-            )
+                try:
+                    ctx.log(
+                        f"transition text blocked before synthesis ({after_id}->{before_id}): "
+                        "ungrounded seam; continuing with the remaining pairs",
+                        level="warning",
+                        stage="vo_synthesize",
+                    )
+                except Exception:
+                    pass
+                continue
         text = str(guarded["text"])
         if text != str(item.get("text") or "").strip():
             item["text"] = text
@@ -984,7 +1005,21 @@ def current_transition_pairs_missing(ctx: RunContext) -> list[str]:
     file existence — rewritten bridge text must re-synth before master finalize.
     """
     missing: list[str] = []
+    # Only a pair that is adjacent in the live air order plays; a stale row for
+    # tape a fuse, hitch or reorder separated never airs and no synth of it can
+    # be required (ISSUES 151).
+    adjacent: set[tuple[str, str]] | None = None
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            order = [str(x) for x in ((sel or {}).get("ordered_segment_ids") or []) if x]
+            if order:
+                adjacent = set(zip(order, order[1:]))
+    except Exception:
+        adjacent = None
     for after_id, before_id in spoken_transition_pairs(ctx):
+        if adjacent is not None and (after_id, before_id) not in adjacent:
+            continue
         if resolve_transition_wav(ctx, after_id, before_id) is None:
             missing.append(f"{after_id}->{before_id}")
     return missing

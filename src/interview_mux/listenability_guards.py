@@ -189,6 +189,19 @@ def host_vo_coverage_ratio(ctx: RunContext, edl: dict[str, Any] | None = None) -
             for t in rows or []:
                 if isinstance(t, dict) and t.get("before_segment_id"):
                     covered.add(str(t["before_segment_id"]))
+    # Count parent families, not split children: an intro cut into eight
+    # pieces put eight uncovered entries in the denominator (2/24 on exec_017
+    # read below the floor; by family it is 2/10). A family counts as covered
+    # when any of its pieces is (ISSUES 166).
+    try:
+        from interview_mux.air_order_integrity import _parent_seg_id
+
+        families = {_parent_seg_id(s) for s in order}
+        covered_families = {_parent_seg_id(s) for s in covered if s in set(order)}
+        if families:
+            return len(covered_families) / len(families)
+    except Exception:
+        pass
     return len(covered) / len(order)
 
 

@@ -213,6 +213,48 @@ def opening_tape_segment_ids(
     return out
 
 
+def family_air_positions(order: list[str]) -> dict[str, int]:
+    """Air position of each id counted in parent families, not split children.
+
+    ``opening_body_start_index`` (3) means "the fourth thing on air". An intro
+    cut into eight letter children put its own fourth piece at index 3, so
+    transitions and bridges inside the intro read as landing on late opening
+    tape and were pruned or linted (exec_017, ISSUES 166). Every child takes
+    the position of its family's first appearance.
+    """
+    out: dict[str, int] = {}
+    family_pos: dict[str, int] = {}
+    for sid in order:
+        fam = _parent_seg_id(sid)
+        if fam not in family_pos:
+            family_pos[fam] = len(family_pos)
+        out[sid] = family_pos[fam]
+    return out
+
+
+def opening_tape_airs_late(speech: list[str], opening_ids: set[str]) -> bool:
+    """True when opening-window tape airs after the episode has moved on.
+
+    "Late" counts the non-opening speech clips already aired, not the raw clip
+    index. An intro cut into many short pieces fills the first quarter of the
+    clip list on its own; by index its last pieces read as "late" although the
+    episode opens with them in tape order (exec_017: seg_001d..k at indices
+    0-7 of 24 set cut_integrity to 0.5, below the catastrophic floor;
+    ISSUES 164). A cold-open hook before the intro stays allowed.
+    """
+    if not speech or not opening_ids:
+        return False
+    threshold = max(1, int(len(speech) * 0.25))
+    aired_elsewhere = 0
+    for sid in speech:
+        if sid in opening_ids:
+            if aired_elsewhere >= threshold:
+                return True
+        else:
+            aired_elsewhere += 1
+    return False
+
+
 def _guest_first_open_established(
     ordered: list[str],
     starts: dict[str, int],
@@ -424,7 +466,7 @@ def chapter_opening_mask_violations(
     chapters = selection.get("chapters") or []
     if not isinstance(chapters, list) or len(chapters) < 2:
         return []
-    pos = {sid: idx for idx, sid in enumerate(ordered)}
+    pos = family_air_positions(ordered)
     late_chapter_indices = set(range(max(0, len(chapters) // 2), len(chapters)))
     violations: list[dict[str, Any]] = []
     for ch_idx, ch in enumerate(chapters):
@@ -465,7 +507,10 @@ def collect_violations(
     if ctx.artifact_exists("understanding/reorder_bridges.json"):
         try:
             bridges = ctx.read_json("understanding/reorder_bridges.json")
-            for row in (bridges.get("bridges") if isinstance(bridges, dict) else []) or []:
+            # The file's key is "pairs"; "bridges" was never written, so every
+            # declared reorder pair was ignored (ISSUES 151).
+            rows = (bridges.get("pairs") or bridges.get("bridges")) if isinstance(bridges, dict) else []
+            for row in rows or []:
                 if not isinstance(row, dict):
                     continue
                 a = str(row.get("after_segment_id") or "")

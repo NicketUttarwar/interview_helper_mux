@@ -191,6 +191,24 @@ _VO_CONTRACT_STAGES = frozenset(
 )
 
 
+def _hosted_floor_due(ctx: RunContext, stage_id: str) -> bool:
+    """False in layup's own preflight before it has written a plan.
+
+    The floor judged the analysis-era body there, recorded identical failures
+    against a layup that had never run (exec_016: x3/3 halt=True before the
+    first layup call) and reseated lines layup then replaced (ISSUES 161).
+    Layup re-checks the floor after it publishes.
+    """
+    if stage_id != "nugget_layup_compose":
+        return True
+    try:
+        from interview_mux.nugget_layup import PLAN_REL
+
+        return bool(ctx.artifact_exists(PLAN_REL))
+    except Exception:
+        return True
+
+
 def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
     if stage_id not in _VO_CONTRACT_STAGES:
         return []
@@ -207,7 +225,8 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
         )
 
         repair_vo_contract_drift(ctx)
-        ensure_hosted_framing_vo_seats(ctx)
+        if _hosted_floor_due(ctx, stage_id):
+            ensure_hosted_framing_vo_seats(ctx)
     except Exception:
         pass
     violations = validate_vo_contract(ctx)
@@ -225,7 +244,8 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
         result = run_vo_contract_ladder(ctx, consumer_stage=stage_id)
         try:
             repair_vo_contract_drift(ctx)
-            ensure_hosted_framing_vo_seats(ctx)
+            if _hosted_floor_due(ctx, stage_id):
+                ensure_hosted_framing_vo_seats(ctx)
         except Exception:
             pass
         violations = validate_vo_contract(ctx)
@@ -849,7 +869,9 @@ def _check_edl_narrative_audit(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
-def compact_vo_coverage_stale_or_missing(ctx: RunContext) -> list[str]:
+def compact_vo_coverage_stale_or_missing(
+    ctx: RunContext, *, coverage: set[str] | None = None
+) -> list[str]:
     from interview_mux.air_script import seated_vo_line_ids
     from interview_mux.mastering_plan_loader import load_plan_raw
     from interview_mux.stages.edl_narrative_audit import compact_vo_coverage
@@ -867,7 +889,7 @@ def compact_vo_coverage_stale_or_missing(ctx: RunContext) -> list[str]:
             continue
         cov = str(row.get("coverage") or "")
         lid = str(row.get("line_id") or "")
-        if cov in {"missing", "wav_stale"} and (
+        if cov in (coverage or {"missing", "wav_stale"}) and (
             row.get("required") or (lid and lid in seated)
         ):
             missing.append(lid)

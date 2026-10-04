@@ -156,6 +156,41 @@ def _music_omitted_asset_ids(ctx: RunContext) -> set[str]:
     return out
 
 
+def qa_failures_that_block_mix(ctx: RunContext, asset_ids: set[str] | list[str]) -> set[str]:
+    """Of the QA-failed assets, those the mix will actually place.
+
+    QA analyzes every WAV in sound_design/assets. Remediation turns a cue that
+    still fails after its regen budget into ``skip_cue`` on purpose, and the cue
+    plan may no longer reference an asset at all; neither is mixed, and re-running
+    mmaudio_sfx cannot change its verdict, so refusing the mix on it repeats to
+    the cap (ISSUES 151). A placed asset that fails QA still blocks.
+    """
+    ids = {str(a) for a in asset_ids if a}
+    if not ids:
+        return set()
+    ids -= _music_omitted_asset_ids(ctx)
+    try:
+        from interview_mux.placement_qa import load_placement_adjustments
+
+        adj = load_placement_adjustments(ctx)
+        ids -= {
+            str(row.get("asset_id"))
+            for row in (adj.get("adjustments") or [])
+            if isinstance(row, dict) and str(row.get("action") or "") in {"skip", "skip_cue"}
+        }
+    except Exception:
+        pass
+    try:
+        from interview_mux.delivery_guardrails import referenced_musicgen_asset_ids
+
+        referenced = referenced_musicgen_asset_ids(ctx)
+        if referenced:
+            ids &= referenced
+    except Exception:
+        pass
+    return ids
+
+
 def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:
     rel = "sound_design/mmaudio_qa.json"
     if not ctx.artifact_exists(rel):
@@ -176,4 +211,4 @@ def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:
             continue
         if row.get("silence_detected") is True:
             out.add(aid)
-    return out
+    return qa_failures_that_block_mix(ctx, out)

@@ -37,6 +37,14 @@ def block_outbound_network(monkeypatch: pytest.MonkeyPatch, request: pytest.Fixt
 
 
 @pytest.fixture(autouse=True)
+def roomy_ram_for_musicgen(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    """Ladder tests describe the default machine; the low-RAM start is tested explicitly."""
+    if request.node.get_closest_marker("slow"):
+        return
+    monkeypatch.setattr("interview_mux.musicgen_runner.physical_ram_gb", lambda: 32.0)
+
+
+@pytest.fixture(autouse=True)
 def fast_gpu_abort_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unit tests must not pay the real 30s abort backoff between mocked runtimes."""
     monkeypatch.setenv("INTERVIEW_MUX_GPU_ABORT_BACKOFF_SEC", "0")

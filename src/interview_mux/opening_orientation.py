@@ -1053,7 +1053,32 @@ def retarget_orientation_to_open(
     write_kw: dict[str, Any] = {}
     if stage_now:
         write_kw["stage_key"] = stage_now
-    ctx.write_json("understanding/gap_report.json", updated, **write_kw)
+    # After nugget_layup_authority the body has one writer. Pointing the
+    # orientation at the current open relabels a target, like an id remap, so
+    # present the body owner with the integrity-only class (ISSUES 101 / 129).
+    # Unkeyed by owner the write passed write_permitted and then failed the
+    # sole-writer rule as an error-level authority denial (exec_014, ISSUES 153).
+    try:
+        from interview_mux.artifact_ownership import gap_report_body_owner
+
+        owner = str(gap_report_body_owner(gap) or "").strip()
+        if owner and owner != stage_now:
+            write_kw["stage_key"] = owner
+            write_kw["mutation_class"] = "segment_id_remap"
+    except Exception:
+        pass
+    try:
+        ctx.write_json("understanding/gap_report.json", updated, **write_kw)
+    except Exception as exc:
+        if "authority_denied" not in str(exc):
+            raise
+        ctx.log(
+            "orientation retarget: gap_report body owner refused the retarget — "
+            f"keeping it in memory ({str(exc)[:160]})",
+            level="info",
+            stage=stage_now or None,
+        )
+        return written
     written.append("understanding/gap_report.json")
 
     if ctx.artifact_exists("vo_pickup/synthesis_report.json"):

@@ -79,6 +79,18 @@ _OUTRO_REASON_TOKENS = (
     "direct listener",
     "contact the programme",
     "contact the program",
+    # exec_010: "post-roll/end-credit or corrupt fragments after the coherent
+    # close" was not read as an outro, so layup's selection need stayed blocking.
+    "post_roll",
+    "postroll",
+    "post roll",
+    "end_credit",
+    "end credit",
+    "closing_credit",
+    "closing credit",
+    "end card",
+    "after the coherent close",
+    "after the close",
 )
 _SELECTION_RERUN_STAGES = frozenset(
     {
@@ -111,6 +123,11 @@ _FRAGMENTARY_TAIL_TOKENS = (
     "empty/heavily degraded",
     "blank/heavily degraded",
     "empty, so no listener",
+    "corrupt fragment",
+    "corrupted fragment",
+    "garbled",
+    "unintelligible fragment",
+    "fragments after",
 )
 
 REASON = "media_ip_cta"
@@ -755,16 +772,45 @@ def is_lets_hear_hinge(text: str) -> bool:
     return any(p in key for p in _LETS_HEAR_RE)
 
 
+def _on_air_story_tokens(ctx: RunContext) -> set[str]:
+    """Tokens of the tape that airs: wording shared with it is story, not CTA."""
+    try:
+        if not ctx.artifact_exists("master/selection.json"):
+            return set()
+        sel = ctx.read_json("master/selection.json")
+        order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+    except Exception:
+        return set()
+    by_id = _segments_by_id(ctx)
+    out: set[str] = set()
+    for sid in order:
+        out |= _tokens(str((by_id.get(sid) or {}).get("text") or ""))
+    return out
+
+
 def air_overlaps_never_touch(ctx: RunContext, text: str, *, min_overlap: float = 0.45) -> bool:
-    """True when clone VO reuses dropped CTA wording (token overlap)."""
+    """True when clone VO reuses dropped CTA wording (token overlap).
+
+    Never-touch texts are whole segments, and a mixed CTA parent carries
+    minutes of story around the sponsor read. Only wording that does not also
+    air as story counts, or every story line on the parent's topic read as CTA
+    reuse (exec_015: a CTC layup overlapped seg_001's 650-token intro at 0.59
+    and layup QC refused it; ISSUES 157).
+    """
     air = _tokens(text)
     if len(air) < 4:
         return False
+    story = _on_air_story_tokens(ctx)
     for blob in never_touch_texts(ctx):
         other = _tokens(blob)
+        if story:
+            other = other - story
         if len(other) < 4:
             continue
-        if _overlap(air, other) >= min_overlap:
+        if story:
+            if len(air & other) / float(len(air)) >= min_overlap:
+                return True
+        elif _overlap(air, other) >= min_overlap:
             return True
     return False
 
@@ -1872,6 +1918,9 @@ def looks_like_orphaned_cta_scrap(text: str) -> bool:
         return True
     if _looks_like_degraded_signoff(raw):
         return True
+    if "\ufffd" in raw:
+        # Undecodable STT output (exec_010 seg_038k "usHS\ufffd bone…") is never story.
+        return True
     from interview_mux.homunculus.values import normalize_omit_text
 
     words = normalize_omit_text(raw).split()
@@ -1931,8 +1980,12 @@ def on_air_orphaned_cta_scrap_ids(
     except Exception:
         story = set()
     by_id = _segments_by_id(ctx)
+    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel)
     out: list[str] = []
     for sid in ordered:
+        if sid in tail:
+            out.append(sid)
+            continue
         if sid in story:
             continue
         if not any(_is_nle_child(sid, parent) for parent in parents if parent):
@@ -1942,6 +1995,83 @@ def on_air_orphaned_cta_scrap_ids(
             out.append(sid)
     return out
 
+
+def closing_outro_tail_segment_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
+    """On-air children of a tape-closing CTA parent after its excluded sponsor reads."""
+    sel = selection
+    if sel is None:
+        if not ctx.artifact_exists("master/selection.json"):
+            return set()
+        loaded = ctx.read_json("master/selection.json")
+        sel = loaded if isinstance(loaded, dict) else {}
+    if not isinstance(sel, dict):
+        return set()
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    parents = _cta_exclude_parent_ids(sel)
+    try:
+        parents |= never_touch_segment_ids(ctx)
+    except Exception:
+        pass
+    if not ordered or not parents:
+        return set()
+    return _closing_outro_tail_ids(_segments_by_id(ctx), ordered, parents, sel)
+
+
+def _split_suffix_key(sid: str, parent: str) -> tuple[int, str]:
+    suffix = str(sid)[len(str(parent)) :]
+    return (len(suffix), suffix)
+
+
+def _closing_outro_tail_ids(
+    by_id: dict[str, Any],
+    ordered: list[str],
+    parents: set[str],
+    selection: dict[str, Any],
+) -> set[str]:
+    """Children after the sponsor read in an excluded CTA parent that closes the tape.
+
+    A recut admits the non-CTA remainder of a CTA parent as story. When that
+    parent is the last thing on the tape, the remainder after the excluded
+    sponsor/credit reads is the sign-off and credits, not story (exec_010:
+    seg_038a-f excluded as media_ip_cta; g-k "The Life Sciences DNA.", "I'm
+    Daniel Levine. Thanks for joining us.", corrupt fragments stayed on air
+    and nugget_layup_compose refused them as post-roll on every attempt).
+    Excluded siblings are often gone from the live manifest, so they are read
+    from the selection and ordered by split suffix (a, b, ... aa).
+    """
+    ends = [int((row or {}).get("end_ms") or 0) for row in by_id.values() if isinstance(row, dict)]
+    if not ends:
+        return set()
+    tape_end = max(ends)
+    rationales = (
+        selection.get("exclude_rationales")
+        if isinstance(selection.get("exclude_rationales"), dict)
+        else {}
+    )
+    excluded: set[str] = set()
+    for row in selection.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+            reason = str(row.get("reason") or rationales.get(sid) or "")
+        else:
+            sid = str(row or "")
+            reason = str(rationales.get(sid) or "")
+        if sid and is_editorial_exclude_reason(reason):
+            excluded.add(sid)
+    out: set[str] = set()
+    roots = {p for p in parents if p and not any(_is_nle_child(p, q) for q in parents if q and q != p)}
+    for parent in roots:
+        on_air = [sid for sid in ordered if sid != parent and _is_nle_child(sid, parent)]
+        gone = [sid for sid in excluded if sid != parent and _is_nle_child(sid, parent)]
+        if not on_air or not gone:
+            continue
+        if tape_end - max(int((by_id.get(k) or {}).get("end_ms") or 0) for k in on_air) > 5000:
+            continue
+        last_gone = max(_split_suffix_key(k, parent) for k in gone)
+        out |= {k for k in on_air if _split_suffix_key(k, parent) > last_gone}
+    return out
 
 def _reverse_jump_keep_ids(reason: str) -> set[str]:
     """Air-order destinations named only as reverse-jump landings — do not omit."""

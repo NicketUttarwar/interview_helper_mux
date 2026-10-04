@@ -1184,6 +1184,9 @@ def build_flow1_edl(
     return {
         "version": 1,
         "ordered_segment_ids": air_ordered,
+        # Recorded so EDL QC can tell a deliberate unplayable omission from a
+        # mismatch when the selection commit of the drop was refused (ISSUES 151).
+        "omitted_unplayable_segment_ids": sorted(set(omitted_unplayable)),
         "clips": clips,
         "gap_placements": gap_placements,
         "timeline_duration_ms": timeline_ms,
@@ -1542,12 +1545,18 @@ def run_edl(ctx: RunContext) -> None:
                 else {"pairs": []}
             )
             skip_before = justified_skip_before_ids(ctx)
+            prior_edl = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
             missing = missing_reorder_bridges(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
                 gap_report=gap_report if isinstance(gap_report, dict) else None,
                 transitions=transitions if isinstance(transitions, dict) else None,
                 justified_skip_before_ids=skip_before,
+                edl=prior_edl if isinstance(prior_edl, dict) else None,
             )
+            from interview_mux.bridge_completeness import forbidden_bridge_pairs
+
+            forbidden = forbidden_bridge_pairs(ctx, missing)
+            missing = [m for m in missing if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
             if missing:
                 raise SystemExit(
                     "edl: bridge_completeness incomplete — resume transitions "

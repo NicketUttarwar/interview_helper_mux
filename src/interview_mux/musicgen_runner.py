@@ -26,6 +26,14 @@ class MusicGenUnavailable(RuntimeError):
     """MusicGen venv/model not available."""
 
 
+def physical_ram_gb() -> float:
+    """Installed RAM in GiB (unified memory on Apple Silicon); 0 when unknown."""
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / float(1 << 30)
+    except (ValueError, OSError, AttributeError):
+        return 0.0
+
+
 def musicgen_cfg() -> dict[str, Any]:
     cfg = merged_config().get("musicgen") or {}
     return cfg if isinstance(cfg, dict) else {}
@@ -796,6 +804,15 @@ def generate_music_clip(
 
         # Model ladder: configured primary → medium → small; same prompt + planned duration.
         primary = str(model_id or "facebook/musicgen-large")
+        ram_gb = physical_ram_gb()
+        low_ram = 0.0 < ram_gb < float(musicgen_cfg().get("large_min_ram_gb") or 12.0)
+        if "large" in primary and low_ram:
+            # A large checkpoint does not fit unified memory on an 8 GB Mac: each
+            # stem thrashed swap until the hang timeout, one stem sat 80 minutes
+            # in uninterruptible wait, and disk fell to 257 MB under swap
+            # (exec_011, ISSUES 149). Start the ladder where it would end up.
+            meta["musicgen_large_skipped_low_ram_gb"] = round(ram_gb, 1)
+            primary = "facebook/musicgen-medium"
         ladder_models: list[str] = [primary]
         for lighter in ("facebook/musicgen-medium", "facebook/musicgen-small"):
             if lighter != primary and lighter not in ladder_models:
@@ -821,7 +838,8 @@ def generate_music_clip(
                     "mid": mid,
                     "seconds": step_seconds,
                     "text": prompt,
-                    "melody": i == 0,
+                    # Melody conditioning loads musicgen-melody-large: same footprint.
+                    "melody": i == 0 and not low_ram,
                     "step": f"ladder_{step_name}",
                     "step_timeout": timeout if i == 0 else step_down_timeout,
                     "attempt": i + 1,

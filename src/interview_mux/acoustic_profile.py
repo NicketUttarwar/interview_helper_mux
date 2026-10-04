@@ -128,7 +128,8 @@ def mix_contract(ctx: RunContext) -> dict[str, Any]:
     if raw.get("underscore_policy"):
         out["underscore_policy"] = str(raw["underscore_policy"])
     if raw.get("stinger_max_per_minute") is not None:
-        out["stinger_max_per_minute"] = int(raw["stinger_max_per_minute"])
+        # A rate, not a count: int() turned 0.4/min into 0 (ISSUES 165).
+        out["stinger_max_per_minute"] = float(raw["stinger_max_per_minute"])
     if raw.get("bed_level_db_range") is not None:
         out["bed_level_db_range"] = raw["bed_level_db_range"]
     if raw.get("midrange_policy") is not None:

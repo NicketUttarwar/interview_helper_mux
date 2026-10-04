@@ -91,10 +91,10 @@ def _late_opening_native_in_edl_ok(ctx: RunContext) -> bool:
         }
         if not opening_ids:
             return True
-        threshold = max(1, int(len(speech) * 0.25))
-        for idx, sid in enumerate(speech):
-            if sid in opening_ids and idx >= threshold:
-                return False
+        from interview_mux.air_order_integrity import opening_tape_airs_late
+
+        if opening_tape_airs_late(speech, opening_ids):
+            return False
     except Exception:
         return True
     return True

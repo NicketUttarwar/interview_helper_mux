@@ -873,7 +873,9 @@ def run_transitions(ctx: RunContext) -> None:
             sel = c.read_json("master/selection.json")
             if isinstance(sel, dict):
                 sel_order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
-        pos = {sid: idx for idx, sid in enumerate(sel_order)}
+        from interview_mux.air_order_integrity import family_air_positions
+
+        pos = family_air_positions(sel_order)
         opening_ids = opening_tape_segment_ids(sel_order, starts) if sel_order else set()
         margin = reverse_jump_margin_ms(ctx=c)
         body_start = opening_body_start_index(ctx=c)

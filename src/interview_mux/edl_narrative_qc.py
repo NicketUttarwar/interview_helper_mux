@@ -153,7 +153,9 @@ def _validate_vo_after_legal_hinge(
         # can satisfy the demand then, so it is a warning, not a stop
         # (ISSUES entry 59). A reachable close still makes it an error,
         # because the EDL build extends or trims to it.
-        if words and end_ms is not None and not _hinge_reachable(speech, words, end_ms):
+        if words and end_ms is not None and not _hinge_reachable(
+            speech, words, end_ms, _extension_horizon_ms(edl, end_ms)
+        ):
             try:
                 ctx.log(
                     f'{ctype} after "{after}": source never completes the thought '
@@ -170,8 +172,18 @@ def _validate_vo_after_legal_hinge(
         )
 
 
-def _hinge_reachable(speech: dict[str, Any], words: list[dict[str, Any]], end_ms: int) -> bool:
-    """True when a QC-legal close exists inside the clip or shortly after it."""
+def _hinge_reachable(
+    speech: dict[str, Any],
+    words: list[dict[str, Any]],
+    end_ms: int,
+    horizon_ms: int | None = None,
+) -> bool:
+    """True when a QC-legal close exists inside the clip or shortly after it.
+
+    ``horizon_ms`` is where the EDL builder must stop extending (40 ms before
+    the next on-air tape): a close beyond it is not reachable, so demanding it
+    asks an edl rebuild for a cut it is not allowed to make (ISSUES 151).
+    """
     try:
         start = int(speech.get("source_start_ms") or 0)
     except (TypeError, ValueError):
@@ -179,7 +191,21 @@ def _hinge_reachable(speech: dict[str, Any], words: list[dict[str, Any]], end_ms
     lo = max(start, end_ms - HINGE_SEARCH_MS)
     if first_qc_hinge_between(words, lo, end_ms - 1) is not None:
         return True
-    return first_qc_hinge_between(words, end_ms, end_ms + HINGE_SEARCH_MS) is not None
+    hi = end_ms + HINGE_SEARCH_MS
+    if horizon_ms is not None:
+        hi = min(hi, horizon_ms)
+    if hi <= end_ms:
+        return False
+    return first_qc_hinge_between(words, end_ms, hi) is not None
+
+
+def _extension_horizon_ms(edl: dict[str, Any], end_ms: int) -> int | None:
+    starts = [
+        int(c.get("source_start_ms") or 0)
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "speech" and int(c.get("source_start_ms") or 0) >= end_ms
+    ]
+    return (min(starts) - 40) if starts else None
 
 
 def _speech_order(edl: dict[str, Any]) -> list[str]:
@@ -236,8 +262,12 @@ def _validate_selection_parity(
     selection: dict[str, Any],
     speech: list[str],
     errors: list[str],
+    edl: dict[str, Any] | None = None,
 ) -> None:
     selected = _id_list(selection.get("ordered_segment_ids"))
+    omitted = set(_id_list((edl or {}).get("omitted_unplayable_segment_ids")))
+    if omitted:
+        selected = [sid for sid in selected if sid not in omitted]
     if selected and speech != selected:
         errors.append(
             "master/edl.json: speech clips do not match final selection "
@@ -315,6 +345,9 @@ def _validate_chapter_continuity(
             )
         chapter_ranges.append((idxs[0], idxs[-1], label))
 
+    # Compare chapters in air order, not list order: disjoint contiguous
+    # chapters listed out of order read as "overlap" (ISSUES 151).
+    chapter_ranges.sort(key=lambda row: row[0])
     for i in range(len(chapter_ranges) - 1):
         _, end_a, label_a = chapter_ranges[i]
         start_b, _, label_b = chapter_ranges[i + 1]
@@ -444,12 +477,11 @@ def _validate_transitions(
                 f'master/edl.json: missing transition clip between "{after}" '
                 f'and "{before}" from transitions.json. Re-run edl.'
             )
-        elif pair not in adjacency and after in speech and before in speech:
-            errors.append(
-                f'master/transitions.json: transition "{after}" -> "{before}" '
-                "does not match adjacent final EDL speech order. Re-run transitions "
-                "after full_master_ranking/NLE edits."
-            )
+        # A planned pair that is no longer adjacent never airs: the builder seats
+        # only adjacent pairs and the loop below still refuses any non-adjacent
+        # transition clip. Refusing the stale row asked for a transitions rerun
+        # that the seat freeze skips, so edl rebuilt the same cut to the cap
+        # (ISSUES 151).
 
     for pair in edl_transition_pairs:
         if pair not in adjacency:
@@ -510,11 +542,22 @@ def _validate_framing_before_impact(
         return
     timeline = _clip_timeline_index(edl)
     speech_positions = {sid: idx for idx, sid in enumerate(speech)}
+    # Position = (timeline start, clip index): a zero-length VO shares its start
+    # with the speech it precedes, and the clip list order breaks the tie.
+    def _pos(clip: dict[str, Any]) -> tuple[int, int]:
+        return (int(clip.get("timeline_start_ms") or 0), clip_index.get(id(clip), 0))
+
+    clip_index = {id(c): i for i, c in enumerate(c for c in (edl.get("clips") or []) if isinstance(c, dict))}
     vo_by_line = {
-        _as_id(c.get("line_id")): int(c.get("timeline_start_ms") or 0)
+        _as_id(c.get("line_id")): _pos(c)
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
     }
+    vo_targets = [
+        (_as_id(c.get("targets_segment_id")), _pos(c))
+        for _, c in timeline
+        if c.get("type") == "vo_pickup" and _as_id(c.get("targets_segment_id"))
+    ]
     # Only enforce framing ids that still exist in the committed gap_report
     # AND that air-script actually seated (EDL omits the rest).
     live_line_ids: set[str] = set()
@@ -569,9 +612,12 @@ def _validate_framing_before_impact(
             primaries = [str(s) for s in (block.get("source_segment_ids") or []) if s]
             if not primaries:
                 continue
-            primary = primaries[0]
-            if primary not in speech_positions:
+            # The block opens at whichever member airs first: ranking may reorder
+            # a block (client exec_015: seg_007 aired before seg_006).
+            on_air = [sid for sid in primaries if sid in speech_positions]
+            if not on_air:
                 continue
+            primary = min(on_air, key=lambda sid: speech_positions[sid])
             framing_ids = [
                 _as_id(lid)
                 for lid in (block.get("framing_line_ids") or [])
@@ -585,12 +631,18 @@ def _validate_framing_before_impact(
             if not framing_ids:
                 continue
             speech_ms = next(
-                (int(c.get("timeline_start_ms") or 0) for _, c in timeline if c.get("type") == "speech" and _as_id(c.get("segment_id")) == primary),
+                (_pos(c) for _, c in timeline if c.get("type") == "speech" and _as_id(c.get("segment_id")) == primary),
                 None,
             )
             if speech_ms is None:
                 continue
             preceding = [vo_by_line[lid] for lid in framing_ids if lid in vo_by_line and vo_by_line[lid] < speech_ms]
+            if not preceding:
+                # The framing that airs may carry another id than the compose-era
+                # plan names (layup owns the body after its authority stamp): a
+                # seated VO for a block member that airs before the block frames it.
+                members = set(on_air)
+                preceding = [ms for tgt, ms in vo_targets if tgt in members and ms < speech_ms]
             if not preceding:
                 from interview_mux.stage_completion import high_gap_heal_resume_stage
 
@@ -762,8 +814,20 @@ def _validate_gap_placements(
     from interview_mux.spoken_copy_guard import sentence_keys
 
     seen_sentence_owners: dict[str, str] = {}
+    # Only lines that air can collide on air. The builder already refuses a
+    # repeat among the lines it seats; a line that is omitted, not record or
+    # synthesize, or absent from the EDL never speaks (ISSUES 151).
+    aired_ids = {
+        _as_id(c.get("line_id"))
+        for c in clips
+        if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
+    }
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        if line.get("air_script_omit") or str(line.get("delivery") or "") not in {"record", "synthesize"}:
+            continue
+        if aired_ids and _as_id(line.get("line_id")) not in aired_ids:
             continue
         lid = _as_id(line.get("line_id")) or _as_id(line.get("targets_segment_id")) or "?"
         for key in sentence_keys(str(line.get("text") or "")):
@@ -832,9 +896,21 @@ def _validate_clone_voice_adjacency(
         for clip in (edl.get("clips") or [])
         if isinstance(clip, dict) and clip.get("type") != "silence"
     ]
+    # The builder keeps a seam when the acoustic listen says the voices differ
+    # even though the speaker ids match; refusing it on id equality alone asks
+    # an EDL rebuild to undo the builder's own verified decision (ISSUES 151).
+    warnings = edl.get("warnings") if isinstance(edl.get("warnings"), dict) else {}
+    kept_by_listen = {str(k) for k in (warnings.get("clone_adjacency_id_mismatch_kept") or []) if k}
     for index, clip in enumerate(audible):
         clip_type = str(clip.get("type") or "")
         if clip_type not in {"vo_pickup", "transition"}:
+            continue
+        seam_key = (
+            _as_id(clip.get("line_id"))
+            if clip_type == "vo_pickup"
+            else f"transition:{_as_id(clip.get('after_segment_id'))}->{_as_id(clip.get('before_segment_id'))}"
+        )
+        if seam_key and seam_key in kept_by_listen:
             continue
         line = lines.get(_as_id(clip.get("line_id"))) if clip_type == "vo_pickup" else None
         voice = _as_id(clip.get("voice_speaker_id") or (line or {}).get("voice_speaker_id"))
@@ -985,7 +1061,7 @@ def validate_flow1_edl_narrative(
     if not speech:
         return ["master/edl.json: no speech clips available for narrative validation"]
 
-    _validate_selection_parity(selection, speech, errors)
+    _validate_selection_parity(selection, speech, errors, edl)
     _validate_coverage_survives_edl(coverage, speech, errors)
     _validate_chapter_continuity(selection, speech, errors)
     _validate_ordering_constraints(narrative_plan, speech, errors)
@@ -1021,7 +1097,12 @@ def _validate_single_synthetic_between_natives(
         }:
             run.append(audible[i])
             i += 1
-        if len(run) <= 1:
+        # The episode orientation is an opening preface the builder seats beside
+        # the first segment's own VO (straight open, or a cold open's deferred
+        # hook line); it is not a second insert at a mid-episode seam.
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        if len([c for c in run if not is_episode_orientation(c)]) <= 1:
             continue
         labels: list[str] = []
         for clip in run:

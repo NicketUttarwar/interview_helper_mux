@@ -304,7 +304,12 @@ def test_hg5_recovery_resumes_layup_when_claimed_air_missing(ctx: RunContext) ->
 
 
 def test_hg5_recovery_empty_plan_pins_framing(ctx: RunContext) -> None:
-    """S5: plan-on-disk with no claimed air stays framing."""
+    """With layup authority stamped and a plan on disk, compose cannot write the body.
+
+    ISSUES 158 (exec_015): pinning compose here looped authority_denied
+    (gap_body_sole_writer) to the invoke cap. Layup is the only writer that can
+    land the floor, so it is the pin.
+    """
     ctx.write_json(
         "understanding/nugget_layup_plan.json",
         {"ordered_segment_ids": ["seg_001"], "layups": []},
@@ -320,8 +325,11 @@ def test_hg5_recovery_empty_plan_pins_framing(ctx: RunContext) -> None:
         minimal_gap_evaluations(_HIGH_EVAL),
         skip_handoff=True,
     )
+    assert high_gap_heal_resume_stage(ctx) == "nugget_layup_compose"
     result = handle_stage_failure(ctx, "gap_framing_compose", RuntimeError(_HIGH_ERR))
-    assert result.resume_stage == "gap_framing_compose"
+    # The walk resumes at layup's seed front (its prerequisites run first), never
+    # at compose, which the sole-writer rule refuses.
+    assert result.resume_stage != "gap_framing_compose"
     assert result.playbook_id == "high_gap_unframed"
 
 

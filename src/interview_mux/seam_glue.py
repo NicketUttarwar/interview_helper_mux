@@ -827,6 +827,12 @@ def ensure_seam_glue(
         justified_skip_before_ids=justified_skip_before,
         edl=edl if isinstance(edl, dict) else None,
     )
+    from interview_mux.bridge_completeness import forbidden_bridge_pairs
+
+    forbidden = forbidden_bridge_pairs(ctx, missing)
+    missing = [
+        m for m in missing if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden
+    ]
     transitions_doc = transitions if isinstance(transitions, dict) else {"transitions": []}
     if missing:
         transitions_doc = mint_missing_transitions(

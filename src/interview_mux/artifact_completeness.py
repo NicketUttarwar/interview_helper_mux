@@ -550,14 +550,19 @@ def timeline_ready_for_gui(ctx: RunContext) -> bool:
     segments = manifest.get("segments")
     return isinstance(segments, list) and len(segments) > 0
 
-def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+def _deep_merge(
+    base: dict[str, Any], patch: dict[str, Any], *, replace_lists: bool = False
+) -> dict[str, Any]:
     out = copy.deepcopy(base)
     for key, val in patch.items():
         if val is None:
             continue
         if key in out and isinstance(out[key], dict) and isinstance(val, dict):
-            out[key] = _deep_merge(out[key], val)
+            out[key] = _deep_merge(out[key], val, replace_lists=replace_lists)
         elif key in out and isinstance(out[key], list) and isinstance(val, list):
+            if replace_lists:
+                out[key] = copy.deepcopy(val)
+                continue
             if not val:
                 continue
             if key in ("themes", "major_questions", "entities", "hypotheses", "open_questions"):
@@ -580,11 +585,28 @@ def merge_artifact(
     *,
     stage_key: str | None = None,
     preserve_operator: bool = True,
+    replace_lists: bool = False,
+    full_replace: bool = False,
 ) -> dict[str, Any]:
+    """Merge a patch over the on-disk doc.
+
+    ``replace_lists``: a stage's fresh output is complete, so its lists (an
+    empty one included) replace the disk lists instead of being unioned with
+    them. ``full_replace``: the doc is a single-owner judgement; only ``_meta``
+    survives from disk. See ISSUES 162.
+    """
     if not existing:
         return copy.deepcopy(patch)
     if not patch:
         return copy.deepcopy(existing)
+    if full_replace:
+        out = copy.deepcopy(patch)
+        if isinstance(existing.get("_meta"), dict):
+            meta = copy.deepcopy(existing["_meta"])
+            if isinstance(patch.get("_meta"), dict):
+                meta = _deep_merge(meta, patch["_meta"])
+            out["_meta"] = meta
+        return out
 
     if rel_path == "understanding/analysis_state.json" and preserve_operator:
         verified = bool((existing.get("meta") or {}).get("operator_verified"))
@@ -607,7 +629,7 @@ def merge_artifact(
         return {**existing, "segments": merged_segments}
 
     if rel_path == "understanding/sound_design_plan.json":
-        return _deep_merge(existing, patch)
+        return _deep_merge(existing, patch, replace_lists=replace_lists)
 
     if rel_path == "understanding/speakers.json" and "speakers" in patch:
         ex_by_id: dict[str, dict[str, Any]] = {}
@@ -623,7 +645,7 @@ def merge_artifact(
                     ex_by_id[sid] = copy.deepcopy(sp)
         return {**existing, "speakers": list(ex_by_id.values())}
 
-    return _deep_merge(existing, patch)
+    return _deep_merge(existing, patch, replace_lists=replace_lists)
 
 def _kept_split_child_ids(
     ctx: RunContext,
@@ -914,13 +936,43 @@ def preferred_fill_stage(rel_path: str, ctx: RunContext) -> str | None:
         return "content_context"
     return keys[-1] if ctx.is_done(keys[-1]) else keys[0]
 
+#: Single-owner verdict reports: a new pass replaces the old one wholesale
+#: (only ``_meta`` carries over), so a cleared complaint or a stale repair note
+#: cannot survive a re-audit (exec_016, ISSUES 162).
+FULL_REPLACE_STAGE_ARTIFACTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("master/edl_narrative_audit.json", "edl_narrative_audit"),
+        ("master/coverage_audit.json", "topic_coverage_audit"),
+    }
+)
+
+#: Persists that keep the list union. boundary_topic_resplit shares
+#: boundaries.json with boundary_detection and has no row floor yet, so a reply
+#: carrying only the split rows must not drop the untouched ones.
+UNION_LIST_STAGE_ARTIFACTS: frozenset[tuple[str, str]] = frozenset(
+    {("segments/boundaries.json", "boundary_topic_resplit")}
+)
+
+
 def make_stage_persist(
     rel_path: str,
     stage_key: str,
     *,
     transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> Callable[[RunContext, dict[str, Any]], None]:
+    """Persist one attempt's complete output over the on-disk doc.
+
+    Lists from the attempt replace the disk lists. The union used to keep a
+    failed attempt's chapters next to the retry's (two ch_05 in one
+    narrative plan) and a cleared audit complaint next to the re-audit that
+    cleared it, so the verdict stayed "fail" and the commit barrier refused
+    every pass to the thrash cap (exec_016, ISSUES 162).
+    """
     from interview_mux.artifact_writes import write_validated_artifact
+
+    key = (rel_path, stage_key)
+    full_replace = key in FULL_REPLACE_STAGE_ARTIFACTS
+    replace_lists = key not in UNION_LIST_STAGE_ARTIFACTS
 
     def persist(ctx: RunContext, artifacts: dict[str, Any]) -> None:
         data = transform(artifacts) if transform else artifacts
@@ -930,6 +982,8 @@ def make_stage_persist(
             data,
             merge_from_disk=True,
             stage_key=stage_key,
+            replace_lists=replace_lists,
+            full_replace=full_replace,
         )
 
     return persist

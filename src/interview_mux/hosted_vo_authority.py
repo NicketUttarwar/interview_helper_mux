@@ -746,7 +746,12 @@ def seed_walk_pin_for_hollow_hosted_vo(ctx: RunContext, stage: str) -> str:
 def resume_producer(ctx: RunContext, *, stage_id: str | None = None) -> str:
     sid = str(stage_id or "").strip()
     if sid in {"nugget_layup_compose", "gap_framing_compose"}:
-        return sid
+        try:
+            from interview_mux.stage_completion import writable_gap_body_stage
+
+            return writable_gap_body_stage(ctx, sid)
+        except Exception:
+            return sid
     try:
         from interview_mux.stage_completion import high_gap_heal_resume_stage
 

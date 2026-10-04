@@ -625,7 +625,7 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
             except Exception:
                 pass
             return None
-        resume = snap.resume_producer or high_gap_heal_resume_stage(ctx)
+        resume = writable_gap_body_stage(ctx, snap.resume_producer or high_gap_heal_resume_stage(ctx))
         if resume == "nugget_layup_compose":
             return (
                 "hosted_vo_floor_unmet — resume nugget_layup_compose: "
@@ -648,7 +648,7 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
         except Exception:
             pass
         return None
-    resume = snap.resume_producer or high_gap_heal_resume_stage(ctx)
+    resume = writable_gap_body_stage(ctx, snap.resume_producer or high_gap_heal_resume_stage(ctx))
     if resume == "nugget_layup_compose":
         return (
             "hosted_vo_floor_unmet — resume nugget_layup_compose: "
@@ -2146,12 +2146,21 @@ def stage_artifact_incompleteness(
                 else None
             )
             tr = ctx.read_json("master/transitions.json")
+            # Same inputs as the mint (seam_glue passes the live EDL): hitch air
+            # already seated covers its pair, or the mint skips it and this
+            # check demands it forever (ISSUES 151).
+            edl_doc = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
             miss = missing_reorder_bridges(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
                 gap_report=gap if isinstance(gap, dict) else None,
                 transitions=tr if isinstance(tr, dict) else None,
                 justified_skip_before_ids=justified_skip_before_ids(ctx),
+                edl=edl_doc if isinstance(edl_doc, dict) else None,
             )
+            from interview_mux.bridge_completeness import forbidden_bridge_pairs
+
+            forbidden = forbidden_bridge_pairs(ctx, miss)
+            miss = [m for m in miss if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
             if miss:
                 return (
                     "bridge_completeness incomplete — resume transitions "
@@ -3140,6 +3149,35 @@ def pass2_gap_heal_resume_stage(
     return None
 
 
+def layup_owns_gap_body(ctx: RunContext | None) -> bool:
+    """True when only nugget_layup_compose may write the gap report body and it can run.
+
+    After ``nugget_layup_authority`` the sole-writer rule refuses compose, so a
+    resume pinned there loops authority_denied to the invoke cap (exec_015,
+    ISSUES 158). With a layup plan on disk layup can run; an orphan stamp
+    without a plan keeps the compose pin by design (HG-5).
+    """
+    if ctx is None:
+        return False
+    try:
+        from interview_mux.artifact_ownership import gap_report_body_owner
+        from interview_mux.nugget_layup import PLAN_REL
+
+        if not (ctx.artifact_exists("understanding/gap_report.json") and ctx.artifact_exists(PLAN_REL)):
+            return False
+        prior = ctx.read_json("understanding/gap_report.json")
+        return gap_report_body_owner(prior) == "nugget_layup_compose"
+    except Exception:
+        return False
+
+
+def writable_gap_body_stage(ctx: RunContext | None, candidate: str) -> str:
+    """Map a gap-body resume pin to a stage the sole-writer rule will let write."""
+    if str(candidate or "").strip() == "gap_framing_compose" and layup_owns_gap_body(ctx):
+        return "nugget_layup_compose"
+    return candidate
+
+
 def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
     """S5: pin framing unless layup claimed air for a still-missing high-gap line.
 
@@ -3157,6 +3195,8 @@ def high_gap_heal_resume_stage(ctx: RunContext | None = None) -> str:
 
         if not nugget_layup_enabled():
             return "gap_framing_compose"
+        if layup_owns_gap_body(ctx):
+            return "nugget_layup_compose"
         if ctx.artifact_exists(PLAN_REL):
             try:
                 if layup_claimed_air_missing_high_gap(ctx):

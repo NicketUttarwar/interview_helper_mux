@@ -88,13 +88,6 @@ def _lost_runs(
     ]
 
 
-def _gap_around(start: int, end: int, new: list[tuple[int, int]]) -> tuple[int, int]:
-    """The free interval of the new map that contains [start, end)."""
-    lo = max((b for a, b in new if b <= start), default=0)
-    hi = min((a for a, b in new if a >= end), default=end)
-    return lo, max(hi, end)
-
-
 def preserve_speech_coverage(
     ctx: Any, doc: dict[str, Any], *, writer: str
 ) -> dict[str, Any]:
@@ -117,33 +110,48 @@ def preserve_speech_coverage(
         return doc
 
     rows = [dict(r) for r in (doc.get("boundaries") or []) if isinstance(r, dict)]
-    by_id = {str(r.get("segment_id") or ""): r for r in rows}
     restored: list[dict[str, Any]] = []
     for run_start, run_end in lost:
-        gap_lo, gap_hi = _gap_around(run_start, run_end, new_spans)  # type: ignore[arg-type]
-        for old in old_rows:
-            a, b = _span(old)  # type: ignore[misc]
-            if b <= run_start or a >= run_end:
-                continue
-            sid = str(old.get("segment_id") or "")
-            live = by_id.get(sid)
-            if live is not None:
-                ls, le = _span(live) or (a, b)
-                # Widen the surviving row back over its own source span, inside the gap.
-                live["start_ms"] = min(ls, max(a, gap_lo))
-                live["end_ms"] = max(le, min(b, gap_hi))
-                restored.append({"segment_id": sid, "action": "widened", "start_ms": live["start_ms"], "end_ms": live["end_ms"]})
-            else:
-                row = dict(old)
-                row["start_ms"] = max(a, gap_lo)
-                row["end_ms"] = min(b, gap_hi)
-                if row["end_ms"] <= row["start_ms"]:
-                    continue
-                row["coverage_restored"] = True
-                rows.append(row)
-                by_id[sid] = row
-                restored.append({"segment_id": sid, "action": "restored", "start_ms": row["start_ms"], "end_ms": row["end_ms"]})
-        new_spans = [s for s in (_span(r) for r in rows) if s]
+        spans = [(_span(r), r) for r in rows if _span(r)]
+        before = [(sp, r) for sp, r in spans if sp[1] <= run_start]
+        after = [(sp, r) for sp, r in spans if sp[0] >= run_end]
+        prev = max(before, key=lambda x: x[0][1]) if before else None
+        nxt = min(after, key=lambda x: x[0][0]) if after else None
+        gap_lo = prev[0][1] if prev else 0
+        gap_hi = nxt[0][0] if nxt else run_end
+        # Only a row that borders the gap may grow, and only inside the gap, so
+        # order and non-overlap hold whatever the writer renumbered. Ids are not
+        # matched across the rewrite: a resplit reuses them for other tape
+        # (exec_009: matching by id widened seg_032 over eleven rows).
+        covered_before = {
+            str(o.get("segment_id") or "")
+            for o in old_rows
+            if (_span(o) or (0, 0))[1] > run_start and (_span(o) or (0, 0))[0] < run_end
+        }
+        pick = None
+        if nxt and str(nxt[1].get("segment_id") or "") in covered_before:
+            pick = ("start", nxt[1])
+        elif prev and str(prev[1].get("segment_id") or "") in covered_before:
+            pick = ("end", prev[1])
+        elif prev:
+            pick = ("end", prev[1])
+        elif nxt:
+            pick = ("start", nxt[1])
+        if pick is None:
+            continue
+        side, row = pick
+        if side == "start":
+            row["start_ms"] = max(gap_lo, min(int(row["start_ms"]), run_start))
+        else:
+            row["end_ms"] = min(gap_hi, max(int(row["end_ms"]), run_end))
+        restored.append(
+            {
+                "segment_id": row.get("segment_id"),
+                "action": f"extended_{side}",
+                "start_ms": row["start_ms"],
+                "end_ms": row["end_ms"],
+            }
+        )
     if not restored:
         return doc
     rows.sort(key=lambda r: int(r.get("start_ms") or 0))

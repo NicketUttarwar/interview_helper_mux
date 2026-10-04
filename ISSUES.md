@@ -4896,6 +4896,18 @@ on the unfixed code with the trimmed span, `(340000, 400000)` instead of
 `(100000, 400000)`. The two any-writer tests (narrowed row, dropped row) fail
 without the guard.
 
+
+**Correction (exec_009):** the first version of the guard matched rows by
+`segment_id` across the rewrite. A resplit renumbers segments, so the new
+`seg_032` (1387-1491 s) was widened to the old `seg_032`'s end (1769 s). That
+overlapped eleven rows, and the nested re-classification failed with
+`boundary timeline invalid: manifest times not monotonic at seg_033`. The
+guard no longer matches ids. For each stretch of lost speech, it extends only
+the row bordering the gap, and only inside the gap. It prefers a bordering row
+that covered that speech before, otherwise the row before the gap (or the row
+after it at the start of the tape). Order and non-overlap hold for any
+renumbering writer, and no ids are created. Test:
+`test_a_renumbering_writer_never_gets_overlapping_rows`.
 ---
 
 ## [143] PRODUCT: the boundary quality gate judged the hitch's editorial keeper map as source segmentation, so pass or fail depended on how much the ideal cuts dropped (macOS exec_006, 007, 008)
@@ -5048,6 +5060,768 @@ progress tokens are unchanged, which is always true after a network outage.
   ones.
 
 Tests: `tests/test_transient_failure_retries.py` (5).
+
+---
+
+## [147] PRODUCT: the sponsor-outro tail of the closing segment stayed on air as "story", layup refused it as post-roll, and its high-salience recovery landed on never-touch targets (macOS exec_010, step 47)
+
+**Stage / area:** `media_ip_cta.on_air_orphaned_cta_scrap_ids`,
+`media_ip_cta.is_selection_cta_omit_need` (reason vocabulary),
+`nugget_layup.recover_open_high_salience_nuggets`,
+`stages/analysis_extended.run_nugget_layup_compose` (persist)
+**Status:** FIXED
+
+**Seen:** run 10 reached `nugget_layup_compose` (step 47) and failed twice.
+1. The model answered `status=partial` with a blocking need: "Remove
+   seg_038g … seg_038k from the locked air order. They are
+   post-roll/end-credit or corrupt fragments after the coherent close in
+   seg_037".
+2. On the retry: `open_high_salience_nuggets=['nug_003', 'nug_011']`.
+
+**Chain:**
+1. `seg_038` (sponsor read and credits) closes the tape. The recut excluded
+   `seg_038a-f` as `media_ip_cta` and admitted the remainder `g-k` as story:
+   "The Life Sciences DNA.", "I'm Daniel Levine. Thanks for joining us.", and
+   undecodable fragments.
+2. `on_air_orphaned_cta_scrap_ids` skips anything admitted as story, and its
+   text check missed four of the five. The excluded siblings are gone from the
+   live manifest, so position could not be judged from it either.
+3. Layup's selection need was meant to become a host-executed CTA omit
+   (`llm_simple` demotes such needs). But `is_editorial_exclude_reason`
+   matched neither "post-roll", "end-credit" nor "corrupt fragments", so the
+   need stayed blocking.
+4. On the retry, `recover_open_high_salience_nuggets` placed `nug_003` and
+   `nug_011` on rows targeting `seg_007` and `seg_032`, which are never-touch
+   CTA segments. Persist prep re-skipped those rows, the nuggets reopened, and
+   QC refused after the orientation-park step had already passed.
+
+**Fix:**
+- **Closing outro tail:** for an excluded CTA parent that closes the tape, its
+  on-air children after the last editorially excluded sibling are scraps even
+  when admitted as story. Excluded siblings are read from the selection and
+  ordered by split suffix. A CTA parent mid-tape keeps its story children.
+- Undecodable STT text (`U+FFFD`) is a scrap.
+- The outro vocabulary covers post-roll, end credit, closing credit, end card
+  and "after the close". The fragment vocabulary covers corrupt, garbled and
+  unintelligible fragments. Budget-type reasons stay non-editorial.
+- High-salience recovery never targets never-touch CTA segments.
+- After persist prep, if open high-salience nuggets are the only QC errors,
+  they are parked on the orientation before the stage would refuse.
+
+Tests: `tests/test_closing_outro_tail.py` (4; three fail on the unfixed code).
+
+---
+
+## [148] PRODUCT: the keep-list transfer protected the closing outro tail, so removal_authority refused its omit on every pass (macOS exec_011)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids` (parent-keep transfer),
+`removal_authority.refuse_selection_removals`,
+`media_ip_cta.closing_outro_tail_segment_ids`
+**Status:** FIXED
+
+**Seen:** run 11 passed step 47. Entry 147's rule found the closing outro tail
+(`seg_032g-k`, credits and fragments after the sponsor read), but every omit
+logged `removal_authority: refused to take must-air segment(s) off the order:
+seg_032g … seg_032k (producer=media_ip_cta.orphaned_cta_child_omit)`. The
+episode ended on the outro.
+
+**Cause:** `seg_032` is a must-keep CTA parent. Its keep transfers onto the
+admitted story children, and the recut admitted the tail as story. So the tail
+was a hard keep, and `removal_authority` restores any hard keep a producer
+drops. Two rules in a circle: the CTA omit says scrap; the keep list says
+must-air because it is on air.
+
+**Fix:** the transfer's ruled-out set adds
+`closing_outro_tail_segment_ids` (entry 147's rule over the committed
+selection), alongside the lattice drops (entry 132) and editorial exclusions
+(entry 136). Replayed on a copy of exec_011: the tail leaves the hard keeps,
+`heal_on_air_cta_residue` drops it, the air order ends on `seg_031`, and
+dependents reconcile with no refusal.
+
+Test: `test_the_parent_keep_is_not_transferred_onto_the_outro_tail` (fails on
+the unfixed code).
+
+---
+
+## [149] ENV + PRODUCT: on an 8 GB Mac every music stem started at MusicGen-large, thrashed swap to the hang timeout, and one stem stalled 80 minutes while disk fell to 257 MB (macOS exec_011)
+
+**Stage / area:** `musicgen_runner` model ladder, `mmaudio_sfx`
+**Status:** FIXED
+
+**Seen:** run 11 reached `mmaudio_sfx` with 64/72 stages done and no errors.
+The first stem's MusicGen-large process was killed at the timeout (`Heavy
+task killed: musicgen rc=-9`) and retried as large. Two stems took about 2
+hours. A third process sat 80 minutes in uninterruptible wait (`UN`, 1 MB
+resident). Swap grew to 17.6 GB and free disk fell to 257 MB before space was
+cleared. Run 6 showed the same thrash on the same machine.
+
+**Cause:** the ladder always starts at the configured `musicgen-large`, and
+melody conditioning loads `musicgen-melody-large`. Neither fits the unified
+memory of an 8 GB Apple Silicon machine next to the pipeline. The ladder only
+steps down after a 15 to 40 minute timeout per attempt, per stem.
+
+**Fix:** when installed RAM is known and below
+`musicgen.large_min_ram_gb` (default 12), the ladder starts at
+`musicgen-medium`, which is where it ends up on such a machine anyway, and
+step 0 does not use melody conditioning (same footprint as large). The plan
+meta records `musicgen_large_skipped_low_ram_gb`. 16 GB and larger machines,
+and machines where RAM cannot be read, are unchanged. A test fixture fixes
+reported RAM at 32 GB so ladder tests do not depend on the machine running
+them.
+
+Tests: `tests/test_musicgen_low_ram_ladder.py` (3).
+
+---
+
+## [150] PRODUCT: EDL narrative QC required the impact block's framing VO by the compose-era line id and against the plan's first segment, so a framed cut was refused until the invoke cap (client exec_015, step 58 edl)
+
+**Stage / area:** `edl_narrative_qc._validate_framing_before_impact`
+**Status:** FIXED
+
+**Seen (client):** `edl` stopped at 58/72 with
+`impact segment seg_006 lacks preceding framing VO (vo_question_seg_007).
+Re-run gap_framing_compose (never soft-pass EDL)`, three times, then
+`max_invokes_per_identity (3/3)` and the walk stopped. The EDL had built 50
+events and passed structural QC.
+
+**Cause:** the check took the impact block's `source_segment_ids[0]` as the
+segment that must be preceded. It then looked for a VO clip whose `line_id`
+was exactly one of the block's planned `framing_line_ids`. Ranking may reorder
+a block (the client air order had seg_007 before seg_006). After
+`nugget_layup_authority`, layup owns the gap-report body, so the VO that airs
+before a segment can carry another id than the compose-era plan names. Either
+way a cut whose block was framed failed. The pinned heal (re-run
+gap_framing_compose) changes neither the air order nor the EDL's VO ids, so
+every retry failed the same way.
+
+**Fix:** the block opens at its first-airing member. It counts as framed when
+a VO clip airs before that member and is either one of the planned framing
+lines or a seated VO targeting a member of the block. A block with no framing
+VO on air still fails.
+
+Tests: `tests/test_edl_narrative_qc.py` (3 new; the other-line-id test fails
+on the unfixed code).
+
+---
+
+## [151] PRODUCT (audit): delivery checks that refused a valid state or demanded what their heal cannot produce
+
+**Status:** FIXED (found by a code audit after entry 150, before any run hit
+them)
+
+**Class:** a deterministic delivery check refuses a state that is valid, or
+asks for something only another stage could produce, so the pinned heal
+(usually an edl rebuild from the same inputs) repeats the same failure until
+`identical_failure` or `max_invokes_per_identity` stops the run. Entries 139,
+147 and 150 were instances found on runs. This entry closes the rest an audit
+of `edl_narrative_qc`, the transitions and bridge-completeness path, and the
+mix gates found in the code.
+
+| # | check | refused / demanded | fix |
+|---|---|---|---|
+| 1 | `gap_framing.ranking_exclude_segment_ids` (feeds EDL QC framing-covered) | segments "covered" by skipped or omitted framing lines, which never air | only lines that air cover source tape; plan blocks count only when a framing line is live |
+| 2 | `edl_narrative_qc._validate_single_synthetic_between_natives` | orientation seated beside the opening line's VO (straight open, or cold-open deferred hook line), which the builder does on purpose | the episode orientation does not count toward the one-insert limit |
+| 3 | `_validate_clone_voice_adjacency` | seams the builder kept because the acoustic listen proved the voices differ (`clone_adjacency_id_mismatch_kept`) | honour the builder's record |
+| 4 | `air_order_integrity.collect_violations` | read `bridges.get("bridges")`; the file key is `pairs`, so declared reorder pairs were never honoured | read `pairs` |
+| 5 | `_validate_chapter_continuity` | chapters listed out of air order read as "overlap" | sort by air position |
+| 6 | `_validate_framing_before_impact` | a zero-length VO at the same start as its speech | order by (start, clip index) |
+| 7 | gap-report spoken-sentence collision | collisions with lines that never air | compare only lines that aired in the EDL (record/synthesize, not omitted) |
+| 8 | `bridge_completeness.missing_reorder_bridges` | an "after" line on the prior native covers the seam for `_gap_line_covers_seam` but not here | count it |
+| 9 | transitions completeness (stage_completion, edl preflight) | hitch air in the EDL counted at mint time only | pass the EDL to both |
+| 10 | mint vs `_lint_transitions` | the mint re-created pairs the lint forbids (reverse jump, late opening tape) | `forbidden_bridge_pairs` excluded from mint and completeness |
+| 11 | mix gate (`require_spend_artifacts_complete`, post-listen gate, `_missing_sfx_from_mmaudio_qa`) | QA failures of assets that are not placed (unreferenced, `music_omitted`, remediation `skip_cue`) | `qa_failures_that_block_mix` |
+| 12 | `transition_vo.synthesize_spoken_transitions` | one ungrounded row raised out of the loop, leaving every later pair unsynthesized | record the row as blocked and continue |
+| 13 | `current_transition_pairs_missing` | WAVs for planned pairs no longer adjacent on air | only adjacent pairs |
+| 14 | `thought_complete_recut.apply_thought_complete_to_clips` | dropped a reordered callback from earlier tape as "consumed" | only tape that continues from the hanging clip (and listed consumed ids) |
+| 15 | `_validate_vo_after_legal_hinge` | a legal close beyond the builder's extension horizon (40 ms before the next on-air tape) | search only up to that horizon; beyond it is the entry-59 warning |
+| 16 | `_validate_transitions` | stale transitions.json rows for pairs no longer adjacent (never air) | not an error; non-adjacent transition clips in the EDL are still refused |
+| 17 | `_validate_selection_parity` | segments the builder omitted as unplayable when the selection commit was refused | the EDL records `omitted_unplayable_segment_ids`; QC honours them |
+
+Each fix keeps the check strict for genuinely bad states. Tests:
+`tests/test_edl_narrative_qc.py` (new cases), `test_bridge_cover_rules_agree.py`,
+`test_mix_gate_placed_assets_only.py`,
+`test_thought_complete_keeps_reordered_callback.py`.
+
+---
+
+## [152] PRODUCT: under the hard freeze the EDL audit repair skipped every selection write, so a true chapter_continuity_broken blocker could never clear (macOS exec_013)
+
+**Stage / area:** `audit_repair_loop.maybe_repair_after_narrative_audit`,
+`artifact_repairs.relabel_chapters_contiguous`
+**Status:** FIXED
+
+**Seen:** run 13 reached `edl_narrative_audit` at 57/72 with no errors before
+it. Then: `edl_narrative_audit fail after demote — leaving for operator (3
+notes; no remutate)`. The blocker was `chapter_continuity_broken`: selection
+chapter 2 held `seg_016, seg_021, seg_023` at air positions 11, 12 and 15,
+with chapter 3 (`seg_017, seg_018`) at 13 and 14 in between. The opening
+`seg_001d-k` belonged to no selection chapter.
+
+**Cause:** the repair loop checks `hard_freeze_active` and, if set, skips all
+selection writes (`skip_selection_write_hard_freeze`). It only aligns the
+narrative plan. The freeze policy (`FREEZE_WRITE_POLICY`) explicitly allows
+`edl_narrative_audit` / `narrative_metadata_align` under `hard_freeze`. So
+chapter labels, which change no audio, were never repaired. The disk-stale
+demote correctly found the claim true, and the audit stayed failed on every
+pass.
+
+**Fix:** under the hard freeze, when the policy allows it, the loop commits
+`relabel_chapters_contiguous`. Each chapter becomes a contiguous run of the
+locked air order. A chapter that returns after another run merges into the run
+before it. An unowned on-air segment joins its neighbour. `ordered_segment_ids`
+is never changed. Replayed on a copy of exec_013: chapters become positions
+0-10, 11-12, 13-15, 16-17 and 18-21, the stale demote applies, and the verdict
+moves from fail to warn.
+
+Tests: `tests/test_relabel_chapters_contiguous.py` (3).
+
+---
+
+## [153] PRODUCT: the orientation retarget in vo_line_adjudicate passed write_permitted, then failed the gap-body sole-writer rule as an error-level authority denial (macOS exec_014)
+
+**Stage / area:** `opening_orientation.retarget_orientation_to_open`,
+`stages/vo_line_adjudicate._prep_opening_orientation`
+**Status:** FIXED
+
+**Seen:** at 55/72, `authority_denied:persist:understanding/gap_report.json:
+vo_line_adjudicate:soft_freeze:nugget_layup_compose
+(gap_body_sole_writer:nugget_layup_compose)`. The stage then logged
+"opening orientation prep incomplete" and finished without the retarget.
+
+**Cause:** the retarget asks `write_permitted` first, which allowed
+`vo_line_adjudicate`. The write itself then ran
+`assert_gap_report_body_sole_writer`, which after `nugget_layup_authority`
+accepts only the body owner. Two rules, two answers. The retarget relabels the
+orientation line's target, the same kind of change as an id remap, and those
+already present the body owner (`gap_report_remap_owner`, entries 101 and 129).
+
+**Fix:** when the body owner differs from the calling stage, the retarget
+writes as the owner with the integrity-only `segment_id_remap` class. If the
+owner still refuses, it keeps the retarget in memory and logs at info, the
+same as the frozen branch above it, instead of raising. Reproduced on a copy
+of exec_014: the unfixed call raises `AuthorityDenied`; the fixed call writes
+the orientation onto `seg_005`.
+
+Tests: `tests/test_orientation_retarget_presents_body_owner.py` (2).
+
+---
+
+## [154] PRODUCT: a bind-heal take Chatterbox wrote before erroring was accepted but never recorded, so vo_synthesize failed on a stale script hash (macOS exec_014)
+
+**Stage / area:** `vo_bind_authority._try_resynth_seated_line`,
+`vo_contract.assert_seated_vo_rendered`, `vo_synthesis_audit.record_synthesis`
+**Status:** FIXED
+
+**Seen:** at 55/72, `vo_synthesize: seated synthesize VO not rendered:
+vo_preface_episode_orientation`, right after `seated bind heal
+resynth=['vo_preface_episode_orientation']` and `local_runtime chatterbox rc=0
+parsed=True cause=runtime_error`. The orientation WAV was on disk, but
+`synthesis_entry_matches_line` returned `stale_script_hash`. The next attempt
+re-rendered and passed. The run recovered, but the stage logged a failure.
+
+**Cause:** the heal re-renders a seated line through
+`s2s_runner.synthesize_line`. Chatterbox can write the WAV and then fail its
+JSON report. The heal then accepts the durable bytes as success, but only the
+normal path calls `record_synthesis`, so the synthesis report kept the
+previous script hash. The render assert compares hashes and refused the take
+it had just accepted.
+
+**Fix:** in that except path, if the line's WAV was written during this
+attempt (mtime at or after the attempt start), record it with
+`wav_just_rendered=True`, exactly as the normal path records a take. A WAV
+older than the attempt is not recorded as new.
+
+Tests: `tests/test_bind_heal_records_durable_take.py` (2).
+
+---
+
+## [155] PRODUCT: post-master quality refused the finished master on an ordinary sentence-opening word read as an unsupported name (macOS exec_014, master_finalize)
+
+**Stage / area:** `spoken_copy_guard.spoken_copy_violations` (strict grounding),
+`post_master_quality` check `spoken_vo_speakable`
+**Status:** FIXED
+
+**Seen:** at 66/72, `master_finalize: Post-master quality failed:
+spoken_vo_speakable` with `gap[vo_layup_seg_017]:spoken_unsupported_entity:
+Reaching` for "Reaching routine care raises two practical tests...".
+
+**Cause:** `_PROPER_NAME` matches every capitalised word of three or more
+letters, sentence starts included. `_ENTITY_IGNORE` and `_IMPERATIVE_IGNORE`
+are hand lists that cannot cover every word a model starts a sentence with.
+The layup stage checks the same copy without strict grounding and passes it.
+Post-master quality runs strict, so a line that was already synthesized and
+mixed is refused at the last stage.
+
+**Fix:** a single capitalised word that opens a sentence and has an ordinary
+English word form (-ing, -ed, -ly, -tion, -ment, -ness, -ity and similar) is
+not treated as a name. Multi-word names, mid-sentence names, and
+sentence-opening words without such a form are still checked, so an invented
+"Zorblat" is refused at either position.
+
+Tests: `tests/test_sentence_start_word_is_not_an_entity.py` (2).
+
+---
+
+## [156] PRODUCT: the VO contract ladder's tier A published an empty layup plan before layup had run, raising hosted_vo_floor_unsatisfiable at error level (macOS exec_015)
+
+**Stage / area:** `execution_contract._tier_a_publish_orientation`
+**Status:** FIXED
+
+**Seen:** at 41/72, between `narrative_arc_plan` and delivery,
+`nugget_layup_compose: hosted_vo_floor_unsatisfiable (active_synthetic=0 <
+min=3; eligible_nuggets=0)` twice at error level, from `invariant vo_contract
+ladder tier_a_publish_orientation failed`. The ladder moved on and the run
+continued.
+
+**Cause:** tier A reads `understanding/nugget_layup_plan.json` as `{}` when it
+does not exist and publishes it. Before `nugget_layup_compose` (and before
+`nugget_corpus_mine`) an empty plan can never meet the hosted VO floor, so
+the publish raised every time the invariant ran early.
+
+**Fix:** tier A returns without writing when no layup plan exists yet. The
+next tier handles that state, as it already does when tier A applies nothing.
+
+**Also seen, recovered:** `narrative_arc_plan` answered `partial` once,
+asking for an `episode_structure` rerun because the structure separated
+`seg_024` from its answer `seg_025`. The stage's own retry completed. The
+locked volleys `detect_speaker_volleys` produced on that run overlapped and
+did not contain the pair the model named (see entry 50 on the detector's
+reach). Left as is.
+
+Tests: `tests/test_tier_a_waits_for_layup_plan.py` (1).
+
+---
+
+## [157] PRODUCT: layup QC read a story line as "reuses dropped CTA wording" because never-touch texts are whole mixed segments (macOS exec_015, step 47)
+
+**Stage / area:** `media_ip_cta.air_overlaps_never_touch`, `nugget_layup.evaluate_layup_qc`
+**Status:** FIXED
+
+**Seen:** `Nugget layup QC failed: never_touch_cta[seg_014]: lay-up reuses
+dropped CTA wording`, then `Failed: Stage nugget_layup_compose`. The line was
+story copy: "Blood tests may reveal molecular changes before imaging does...
+circulating tumour cell is captured alive...".
+
+**Cause:** `never_touch_texts` are whole segment transcripts. A mixed CTA
+parent (`seg_001`: the sponsor intro plus about 650 words of interview)
+carries all the story vocabulary around the sponsor read. `_overlap` divides
+shared tokens by the smaller set, which is the short layup line, so the story
+line overlapped the parent at 0.59 against a 0.45 threshold.
+
+**Fix:** only wording that does not also air as story counts. Tokens of the
+on-air selection's segments are removed from each never-touch text before
+the comparison, and the share is taken over the line's own tokens. Sponsor
+copy ("sponsored by Agilisium Labs ...") is still refused. With no selection
+yet, the previous measure applies. On exec_015's state the seg_014 line now
+passes and a sponsor-copy line is still flagged.
+
+Tests: `tests/test_cta_wording_overlap_ignores_story.py` (2).
+
+---
+
+## [158] PRODUCT: a hosted-VO floor miss after layup authority pinned gap_framing_compose, which the sole-writer rule refuses, so the run looped authority_denied to the invoke cap (macOS exec_015)
+
+**Stage / area:** `stage_completion.high_gap_heal_resume_stage`,
+`artifact_ownership.assert_gap_report_body_sole_writer`
+**Status:** FIXED
+
+**Seen:** after layup failed QC (entry 157), recovery skipped its CTA rows and
+the gap report had 0 active synthetic lines. `Cleared stale
+.stage_done/gap_framing_compose: hosted_vo_floor — resume
+gap_framing_compose`, then compose failed three times with
+`authority_denied:persist:understanding/gap_report.json:gap_framing_compose:
+pre_soft_freeze:nugget_layup_compose (gap_body_sole_writer)`. Then
+`max_invokes_per_identity`, and `Delivery blocked — analysis incomplete:
+gap_framing_compose` stopped the run at 45/72. The VO contract warning in the
+same log already named the right owner (`resume nugget_layup_compose`).
+
+**Cause:** `high_gap_heal_resume_stage` pins compose unless layup claimed air
+for a missing high gap. Once the gap report carries `nugget_layup_authority`,
+`assert_gap_report_body_sole_writer` accepts only layup, so the pinned stage
+can never land the floor.
+
+**Fix:** with layup authority stamped and a layup plan on disk, the resume is
+`nugget_layup_compose`, the only stage that can write the body (the walk runs
+its seed prerequisites first). An orphan stamp without a plan keeps the compose
+pin, as HG-5 designed. `test_hg5_recovery_empty_plan_pins_framing` now asserts
+the layup pin and that recovery never resumes at compose in that state.
+
+**Follow-up (same family):** the floor snapshot in exec_015 was built with
+`stage_id="gap_framing_compose"`, and `hosted_vo_authority.resume_producer`
+returned that id unchanged before reaching the fixed function. One helper,
+`stage_completion.writable_gap_body_stage`, now maps a compose pin to layup
+whenever layup owns the body. It is applied in `high_gap_heal_resume_stage`,
+both floor branches of the compose incompleteness check,
+`hosted_vo_authority.resume_producer`, and the generic
+`thrash_hardening.resume_producer`.
+
+Tests: `tests/test_gap_body_resume_is_writable.py` (3; the first fails
+without the follow-up).
+
+---
+
+## [159] PRODUCT: layup's floor check read the committed gap report (0 lines) as hollow while publishing a plan with a live line, so it logged hosted_vo_floor_unsatisfiable at error level before proceeding anyway (macOS exec_016, step 47)
+
+**Stage / area:** `nugget_layup.raise_hosted_vo_floor_unsatisfiable`
+**Status:** FIXED
+
+**Seen:** `nugget_layup_compose: hosted_vo_floor_unsatisfiable
+(active_synthetic=1 < min=3; eligible_nuggets=1) — escalate once, do not
+recompose` at error level. The run did not stop. The next floor check
+logged `progress_floors advisory: hosted_vo_floor have=1 need=3
+pool_exhausted=True` and the walk went on to `refinement_agenda`. The GUI
+still showed 1 error.
+
+**Cause:** the function judged hollowness from `floor_snapshot`, which reads
+the committed gap report. During publish that is the body being replaced
+(0 synthetic lines), so the status was `HOLLOW_ZERO` although the candidate
+body had 1 live line. The hollow branch stamped `hosted_vo_floor_unsatisfiable`
+into the plan and run meta, then logged the loud failure. The function's own
+`except Exception` swallowed the raise, and the aspirational path proceeded
+on the next lines. The error and the stale stamp were both spurious.
+
+**Fix:** hollow is judged on the published body's count (`active < 1`). A
+`HOLLOW_ZERO` snapshot no longer takes the hollow branch when the candidate
+has a live line, and it skips the snapshot-based aspirational check (which
+would refuse on the stale state). The `hosted_vo_aspirational` path then
+proceeds on the advisory. A truly hollow publish, or a short floor without
+aspirational floors, still fails loudly.
+
+Tests: `tests/test_layup_floor_judges_published_body.py` (3; the first fails
+on the unfixed code with the exec_016 message).
+
+---
+
+## [160] PRODUCT: the VO contract invariant read "seated line missing WAV" before vo_synthesize as a violation, and the ladder's tier D waived the run's only host line, looping layup (macOS exec_016, steps 47 to 51)
+
+**Stage / area:** `vo_contract.validate_vo_contract`,
+`execution_invariants.invariant_vo_contract`,
+`execution_contract._tier_d_logged_waive`
+**Status:** FIXED
+
+**Seen:** layup published one live host line (`vo_layup_seg_024`; the floor
+of 3 was short with the pool exhausted, entry 159). At 11:38, around step 51
+and before `vo_synthesize`, the VO contract repair plan recorded `seated
+synthesize vo_layup_seg_024 missing WAV` with `consumer_stage: invariant`.
+The ladder ran tiers A to D, and tier D marked the line
+`execution_contract_waive` / `tier_d_logged_waive`. The gap report then had 0
+active lines, `hosted_vo_floor_unmet: need=3 active=0 — resume
+nugget_layup_compose` repeated with `identical_failure ... x38/3`, the walk
+dropped layup's done marker, and layup re-ran (done fell from 51 to 50).
+
+**Cause:** two gaps in one family (a check demanding output from a stage
+that has not run, as in entry 156):
+1. `validate_vo_contract` reports every seated synthesize line without a WAV.
+   Before `vo_synthesize` that is every seated line, by construction.
+   `stage_input_checks` already filtered it for four named stages; the
+   invariant ladder (`consumer_stage="invariant"`) did not.
+2. Tier D could waive the last live host line. Zero active lines is the
+   catastrophic floor state; nothing downstream can recover it, so it can
+   only loop back to layup.
+
+**Fix:**
+1. `vo_contract.vo_wavs_due(ctx)`: missing-WAV violations are reported only
+   once `vo_synthesize` is done. This is in `validate_vo_contract` itself, so
+   every caller gets it. `vo_synthesize`'s own completeness check is
+   unchanged and still demands every WAV.
+2. `_tier_d_would_hollow_hosted_floor`: when hosted framing requires
+   synthetic VO, tier D refuses to waive the last live host line (logged as
+   `tier_d_refused_last_host_line`), as it already refused a required
+   orientation.
+
+Tests: `tests/test_vo_contract_not_due_before_synth.py` (3).
+
+---
+
+## [161] PRODUCT (audit): checks that ran before the stage producing what they check
+
+**Status:** FIXED (found by a code audit after entries 156 and 160; #1 was
+also live on macOS exec_016)
+
+**Class:** a check runs before the producer of the artifact it inspects,
+reads the artifact's legitimate absence as a defect, and then logs an error,
+runs a repair that destroys valid state, or pins a resume that loops.
+Entries 156 (tier A published an empty layup plan) and 160 (missing WAV
+before `vo_synthesize`, tier D waived the only host line) were the first two
+members found on runs. Entry 156 fixed one instance without a family sweep,
+which is why 160 reached a run. This entry is that sweep.
+
+| # | check | premature demand | consequence | fix |
+|---|---|---|---|---|
+| 1 | `vo_contract._record_hosted_floor_unmet`, reached from layup's own preflight (`stage_input_checks._vo_contract_issues` → `ensure_hosted_framing_vo_seats`) | hosted floor judged on the analysis-era body before layup had written lines; layup counted as seed-front | `identical_failure nugget_layup_compose` toward the halt cap before layup ever ran (exec_016: `x3/3 halt=True` at 11:24:18, first layup call 11:25:49); `needs_operator` / unsatisfiable stamps; reseat beats layup then replaced | a floor miss is layup's failure only once its plan exists (advisory before, stamp kept); the layup preflight skips the reseat until the plan exists (`_hosted_floor_due`) |
+| 2 | `execution_contract._tier_c_vo_adjudicate_heal` (EDL VO coverage ladder) | lines with no WAV at all, which only `vo_synthesize` can produce | unmarked `vo_line_adjudicate`, which rewrites gap text and purges valid WAVs | acts on `wav_stale` rows only; missing WAVs go to the exhaust path, which pins `vo_synthesize` (HV-2) |
+| 3 | `execution_contract._tier_d_logged_waive` | a `missing_wav` violation after synthesis (a line the floor just reseated) | waived that line again: reseat/waive ping-pong below the floor | tier D refuses `missing_wav` (`tier_d_refused_missing_wav`) |
+| 4 | `execution_contract._tier_b_gap_recompose` | ran before layup had a plan | recompose took its skip-copy branch and force-marked `gap_framing_recompose` done, so its layup authority pass was skipped later | returns when layup is enabled and has no plan yet, as tier A does |
+
+The audit also examined and cleared about twenty other checks:
+`assert_books_agree`, floor snapshot `have()`, the cross-validate
+checkpoints, the per-stage input checks, `vo_sanitary_errors`, `check_g1_vo`
+and others. Each one is already guarded, or reads only its own or an
+earlier stage's output.
+
+Tests: `tests/test_checks_wait_for_their_producer.py` (6; five fail on the
+unfixed code, one keeps the post-layup behaviour).
+
+---
+
+## [162] PRODUCT: a stage's persisted output was unioned with the doc already on disk, so a re-audit could never clear its own complaint and a retry kept the failed attempt's chapters (macOS exec_016, step 58)
+
+**Stage / area:** `artifact_completeness.make_stage_persist`, `merge_artifact`,
+`_deep_merge`; seen on `edl_narrative_audit` and `narrative_arc_plan`
+**Status:** FIXED
+
+**Seen:** `edl_narrative_audit` pass 1 failed on one seam (`seg_019 →
+seg_015` lands mid-thought) and logged `fail after demote — leaving for
+operator`. Pass 2's own reply had the same complaint, and its repair demoted
+it under the frozen order (verdict `warn`). But the staged file read `verdict:
+fail` with pass 1's blocking issue, in pass 1's wording, plus pass 1's repair
+entries. The pre-flush commit barrier refused it (reproduced on a clone of the
+run: `halt`, first reason = pass 1's complaint). The stage still logged
+`Stage finished`, then `Cleared stale .stage_done/edl_narrative_audit: ...
+newer uncommitted pending`. Pass 3 went the same way, then `Delivery incomplete
+after conductor — edl_narrative_audit thrash cap` stopped the run at 57/72.
+The audit also warned that the persisted narrative plan had duplicate
+chapter ids: `ch_05` appeared twice, and the chapters came from two
+different narrative plans.
+
+**Cause:** every `make_stage_persist` write uses `merge_from_disk=True`.
+`_deep_merge` unions lists with the disk copy and skips an empty patch list
+(`if not val: continue`). So a cleared `blocking_issues: []` kept the old
+issue, and the verdict was re-derived as `fail`. The narrative plan's failed
+`partial` attempt and its retry were unioned the same way. The
+`<key>_replace` escape hatch is never set by any caller.
+
+**Fix:** a read-only trace of every caller confirmed that each persist
+carries the attempt's complete document, and sharded stages merge in memory
+before one persist. So `make_stage_persist` now passes `replace_lists`: the
+attempt's lists, empty ones included, replace the disk lists. `_meta` still
+deep-merges and omitted keys survive. The two single-owner verdict reports
+(`master/edl_narrative_audit.json`, `master/coverage_audit.json`) are
+replaced wholesale apart from `_meta`, so stale `repair_notes` cannot carry
+over either. Direct `merge_from_disk=True` callers keep the old union
+(gap_framing_compose relies on it to keep seeded lines through an empty
+shard). The keyed manifest and speakers merges are unchanged.
+`boundary_topic_resplit` keeps the union for now: it shares
+`segments/boundaries.json` with `boundary_detection` and has no row floor if
+the model returns only the split rows.
+
+**Follow-up:** a refused commit still logged `Stage finished`. That is
+fixed in entry 163.
+
+Tests: `tests/test_stage_persist_replaces_lists.py` (6).
+
+---
+
+## [163] PRODUCT: when the commit barrier refused a stage's staged outputs, mark_done swallowed the refusal and sealed the stage with nothing committed (macOS exec_016, step 58)
+
+**Stage / area:** `RunContext.mark_done` (auto-flush before seal)
+**Status:** FIXED
+
+**Seen:** three times on `edl_narrative_audit`: `mark_done(...):
+auto-flushing pending writes before seal`, then 0.17 s later `Stage finished`
+with the committed audit unchanged since pass 1. That was too fast for a
+flush, which promotes a 326 MB memory file. Then `Cleared stale .stage_done/...
+newer uncommitted pending`, and the thrash cap. On a clone of the run the
+pre-flush barrier returned `halt` for that audit (entry 162).
+
+**Cause:** the auto-flush runs inside `mark_done`'s pre-seal block, which
+ends `except _AD: raise / except Exception: pass`. The barrier refusal is a
+`WriteApprovalBlockedError`, not an `AuthorityDenied`, so it was swallowed
+and the done marker was touched with the staged outputs never committed. The
+comment above the auto-flush (exec_13177) says this split-brain is what it was
+added to prevent.
+
+**Fix:** a barrier refusal during the auto-flush is logged with its reason and
+re-raised as `authority_denied:mark_done:commit_barrier:<stage>`, the same
+shape as "pending writes remain after auto-flush". `try_mark_done` returns
+False, and `_auto_complete_or_raise` fails the stage loudly instead of
+reporting success. Other flush errors still propagate as before.
+
+Tests: `tests/test_mark_done_refuses_on_commit_barrier.py` (2; both fail on
+the unfixed code, where `try_mark_done` returned True with nothing committed).
+
+---
+
+## [164] PRODUCT: an intro cut into many pieces read as "opening tape airing late", which failed the listen-delight ship gate (cut_integrity 0.5) and the post-master intro check (macOS exec_017)
+
+**Stage / area:** `listen_delight._late_opening_native_in_edl_ok`,
+`post_master_quality._pmq_no_late_opening_native`
+(`spoken_native_intro_duplicate`)
+**Status:** FIXED
+
+**Seen:** run 17 reached G-Publish with 0 errors, but `listen_delight_audit`
+scored overall 0.8607 (min 0.9) with `cut_integrity` 0.5, below the
+catastrophic 0.7, and `finishability` 0.79. It passed only through
+`catastrophic_as_advisory`. Post-master quality failed
+`spoken_native_intro_duplicate`. The advisory also wrote an active remutate
+plan after the master, so the hollow-done guard unmarked `edl`,
+`junction_snip_qa` and `listen_delight_audit`. The EDL was rebuilt twice,
+identically under the hard freeze, until `max_invokes_per_identity`, which
+left the run at 63/72 at the gate.
+
+**Cause:** both checks call an opening-window clip "late" when its index in
+the speech list is at or past 25% of the clip count. The episode opened with
+its intro in tape order, cut into eight children (`seg_001d`..`seg_001k`,
+indices 0 to 7 of 24), so the last two pieces were "late". Junction residuals
+were 0 and real hanging ends were 2 of 24.
+
+**Fix:** one shared rule, `air_order_integrity.opening_tape_airs_late`.
+Opening tape is late only when a quarter of the speech clips from outside
+the opening have already aired before it. A split intro and a cold-open hook
+are allowed; opening tape returning mid-episode is still caught. On
+exec_017's state, `cut_integrity` is 0.9333 and listen-delight passes
+(overall 0.9419, no failed dimensions), so the post-master remutate would
+not have fired.
+
+Tests: `tests/test_split_intro_is_not_late_opening.py` (4).
+
+---
+
+## [165] PRODUCT: the mix dropped every planned stinger (a 0.4/min rate truncated to 0) and the closing outro (deduped against a cold open anchored at the end) (macOS exec_017)
+
+**Stage / area:** `sound_design.flow1_overlays_from_sdp`,
+`acoustic_profile`, `music_lane.collapse_duplicate_music_cues`,
+`artifact_repairs` (cue anchor fallback)
+**Status:** FIXED
+
+**Seen:** post-master quality failed `episode_close_outro_present`
+(`required: true, realized: false`). Of 18 planned music cues, the mix
+realized only the cold-open motif and the underscore beds. The log showed
+`mix: stinger cap reached (0/timeline) — dropped
+onecell_documentary_stinger_method` ten times, then `generated but unplaced
+music assets (lane/cap): [stinger_method, full_bed_close]`. Both assets had
+been generated. `music_cue_coverage.missing_asset_ids` was empty, so the drop
+was not visible there either.
+
+**Cause:**
+1. `soundscape_policy` sets `stinger_max_per_minute: 0.4`, a rate. The mix
+   did `int(contract.get("stinger_max_per_minute", 4))`, which is 0, times
+   integer minutes, so the cap was 0. `acoustic_profile` had the same
+   `int()`.
+2. The air script creates the cold-open cue `before_segment` the first
+   segment. On the plan it arrived as `after_segment` with no anchor, and
+   the anchor fallback gives any such cue the last selection id. The mix
+   places cold opens in the opening window regardless of anchor, so the
+   motif still played at the top. But `collapse_duplicate_music_cues` keys
+   cues by (placement, anchor, lane), and the cold open and the outro share
+   the bookend lane, so the outro was dropped as its duplicate.
+
+**Fix:** the cap is the rate times real timeline minutes (at least 1 when the
+rate allows any); the profile keeps the rate as a float. Bookends are keyed
+by role in the dedupe, so a cold open and an outro are never duplicates. The
+anchor fallback sends an unanchored cold open to `before_segment` the first
+id. On exec_017's state the mix now places the cold open at 10.7 s, 6
+stingers (cap 7; 3 dropped by the policy cap as intended), 5 beds and the
+closing outro at the end of the timeline (17.9 s).
+
+Tests: `tests/test_music_stingers_and_outro_land.py` (3).
+
+---
+
+## [166] PRODUCT (audit): the rest of the 164/165 families, found by a sweep on exec_017's artifacts
+
+**Status:** FIXED (low-impact items listed as open)
+
+**Class:** entry 164 measured air position by raw clip index although
+segments are split into letter children; entry 165 truncated a fractional
+rate, keyed a dedupe by a shared lane instead of a role, and let a coverage
+report hide drops. A read-only sweep probed each candidate against exec_017's
+artifacts.
+
+| # | where | on exec_017 | fix |
+|---|---|---|---|
+| 1 | `sound_design` music coverage (`master/music_cue_coverage.json`) | generated-but-unplaced assets were erased from the report, so the ten dropped stingers and the dropped outro left `missing_asset_ids: []` and `preserved: true` | recorded as `unplaced_asset_ids` / `unplaced_assets` (with role); an unplaced bookend clears `preserved`. A cap drop still does not fail the mix |
+| 2 | `artifact_repairs.repair_sound_design_plan` bed quartile seeds and palette expansion | seeds by clip index landed on 12 s intro and outro children (bed islands at 61 s and 1017 s); 6 of 9 added anchors were intro or outro pieces | `_duration_spread_ids` and `quartile_segment_buckets`: each duration quarter without a bed gets one on its longest segment |
+| 3 | `creative_delivery.hydrate_flow_cue_segments`, anchor fallback | an unanchored cold open took a transition slot (after `seg_017`) and shifted later stingers; the fallback read `cue.role` only | bookends anchored by effective role first: cold open before the first id, outro after the last |
+| 4 | `listenability_guards.host_vo_coverage_ratio` | 2/24 = 0.083 below the 0.12 floor (false advisory) | counted by parent family (0.30 on exec_017) |
+| 5 | late opening landing against `opening_body_start_index` in `bridge_completeness.forbidden_bridge_pairs`, `artifact_repairs` transition prune, `deterministic_lint`, `stages/selection` transition filter, `air_order_integrity` chapter mask | 5 pairs inside the intro marked forbidden | `air_order_integrity.family_air_positions`: every child takes its family's first position (no forbidden pairs on exec_017) |
+| 6 | `soundscape_policy` density scaling | `int(v * scale)`: cap 2 gave {0,0,0}, cap 4 lost 2 slots | largest remainder, at least one slot per budgeted role the cap affords |
+| 7 | `music_lane.collapse_duplicate_music_cues` | legacy `motif` / `full_bed` still collapsed into each other | bookend keys normalised (motif = cold open, full_bed = outro) |
+| 8 | `story_health` | verdict `fail` with missing reorder bridges while bridge completeness was complete | same inputs as completeness: justified skips, live EDL, forbidden pairs (exec_017 now `pass`) |
+
+**Open, low impact:** `ensure_hook_early` and related hook-in-first-three
+checks count by index (no hook declared on exec_017); the non-creative
+stinger trim in `artifact_repairs` (`int(cap*minutes)`, off by default); the
+hard-keep partial-family check at `air_order_integrity` keeps per-clip
+position on purpose; `spoken_copy_guard`'s `before_air_index` branch is
+never fed. `opening_orientation` reads exec_017's host intro as interviewee
+(`native_open_already_orients` False); not yet investigated.
+
+Tests: `tests/test_split_children_and_music_family.py` (6).
+
+---
+
+## [167] PRODUCT: the EDL overlap merge seated the union at the consumed id's slot while the selection kept it at the survivor's, so EDL narrative QC refused the EDL (macOS exec_019, step 58)
+
+**Stage / area:** `edl_overlap_repair._rebuild_clips`,
+`retire_consumed_ids_from_selection`
+**Status:** FIXED (one open observation below)
+
+**Seen:** `EDL overlap merge: seg_019→seg_017`, then `EDL narrative QC
+failed (3 issue(s)): master/edl.json: speech clips do not match final
+selection ordered_segment_ids; expected [... seg_016, seg_018, seg_017,
+seg_020 ...], got [... seg_016, seg_017, seg_018, seg_020 ...]`, plus a
+chapter overlap and a volley split that follow from the same order. The walk
+unmarked four upstream producers as hollow and re-ran them (layup recomposed
+and two VO takes were purged for re-synthesis) before rebuilding the EDL.
+
+**Cause:** the air order at VO time was `seg_019, seg_018, seg_017`, and
+`seg_019` overlapped `seg_017` in source tape. `_rebuild_clips` put the union
+at the first member's slot (`seg_019`'s) and moved `seg_018`, which aired
+between the members, after it. `retire_consumed_ids_from_selection` drops
+the consumed id in place and keeps the survivor where it already airs. The
+two orders disagreed whenever a segment aired between the members.
+`seg_017`'s span (1716 to 1892 s) is wholly after `seg_018` (1668 to 1716 s),
+so the selection's order was also tape order.
+
+**Fix:** the union is seated at the survivor's own air slot; consumed clips
+are dropped in place, transitions between members are dropped as before,
+and VO pickups that targeted any member follow the survivor. The EDL and the
+selection now agree by construction.
+
+**Open observation:** in the same recovery, layup logged `seat_freeze: skip
+write understanding/gap_report.json` and then `Purged stale VO for
+vo_layup_seg_024 / seg_031 (spoken_text_change)` 30 ms later. If the text
+change never landed, those re-syntheses repeat identical audio (wasted
+minutes, not a wrong master: synthesis renders from the committed text). Not
+yet traced to the write that triggered the cascade.
+
+Tests: `tests/test_overlap_merge_keeps_selection_order.py` (3; the first fails
+on the unfixed code).
+
+---
+
+## [168] PRODUCT: a fuse pass that re-planned the same merges was recorded as a critical cut residual, which blocked junction_snip_qa two hours later (macOS exec_019)
+
+**Stage / area:** `segment_fuse.run_high_value_cluster_fuse_rounds` and the
+connector fuse round loop, `delivery_guardrails.record_delivery_residual`,
+`publishability_boundary` (post_junction)
+**Status:** FIXED
+
+**Seen:** at 20:13 `junction_snip_qa` failed with `PublishabilityBlocked:
+publishability blocked at post_junction: incomplete_cut_unresolved —
+critical_residuals=1 kinds=['fuse_oscillation'] sources=['delivery_ledger']
+blocking=[]`. The only residual was `fuse_oscillation` (critical, open),
+recorded by `connector_fuse_pass` at 18:16 when round 2's plan signature
+equalled round 1's. The retry passed and the walk went on to
+`master_finalize`, but the run logged an error and spent a retry.
+
+**Cause:** both fuse round loops treat "this round planned exactly the
+previous round's merges" as an oscillation and record a critical residual.
+An identical repeat is a stable state: no further round, junction step or
+EDL rebuild can change it, so a blocking cut residual can never clear. A
+genuine A to B to A flip-flop would not even match this check. Separately,
+`record_delivery_residual` accepts only `critical`, `soft` and `advisory`
+and coerces anything else (including `warning`) to critical; the first
+attempt at this fix used `warning` and its test caught that it still blocked.
+
+**Fix:** both loops record the repeat as `advisory` with the detail kept
+(`converged_repeat` on the round). Advisory rows are not counted by
+`critical_residual_view`. The three other `record_delivery_residual` callers
+already pass a valid severity.
+
+Tests: `tests/test_fuse_repeat_is_not_a_critical_cut.py` (3, including one
+that pins the coercion of an unknown severity to critical).
 
 ---
 

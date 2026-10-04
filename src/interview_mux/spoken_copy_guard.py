@@ -76,6 +76,9 @@ _STOCK = {
     "stepping back what set this part of the story in motion",
     "what set this part of the story in motion",
 }
+_COMMON_WORD_FORM = re.compile(
+    r"(?:ing|ed|ly|tion|tions|ment|ments|ness|ity|ive|ives|ous|ful|ence|ance|ize|ise|able|ible|ally|ated|ates)$"
+)
 _ENTITY_IGNORE = {
     "And",
     "Alright",
@@ -587,8 +590,17 @@ def spoken_copy_violations(
         corpus_fold = corpus.casefold()
         corpus_tokens = list(_tokens(corpus))
         unsupported: list[str] = []
+        sentence_starts = {
+            m.group(1) for m in re.finditer(r"(?:^|[.!?]\s+)([A-Z][a-z]+)\b", clean)
+        }
         for entity in _PROPER_NAME.findall(clean):
             if entity in _ENTITY_IGNORE or entity in _IMPERATIVE_IGNORE:
+                continue
+            # A single capitalised word that opens a sentence is usually an
+            # ordinary word ("Reaching routine care..."), not a name; post-master
+            # quality refused the finished master on it (exec_014, ISSUES 155).
+            # Multi-word names and mid-sentence names are still checked.
+            if " " not in entity and entity in sentence_starts and _COMMON_WORD_FORM.search(entity):
                 continue
             if entity.casefold() in corpus_fold:
                 continue

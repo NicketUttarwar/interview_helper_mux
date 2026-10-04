@@ -743,6 +743,24 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     level="warning",
                     stage="nugget_layup_compose",
                 )
+            # Persist prep can re-skip rows the floor pass aired (never-touch CTA
+            # targets) and reopen their nuggets. When open high-salience nuggets
+            # are all that is left, park them on the orientation rather than
+            # refuse (exec_010 attempt 2).
+            if not qc.get("ok") and all(
+                str(e).startswith("open_high_salience_nuggets=") for e in (qc.get("errors") or [])
+            ):
+                from interview_mux.nugget_layup import park_open_high_salience_on_orientation
+
+                doc, park_notes = park_open_high_salience_on_orientation(c, doc)
+                if park_notes:
+                    qc = evaluate_layup_qc(c, doc)
+                    c.log(
+                        "nugget_layup_compose: parked open high-salience nuggets on the "
+                        "orientation after persist prep: " + ", ".join(park_notes[:8]),
+                        level="warning",
+                        stage="nugget_layup_compose",
+                    )
 
         if not qc.get("ok"):
             # P1: do not publish dirty authority — stamp qc_pending on plan only.
