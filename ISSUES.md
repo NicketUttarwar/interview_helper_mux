@@ -5876,6 +5876,45 @@ Tests: `tests/test_schema_conform_on_write.py` (6, including a real
 
 ---
 
+## [170] PRODUCT: a garbled sign-off cut as its own segment after the closing sponsor read aired as the episode's last clip (macOS exec_020)
+
+**Stage / area:** `media_ip_cta.closing_outro_tail_segment_ids`,
+`on_air_orphaned_cta_scrap_ids`, new `_tape_tail_scrap_ids`
+**Status:** FIXED
+
+**Seen:** run 20 reached G-Publish with 0 errors, but the last clip on air
+was `seg_050` (5.3 s): "You most of the time, Michael. You are listening to
+your follow-up. You are listening to usHS\ufffd bone and cut-". Layup had
+warned that `seg_049g` through `seg_050` were incoherent end fragments.
+
+**Cause:** the closing-outro checks from entries 147/148 only look at NLE
+children of CTA parents (`seg_049a..i`). `seg_050` is a top-level segment
+that starts after the closing sponsor parent `seg_049`, so neither check saw
+it, although `looks_like_orphaned_cta_scrap` already flags its text (U+FFFD,
+outro wording).
+
+**Fix:** `_tape_tail_scrap_ids`: an on-air segment that is not a child of any
+CTA parent, starts at or after the closing sponsor read (the latest CTA parent
+ending within 2 minutes of the tape end), and fails the existing scrap test is
+part of the closing tail. Both `closing_outro_tail_segment_ids` and
+`on_air_orphaned_cta_scrap_ids` include it, so the CTA residue heal and the
+keep-list exclusions take it off air. Closing story after the outro passes
+the scrap test and stays. On exec_020's state both detectors now return
+`seg_050`.
+
+**Also on run 20 (product decision, not a code fault):** layup skipped all 27
+planned lines with typed reasons (`self_explanatory_native` 15,
+`no_eligible_unspent_nugget` 8, `listener_already_oriented` 3), so host VO is
+15 s of a 26-minute master and the listener scorecard's clarity is 0.77
+against a 0.80 floor (advisory under aspirational floors). Nuggets are mined
+from the tape, so when the selection keeps the strong tape few "unspent"
+nuggets remain to frame. Whether hosted VO should be forced to its floor is
+for the product owner.
+
+Tests: `tests/test_tape_tail_scrap_after_closing_cta.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

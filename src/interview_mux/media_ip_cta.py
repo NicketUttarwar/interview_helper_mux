@@ -1986,7 +1986,9 @@ def on_air_orphaned_cta_scrap_ids(
     except Exception:
         story = set()
     by_id = _segments_by_id(ctx)
-    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel)
+    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
+        by_id, ordered, parents
+    )
     out: list[str] = []
     for sid in ordered:
         if sid in tail:
@@ -2022,7 +2024,54 @@ def closing_outro_tail_segment_ids(
         pass
     if not ordered or not parents:
         return set()
-    return _closing_outro_tail_ids(_segments_by_id(ctx), ordered, parents, sel)
+    by_id = _segments_by_id(ctx)
+    return _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
+        by_id, ordered, parents
+    )
+
+
+def _tape_tail_scrap_ids(
+    by_id: dict[str, Any],
+    ordered: list[str],
+    parents: set[str],
+) -> set[str]:
+    """Top-level on-air scraps that start after the tape's closing sponsor read.
+
+    The child-based checks only look inside CTA parents. A garbled sign-off
+    cut as its own segment after the closing sponsor parent (exec_020:
+    seg_050 "You are listening to usHS\ufffd bone and cut-" after seg_049)
+    stayed on air as the last thing in the episode (ISSUES 170). Only text
+    that fails ``looks_like_orphaned_cta_scrap`` is taken, so closing story
+    after the outro stays.
+    """
+    rows = [r for r in by_id.values() if isinstance(r, dict)]
+    ends = [int(r.get("end_ms") or 0) for r in rows]
+    if not ends:
+        return set()
+    tape_end = max(ends)
+    closing_start: int | None = None
+    for parent in parents:
+        row = by_id.get(parent)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            continue
+        if tape_end - int(row.get("end_ms") or 0) > 120_000:
+            continue
+        start = int(row.get("start_ms") or 0)
+        closing_start = start if closing_start is None else max(closing_start, start)
+    if closing_start is None:
+        return set()
+    out: set[str] = set()
+    for sid in ordered:
+        if sid in parents or any(_is_nle_child(sid, p) for p in parents if p):
+            continue
+        row = by_id.get(sid)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            continue
+        if int(row.get("start_ms") or 0) < closing_start:
+            continue
+        if looks_like_orphaned_cta_scrap(str(row.get("text") or "")):
+            out.add(sid)
+    return out
 
 
 def _split_suffix_key(sid: str, parent: str) -> tuple[int, str]:
