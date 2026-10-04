@@ -5303,7 +5303,11 @@ def raise_hosted_vo_floor_unsatisfiable(
         )
 
         snap = floor_snapshot(ctx, stage_id="nugget_layup_compose", persist=True)
-        if snap.identity.status == "HOLLOW_ZERO" or int(active) < 1:
+        # Hollow is judged on the body being published (``active``). The
+        # snapshot reads the committed body this publish replaces, so its
+        # HOLLOW_ZERO raised a loud failure for a plan with a live line, and
+        # the next call proceeded on the advisory (exec_016, ISSUES 159).
+        if int(active) < 1:
             stamp_hosted_vo_floor_unsatisfiable(
                 ctx,
                 need=need,
@@ -5326,7 +5330,9 @@ def raise_hosted_vo_floor_unsatisfiable(
                 reason="hosted_vo_floor_unsatisfiable",
             )
             return
-        if may_aspirational_proceed(ctx, stage_id="nugget_layup_compose"):
+        if snap.identity.status != "HOLLOW_ZERO" and may_aspirational_proceed(
+            ctx, stage_id="nugget_layup_compose"
+        ):
             from interview_mux.floor_progress import proceed_on_floor_miss
 
             proceed_on_floor_miss(

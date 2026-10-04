@@ -5460,6 +5460,38 @@ without the follow-up).
 
 ---
 
+## [159] PRODUCT: layup's floor check read the committed gap report (0 lines) as hollow while publishing a plan with a live line, so it logged hosted_vo_floor_unsatisfiable at error level before proceeding anyway (macOS exec_016, step 47)
+
+**Stage / area:** `nugget_layup.raise_hosted_vo_floor_unsatisfiable`
+**Status:** FIXED
+
+**Seen:** `nugget_layup_compose: hosted_vo_floor_unsatisfiable
+(active_synthetic=1 < min=3; eligible_nuggets=1) — escalate once, do not
+recompose` at error level. The run did not stop. The next floor check
+logged `progress_floors advisory: hosted_vo_floor have=1 need=3
+pool_exhausted=True` and the walk went on to `refinement_agenda`. The GUI
+still showed 1 error.
+
+**Cause:** the function judged hollowness from `floor_snapshot`, which reads
+the committed gap report. During publish that is the body being replaced
+(0 synthetic lines), so the status was `HOLLOW_ZERO` although the candidate
+body had 1 live line. The hollow branch stamped `hosted_vo_floor_unsatisfiable`
+into the plan and run meta, then logged the loud failure. The function's own
+`except Exception` swallowed the raise, and the aspirational path proceeded
+on the next lines. The error and the stale stamp were both spurious.
+
+**Fix:** hollow is judged on the published body's count (`active < 1`). A
+`HOLLOW_ZERO` snapshot no longer takes the hollow branch when the candidate
+has a live line, and it skips the snapshot-based aspirational check (which
+would refuse on the stale state). The `hosted_vo_aspirational` path then
+proceeds on the advisory. A truly hollow publish, or a short floor without
+aspirational floors, still fails loudly.
+
+Tests: `tests/test_layup_floor_judges_published_body.py` (3; the first fails
+on the unfixed code with the exec_016 message).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
