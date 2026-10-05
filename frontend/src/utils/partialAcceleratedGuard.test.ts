@@ -172,6 +172,46 @@ describe("partialAcceleratedGuard", () => {
     expect(shouldShowAcceleratedRunOverlay(r, gPublish)).toBe(false);
   });
 
+  it("lifts overlay at g-publish when master exists before package_ready", () => {
+    const r = run({
+      meta: accelerated,
+    });
+    const gPublish = { pending: true, package_ready: false, has_master: true, skipped: false };
+    expect(isPartialAutoCheckpoint(r, gPublish)).toBe(true);
+    expect(shouldShowAcceleratedRunOverlay(r, gPublish)).toBe(false);
+  });
+
+  it("keeps accelerated overlay at g_publish gate until review payload is ready", () => {
+    const r = run({
+      meta: { ...accelerated, g_publish_pending: true },
+      job: {
+        status: "gate",
+        stage: "g_publish",
+        message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+      },
+      journey: {
+        blocking: {
+          blocked: true,
+          reason: "llm_gate",
+          stage_id: "g_publish",
+          message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+        },
+      },
+    });
+    expect(isPartialAutoCheckpoint(r, null)).toBe(false);
+    expect(isPartialAutoCheckpoint(r, { pending: true, package_ready: false, has_master: false })).toBe(
+      false,
+    );
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
+    expect(
+      resolveOperatorCover(
+        r,
+        { pending: true, package_ready: false, has_master: true, skipped: false },
+        { jobRunning: true },
+      ),
+    ).toBe("none");
+  });
+
   it("shows accelerated cover during automated phase", () => {
     const r = run({
       meta: accelerated,

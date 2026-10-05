@@ -544,6 +544,39 @@ def test_cold_open_last_sentence_cues_first_native() -> None:
     assert any("cold-open" in e or "forward cue" in e or "origin" in e.lower() for e in errs)
 
 
+def test_preface_abstract_quiz_closer_fails_and_repairs_declarative() -> None:
+    """exec_017-style quiz hinge must fail cold-open and repair to a statement."""
+    from interview_mux.gap_vo_prior_context import repair_last_sentence_layup
+
+    line = {
+        "line_id": "vo_preface_act1",
+        "line_category": "episode_preface",
+        "targets_segment_id": "seg_005",
+        "text": (
+            "Precision oncology relies on information about a tumour, yet the way "
+            "that information is collected shapes what can be learned. What does "
+            "the conventional route ask of a patient?"
+        ),
+    }
+    target = (
+        "A tissue biopsy takes a sample from a suspected cancer site, but it is "
+        "invasive and can be costly."
+    )
+    assert cold_open_layup_ok(line, target_text=target, ordered_ids=["seg_005"]) is False
+    fixed = repair_last_sentence_layup(
+        line["text"],
+        category="episode_preface",
+        target_text=target,
+        target_segment_id="seg_005",
+    )
+    assert not fixed.rstrip().endswith("?")
+    assert cold_open_layup_ok(
+        {**line, "text": fixed},
+        target_text=target,
+        ordered_ids=["seg_005"],
+    )
+
+
 def test_spoken_layup_required() -> None:
     line = {
         "line_id": "vo_sum_seg_010",

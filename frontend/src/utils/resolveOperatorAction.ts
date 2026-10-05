@@ -5,7 +5,7 @@ import type {
   StepMode,
 } from "../types/operatorAction";
 import type { RunData, StageInfo } from "../types";
-import { findPendingFocusStage } from "./checkpoint";
+import { canonicalizeOperatorStageId, findPendingFocusStage } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { gateOperatorMustAct, g1AutomationPending } from "./operatorGates";
 import { isJobActivelyRunning } from "./jobStatus";
@@ -499,7 +499,7 @@ export function resolveOperatorActionForStage(
     ? numbered.find((n) => n.stage.id === nav.nextStage!.id)
     : null;
 
-  const runningStageId = job?.current_stage || job?.stage;
+  const runningStageId = canonicalizeOperatorStageId(job?.current_stage || job?.stage);
   if (job?.status === "error" && runningStageId === stageId) {
     return buildErrorAction(run);
   }
@@ -513,16 +513,17 @@ export function resolveOperatorActionForStage(
     return buildRunningAction(run, jobRunning);
   }
 
-  if (job?.status === "gate" && job.stage === stageId) {
+  const jobGateStage = canonicalizeOperatorStageId(job?.stage);
+  if (job?.status === "gate" && jobGateStage === stageId) {
     const blocking = run.journey?.blocking ?? run.blocking;
     return buildGateAction(run, stageId, blocking?.reason, job?.message || blocking?.message);
   }
 
-  if (jobCtx.needsStageReuse && job?.stage === stageId) {
+  if (jobCtx.needsStageReuse && jobGateStage === stageId) {
     return buildReuseAction(run, stageId);
   }
 
-  if (stage.status === "action_required" || job?.status === "gate" && job.stage === stageId) {
+  if (stage.status === "action_required" || (job?.status === "gate" && jobGateStage === stageId)) {
     const blocking = run.journey?.blocking ?? run.blocking;
     return buildGateAction(run, stageId, blocking?.reason, job?.message || blocking?.message);
   }

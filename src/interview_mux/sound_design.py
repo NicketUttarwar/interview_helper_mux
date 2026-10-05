@@ -26,6 +26,11 @@ from interview_mux.sonic_context import load_sonic_context
 
 DEFAULT_FRAME_RATE = 48_000
 MIN_DUCK_DB = 12.0
+# Pause-align may land slightly before/after the aired clip (breath). Farther
+# than this means the mapper used a wider source window than the EDL air cut.
+_STINGER_AIR_GRACE_MS = 2000
+# Punctuators may start at speech end; only bookends may invent post-show air.
+_PUNCTUATOR_PAST_SPEECH_GRACE_MS = 2000
 
 
 def _mix_cfg() -> dict[str, Any]:
@@ -691,15 +696,29 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             pos = max(0, int(cue.get("position_ms", 0)))
             # pydub overlay truncates past len(mixed) — pad silence so outro /
             # cold-open overrun / preserve_full_duration cues remain audible.
+            # Punctuators must not invent post-show dead air (exec_017).
             need = pos + len(clip_audio)
             if need > len(mixed):
-                from pydub import AudioSegment as _ASPad
+                if _overlay_may_extend_timeline(cue):
+                    from pydub import AudioSegment as _ASPad
 
-                pad_ms = need - len(mixed)
-                mixed = mixed + _ASPad.silent(
-                    duration=pad_ms,
-                    frame_rate=mixed.frame_rate,
-                )
+                    pad_ms = need - len(mixed)
+                    mixed = mixed + _ASPad.silent(
+                        duration=pad_ms,
+                        frame_rate=mixed.frame_rate,
+                    )
+                elif pos >= len(mixed):
+                    ctx.log(
+                        "mix: dropped punctuator past timeline "
+                        f"(asset={cue.get('asset_id')!r} pos={pos} timeline={len(mixed)})",
+                        level="warning",
+                        stage="mix",
+                    )
+                    continue
+                else:
+                    clip_audio = clip_audio[: max(0, len(mixed) - pos)]
+                    if len(clip_audio) < 50:
+                        continue
             mixed = mixed.overlay(clip_audio, position=pos)
 
         post_overlay_timeline_ms = len(mixed)
@@ -1452,6 +1471,7 @@ def flow1_overlays_from_sdp(
     stinger_count = 0
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
     underbed_level_adjust_db = float(contract.get("underbed_level_adjust_db") or 0.0)
+    air_windows = _edl_speech_air_windows(ctx)
     sonic = load_sonic_context(ctx) or {}
     scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
     atlas_bucket = str(scenario.get("atlas_bucket") or "")
@@ -1784,6 +1804,7 @@ def flow1_overlays_from_sdp(
                 transcript=transcript,
                 segments_by_id=segments_by_id,
                 segment_timing=segment_timing,
+                air_windows=air_windows,
             )
         # Accents over speech must sidechain-duck after final position is known.
         if (
@@ -1866,6 +1887,13 @@ def flow1_overlays_from_sdp(
                 )
 
     realized = apply_music_lane_exclusivity(out)
+    speech_end_ms = max((int(end) for _s, end in segment_timing.values()), default=0)
+    realized = _drop_punctuators_past_speech_end(
+        ctx,
+        realized,
+        speech_end_ms=speech_end_ms,
+        grace_ms=_PUNCTUATOR_PAST_SPEECH_GRACE_MS,
+    )
     for overlay in realized:
         audio = overlay.get("audio") if isinstance(overlay, dict) else None
         if audio is None or not hasattr(audio, "__len__"):
@@ -1906,6 +1934,7 @@ def flow1_overlays_legacy(
         }
     )
     segment_ends = sorted(end for _start, end in segment_timing.values())
+    air_windows = _edl_speech_air_windows(ctx)
     for i, path in enumerate(sfx_files[1:]):
         pos = segment_ends[min(i, max(0, len(segment_ends) - 1))] if segment_ends else 0
         fallback = max(0, pos - 40)
@@ -1914,13 +1943,26 @@ def flow1_overlays_legacy(
             seg_id = ordered_seg_ids[min(i, len(ordered_seg_ids) - 1)]
             segment = segments_by_id.get(seg_id)
             if segment:
+                work_seg = dict(segment)
+                air = air_windows.get(seg_id)
+                if air is not None:
+                    work_seg["start_ms"] = int(air[0])
+                    work_seg["end_ms"] = int(air[1])
                 source_pos = resolve_stinger_position_ms(
-                    segment,
+                    work_seg,
                     transcript,
                     profile,
                     placement="after_segment",
                 )
-                mapped = _source_ms_to_timeline_ms(source_pos, segment, segment_timing)
+                mapped = _source_ms_to_timeline_ms(source_pos, work_seg, segment_timing)
+                if mapped is not None:
+                    mapped = _clamp_mapped_stinger_to_air_window(
+                        ctx,
+                        mapped=mapped,
+                        segment_id=seg_id,
+                        segment_timing=segment_timing,
+                        fallback_pos=fallback,
+                    )
                 if mapped is not None:
                     aligned = mapped
                     ctx.log(
@@ -1933,7 +1975,13 @@ def flow1_overlays_legacy(
             350,
         )
         out.append({"audio": sting, "position_ms": aligned, "role": "stinger"})
-    return out
+    speech_end_ms = max(segment_ends) if segment_ends else int(timeline_ms)
+    return _drop_punctuators_past_speech_end(
+        ctx,
+        out,
+        speech_end_ms=speech_end_ms,
+        grace_ms=_PUNCTUATOR_PAST_SPEECH_GRACE_MS,
+    )
 
 
 def _load_transcript(ctx: RunContext) -> dict[str, Any]:
@@ -2074,6 +2122,119 @@ def resolve_stinger_position_ms(
     return _nudge_away_from_laughter(pos, laughter_windows or [], buffer_ms=200)
 
 
+def _edl_speech_air_windows(ctx: RunContext) -> dict[str, tuple[int, int]]:
+    """segment_id → (source_start_ms, source_end_ms) from EDL speech clips.
+
+    Manifest bounds can be far wider than the aired cut (chapter hitch / fuse).
+    Pause-align must hunt inside the air window, not the wide manifest span.
+    """
+    if not ctx.artifact_exists("master/edl.json"):
+        return {}
+    try:
+        edl = ctx.read_json("master/edl.json")
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(edl, dict):
+        return {}
+    out: dict[str, tuple[int, int]] = {}
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict) or str(clip.get("type") or "") != "speech":
+            continue
+        sid = str(clip.get("segment_id") or "").strip()
+        if not sid:
+            continue
+        start = clip.get("source_start_ms")
+        end = clip.get("source_end_ms")
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            # Recover from timeline duration when source_end is omitted.
+            dur = clip.get("duration_ms")
+            if isinstance(start, (int, float)) and isinstance(dur, (int, float)) and dur > 0:
+                end = int(start) + int(dur)
+            else:
+                continue
+        start_i, end_i = int(start), int(end)
+        if end_i <= start_i:
+            continue
+        prev = out.get(sid)
+        if prev is None:
+            out[sid] = (start_i, end_i)
+        else:
+            out[sid] = (min(prev[0], start_i), max(prev[1], end_i))
+    return out
+
+
+def _overlay_may_extend_timeline(cue: dict[str, Any]) -> bool:
+    """Only bookends / preserve_full_duration cues may pad the master past speech."""
+    if bool(cue.get("preserve_full_duration")):
+        return True
+    music_role = str(cue.get("music_role") or "")
+    if music_role in {"theme_cold_open", "theme_outro"}:
+        return True
+    role = str(cue.get("role") or "")
+    if role in {"theme", "theme_bookend"}:
+        return True
+    return False
+
+
+def _drop_punctuators_past_speech_end(
+    ctx: RunContext,
+    overlays: list[dict[str, Any]],
+    *,
+    speech_end_ms: int,
+    grace_ms: int = _PUNCTUATOR_PAST_SPEECH_GRACE_MS,
+) -> list[dict[str, Any]]:
+    """Drop non-bookend overlays that start after the speech timeline (+ grace)."""
+    if speech_end_ms <= 0:
+        return overlays
+    limit = int(speech_end_ms) + max(0, int(grace_ms))
+    kept: list[dict[str, Any]] = []
+    for ov in overlays:
+        if not isinstance(ov, dict):
+            continue
+        if _overlay_may_extend_timeline(ov):
+            kept.append(ov)
+            continue
+        pos = int(ov.get("position_ms") or 0)
+        if pos > limit:
+            ctx.log(
+                "mix: dropped overlay past speech end "
+                f"(asset={ov.get('asset_id')!r} role={ov.get('role')!r} "
+                f"pos={pos} speech_end={speech_end_ms})",
+                level="warning",
+                stage="mix",
+            )
+            continue
+        kept.append(ov)
+    return kept
+
+
+def _clamp_mapped_stinger_to_air_window(
+    ctx: RunContext,
+    *,
+    mapped: int,
+    segment_id: str,
+    segment_timing: dict[str, tuple[int, int]],
+    fallback_pos: int,
+    grace_ms: int = _STINGER_AIR_GRACE_MS,
+) -> int:
+    """Keep pause-aligned hits inside the aired timeline window for the segment."""
+    timing = segment_timing.get(segment_id)
+    if not timing:
+        return mapped
+    t0, t1 = int(timing[0]), int(timing[1])
+    lo = t0 - max(0, int(grace_ms))
+    hi = t1 + max(0, int(grace_ms))
+    if lo <= mapped <= hi:
+        return mapped
+    ctx.log(
+        "mix: pause_tail outside aired window — using hinge "
+        f"segment={segment_id} mapped={mapped} window=[{lo},{hi}] hinge={fallback_pos}",
+        level="warning",
+        stage="mix",
+    )
+    return int(fallback_pos)
+
+
 def _last_pause_tail_ms(
     words: list[dict[str, Any]],
     *,
@@ -2185,27 +2346,43 @@ def _align_stinger_to_pause_tail(
     transcript: dict[str, Any],
     segments_by_id: dict[str, dict[str, Any]],
     segment_timing: dict[str, tuple[int, int]],
+    air_windows: dict[str, tuple[int, int]] | None = None,
 ) -> int:
     seg_id = _stinger_segment_id(cue, placement)
     segment = segments_by_id.get(seg_id)
     if not segment:
         return pos
+    # Prefer the EDL aired source window over wide manifest bounds (exec_017).
+    work_seg = dict(segment)
+    air = (air_windows if air_windows is not None else _edl_speech_air_windows(ctx)).get(seg_id)
+    if air is not None:
+        work_seg["start_ms"] = int(air[0])
+        work_seg["end_ms"] = int(air[1])
     value_features = (
         ctx.read_json("understanding/value_features.json")
         if ctx.artifact_exists("understanding/value_features.json")
         else {}
     )
-    laughter_windows = _laughter_windows_from_value_features(value_features if isinstance(value_features, dict) else None)
+    laughter_windows = _laughter_windows_from_value_features(
+        value_features if isinstance(value_features, dict) else None
+    )
     source_pos = resolve_stinger_position_ms(
-        segment,
+        work_seg,
         transcript,
         profile,
         placement=placement if placement in {"before_segment", "after_segment"} else "before_segment",
         laughter_windows=laughter_windows,
     )
-    mapped = _source_ms_to_timeline_ms(source_pos, segment, segment_timing)
+    mapped = _source_ms_to_timeline_ms(source_pos, work_seg, segment_timing)
     if mapped is None:
         return pos
+    mapped = _clamp_mapped_stinger_to_air_window(
+        ctx,
+        mapped=mapped,
+        segment_id=seg_id,
+        segment_timing=segment_timing,
+        fallback_pos=pos,
+    )
     ctx.log(
         f"mix: stinger_aligned pause_tail segment={seg_id} pos={mapped}",
         level="info",

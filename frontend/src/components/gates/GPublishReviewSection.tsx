@@ -56,6 +56,8 @@ export function GPublishReviewSection({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /** Durable confirmation after a successful save (button greys out when !dirty). */
+  const [saveAck, setSaveAck] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const dirtyRef = useRef(false);
   const titleRef = useRef(title);
@@ -71,6 +73,7 @@ export function GPublishReviewSection({
     dirtyRef.current = next;
     setDirty(next);
     onDirtyChange?.(next);
+    if (next) setSaveAck(null);
   };
 
   const reload = useCallback(async () => {
@@ -85,6 +88,12 @@ export function GPublishReviewSection({
         const current =
           data.cover?.candidates?.find((c) => c.selected)?.path || data.cover?.path || null;
         setSelectedCover(current);
+        // Hard refresh: surface prior successful save without wiping a fresher ack.
+        if (data.package_ready) {
+          setSaveAck(
+            (prev) => prev ?? "Changes saved — title, description, and cover are on disk.",
+          );
+        }
       }
     } catch {
       setReview(null);
@@ -127,11 +136,13 @@ export function GPublishReviewSection({
       dirtyRef.current = false;
       setDirty(false);
       onDirtyChange?.(false);
+      setSaveAck("Changes saved — title, description, and cover are updated on disk.");
       appendClientLog("G-Publish review saved", "action", "podcast_publish", "gui.g_publish.review");
       showToast("Publish package updated", "success");
       onSaved?.();
       return true;
     } catch (err) {
+      setSaveAck(null);
       showToast(String(err), "error");
       return false;
     } finally {
@@ -177,10 +188,12 @@ export function GPublishReviewSection({
       setDirty(false);
       onDirtyChange?.(false);
       await reload();
+      setSaveAck("Cover image updated and saved.");
       appendClientLog("G-Publish cover uploaded", "action", "podcast_publish", "gui.g_publish.cover");
       showToast("Cover image updated", "success");
       onSaved?.();
     } catch (err) {
+      setSaveAck(null);
       showToast(String(err), "error");
     } finally {
       setUploading(false);
@@ -338,14 +351,35 @@ export function GPublishReviewSection({
           <div className="g-publish-review-actions">
             <button
               type="button"
-              className="btn primary"
+              className={`btn primary${saveAck && !dirty ? " g-publish-save-done" : ""}`}
               data-testid="g-publish-save-review"
               disabled={saving || uploading || !dirty}
-              title={!dirty ? "No unsaved changes" : saving ? "Saving…" : undefined}
+              title={
+                saving
+                  ? "Saving…"
+                  : dirty
+                    ? "Save title, description, and cover selection"
+                    : saveAck
+                      ? "All changes saved"
+                      : "No unsaved changes"
+              }
               onClick={() => void save()}
             >
-              {saving ? "Saving…" : "Save changes"}
+              {saving ? "Saving…" : dirty ? "Save changes" : saveAck ? "Saved" : "Save changes"}
             </button>
+            {saveAck && !dirty ? (
+              <p
+                className="g-publish-save-ack"
+                role="status"
+                aria-live="polite"
+                data-testid="g-publish-save-ack"
+              >
+                {saveAck}
+              </p>
+            ) : null}
+            {!dirty && !saveAck ? (
+              <p className="hint sm g-publish-save-hint">No unsaved edits — change a field to enable Save.</p>
+            ) : null}
           </div>
         </div>
       ) : null}

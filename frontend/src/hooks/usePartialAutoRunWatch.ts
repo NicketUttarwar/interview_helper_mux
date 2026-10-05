@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AppTab, RunData } from "../types";
 import {
+  isGPublishReviewCheckpoint,
   isPartialAcceleratedRun,
   isPartialAutoCheckpoint,
 } from "../utils/partialAcceleratedGuard";
@@ -65,14 +66,12 @@ export function usePartialAutoRunWatch(opts: {
         refreshed.journey?.blocking?.reason ?? "",
         refreshed.job?.status ?? "",
         refreshed.job?.message ?? "",
-        gPublish?.pending && gPublish.package_ready ? "g_publish" : "",
+        isGPublishReviewCheckpoint(gPublish) ? "g_publish" : "",
       ].join("|");
       if (key === lastCheckpointKeyRef.current) return;
       lastCheckpointKeyRef.current = key;
 
-      const gPublishCheckpoint =
-        Boolean(gPublish?.pending && gPublish.package_ready && !gPublish.skipped);
-      if (gPublishCheckpoint) {
+      if (isGPublishReviewCheckpoint(gPublish)) {
         setActiveTab("pipeline");
         await selectStage("podcast_publish");
         return;

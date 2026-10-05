@@ -11,7 +11,7 @@ Best listener outcome: keep native points intact and VO as a conversation partne
 Each rewritten line remains a **value-adding conversation partner turn**. Use `target_native_contexts`, `vo_missions`, and `prior_native_contexts` when present.
 
 - Unlock stakes, ask a real follow-up, define assumed knowledge, or bridge — never filler.
-- **Last sentence** must be a forward unlock into the next native/VO beat without restating it. Cold open / preface last sentence must cue the first native clip (`target_native_contexts[first]`), not a generic origin prompt.
+- **Last sentence** must be a forward unlock into the next native/VO beat without restating it. Cold open / preface: prefer a **declarative hinge** into `target_native_contexts[first]` (concrete topic invitation or statement) — not an abstract quiz question or generic origin prompt.
 - **Must not** paraphrase/restate the next native clip’s claim (read `target_native_contexts[S]`).
 - Segment, line, clip, and turn IDs are edit metadata only. Never speak an ID or strip its prefix and speak its number. Orient with listener-clear facts and context. When context is unavailable, **drop the line** — never invent relative filler such as “What happened next?”.
 - Never speak planner/meta language: “chapter”, “intended scope”, “episode scope”, “native continuation”, “listener need”, “talking point”, “vo mission”.

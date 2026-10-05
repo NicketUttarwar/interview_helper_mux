@@ -29,4 +29,4 @@ Honor this register for every spoken `text` field in body layups, transitions, b
 
 ### Narrow exception
 
-- **`episode_preface` / cold open only:** may briefly orient *what the conversation is about* (thesis, domain, stakes). Even here, prefer topic-first; naming a guest is optional and **once max**, never "the host."
+- **`episode_preface` / cold open only:** orient *who / what / why* (thesis, domain, stakes; guest proper noun **once** when the brief supplies one). End with a **declarative hinge** into the first native’s concrete topic — invitation or statement, not a quiz. Ban abstract closers (“What does X ask/reveal/mean…?”). Never "the host."

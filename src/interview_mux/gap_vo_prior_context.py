@@ -1451,6 +1451,13 @@ _GENERIC_HANDOFF_RE = re.compile(
     r"now let['’]?s hear|let['’]?s get into it)\b",
     re.IGNORECASE,
 )
+# Abstract quiz closers sound like planner prompts, not podcast cold opens
+# (exec_017: "What does the conventional route ask of a patient?").
+_WEAK_QUIZ_PREFACE_RE = re.compile(
+    r"\bwhat does (?:the|that|this|a|an)\b.+\b"
+    r"(?:ask|reveal|mean|tell|require|demand|suggest|imply)\b",
+    re.IGNORECASE,
+)
 
 
 def last_spoken_sentence(text: str) -> str:
@@ -1514,6 +1521,9 @@ def cold_open_layup_ok(
         return False
     if _GENERIC_HANDOFF_RE.search(last):
         return False
+    # Preface quiz closers fail the cold-open bar even when they "cue" a topic.
+    if category == "episode_preface" and _WEAK_QUIZ_PREFACE_RE.search(last):
+        return False
     tgt = str(target_text or "").strip()
     if not tgt:
         return True
@@ -1529,14 +1539,25 @@ def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
     """Grounded last-sentence candidates that survive spoken_copy + cold-open checks."""
     tgt_l = str(target_text or "").lower()
     cues: list[str] = []
+    preface = category == "episode_preface"
     if "contrast" in tgt_l or "versus" in tgt_l or "vs." in tgt_l:
-        cues.append("What does that contrast reveal?")
+        if preface:
+            cues.append("That contrast is where the conversation opens.")
+        else:
+            cues.append("What does that contrast reveal?")
     if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
-        cues.append(
-            "What made that deal possible?"
-            if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
-            else "What was at stake in that exit?"
-        )
+        if preface:
+            cues.append(
+                "Let's open on what made that deal possible."
+                if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+                else "Let's open on what was at stake in that exit."
+            )
+        else:
+            cues.append(
+                "What made that deal possible?"
+                if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+                else "What was at stake in that exit?"
+            )
     if any(
         tok in tgt_l
         for tok in (
@@ -1552,18 +1573,27 @@ def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
             "founder",
         )
     ):
+        if preface:
+            cues.extend(
+                [
+                    "Let's start with that introduction.",
+                    "That introduction is where we begin.",
+                ]
+            )
+        else:
+            cues.extend(
+                [
+                    "Who is at the center — and why start there?",
+                    "Why open by establishing that introduction?",
+                    "What should we know before that introduction lands?",
+                ]
+            )
+    if preface:
+        # Declarative / invitation hinges first — quiz closers are fail-closed above.
         cues.extend(
             [
-                "Who is he — and why start there?",
-                "Why open by establishing who he is?",
-                "What should we know about him before that introduction lands?",
-            ]
-        )
-    if category == "episode_preface":
-        cues.extend(
-            [
-                "Let's hear how that opening beat lands.",
                 "That opening sets the stakes we'll follow.",
+                "Let's hear how that opening beat lands.",
                 "Let's start with how that story begins.",
             ]
         )

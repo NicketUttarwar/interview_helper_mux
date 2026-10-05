@@ -23,6 +23,8 @@ interface GPublishPayload {
   skipped?: boolean;
   cleared?: boolean;
   package_ready?: boolean;
+  package_complete?: boolean;
+  missing_files?: string[];
   has_master?: boolean;
   ready_package_count?: number;
   already_uploaded_count?: number;
@@ -94,15 +96,20 @@ export function GPublishPanel() {
           Number(data.already_uploaded_count || 0) >= 1 ||
           Boolean((data.publish_result as { uploaded?: boolean } | undefined)?.uploaded);
         const msg = String(sj.message || "Upload finished");
-        setUploadPhase(uploaded ? "success" : "success");
-        setStatusMessage(uploaded ? `Uploaded to S3. ${msg}` : msg);
+        setUploadPhase("success");
+        setStatusMessage(
+          uploaded
+            ? `Upload complete — this run is on S3. ${msg}`
+            : `Upload finished. ${msg}`,
+        );
         setBusy(false);
-        if (uploaded) void refreshRun();
+        showToast(uploaded ? "Upload complete — this run is on S3" : "Upload finished", "success");
+        void refreshRun();
         return true;
       }
       return false;
     },
-    [runId, refreshRun],
+    [runId, refreshRun, showToast],
   );
 
   // Surface an existing sync error/success for this run on load (no silent grey button).
@@ -145,12 +152,19 @@ export function GPublishPanel() {
   const syncRunning = syncIsThisRun && syncJob.status === "running";
   const readyCount = Number(payload.ready_package_count || 0);
   const uploadedCount = Number(payload.already_uploaded_count || 0);
-  const thisRunReady = readyCount >= 1;
+  const missingFiles = Array.isArray(payload.missing_files) ? payload.missing_files : [];
+  const packageComplete =
+    payload.package_complete === true ||
+    (payload.package_ready === true && missingFiles.length === 0) ||
+    readyCount >= 1;
+  const thisRunReady = packageComplete;
   const thisRunUploaded =
     uploadedCount >= 1 ||
     Boolean((payload.publish_result as { uploaded?: boolean } | undefined)?.uploaded) ||
     (Boolean(payload.cleared && !payload.skipped) && uploadedCount >= 1);
-  const showReview = Boolean(payload.package_ready || payload.has_master);
+  const showReview = Boolean(payload.package_ready || payload.has_master || packageComplete);
+  const needsPrepare =
+    Boolean(payload.pending) && !thisRunUploaded && !thisRunReady && !payload.skipped;
 
   const prepare = async () => {
     setBusy(true);
@@ -288,6 +302,12 @@ export function GPublishPanel() {
     }
   };
 
+  const reviewSavedBanner =
+    Boolean(statusMessage?.toLowerCase().includes("review edits saved")) &&
+    uploadPhase === "idle" &&
+    !thisRunUploaded &&
+    !syncRunning;
+
   const bannerClass =
     uploadPhase === "error"
       ? "g-publish-status error"
@@ -295,17 +315,23 @@ export function GPublishPanel() {
         ? "g-publish-status success"
         : uploadPhase === "uploading" || uploadPhase === "starting" || syncRunning
           ? "g-publish-status progress"
-          : "g-publish-status";
+          : reviewSavedBanner
+            ? "g-publish-status success"
+            : "g-publish-status";
 
   const bannerText =
     statusMessage ||
     (thisRunUploaded
-      ? "This run is on S3."
-      : thisRunReady
-        ? "Local package ready — upload to S3 or skip."
-        : payload.incomplete_count
-          ? "Package incomplete — prepare first."
-          : "Waiting for local package…");
+      ? "This run is on S3 — upload complete."
+      : payload.skipped
+        ? "G-Publish skipped — local package kept; nothing uploaded."
+        : thisRunReady
+          ? "Local package ready — use Upload this run to S3 below, or Skip."
+          : missingFiles.length
+            ? `Package incomplete (missing ${missingFiles.join(", ")}). Click Prepare package, then Upload.`
+            : payload.incomplete_count
+              ? "Package incomplete — prepare first, then Upload."
+              : "Waiting for local package…");
 
   return (
     <div data-partial-auto-checkpoint="g_publish">
@@ -338,7 +364,11 @@ export function GPublishPanel() {
                     ? "Uploading…"
                     : uploadPhase === "starting"
                       ? "Starting upload…"
-                      : "Publish status"}
+                      : reviewSavedBanner
+                        ? "Review saved"
+                        : payload.skipped
+                          ? "Skipped"
+                          : "Publish status"}
             </strong>
             <p>{bannerText}</p>
             {feedUrl && (uploadPhase === "success" || thisRunUploaded) ? (
@@ -358,6 +388,10 @@ export function GPublishPanel() {
             onDirtyChange={setReviewDirty}
             onRegisterSave={registerSave}
             onSaved={() => {
+              setUploadPhase((prev) => (prev === "success" || prev === "error" ? prev : "idle"));
+              setStatusMessage(
+                "Review edits saved. Upload this run to S3 when ready, or Skip to keep the package local.",
+              );
               void reload();
               void refreshRun();
             }}
@@ -399,11 +433,12 @@ export function GPublishPanel() {
           </>
         ) : null}
 
-        <div className="gate-actions-row">
-          {payload.pending && !payload.package_ready ? (
+        <div className="gate-actions-row g-publish-actions" data-testid="g-publish-actions">
+          {needsPrepare ? (
             <button
               type="button"
               className="btn sm primary"
+              data-testid="g-publish-prepare"
               disabled={busy || syncRunning}
               onClick={() => void prepare()}
             >
@@ -421,7 +456,9 @@ export function GPublishPanel() {
                 : reviewDirty
                   ? "Will save review edits, then upload"
                   : !thisRunReady
-                    ? "Local package not ready"
+                    ? missingFiles.length
+                      ? `Missing ${missingFiles.join(", ")} — Prepare package first`
+                      : "Local package not ready — Prepare package first"
                     : undefined
             }
             onClick={() => void syncThisRun()}
@@ -438,6 +475,7 @@ export function GPublishPanel() {
             <button
               type="button"
               className="btn sm ghost"
+              data-testid="g-publish-skip"
               disabled={busy || syncRunning}
               onClick={() => void skip()}
             >
@@ -445,6 +483,13 @@ export function GPublishPanel() {
             </button>
           ) : null}
         </div>
+        {!thisRunReady && !thisRunUploaded && !payload.skipped ? (
+          <p className="hint g-publish-upload-hint" data-testid="g-publish-upload-hint">
+            {needsPrepare
+              ? "Upload stays disabled until Prepare finishes packaging chapters + transcript."
+              : "Scroll here for Upload this run to S3 / Skip."}
+          </p>
+        ) : null}
       </GatePanelShell>
     </div>
   );

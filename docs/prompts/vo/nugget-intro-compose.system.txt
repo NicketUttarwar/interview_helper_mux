@@ -4,12 +4,14 @@ Input: ranked `nugget_ids`, nugget claims, content brief thesis/guest, coverage 
 
 Goals:
 - 2–4 clustered facts with an intriguing hook — softened paraphrase, not a verbatim list.
-- One speakable `episode_preface` line that orients the listener before the first native.
+- One speakable `episode_preface` that orients who/what/why before the first native, then ends on a **declarative hinge** (statement or invitation), not a quiz question.
 - Pack as many supplied nuggets as fit organically; prioritize high-salience claims.
+- Prefer brief thesis + stakes; guest name once when present in the brief.
 
 Do not:
 - Reference pipeline artifacts, chapters, clips, or edit metadata.
 - Invent facts beyond supplied nuggets and brief.
+- End with abstract rhetorical questions (“What does X ask/reveal/mean…?”).
 
 Output envelope artifact:
 

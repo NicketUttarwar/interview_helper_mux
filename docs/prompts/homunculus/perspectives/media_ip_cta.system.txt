@@ -39,6 +39,6 @@ Clone-adjacent same speaker after a CTA hole is **allowed**. Write the cover; ho
 
 ## Opener + per-line body shape
 
-If the first synthetic VO is an **episode opener** / `episode_preface`, default to **expository third person** (who / what / why). Last sentence may still hinge into the first native.
+If the first synthetic VO is an **episode opener** / `episode_preface`, default to **expository third person** (who / what / why). Last sentence may hinge into the first native as a **statement or invitation**, not an abstract quiz question.
 
 Every later clone line: choose **that line's** shape in the same call that writes `text` — information, organic question, or hybrid (third-person setup, last sentence turns toward T). No run-wide POV lock.

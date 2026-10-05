@@ -1,5 +1,6 @@
 import type { OperatorPhase, PipelineSubTab, RunData, StageInfo } from "../types";
 import {
+  canonicalizeOperatorStageId,
   findPendingFocusStage,
   gateFocusStageId,
 } from "./checkpoint";
@@ -146,7 +147,7 @@ export function listAttentionItems(
   }
 
   if (job?.status === "gate") {
-    const gateStage = gateFocusStageId(job) || job.stage;
+    const gateStage = gateFocusStageId(job) || canonicalizeOperatorStageId(job.stage) || job.stage;
     if (!gateStage) {
       /* fall through */
     } else {
@@ -189,7 +190,7 @@ export function listAttentionItems(
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
-    const sid = blocking.stage_id;
+    const sid = canonicalizeOperatorStageId(blocking.stage_id) || blocking.stage_id;
     const stage = run.stages.find((s) => s.id === sid);
     if (stage && isStageHidden(stage)) {
       /* gap-fill stages hidden — no operator attention */
@@ -197,6 +198,7 @@ export function listAttentionItems(
     const reason = blocking.reason || "";
     const clipCount = parseCountFromMessage(blocking.message, /Review (\d+) ranked STT/);
     const pickupCount = parseCountFromMessage(blocking.message, /Record (\d+) pickup/);
+    const isGPublishFocus = sid === "podcast_publish" || reason === "g_publish";
 
     if (reason === "stage_reuse") {
       const firstTrySoft = run.journey?.first_try?.enabled !== false;
@@ -218,7 +220,8 @@ export function listAttentionItems(
       reason === "transcript_review" ||
       reason === "g1_vo_pickup" ||
       reason === "llm_gate" ||
-      reason === "g_publish"
+      reason === "g_publish" ||
+      isGPublishFocus
     ) {
       if (reason === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
         /* optional/automation G1 */
@@ -236,11 +239,11 @@ export function listAttentionItems(
           phase: stagePhase(stage),
           subTab: subTabForStage(sid, "gate"),
         });
-      } else if (reason === "g_publish") {
+      } else if (isGPublishFocus) {
         push({
           kind: "gate",
           priority: 1,
-          stageId: sid,
+          stageId: "podcast_publish",
           stageTitle: "Publish package",
           title: "G-Publish needs your input",
           message: blocking.message || "Sync to S3 or skip publishing.",

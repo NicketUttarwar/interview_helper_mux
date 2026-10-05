@@ -136,7 +136,8 @@ def test_orientation_repairs_generic_final_handoff_against_first_native(tmp_path
         ["seg_004"],
     )
     line = report["interviewer_lines"][0]
-    assert line["text"].endswith("What does that contrast reveal?")
+    # Preface hinges stay declarative — quiz closers are fail-closed.
+    assert line["text"].endswith("That contrast is where the conversation opens.")
     assert cold_open_layup_ok(
         line,
         target_text="Mohan contrasts invasive tissue biopsy with a blood-based liquid biopsy.",
