@@ -2124,8 +2124,13 @@ def _closing_outro_tail_ids(
             continue
         if tape_end - max(int((by_id.get(k) or {}).get("end_ms") or 0) for k in on_air) > 5000:
             continue
-        last_gone = max(_split_suffix_key(k, parent) for k in gone)
-        out |= {k for k in on_air if _split_suffix_key(k, parent) > last_gone}
+        # After the sponsor read *begins*, not after the last excluded piece:
+        # garbled sign-off pieces can be excluded on both sides of one that
+        # stayed (exec_022: seg_031a-h and j-k excluded, seg_031i "You most of
+        # the time, Michael." aired as the last clip; ISSUES 174). Story
+        # children before the sponsor read stay.
+        first_gone = min(_split_suffix_key(k, parent) for k in gone)
+        out |= {k for k in on_air if _split_suffix_key(k, parent) > first_gone}
     return out
 
 def _reverse_jump_keep_ids(reason: str) -> set[str]:

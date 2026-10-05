@@ -6012,6 +6012,41 @@ expects the satisfiable set and the recorded cycle break.
 
 ---
 
+## [174] PRODUCT: a closing sign-off piece sandwiched between excluded siblings aired as the last clip, because the tail rule started after the last excluded piece (macOS exec_022)
+
+**Stage / area:** `media_ip_cta._closing_outro_tail_ids`
+**Status:** FIXED
+
+**Seen:** run 22 reached G-Publish with post-master quality passing, but the
+last clip on air was `seg_031i` "You most of the time, Michael." from the
+closing CTA parent `seg_031`. Its siblings `seg_031a-h` (sponsor read,
+credits) and `seg_031j-k` (more garbled sign-off) were excluded. Layup had
+asked to "Remove seg_031i and seg_031k from the locked air order"; the keep
+list protected `seg_031i`.
+
+**Cause:** entry 147's rule takes on-air children of a tape-closing CTA
+parent that sort after the *last* excluded sibling. Garbled pieces were
+excluded on both sides of `seg_031i`, so the last excluded sibling (`k`) came
+after it and it was not counted. Its text has no scrap markers, so entry
+170's text test did not catch it either.
+
+**Fix:** the tail starts after the *first* excluded sibling: for a parent that
+closes the tape, anything on air after its sponsor read begins is sign-off
+territory. Story children before the sponsor read still stay. On exec_022 the
+closing tail is now `seg_031i`; exec_020 still yields `seg_050`, and exec_017
+and exec_019 have none.
+
+**Also on run 22 (expected to clear with entry 173):** the listen critic and
+story health each report one `finale_tail` error ("early-chapter segment(s)
+after finale block: seg_024, seg_021, seg_022, seg_023"). It is the same
+complaint the commit barrier raised when ranking failed on the ordering cycle;
+the walk continued on the earlier selection, which carries it.
+
+Tests: `tests/test_tape_tail_scrap_after_closing_cta.py` (2 added; the
+sandwiched-child test fails on the unfixed code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
