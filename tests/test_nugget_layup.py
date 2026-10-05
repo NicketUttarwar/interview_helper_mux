@@ -2970,3 +2970,59 @@ def test_publish_keeps_prior_body_when_plan_is_all_typed_skips(monkeypatch):
         if isinstance(ln, dict) and not ln.get("skipped_optional") and not ln.get("air_script_omit")
     ]
     assert len(kept) >= 3
+
+
+def _partial_prior_setup(monkeypatch, run_id: str, *, aspirational: bool):
+    ctx = RunContext(run_id, create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012", "seg_022", "seg_030"],
+        {"seg_002": "Welcome.", "seg_012": "Guest on CTCs.", "seg_022": "More science.", "seg_030": "Closing."},
+    )
+    prior_lines = [
+        {
+            "line_id": f"vo_context_seg_{sid}",
+            "gap_type": "missing_setup",
+            "placement": "before",
+            "targets_segment_id": f"seg_{sid}",
+            "delivery": "synthesize",
+            "origin": "gap_framing_compose",
+            "text": f"Context line for {sid} that sets up the next beat clearly.",
+        }
+        for sid in ("012", "022")
+    ]
+    ctx.write_json(GAP_REL, {"interviewer_lines": prior_lines}, skip_handoff=True)
+    monkeypatch.setattr("interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo", lambda _ctx: True)
+    monkeypatch.setattr("interview_mux.gap_fill_eligibility.min_synthetic_vo_lines", lambda _ctx: 3)
+    monkeypatch.setattr("interview_mux.floor_progress.hosted_vo_aspirational", lambda c=None: aspirational)
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012", "seg_022", "seg_030"],
+        "layups": [
+            {"target_segment_id": sid, "skip_reason_code": "self_explanatory_native"}
+            for sid in ("seg_012", "seg_022", "seg_030")
+        ],
+        "warnings": ["No body lay-ups were warranted."],
+    }
+    return ctx, plan
+
+
+def test_publish_keeps_partial_prior_body_under_aspirational_floors(monkeypatch):
+    """exec_021 (ISSUES 171): all layups skipped, 2 compose lines live, floor 3.
+
+    The hollow plan must not raise unsatisfiable at error level; the live prior
+    body is kept and the partial floor proceeds on the advisory.
+    """
+    ctx, plan = _partial_prior_setup(monkeypatch, "exec_layup_partial_prior", aspirational=True)
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    kept = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict) and not ln.get("skipped_optional") and not ln.get("air_script_omit")
+    ]
+    assert len(kept) == 2
+
+
+def test_partial_prior_without_aspirational_floors_still_escalates(monkeypatch):
+    ctx, plan = _partial_prior_setup(monkeypatch, "exec_layup_partial_strict", aspirational=False)
+    with pytest.raises(Exception, match="hosted_vo_floor_unsatisfiable"):
+        publish_layup_plan_to_gap_report(ctx, plan)

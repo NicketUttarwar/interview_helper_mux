@@ -5915,6 +5915,35 @@ Tests: `tests/test_tape_tail_scrap_after_closing_cta.py` (3).
 
 ---
 
+## [171] PRODUCT: an all-skip layup plan raised hosted_vo_floor_unsatisfiable at error level when the prior body had live lines below the floor, then the walk proceeded on that same body (macOS exec_021, step 47)
+
+**Stage / area:** `nugget_layup.publish_layup_plan_to_gap_report` (hollow-plan
+guard)
+**Status:** FIXED
+
+**Seen:** layup's reply skipped every row (`self_explanatory_native`,
+`no_eligible_unspent_nugget`, ...) and omitted the opening orientation as
+redundant. Publish raised `nugget_layup_compose: hosted_vo_floor_unsatisfiable
+(active_synthetic=0 < min=3; eligible_nuggets=0)` (4 error lines, stage
+failed). One step later the walk continued with the compose-era gap report
+(`vo_context_seg_012`, `vo_bridge_seg_022` live) as a partial floor on the
+advisory.
+
+**Cause:** entry 135's guard preserves the prior body when a plan is hollow,
+but only when that body fully meets the floor. With 2 of 3 live lines it fell
+through to the loud escalation, although progress floors accept a partial
+floor and the run proceeded on exactly that body anyway.
+
+**Fix:** a hollow plan also preserves a partial prior body (at least one live
+line) when progress floors are aspirational, logged as a warning. A hollow
+plan with no live prior line, or a partial prior under strict floors, still
+escalates loudly.
+
+Tests: `tests/test_nugget_layup.py::test_publish_keeps_partial_prior_body_under_aspirational_floors`
+(fails on the unfixed code) and `::test_partial_prior_without_aspirational_floors_still_escalates`.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
