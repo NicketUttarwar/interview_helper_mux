@@ -418,6 +418,7 @@ def clamp_edl_speech_away_from_never_touch(
         out["clips"] = clips
         return out, []
     changed_rows: list[dict[str, Any]] = []
+    clamped_ids: set[int] = set()
     for index, clip in enumerate(clips):
         if str(clip.get("type") or "") != "speech":
             continue
@@ -429,6 +430,7 @@ def clamp_edl_speech_away_from_never_touch(
         new_ss, new_se, notes = clamp_source_away_from_never_touch(ss, se, ranges)
         if not notes or (new_ss == ss and new_se == se):
             continue
+        clamped_ids.add(id(clip))
         clip["source_start_ms"] = new_ss
         clip["source_end_ms"] = new_se
         clip["duration_ms"] = max(0, new_se - new_ss)
@@ -451,6 +453,11 @@ def clamp_edl_speech_away_from_never_touch(
     dropped_ids: list[str] = []
     drop_reasons: dict[str, str] = {}
     man_by_id = _manifest_segments_by_id(ctx)
+    on_air = [
+        str(c.get("segment_id"))
+        for c in clips
+        if str(c.get("type") or "") == "speech" and c.get("segment_id")
+    ]
     for clip in clips:
         if str(clip.get("type") or "") != "speech":
             kept.append(clip)
@@ -463,12 +470,26 @@ def clamp_edl_speech_away_from_never_touch(
             kept.append(clip)
             continue
         sid = str(clip.get("segment_id") or "")
+        # A must-air keep is never dropped here: the selection would refuse the
+        # omit and the EDL would never match it again (exec_025 seg_021, a
+        # 280 ms clip this clamp never touched; ISSUES 179). The live-EDL
+        # writer reseats it on its own tape instead.
+        try:
+            from interview_mux.removal_authority import removal_block_reason
+
+            blocked = removal_block_reason(ctx, sid, on_air=on_air)
+        except Exception:
+            blocked = None
+        if blocked:
+            kept.append(clip)
+            continue
         seg = man_by_id.get(sid) or {}
-        reason = (
-            "never_touch_unplayable"
-            if _is_cta_class_keep(seg if isinstance(seg, dict) else None)
-            else "dropped_unplayable_never_touch"
-        )
+        if id(clip) not in clamped_ids:
+            reason = "dropped_unplayable_short"
+        elif _is_cta_class_keep(seg if isinstance(seg, dict) else None):
+            reason = "never_touch_unplayable"
+        else:
+            reason = "dropped_unplayable_never_touch"
         dropped_ids.append(sid)
         drop_reasons[sid] = reason
         changed_rows.append(
@@ -1986,7 +2007,9 @@ def on_air_orphaned_cta_scrap_ids(
     except Exception:
         story = set()
     by_id = _segments_by_id(ctx)
-    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel)
+    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
+        by_id, ordered, parents
+    )
     out: list[str] = []
     for sid in ordered:
         if sid in tail:
@@ -2022,7 +2045,54 @@ def closing_outro_tail_segment_ids(
         pass
     if not ordered or not parents:
         return set()
-    return _closing_outro_tail_ids(_segments_by_id(ctx), ordered, parents, sel)
+    by_id = _segments_by_id(ctx)
+    return _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
+        by_id, ordered, parents
+    )
+
+
+def _tape_tail_scrap_ids(
+    by_id: dict[str, Any],
+    ordered: list[str],
+    parents: set[str],
+) -> set[str]:
+    """Top-level on-air scraps that start after the tape's closing sponsor read.
+
+    The child-based checks only look inside CTA parents. A garbled sign-off
+    cut as its own segment after the closing sponsor parent (exec_020:
+    seg_050 "You are listening to usHS\ufffd bone and cut-" after seg_049)
+    stayed on air as the last thing in the episode (ISSUES 170). Only text
+    that fails ``looks_like_orphaned_cta_scrap`` is taken, so closing story
+    after the outro stays.
+    """
+    rows = [r for r in by_id.values() if isinstance(r, dict)]
+    ends = [int(r.get("end_ms") or 0) for r in rows]
+    if not ends:
+        return set()
+    tape_end = max(ends)
+    closing_start: int | None = None
+    for parent in parents:
+        row = by_id.get(parent)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            continue
+        if tape_end - int(row.get("end_ms") or 0) > 120_000:
+            continue
+        start = int(row.get("start_ms") or 0)
+        closing_start = start if closing_start is None else max(closing_start, start)
+    if closing_start is None:
+        return set()
+    out: set[str] = set()
+    for sid in ordered:
+        if sid in parents or any(_is_nle_child(sid, p) for p in parents if p):
+            continue
+        row = by_id.get(sid)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            continue
+        if int(row.get("start_ms") or 0) < closing_start:
+            continue
+        if looks_like_orphaned_cta_scrap(str(row.get("text") or "")):
+            out.add(sid)
+    return out
 
 
 def _split_suffix_key(sid: str, parent: str) -> tuple[int, str]:
@@ -2075,8 +2145,13 @@ def _closing_outro_tail_ids(
             continue
         if tape_end - max(int((by_id.get(k) or {}).get("end_ms") or 0) for k in on_air) > 5000:
             continue
-        last_gone = max(_split_suffix_key(k, parent) for k in gone)
-        out |= {k for k in on_air if _split_suffix_key(k, parent) > last_gone}
+        # After the sponsor read *begins*, not after the last excluded piece:
+        # garbled sign-off pieces can be excluded on both sides of one that
+        # stayed (exec_022: seg_031a-h and j-k excluded, seg_031i "You most of
+        # the time, Michael." aired as the last clip; ISSUES 174). Story
+        # children before the sponsor read stay.
+        first_gone = min(_split_suffix_key(k, parent) for k in gone)
+        out |= {k for k in on_air if _split_suffix_key(k, parent) > first_gone}
     return out
 
 def _reverse_jump_keep_ids(reason: str) -> set[str]:

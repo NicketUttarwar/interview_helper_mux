@@ -196,6 +196,15 @@ def _check_phantom_vo(
         for c in (edl.get("clips") or [])
         if isinstance(c, dict) and c.get("type") == "vo_pickup" and c.get("line_id")
     }
+    # Lines the builder chose not to seat on purpose are not phantom: rebuilding
+    # the EDL reaches the same decision every time (ISSUES 175).
+    warn = edl.get("warnings") if isinstance(edl.get("warnings"), dict) else {}
+    builder_skipped = {
+        str(x)
+        for key in ("suppressed_clone_adjacency", "gap_targets_not_in_selection")
+        for x in (warn.get(key) or [])
+        if x
+    }
     out: list[PublishabilityViolation] = []
     for line in (gap_report or {}).get("interviewer_lines") or []:
         if not isinstance(line, dict):
@@ -207,6 +216,8 @@ def _check_phantom_vo(
             continue
         lid = str(line.get("line_id") or "")
         if not lid or lid in edl_line_ids:
+            continue
+        if lid in builder_skipped or str(line.get("targets_segment_id") or "") in builder_skipped:
             continue
         try:
             from interview_mux.hosted_vo_authority import (

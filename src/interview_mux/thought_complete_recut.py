@@ -707,6 +707,20 @@ def apply_thought_complete_to_clips(
         return clips, overrides, False
     hang_start = int(hanging.get("source_start_ms") or 0)
     prior_end = int(hanging.get("source_end_ms") or hang_start)
+    # A clip aired *before* the hanging one can sit later on tape (reorder).
+    # The extension must stop at its start or that tape plays twice; the loop
+    # below only walks clips aired after (ISSUES 179).
+    for c in clips[:hang_index]:
+        if not isinstance(c, dict) or str(c.get("type") or "") != "speech":
+            continue
+        try:
+            oss = int(c.get("source_start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if prior_end - 40 <= oss < keep_end:
+            keep_end = oss
+            if remainder_ms is not None and remainder_ms < keep_end:
+                remainder_ms = keep_end
     if keep_end <= hang_start + 300:
         return clips, overrides, False
     hanging["source_end_ms"] = keep_end

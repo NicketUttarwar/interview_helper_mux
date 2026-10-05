@@ -392,7 +392,7 @@ def synthesize_narrative_from_coverage(ctx: RunContext) -> dict[str, Any] | None
                     manifest_order.append(str(s["segment_id"]))
 
     if ctx.artifact_exists("understanding/episode_structure.json"):
-        es = ctx.read_json("understanding/episode_structure.json")
+        es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
         if isinstance(es, dict):
             order = [str(x) for x in (es.get("segment_order") or []) if x]
             if order:

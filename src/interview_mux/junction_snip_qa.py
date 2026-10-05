@@ -272,17 +272,32 @@ def _next_speech_source_start(
     clips: list[dict[str, Any]],
     from_index: int,
 ) -> int | None:
-    for j in range(from_index + 1, len(clips)):
-        other = clips[j]
-        if not isinstance(other, dict):
+    """Earliest on-air speech start after this clip's start *on tape*.
+
+    The next clip in air order is not the tape neighbour in a reordered
+    episode: capping at it put a clip's end before its own start (no repair
+    possible) or let an extend run into a tape-later on-air clip that airs
+    elsewhere (ISSUES 179).
+    """
+    if from_index < 0 or from_index >= len(clips) or not isinstance(clips[from_index], dict):
+        return None
+    try:
+        own_start = int(clips[from_index].get("source_start_ms") or 0)
+    except (TypeError, ValueError):
+        return None
+    later: list[int] = []
+    for j, other in enumerate(clips):
+        if j == from_index or not isinstance(other, dict):
             continue
         if str(other.get("type") or "") != "speech":
             continue
         try:
-            return int(other.get("source_start_ms") or 0)
+            start = int(other.get("source_start_ms") or 0)
         except (TypeError, ValueError):
-            return None
-    return None
+            continue
+        if start > own_start:
+            later.append(start)
+    return min(later) if later else None
 
 
 def _clamp_end_before_next_speech(
@@ -808,13 +823,29 @@ def _merge_candidate_for_clip(
         cross_chapter = bool(chapter and och and chapter != och)
         oss = int(other.get("source_start_ms") or 0)
         ose = int(other.get("source_end_ms") or oss)
-        gap = min(abs(oss - src_end), abs(src_start - ose), abs(oss - src_start), abs(ose - src_end))
-        # Prefer chronological neighbors with small source gap.
+        # Only an air neighbour that is also the tape neighbour in the same
+        # direction can absorb this clip. A reordered neighbour read as gap 0
+        # (max(0, negative)) and the union aired the unselected tape between
+        # them, undoing the editorial order (ISSUES 179).
         if j == index + 1:
+            if oss < src_end - SOURCE_OVERLAP_EPS_MS:
+                continue
             gap = max(0, oss - src_end)
-        elif j == index - 1:
+        else:
+            if ose > src_start + SOURCE_OVERLAP_EPS_MS:
+                continue
             gap = max(0, src_start - ose)
         if gap > gap_max_ms:
+            continue
+        u0, u1 = min(src_start, oss), max(src_end, ose)
+        if any(
+            isinstance(c, dict)
+            and str(c.get("type") or "") == "speech"
+            and str(c.get("segment_id") or "") not in {sid, oid}
+            and int(c.get("source_start_ms") or 0) < u1
+            and u0 < int(c.get("source_end_ms") or 0)
+            for c in clips
+        ):
             continue
         if cross_chapter and gap > int(allow_cross_chapter_gap_ms):
             continue

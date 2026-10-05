@@ -30,7 +30,7 @@ def derive_shape_ordered_segment_ids(ctx: RunContext, plan: dict[str, Any]) -> l
 
     if ctx.artifact_exists("understanding/episode_structure.json"):
         try:
-            es = ctx.read_json("understanding/episode_structure.json")
+            es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
             if isinstance(es, dict):
                 beats = es.get("beats") or es.get("ordered_segment_ids") or []
                 if isinstance(beats, list) and beats:

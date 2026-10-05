@@ -191,7 +191,7 @@ def run_narrative_arc(ctx: RunContext) -> None:
     def _structure_hard_integrity_bad() -> bool:
         if not ctx.artifact_exists("understanding/episode_structure.json"):
             return False
-        es = ctx.read_json("understanding/episode_structure.json")
+        es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
         if not isinstance(es, dict):
             return True
         integ = es.get("integrity") if isinstance(es.get("integrity"), dict) else {}

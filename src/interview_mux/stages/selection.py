@@ -208,7 +208,7 @@ def finalize_selection_order(
         artifacts, _ = repair_air_order_integrity(ctx, artifacts)
 
     final_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-    tail_errs = finale_tail_errors(final_ordered, plan)
+    tail_errs = finale_tail_errors(final_ordered, plan, artifacts.get("chapters"))
     if tail_errs:
         artifacts, _ = repair_selection_order(
             artifacts, plan, source_start_ms=starts,
@@ -630,7 +630,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         hook_id = None
         if c.artifact_exists("understanding/episode_structure.json"):
             try:
-                es = c.read_json("understanding/episode_structure.json")
+                es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(c) or {})
                 if isinstance(es, dict):
                     hook_id = es.get("hook_segment_id") or (
                         (es.get("cold_open") or {}).get("segment_id")

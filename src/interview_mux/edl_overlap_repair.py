@@ -70,7 +70,9 @@ def _chapter_by_segment(ctx: RunContext) -> dict[str, str]:
             continue
         for sid in ch.get("segment_ids") or []:
             if sid:
-                out[str(sid)] = cid
+                # First chapter wins, as in relabel_chapters_contiguous; the last
+                # chapter winning let a doubly-claimed id union across chapters.
+                out.setdefault(str(sid), cid)
     return out
 
 
@@ -190,6 +192,69 @@ def _pick_survivor(
     if in_component_parents:
         return min(in_component_parents, key=sort_key)
     return min(member_sids, key=sort_key)
+
+
+def _reorder_speech_blocks(clips: list[Any], order: list[str]) -> list[Any] | None:
+    """Clips with speech blocks in ``order``; None when nothing needs to move.
+
+    A block is a speech clip with the non-speech clips just before it (its
+    before-VO, silences, transition) and, for the last block, the trailing
+    clips. Only a pure reordering is applied: the speech ids must be the same
+    set as ``order``.
+    """
+    speech_idx = [
+        i for i, c in enumerate(clips) if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    ]
+    speech_ids = [str(clips[i].get("segment_id") or "") for i in speech_idx]
+    if not order or speech_ids == order or sorted(speech_ids) != sorted(order):
+        return None
+    if len(set(speech_ids)) != len(speech_ids):
+        return None
+    head = list(clips[: speech_idx[0]])
+    blocks: dict[str, list[Any]] = {}
+    start = speech_idx[0]
+    for n, i in enumerate(speech_idx):
+        sid = speech_ids[n]
+        nxt = speech_idx[n + 1] if n + 1 < len(speech_idx) else len(clips)
+        # After-VO for this speech clip travels with it; everything else after
+        # it belongs to the next block's lead-in.
+        end = i + 1
+        while end < nxt:
+            c = clips[end]
+            if (
+                isinstance(c, dict)
+                and str(c.get("type") or "") == "vo_pickup"
+                and str(c.get("placement") or "").lower() == "after"
+                and str(c.get("targets_segment_id") or "") == sid
+            ):
+                end += 1
+                continue
+            break
+        blocks[sid] = list(clips[start:end])
+        start = end
+    tail = list(clips[start:])
+    out = list(head)
+    for sid in order:
+        out.extend(blocks[sid])
+    out.extend(tail)
+    return out
+
+
+def _drop_non_adjacent_transitions(clips: list[Any]) -> list[Any]:
+    speech = [
+        str(c.get("segment_id") or "")
+        for c in clips
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    ]
+    adjacent = {(speech[i], speech[i + 1]) for i in range(len(speech) - 1)}
+    out: list[Any] = []
+    for c in clips:
+        if isinstance(c, dict) and str(c.get("type") or "") == "transition":
+            pair = (str(c.get("after_segment_id") or ""), str(c.get("before_segment_id") or ""))
+            if all(pair) and pair not in adjacent:
+                continue
+        out.append(c)
+    return out
 
 
 def _retime_clips(clips: list[Any]) -> int:
@@ -966,6 +1031,15 @@ def repair_overlapping_source_ranges(
         list(working.get("ordered_segment_ids") or []), remap
     )
     self_drop = []
+    # A transition renamed onto the survivor no longer sits between adjacent
+    # speech clips when the union moved; QC refused it once per merge and the
+    # retry cost one of the EDL's three invokes (client exec_018; ISSUES 175).
+    speech_seq = [
+        str(c.get("segment_id") or "")
+        for c in (working.get("clips") or [])
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    ]
+    adjacent = {(speech_seq[i], speech_seq[i + 1]) for i in range(len(speech_seq) - 1)}
     next_clips: list[Any] = []
     for clip in working.get("clips") or []:
         if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
@@ -974,6 +1048,9 @@ def repair_overlapping_source_ranges(
         after_id = str(clip.get("after_segment_id") or "")
         before_id = str(clip.get("before_segment_id") or "")
         if after_id and before_id and after_id == before_id:
+            self_drop.append(clip)
+            continue
+        if after_id and before_id and (after_id, before_id) not in adjacent:
             self_drop.append(clip)
             continue
         next_clips.append(clip)
@@ -1000,6 +1077,43 @@ def repair_overlapping_source_ranges(
     except Exception as exc:
         ctx.log(
             f"EDL overlap merge: could not retire absorbed ids from selection ({exc})",
+            level="warning",
+            stage="edl",
+            detail=STAGE_KEY,
+        )
+
+    # The selection decides where the union airs: its rename either landed
+    # (first occurrence kept) or the freeze refused it (consumed id retired,
+    # survivor in place). Either way the EDL follows the committed selection,
+    # so narrative QC parity cannot fail on the merge (exec_019 and exec_023
+    # took opposite branches; ISSUES 176).
+    try:
+        sel_now = ctx.read_json("master/selection.json") if ctx.artifact_exists("master/selection.json") else None
+        sel_order = [str(x) for x in ((sel_now or {}).get("ordered_segment_ids") or []) if x]
+        reordered = _reorder_speech_blocks(working.get("clips") or [], sel_order)
+        if reordered is not None:
+            working["clips"] = _drop_non_adjacent_transitions(reordered)
+            working["ordered_segment_ids"] = [
+                str(c.get("segment_id") or "")
+                for c in working["clips"]
+                if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+            ]
+            working["timeline_duration_ms"] = _retime_clips(
+                [c for c in working["clips"] if isinstance(c, dict)]
+            )
+            if persist_edl:
+                from interview_mux.air_order import write_live_edl
+
+                write_live_edl(ctx, working, source=STAGE_KEY)
+            ctx.log(
+                "EDL overlap merge: speech order aligned to the committed selection",
+                level="info",
+                stage="edl",
+                detail=STAGE_KEY,
+            )
+    except Exception as exc:
+        ctx.log(
+            f"EDL overlap merge: could not align EDL order to selection ({exc})",
             level="warning",
             stage="edl",
             detail=STAGE_KEY,

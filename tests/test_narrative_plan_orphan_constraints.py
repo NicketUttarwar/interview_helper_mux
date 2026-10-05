@@ -35,9 +35,14 @@ def test_fused_ref_is_remapped_orphan_ref_is_dropped_live_ref_is_kept(tmp_path) 
     }
     out, applied = repair_narrative_plan(ctx, plan)
     pairs = [(c["before_segment_id"], c["after_segment_id"]) for c in out["ordering_constraints"]]
-    assert pairs == [("seg_046", "seg_030"), ("seg_030", "seg_046")]
+    # The remap turns seg_052 -> seg_030 into seg_046 -> seg_030, which with the
+    # live seg_030 -> seg_046 is a two-node cycle no order satisfies; the
+    # tape-backward edge is dropped (ISSUES 173).
+    assert pairs == [("seg_030", "seg_046")]
     row = next(a for a in applied if a["action"] == "resolve_constraint_refs_to_manifest")
     assert row == {"action": "resolve_constraint_refs_to_manifest", "remapped": 1, "dropped": 1}
+    cyc = next(a for a in applied if a["action"] == "break_ordering_constraint_cycles")
+    assert cyc["dropped"] == [{"before": "seg_046", "after": "seg_030"}]
 
 
 def test_constraint_collapsing_onto_one_survivor_is_dropped(tmp_path) -> None:

@@ -2711,7 +2711,7 @@ def create_app() -> FastAPI:
         )
 
         ctx = _ctx(run_id)
-        doc = load_episode_structure(ctx)
+        doc = load_episode_structure(ctx, live=False)
         if not doc:
             raise HTTPException(404, f"Artifact not found: {STRUCTURE_PATH}")
         return {

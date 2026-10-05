@@ -459,6 +459,19 @@ def drop_post_coda_reverse_jump_from_selection(ctx: RunContext) -> list[str]:
             coda_end = i
     if coda_end <= 0 or coda_end >= len(ordered) - 1:
         return []
+    # A late-tape clip is the coda only when it airs in the closing chapter. A
+    # reordered episode can air late tape mid-arc; the early clips after it
+    # are the next chapter, not leftovers (ISSUES 179).
+    chapters = [
+        [str(x) for x in (ch.get("segment_ids") or []) if x]
+        for ch in (sel.get("chapters") or [])
+        if isinstance(ch, dict)
+    ]
+    chapters = [c for c in chapters if c]
+    if len(chapters) >= 2:
+        closing = set(chapters[-1])
+        if ordered[coda_end] not in closing:
+            return []
     keeps: set[str] = set()
     try:
         from interview_mux.hard_keep import hard_keep_segment_ids

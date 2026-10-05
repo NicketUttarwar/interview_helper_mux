@@ -3365,7 +3365,21 @@ def publish_layup_plan_to_gap_report(
                     or any("compose_restart" in w for w in warnings)
                     or active_new == 0
                 )
-                if hollow_plan and prior_active >= need:
+                # A hollow plan never replaces live lines. Fully met priors
+                # were preserved before; a partial prior is preserved too when
+                # progress floors accept a partial floor, instead of raising
+                # unsatisfiable at error level and recovering one step later
+                # on that same body (exec_021: all 27 layups skipped, prior 2
+                # compose lines live; ISSUES 171).
+                partial_prior_ok = False
+                if hollow_plan and 1 <= prior_active < need:
+                    try:
+                        from interview_mux.floor_progress import hosted_vo_aspirational
+
+                        partial_prior_ok = bool(hosted_vo_aspirational(ctx))
+                    except Exception:
+                        partial_prior_ok = False
+                if hollow_plan and (prior_active >= need or partial_prior_ok):
                     # Preserve prior body verbatim — no rank-select rewrite under floor
                     # pressure (S10 / verification P0). Plan stays hollow; escalate
                     # is the only non-preserve path below.

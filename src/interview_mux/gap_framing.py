@@ -509,8 +509,10 @@ def drop_contiguous_light_bridge_lines(
             kept.append(row)
             continue
         source_gap = tb[0] - ta[1]
-        # Large negative gap is a reorder hinge — keep VO.
-        if source_gap < -5000:
+        # Large negative gap is a reorder hinge — keep VO. A target that starts
+        # before its air predecessor on tape is a backward jump however short
+        # the predecessor is: the gap can still read near zero (ISSUES 179).
+        if source_gap < -5000 or tb[0] < ta[0]:
             kept.append(row)
             continue
         if abs(source_gap) <= contiguous_gap_ms:

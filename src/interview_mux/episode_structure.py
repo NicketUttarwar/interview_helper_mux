@@ -713,12 +713,62 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
     return doc
 
 
-def load_episode_structure(ctx: RunContext) -> dict[str, Any] | None:
+def _structure_segment_ids(doc: dict[str, Any]) -> set[str]:
+    ids = {str(x) for x in (doc.get("segment_order") or []) if x}
+    for slot in doc.get("slot_plan") or []:
+        if isinstance(slot, dict):
+            ids |= {str(x) for x in (slot.get("bound_segment_ids") or []) if x}
+    return {i for i in ids if i.startswith("seg_")}
+
+
+def episode_structure_is_stale(ctx: RunContext, doc: dict[str, Any] | None) -> bool:
+    """True when the stored structure names segment ids the manifest no longer has.
+
+    Re-segmentation (hitch, classification, connector fuse) renumbers ids after
+    episode_structure_compose has run; until it runs again, readers paired the
+    stale order with live text (exec_022: gap_framing_compose answered partial,
+    "target contexts are shifted ... seg_021's context is only 'Okay.'";
+    ISSUES 172).
+    """
+    if not isinstance(doc, dict) or not ctx.artifact_exists("segments/manifest.json"):
+        return False
+    try:
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return False
+    live = {
+        str(r.get("segment_id"))
+        for r in ((man or {}).get("segments") or [])
+        if isinstance(r, dict) and r.get("segment_id")
+    }
+    if not live:
+        return False
+    return bool(_structure_segment_ids(doc) - live)
+
+
+def load_episode_structure(ctx: RunContext, *, live: bool = True) -> dict[str, Any] | None:
+    """The episode structure, rebuilt in memory when the stored one is stale.
+
+    The rebuilt copy is not persisted: ``episode_structure_compose`` stays the
+    writer. ``live=False`` returns the stored document as is.
+    """
     try:
         if not ctx.artifact_exists(STRUCTURE_PATH):
             return None
         data = ctx.read_json(STRUCTURE_PATH)
-        return data if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return None
+        if live and episode_structure_is_stale(ctx, data):
+            try:
+                rebuilt = build_episode_structure(ctx, refresh=True)
+                if isinstance(rebuilt, dict) and rebuilt:
+                    meta = dict(rebuilt.get("_meta") or {})
+                    meta["rebuilt_in_memory_from_stale"] = True
+                    rebuilt["_meta"] = meta
+                    return rebuilt
+            except Exception:
+                pass
+        return data
     except Exception:
         return None
 

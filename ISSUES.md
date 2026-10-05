@@ -5876,6 +5876,413 @@ Tests: `tests/test_schema_conform_on_write.py` (6, including a real
 
 ---
 
+## [170] PRODUCT: a garbled sign-off cut as its own segment after the closing sponsor read aired as the episode's last clip (macOS exec_020)
+
+**Stage / area:** `media_ip_cta.closing_outro_tail_segment_ids`,
+`on_air_orphaned_cta_scrap_ids`, new `_tape_tail_scrap_ids`
+**Status:** FIXED
+
+**Seen:** run 20 reached G-Publish with 0 errors, but the last clip on air
+was `seg_050` (5.3 s): "You most of the time, Michael. You are listening to
+your follow-up. You are listening to usHS\ufffd bone and cut-". Layup had
+warned that `seg_049g` through `seg_050` were incoherent end fragments.
+
+**Cause:** the closing-outro checks from entries 147/148 only look at NLE
+children of CTA parents (`seg_049a..i`). `seg_050` is a top-level segment
+that starts after the closing sponsor parent `seg_049`, so neither check saw
+it, although `looks_like_orphaned_cta_scrap` already flags its text (U+FFFD,
+outro wording).
+
+**Fix:** `_tape_tail_scrap_ids`: an on-air segment that is not a child of any
+CTA parent, starts at or after the closing sponsor read (the latest CTA parent
+ending within 2 minutes of the tape end), and fails the existing scrap test is
+part of the closing tail. Both `closing_outro_tail_segment_ids` and
+`on_air_orphaned_cta_scrap_ids` include it, so the CTA residue heal and the
+keep-list exclusions take it off air. Closing story after the outro passes
+the scrap test and stays. On exec_020's state both detectors now return
+`seg_050`.
+
+**Also on run 20 (product decision, not a code fault):** layup skipped all 27
+planned lines with typed reasons (`self_explanatory_native` 15,
+`no_eligible_unspent_nugget` 8, `listener_already_oriented` 3), so host VO is
+15 s of a 26-minute master and the listener scorecard's clarity is 0.77
+against a 0.80 floor (advisory under aspirational floors). Nuggets are mined
+from the tape, so when the selection keeps the strong tape few "unspent"
+nuggets remain to frame. Whether hosted VO should be forced to its floor is
+for the product owner.
+
+Tests: `tests/test_tape_tail_scrap_after_closing_cta.py` (3).
+
+---
+
+## [171] PRODUCT: an all-skip layup plan raised hosted_vo_floor_unsatisfiable at error level when the prior body had live lines below the floor, then the walk proceeded on that same body (macOS exec_021, step 47)
+
+**Stage / area:** `nugget_layup.publish_layup_plan_to_gap_report` (hollow-plan
+guard)
+**Status:** FIXED
+
+**Seen:** layup's reply skipped every row (`self_explanatory_native`,
+`no_eligible_unspent_nugget`, ...) and omitted the opening orientation as
+redundant. Publish raised `nugget_layup_compose: hosted_vo_floor_unsatisfiable
+(active_synthetic=0 < min=3; eligible_nuggets=0)` (4 error lines, stage
+failed). One step later the walk continued with the compose-era gap report
+(`vo_context_seg_012`, `vo_bridge_seg_022` live) as a partial floor on the
+advisory.
+
+**Cause:** entry 135's guard preserves the prior body when a plan is hollow,
+but only when that body fully meets the floor. With 2 of 3 live lines it fell
+through to the loud escalation, although progress floors accept a partial
+floor and the run proceeded on exactly that body anyway.
+
+**Fix:** a hollow plan also preserves a partial prior body (at least one live
+line) when progress floors are aspirational, logged as a warning. A hollow
+plan with no live prior line, or a partial prior under strict floors, still
+escalates loudly.
+
+Tests: `tests/test_nugget_layup.py::test_publish_keeps_partial_prior_body_under_aspirational_floors`
+(fails on the unfixed code) and `::test_partial_prior_without_aspirational_floors_still_escalates`.
+
+---
+
+## [172] PRODUCT: after re-segmentation renumbered ids, readers paired the stale episode structure with live segment text; gap_framing_compose answered partial and fell back (macOS exec_022)
+
+**Stage / area:** `episode_structure.load_episode_structure` and its readers
+(`stages/gaps.py`, `stages/selection.py`, `stages/analysis_extended.py`,
+`sound_design`, `opening_orientation`, `shape_order_emit`,
+`talking_points_authority`, `assembly_ledger`, `timeline_optimizer`)
+**Status:** FIXED
+
+**Seen:** `LLM stage gap_framing_compose incomplete: status=partial needs=
+[rerun_stage episode_structure_compose: "Reconcile the duplicated
+episode_structure.segment_order with the ordered manifest ... target contexts
+are shifted or role-inconsistent after seg_013 ... seg_021 is an interviewee
+answer but its target context is only 'Okay.'"]` at error level; the stage
+fell back to a deterministic cover and the run continued.
+
+**Cause:** the walk re-segmented after the first compose (hitch,
+classification, then the connector fuse merged 15 seams), renumbering segment
+ids. `gap_framing_compose` ran again before `episode_structure_compose`, so
+its packet carried the structure built for the old ids next to contexts built
+from the new manifest. Thirteen readers took `episode_structure.json` from
+disk as is.
+
+**Fix:** `load_episode_structure` returns a live structure: when the stored
+one names segment ids the manifest no longer has
+(`episode_structure_is_stale`), it is rebuilt in memory with
+`build_episode_structure(refresh=True)` and marked
+`rebuilt_in_memory_from_stale`; nothing is persisted (the owner stage stays
+the writer). Every direct reader now goes through it. The two callers that
+work on the stored document use `live=False`: the hitch's
+`align_episode_structure_to_narrative` (it remaps the stored ids and
+persists) and the GUI endpoint (it shows what is on disk). `artifact_repairs`
+keeps its raw read for the same reason.
+
+Tests: `tests/test_episode_structure_live_after_resegmentation.py` (3).
+
+---
+
+## [173] PRODUCT: the narrative LLM returned ordering constraints that form a cycle, so full_master_ranking could not produce any order and failed (macOS exec_022, step 44)
+
+**Stage / area:** `artifact_repairs.repair_narrative_plan`, new
+`break_ordering_constraint_cycles`
+**Status:** FIXED
+
+**Seen:** `full_master_ranking` answered partial twice: "The ordering
+constraints create a cycle: seg_017 must precede seg_024, seg_024 must precede
+seg_015, seg_015 must precede seg_016, and seg_016 must precede seg_017", then
+the commit barrier refused its output and the stage failed loudly (entry 163).
+The walk continued on the previous selection.
+
+**Cause:** `narrative_arc_plan` produced the cyclic set itself; nothing checked
+that ordering constraints admit an order before ranking used them.
+(`order_reconcile` flips constraints to match an existing selection, which
+cannot create a cycle, but runs only when a selection exists.)
+
+**Fix:** `repair_narrative_plan` breaks every cycle before the plan is
+persisted: in each cycle the edge that jumps furthest backwards in tape time is
+dropped (tape order is the natural default), else the cycle's last edge; the
+dropped edges are recorded in the plan's repair meta. On exec_022's set it
+drops seg_024 -> seg_015 and keeps the other four; an acyclic set is untouched.
+
+Tests: `tests/test_ordering_constraint_cycles.py` (4).
+`tests/test_narrative_plan_orphan_constraints.py::test_fused_ref_is_remapped_orphan_ref_is_dropped_live_ref_is_kept`
+had asserted a repaired plan holding both seg_046 -> seg_030 and
+seg_030 -> seg_046 (a two-node cycle created by the fused-id remap); it now
+expects the satisfiable set and the recorded cycle break.
+
+---
+
+## [174] PRODUCT: a closing sign-off piece sandwiched between excluded siblings aired as the last clip, because the tail rule started after the last excluded piece (macOS exec_022)
+
+**Stage / area:** `media_ip_cta._closing_outro_tail_ids`
+**Status:** FIXED
+
+**Seen:** run 22 reached G-Publish with post-master quality passing, but the
+last clip on air was `seg_031i` "You most of the time, Michael." from the
+closing CTA parent `seg_031`. Its siblings `seg_031a-h` (sponsor read,
+credits) and `seg_031j-k` (more garbled sign-off) were excluded. Layup had
+asked to "Remove seg_031i and seg_031k from the locked air order"; the keep
+list protected `seg_031i`.
+
+**Cause:** entry 147's rule takes on-air children of a tape-closing CTA
+parent that sort after the *last* excluded sibling. Garbled pieces were
+excluded on both sides of `seg_031i`, so the last excluded sibling (`k`) came
+after it and it was not counted. Its text has no scrap markers, so entry
+170's text test did not catch it either.
+
+**Fix:** the tail starts after the *first* excluded sibling: for a parent that
+closes the tape, anything on air after its sponsor read begins is sign-off
+territory. Story children before the sponsor read still stay. On exec_022 the
+closing tail is now `seg_031i`; exec_020 still yields `seg_050`, and exec_017
+and exec_019 have none.
+
+**Also on run 22 (expected to clear with entry 173):** the listen critic and
+story health each report one `finale_tail` error ("early-chapter segment(s)
+after finale block: seg_024, seg_021, seg_022, seg_023"). It is the same
+complaint the commit barrier raised when ranking failed on the ordering cycle;
+the walk continued on the earlier selection, which carries it.
+
+Tests: `tests/test_tape_tail_scrap_after_closing_cta.py` (2 added; the
+sandwiched-child test fails on the unfixed code).
+
+---
+
+## [175] PRODUCT: EDL stage hardening: a segment two chapters claimed stopped the client run at edl, and an audit found eight more EDL blockers whose only heal cannot run under the freeze (client exec_018, step 58)
+
+**Stage / area:** `edl`: `gates.check_edl_narrative_qc`,
+`artifact_repairs.repair_edl_narrative_selection`, `edl_narrative_qc`,
+`edl_overlap_repair`, `publishability_boundary._check_phantom_vo`
+**Status:** FIXED
+
+**Seen (client):** run stopped at 57/72 with `edl` incomplete. Strict EDL
+narrative QC: chapters "The challenge of finding rare circulating tumour
+cells" [seg_016, seg_015] and "From cell counts to actionable single-cell
+analysis" [seg_015, seg_022, seg_018] overlap in final EDL order; "Re-run
+full_master_ranking". Earlier attempts also showed a misplaced transition
+(seg_022 -> seg_015) and a clone-voice adjacency warning that cleared on
+retry. EDL hit `max_invokes_per_identity` (3/3).
+
+**Cause:** `relabel_chapters_contiguous` (entry 152) already turns chapter
+membership into a partition of the air order (first claim wins), but only
+the narrative audit's repair loop called it. The EDL gate's own repair
+(`repair_edl_narrative_selection`) only dropped blanks and filled gaps, and
+the re-rank QC asks for cannot run under the hard freeze.
+
+**Fix:** the EDL gate's repair applies the relabel (a label-only write,
+`narrative_metadata_align`, allowed under the freeze). A read-only audit of
+every blocker at and around `edl` then found these dead ends, fixed in the
+same change:
+
+| # | check | why it looped | fix |
+|---|---|---|---|
+| 1 | chapters overlap / chapter split (`_validate_chapter_continuity`) | relabel not run at edl | relabel in the EDL pre-repair |
+| 2 | chapter references a segment the EDL omitted as unplayable | relabel works on the selection, not EDL speech | ignore `omitted_unplayable_segment_ids`, as parity does |
+| 3 | framing before impact, framing-covered segment on air, ordering constraint violated, `air_order_integrity` critical | remedy is a re-rank or re-compose; both refused under the hard freeze | recorded as warnings while the order is frozen (still errors before the freeze) |
+| 4 | transition no longer between adjacent clips after an overlap merge | renamed onto the survivor in place; cleared only on the next invoke | `edl_overlap_repair` drops transitions that are not adjacent after the rebuild |
+| 5 | overlap merge chapter lookup | last chapter won, relabel uses first | first chapter wins |
+| 6 | phantom VO at post_edl (WAV exists, no EDL clip) | the builder skips clone-adjacent / out-of-selection lines on purpose | lines in `suppressed_clone_adjacency` / `gap_targets_not_in_selection` are exempt |
+| 7 | missing transition clip where the builder seated a layup that was then suppressed or had no WAV | the seam is empty on purpose | exempt when the seam's layup or target is in `missing_vo_files` / suppressed |
+| 8 | gap_report duplicate line_id / identical text | counted lines that never air; the compose dedupe is refused under the freeze | count only lines seated in the EDL |
+
+Tests: `tests/test_edl_chapter_overlap_repaired_at_edl.py` (7, including the
+client's chapter shape before and after).
+
+---
+
+## [176] PRODUCT: the finale rule judged ranking's order by the pre-ranking narrative chapters, and the EDL disagreed with the selection after an overlap merge depending on the freeze (macOS exec_023)
+
+**Stage / area:** `selection_order_repair.finale_tail_errors` (with
+`deterministic_lint`, `story_health`, `stages/selection`),
+`edl_overlap_repair.repair_overlapping_source_ranges`
+**Status:** FIXED
+
+**Seen (run 23, reached G-Publish, post-master quality passing):**
+1. `full_master_ranking` failed once: the commit barrier refused its order
+   with "early-chapter segment(s) after finale block: ['seg_049']"; the final
+   master still ended on seg_049 and the listen critic and story health each
+   flagged the same `finale_tail` (run 22 had the same flag).
+2. EDL QC failed once after `EDL overlap merge: seg_048→seg_046`: speech
+   order [..., seg_044, seg_045, seg_047, seg_046, seg_049] against the
+   selection [..., seg_044, seg_046, seg_045, seg_047, seg_049]. The walk
+   recovered by re-running upstream stages and purging a VO take.
+
+**Cause:**
+1. Ranking swapped the last two narrative chapters; in its own chapters
+   seg_049 closes the final chapter. `finale_tail_errors` read chapter
+   membership only from the narrative plan, written before ranking, where
+   seg_049 belonged to the chapter that is no longer last.
+2. After the merge, the selection either takes the rename (first occurrence
+   kept) or the freeze refuses it and the consumed id is retired (survivor in
+   place). Entry 167 seated the EDL union at the survivor's slot, which matched
+   run 19's branch and not run 23's.
+
+**Fix:**
+1. `finale_tail_errors(..., selection_chapters)` uses the ranking's own
+   chapters when they give at least two; the lint and the selection stage
+   pass the ranking output's chapters, and story health passes the committed
+   selection's chapters when that selection is the order being judged. A real
+   early-chapter segment after the final chapter is still flagged.
+2. After the selection updates, the merge reorders the EDL's speech blocks to
+   the committed selection (each block keeps its before/after VO), drops
+   transitions that are no longer between neighbours, retimes and rewrites
+   the EDL. Only a pure reordering is applied.
+
+Tests: `tests/test_edl_follows_selection_and_finale_chapters.py` (5).
+
+---
+
+## [177] PRODUCT: a blocking "rerun_stage" need for work the walk does anyway failed the stage (macOS exec_024, step 18)
+
+**Stage / area:** `llm_simple.run_llm_stage_simple` (needs handling), new
+`is_walk_satisfied_need`
+**Status:** FIXED
+
+**Seen:** `LLM stage boundary_topic_resplit incomplete: status=partial
+needs=[{'type': 'rerun_stage', 'stage': 'content_brief_reanchor', 'reason':
+'Remap topics, claims, and narrative beats from superseded parent IDs to the
+revised segment IDs ...', 'blocking': True}]`, then `Failed: Stage
+boundary_topic_resplit` (3 errors). On the retry the model returned a
+non-blocking need, the stage was accepted, and its own follow-up ran
+segment_classification and content_brief_reanchor, the work the first answer
+had asked for.
+
+**Cause:** a blocking need fails the stage unless one of three per-stage
+demotions applies (speaker_roles, transitions, nugget_layup_compose).
+`boundary_topic_resplit` reruns `segment_classification` and
+`content_brief_reanchor` as nested stages after it persists, and needs for a
+stage later in the pipeline are satisfied by the walk itself (run 22's
+gap_framing_compose asked for episode_structure_compose the same way).
+
+**Fix:** `is_walk_satisfied_need`: a `rerun_stage` need is non-blocking when
+the requested stage is one the current stage reruns as its own follow-up
+(`_SELF_FOLLOWUP_STAGES`) or comes later in `ANALYSIS_ORDER` +
+`DELIVERY_ORDER`; the demotion is logged. Needs for upstream stages stay
+blocking. The existing rule then accepts a partial with valid artifacts and
+only non-blocking needs on the second attempt.
+
+Tests: `tests/test_walk_satisfied_needs.py` (4).
+
+---
+
+## [178] PRODUCT: a reordered air order cut keepers by their air neighbours, not their tape neighbours (macOS exec_025, step 58 edl)
+
+**Stage / area:** `stages/assembly.build_flow1_edl`, `ideal_cuts.resolve_keeper_air_bounds`,
+`write_staging.run_wrapped_stage`
+**Status:** FIXED
+
+**Seen:** `dispatch refused for incomplete critical edl (max_invokes_per_identity)`
+after three EDL attempts that each logged "EDL QC passed" and no error. The
+EDL had 14 speech clips, the selection 15: `seg_021` was missing.
+`media_ip_cta` and `air_order` then tried to take `seg_021` off the order and
+removal authority refused (must-air).
+
+**Cause:** the air order was `... seg_026, seg_025, seg_021, seg_028 ...`
+(tape 32:13, 31:39, 27:48, 35:22). The builder passed the previously *aired*
+clip's end as the keeper's disjointness floor, and the next *aired* clip's
+start as its cap. For `seg_021` (27:48 to 28:36) the floor was `seg_025`'s end
+at 32:13, past `seg_021`'s own end; edge refine seated the clip on `seg_026`'s
+head words ("Okay. We do the whole genome", 0.94 s), the residual overlap
+trim cut it to 280 ms, and it fell out of the EDL. The EDL's
+`stage_outputs_present` then saw clips != selection and
+`heal_or_refuse_mark` refused `outputs_missing`; `run_edl` raises
+`SystemExit` for that refusal, which `run_wrapped_stage` (catching
+`Exception`) never logged, so the walk retried to the cap with no reason on
+record.
+
+The same mix-up on the cap side hit runs 22 to 24 silently: a clip whose
+air-next keeper starts *earlier* on tape got a cap before its own start,
+collapsed below the minimum keep and reverted to the full raw slab
+(`min_keep_revert`), airing single clips of 15.5, 10.6 and 11.0 minutes
+against the 3-minute keeper budget.
+
+**Fix:**
+- `build_flow1_edl` computes both bounds from tape neighbours among on-air
+  segments: the floor is the latest end of any tape-earlier on-air clip
+  (its resolved end once emitted, its raw end before), the cap the earliest
+  start of any tape-later on-air clip. In tape order these equal the old
+  air-neighbour values.
+- `resolve_keeper_air_bounds` ignores a "next" keeper that starts at or
+  before this keeper's start and a "previous" keeper that ends at or after
+  this keeper's end (defence for the hitch callers).
+- `run_wrapped_stage` logs a stage's `SystemExit` refusal with its reason
+  before re-raising.
+
+Replayed on a copy of exec_025: the EDL completes and marks done, `seg_021`
+airs its own 27:48 to 28:36, no clip exceeds 3 minutes (`seg_028` was a
+14.4 minute revert; it is now a 3.0 minute budget cut), timeline 32.6 to 22.3
+minutes.
+
+Tests: `tests/test_reorder_keeps_tape_spans.py` (3, on real exec_025 words;
+all three fail on the old code).
+
+---
+
+## [179] PRODUCT: family sweep of 178: no producer reads an air neighbour as a tape neighbour, and no EDL write drops a must-air keep
+
+**Stage / area:** `media_ip_cta`, `air_order.write_live_edl`, `junction_snip_qa`,
+`chapter_close_hitch`, `ideal_cuts`, `gap_framing`, `opening_adjacency_repair`,
+`thought_complete_recut`
+**Status:** FIXED
+
+**Why 178 was not the whole story:** 175 and 176 hardened the EDL against
+chapter overlaps and merge reorders. exec_025's failure had a different root
+(air order treated as tape order) and a second, independent defect that turned
+it into a dead end: the never-touch clamp in `write_live_edl` deleted every
+speech clip under 400 ms, including one it never clamped (`seg_021`, 280 ms
+after the overlap trim), labelled it `dropped_unplayable_never_touch`, and
+asked the selection to omit it. Removal authority refused (must-air), so the
+EDL and the selection could never agree. A sweep then found the same
+air-vs-tape shape in six more producers.
+
+**Fixes:**
+- *EDL never loses a must-air keep.*
+  - `clamp_edl_speech_away_from_never_touch` never drops a protected keep.
+  - An unprotected short clip it did not clamp is still dropped (the selection
+    follows), but is labelled `dropped_unplayable_short`.
+  - New `air_order.restore_protected_speech_clips` runs inside
+    `write_live_edl`, the one writer every EDL producer passes. A protected
+    keep that is missing, unplayable (< 400 ms) or seated on none of its own
+    tape is reseated from its manifest span, clamped off never-touch tape and
+    off other on-air clips, after the nearest earlier keep. It logs a warning.
+- *`junction_snip_qa._next_speech_source_start`:* returns the earliest on-air
+  speech start after the clip on tape, not the next clip in air order.
+  Before, the cap could fall before the clip's own start (no repair possible),
+  or an extend could run into a tape-later clip that airs elsewhere.
+- *`junction_snip_qa._merge_candidate_for_clip`:* a reordered air neighbour
+  read as gap 0, and the fused union aired the unselected tape between them.
+  Now a neighbour must also be the tape neighbour in the same direction, and
+  a union that covers another on-air clip is refused.
+- *`chapter_close_hitch._next_chapter_start_ms`:* the next chapter in plan
+  order can start earlier on tape. Only starts after the keeper bound it.
+- *`ideal_cuts.snap_ideal_cuts` (new `resolve_cut_overlaps`):* compared
+  against the last kept cut's end, so any should_keep or optional cut that
+  started before the last must_keep ended was dropped, however far away. Now
+  a cut is dropped only on a real interval overlap.
+- *`gap_framing.drop_contiguous_light_bridge_lines`:* a target before its air
+  predecessor on tape (a short predecessor makes the gap read near 0) is a
+  backward jump. The bridge VO is kept.
+- *`opening_adjacency_repair.drop_post_coda_reverse_jump_from_selection`:* a
+  late-tape clip is the coda only when it airs in the closing chapter.
+  Mid-arc late tape no longer deletes the early chapter after it.
+- *`thought_complete_recut.apply_thought_complete_to_clips`:* the extension
+  stops at the start of a tape-later clip that aired earlier. Before, that
+  tape played twice.
+
+Checked and safe (no change): `edl_overlap_repair`, `segment_fuse`, `edl_qc`,
+`edl_narrative_qc`, `cut_edge_refine`, `sound_design`, `diarization_suspicion`,
+`air_order_integrity`, `air_script`, `seam_autopsy`, `reorder_bridges`,
+`listen_quality`, `listenability_guards`, `information_packages`,
+`talking_points_authority`, `gap_vo_prior_context`, `mix_junction_seat`.
+`selection_order_repair` orders by tape but never cuts or drops audio.
+
+Replayed on a copy of exec_025 with 178's bound fix reverted: the net reseats
+`seg_021` on its own tape and the EDL completes.
+
+Tests: `tests/test_edl_never_drops_must_air.py` (7),
+`tests/test_reorder_family_sweep.py` (9); each fails on the old code.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

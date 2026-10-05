@@ -999,7 +999,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             sdp = None
             if ctx.artifact_exists("understanding/episode_structure.json"):
                 try:
-                    es = ctx.read_json("understanding/episode_structure.json")
+                    es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
                     if isinstance(es, dict):
                         hook_id = es.get("hook_segment_id")
                 except Exception:

@@ -443,6 +443,183 @@ def commit(
     return bundle
 
 
+def restore_protected_speech_clips(
+    ctx: RunContext,
+    edl: dict[str, Any],
+    *,
+    source: str = "edl",
+) -> list[str]:
+    """Put back a must-air keep that an EDL write would leave without a clip.
+
+    The selection keeps a protected id (removal authority refuses its removal)
+    while some EDL producer dropped its speech clip; the EDL then never matches
+    the selection, ``stage_outputs_present`` stays false and the stage refuses
+    itself to the invoke cap (exec_025 seg_021; ISSUES 179). The writer is the
+    one place every EDL producer passes, so the keep is reseated here from its
+    tape span, after the nearest earlier keep in the selection order.
+    """
+    clips = edl.get("clips") if isinstance(edl, dict) else None
+    if not isinstance(clips, list):
+        return []
+    sel = _read_dict(ctx, SELECTION_REL)
+    order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+    if not order:
+        return []
+    seated = {
+        str(c.get("segment_id"))
+        for c in clips
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    }
+    try:
+        from interview_mux.removal_authority import protected_segment_ids
+
+        protected = protected_segment_ids(ctx, on_air=order)
+    except Exception:
+        return []
+    if not protected:
+        return []
+    min_ms = 400
+    try:
+        from interview_mux.media_ip_cta import MIN_PLAYABLE_KEEP_MS
+
+        min_ms = int(MIN_PLAYABLE_KEEP_MS)
+    except Exception:
+        pass
+    try:
+        manifest = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else {}
+    except Exception:
+        manifest = {}
+    by_id = {
+        str(r.get("segment_id")): r
+        for r in ((manifest or {}).get("segments") or [])
+        if isinstance(r, dict) and r.get("segment_id")
+    }
+    try:
+        from interview_mux.media_ip_cta import (
+            clamp_source_away_from_never_touch,
+            never_touch_source_intervals,
+        )
+
+        ranges = never_touch_source_intervals(ctx)
+    except Exception:
+        ranges = []
+    def _own_span(sid: str) -> tuple[int, int] | None:
+        row = by_id.get(sid) or {}
+        try:
+            s0 = int(row.get("start_ms"))
+            e0 = int(row.get("end_ms"))
+        except (TypeError, ValueError):
+            return None
+        if ranges:
+            s0, e0, _notes = clamp_source_away_from_never_touch(s0, e0, ranges)
+        # Stay off tape another on-air clip already plays.
+        for c in clips:
+            if not isinstance(c, dict) or str(c.get("type") or "") != "speech":
+                continue
+            if str(c.get("segment_id")) == sid:
+                continue
+            try:
+                cs = int(c.get("source_start_ms") or 0)
+                ce = int(c.get("source_end_ms") or cs)
+            except (TypeError, ValueError):
+                continue
+            if cs < e0 and s0 < ce:
+                if cs <= s0:
+                    s0 = max(s0, ce)
+                else:
+                    e0 = min(e0, cs)
+        return (s0, e0) if e0 - s0 >= min_ms else None
+
+    restored: list[str] = []
+    # A seated must-air clip that is unplayable or plays none of its own tape
+    # (seated on a neighbour's head by a bad bound) is reseated in place.
+    for c in clips:
+        if not isinstance(c, dict) or str(c.get("type") or "") != "speech":
+            continue
+        sid = str(c.get("segment_id") or "")
+        if sid not in protected:
+            continue
+        row = by_id.get(sid) or {}
+        try:
+            cs = int(c.get("source_start_ms") or 0)
+            ce = int(c.get("source_end_ms") or cs)
+            r0 = int(row.get("start_ms"))
+            r1 = int(row.get("end_ms"))
+        except (TypeError, ValueError):
+            continue
+        own_overlap = min(ce, r1) - max(cs, r0)
+        if ce - cs >= min_ms and own_overlap > 0:
+            continue
+        span = _own_span(sid)
+        if span is None:
+            continue
+        c["source_start_ms"], c["source_end_ms"] = span
+        c["duration_ms"] = span[1] - span[0]
+        c["air_bound_reason"] = "reseated_must_air"
+        restored.append(sid)
+    want = [s for s in order if s not in seated and s in protected]
+    for sid in want:
+        span = _own_span(sid)
+        if span is None:
+            continue
+        s0, e0 = span
+        at = 0
+        pos = order.index(sid)
+        for prior in reversed(order[:pos]):
+            idxs = [
+                i
+                for i, c in enumerate(clips)
+                if isinstance(c, dict)
+                and str(c.get("type") or "") == "speech"
+                and str(c.get("segment_id")) == prior
+            ]
+            if idxs:
+                at = idxs[-1] + 1
+                break
+        clips.insert(
+            at,
+            {
+                "segment_id": sid,
+                "type": "speech",
+                "source_start_ms": s0,
+                "source_end_ms": e0,
+                "duration_ms": e0 - s0,
+                "timeline_start_ms": 0,
+                "air_bound_reason": "restored_must_air",
+            },
+        )
+        restored.append(sid)
+    if not restored:
+        return []
+    from interview_mux.listenability_guards import reindex_clip_timeline
+
+    edl["clips"] = clips
+    edl["timeline_duration_ms"] = reindex_clip_timeline(clips)
+    speech_ids = [
+        str(c.get("segment_id"))
+        for c in clips
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    ]
+    edl["ordered_segment_ids"] = list(dict.fromkeys(speech_ids))
+    omitted = [
+        str(s) for s in (edl.get("omitted_unplayable_segment_ids") or []) if str(s) not in restored
+    ]
+    if "omitted_unplayable_segment_ids" in edl:
+        edl["omitted_unplayable_segment_ids"] = omitted
+    try:
+        ctx.log(
+            "EDL write would drop must-air keep(s) "
+            + ", ".join(restored)
+            + f"; reseated from tape (source={source})",
+            level="warning",
+            stage=str(source or "edl"),
+            detail={"restored": restored, "source": source},
+        )
+    except Exception:
+        pass
+    return restored
+
+
 def write_live_edl(
     ctx: RunContext,
     edl: dict[str, Any],
@@ -478,6 +655,11 @@ def write_live_edl(
             edl_out, _nt_rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
         except Exception:
             edl_out = edl
+        try:
+            if isinstance(edl_out, dict):
+                restore_protected_speech_clips(ctx, edl_out, source=source)
+        except Exception:
+            pass
         if _committing(ctx):
             ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
             return read_live(ctx)

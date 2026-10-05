@@ -320,14 +320,19 @@ def _validate_chapter_continuity(
     selection: dict[str, Any],
     speech: list[str],
     errors: list[str],
+    edl: dict[str, Any] | None = None,
 ) -> None:
     positions = {sid: idx for idx, sid in enumerate(speech)}
+    # Segments the EDL omitted as unplayable are not missing chapter members:
+    # parity already honours the list, and the relabel works on the selection
+    # order so it cannot remove them (ISSUES 175).
+    omitted = set(_id_list((edl or {}).get("omitted_unplayable_segment_ids")))
     chapter_ranges: list[tuple[int, int, str]] = []
     for index, chapter in enumerate(selection.get("chapters") or []):
         if not isinstance(chapter, dict):
             continue
         label = _as_id(chapter.get("title") or chapter.get("chapter_id")) or f"chapter[{index}]"
-        ids = _id_list(chapter.get("segment_ids"))
+        ids = [sid for sid in _id_list(chapter.get("segment_ids")) if sid not in omitted]
         if not ids:
             continue
         missing = [sid for sid in ids if sid not in positions]
@@ -462,6 +467,13 @@ def _validate_transitions(
         for x in ((edl.get("warnings") or {}).get("suppressed_clone_adjacency") or [])
         if x
     }
+    # When the builder seats a layup on a seam instead of its transition and
+    # that layup is then suppressed or has no WAV, the seam is empty on
+    # purpose; rebuilding reaches the same decision (ISSUES 175).
+    missing_vo = {
+        str(x) for x in ((edl.get("warnings") or {}).get("missing_vo_files") or []) if x
+    }
+    unseated = suppressed | missing_vo
     for item in _transition_items(transitions):
         after = _as_id(item.get("after_segment_id"))
         before = _as_id(item.get("before_segment_id"))
@@ -472,6 +484,8 @@ def _validate_transitions(
             if _seam_has_host_turn(edl, after, before):
                 continue
             if f"transition:{after}->{before}" in suppressed:
+                continue
+            if before in unseated or f"vo_layup_{before}" in unseated:
                 continue
             errors.append(
                 f'master/edl.json: missing transition clip between "{after}" '
@@ -728,10 +742,14 @@ def _validate_gap_placements(
         line_id = _as_id(line.get("line_id"))
         target = _as_id(line.get("targets_segment_id"))
         placement = _as_id(line.get("placement") or "before")
-        if line_id:
+        # Duplicates matter only among lines that air; a stale copy that never
+        # reaches the EDL cannot repeat on air, and the compose dedupe that
+        # would remove it is refused under the freeze (ISSUES 175).
+        aired = (line_id, target, placement) in vo_keys
+        if line_id and aired:
             seen_line_ids[line_id] = seen_line_ids.get(line_id, 0) + 1
         text_norm = " ".join(str(line.get("text") or "").strip().lower().split())
-        if text_norm and target:
+        if text_norm and target and aired:
             tkey = (text_norm, target, placement)
             seen_text_targets[tkey] = seen_text_targets.get(tkey, 0) + 1
         if target not in speech_set:
@@ -999,6 +1017,19 @@ def validate_flow1_edl_narrative(
     if errors:
         return errors
 
+    # Under the hard freeze the air order and the seated VO are locked: checks
+    # whose only remedy is a re-rank or a re-compose cannot be acted on, and
+    # as errors they rebuilt the same EDL to the invoke cap (client exec_018;
+    # ISSUES 175). They are recorded as warnings instead.
+    frozen = False
+    try:
+        from interview_mux.artifact_repairs import _order_frozen
+
+        frozen = bool(_order_frozen(ctx))
+    except Exception:
+        frozen = False
+    editorial: list[str] = [] if frozen else errors
+
     if ctx.artifact_exists("master/air_order_integrity.json"):
         try:
             integrity = ctx.read_json("master/air_order_integrity.json")
@@ -1038,7 +1069,7 @@ def validate_flow1_edl_narrative(
                         stage="edl_narrative_qc",
                     )
                 else:
-                    errors.append(
+                    editorial.append(
                         "air_order_integrity unresolved critical: "
                         + "; ".join(
                             str(v.get("message") or v.get("code") or "")
@@ -1063,18 +1094,30 @@ def validate_flow1_edl_narrative(
 
     _validate_selection_parity(selection, speech, errors, edl)
     _validate_coverage_survives_edl(coverage, speech, errors)
-    _validate_chapter_continuity(selection, speech, errors)
-    _validate_ordering_constraints(narrative_plan, speech, errors)
+    _validate_chapter_continuity(selection, speech, errors, edl)
+    _validate_ordering_constraints(narrative_plan, speech, editorial)
     _validate_transitions(transitions, edl, speech, errors)
     _validate_vo_after_legal_hinge(ctx, edl, errors)
     _validate_gap_placements(ctx, edl, speech, errors)
     _validate_clone_voice_adjacency(ctx, edl, selection, errors)
-    _validate_framing_before_impact(ctx, edl, speech, errors)
-    _validate_framing_succinct_exclusions(ctx, selection, speech, errors)
+    _validate_framing_before_impact(ctx, edl, speech, editorial)
+    _validate_framing_succinct_exclusions(ctx, selection, speech, editorial)
     _validate_speaker_volley_integrity(ctx, speech, errors)
     _validate_single_synthetic_between_natives(edl, errors)
     _validate_episode_vo_identity(ctx, edl, errors)
     _validate_audit_artifact(ctx, errors)
+    if frozen and editorial:
+        try:
+            ctx.log(
+                f"EDL narrative QC: order frozen — {len(editorial)} editorial issue(s) "
+                "recorded as warnings (no re-rank or re-compose can run): "
+                + "; ".join(editorial[:4]),
+                level="warning",
+                stage="edl_narrative_qc",
+                detail={"frozen_editorial": editorial[:20]},
+            )
+        except Exception:
+            pass
     return errors
 
 

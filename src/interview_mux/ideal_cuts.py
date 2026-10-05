@@ -537,6 +537,46 @@ def _span_text(words: list[dict[str, Any]], start_ms: int, end_ms: int, *, max_c
     return text
 
 
+_CUT_PRIORITY_RANK = {"must_keep": 0, "should_keep": 1, "optional": 2}
+
+
+def resolve_cut_overlaps(
+    snapped: list[dict[str, Any]],
+    warnings: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Keep higher-priority, then longer cuts; drop a cut only on a real overlap.
+
+    Rows are taken best priority first, so every kept row outranks or ties the
+    current one. Comparing against the last kept row's end dropped any
+    lower-tier cut that started before the last must_keep ended, however far
+    apart on tape (ISSUES 179).
+    """
+    rank = _CUT_PRIORITY_RANK
+    rows = sorted(
+        (r for r in snapped if isinstance(r, dict)),
+        key=lambda r: (
+            rank.get(str(r.get("priority")), 9),
+            int(r.get("start_ms") or 0),
+            -int(r.get("duration_ms") or 0),
+        ),
+    )
+    resolved: list[dict[str, Any]] = []
+    for row in rows:
+        r0 = int(row.get("start_ms") or 0)
+        r1 = int(row.get("end_ms") or r0)
+        if any(
+            r0 < int(k.get("end_ms") or 0) and int(k.get("start_ms") or 0) < r1
+            for k in resolved
+        ):
+            if warnings is not None:
+                warnings.append(
+                    f"dropped overlapping cut {row.get('cut_id') or row.get('talking_point_id')}"
+                )
+            continue
+        resolved.append(row)
+    return resolved
+
+
 def snap_ideal_cuts(
     cuts_doc: dict[str, Any],
     transcript: dict[str, Any],
@@ -751,34 +791,7 @@ def snap_ideal_cuts(
         }
         snapped.append(row)
 
-    # Sort + resolve overlaps (keep higher priority, then longer)
-    rank = {"must_keep": 0, "should_keep": 1, "optional": 2}
-    snapped.sort(
-        key=lambda r: (
-            rank.get(str(r.get("priority")), 9),
-            int(r.get("start_ms") or 0),
-            -int(r.get("duration_ms") or 0),
-        )
-    )
-    resolved: list[dict[str, Any]] = []
-    for row in snapped:
-        if not resolved:
-            resolved.append(row)
-            continue
-        prev = resolved[-1]
-        if int(row["start_ms"]) < int(prev["end_ms"]):
-            # Overlap: keep prev if better/equal priority, else replace end or drop
-            if rank.get(str(row.get("priority")), 9) >= rank.get(str(prev.get("priority")), 9):
-                warnings.append(
-                    f"dropped overlapping cut {row.get('cut_id') or row.get('talking_point_id')}"
-                )
-                continue
-            resolved[-1] = row
-            warnings.append(
-                f"replaced overlapping cut with higher-priority {row.get('cut_id')}"
-            )
-            continue
-        resolved.append(row)
+    resolved = resolve_cut_overlaps(snapped, warnings)
     resolved.sort(key=lambda r: int(r.get("start_ms") or 0))
 
     out = dict(cuts_doc) if isinstance(cuts_doc, dict) else {}
@@ -1531,6 +1544,14 @@ def resolve_keeper_air_bounds(
             start, end = orig_start, orig_end
             meta["air_bound_reason"] = "ideal_window_rejected"
 
+    # A neighbour bound only applies to a tape neighbour: a "next" keeper that
+    # starts before this one, or a "previous" keeper that ends after this one,
+    # is an air-order neighbour from a reorder and would empty the keeper
+    # (exec_025 seg_021; ISSUES 178).
+    if next_keeper_start_ms is not None and int(next_keeper_start_ms) <= orig_start:
+        next_keeper_start_ms = None
+    if prev_keeper_end_ms is not None and int(prev_keeper_end_ms) + 80 >= orig_end:
+        prev_keeper_end_ms = None
     hard_cap = None
     if next_keeper_start_ms is not None:
         hard_cap = int(next_keeper_start_ms) - 80
