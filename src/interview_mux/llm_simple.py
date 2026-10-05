@@ -89,6 +89,39 @@ def _is_locked_order_rerun_need(need: Any) -> bool:
     )
 
 
+#: Stages that rerun these stages themselves right after they persist.
+_SELF_FOLLOWUP_STAGES: dict[str, frozenset[str]] = {
+    "boundary_topic_resplit": frozenset({"segment_classification", "content_brief_reanchor"}),
+}
+
+
+def is_walk_satisfied_need(stage_key: str, need: Any) -> bool:
+    """A ``rerun_stage`` need the walk satisfies on its own.
+
+    The stage reruns the requested stage itself as follow-up, or the requested
+    stage comes later in the pipeline order. Failing the current stage over it
+    only repeated the call (exec_024: boundary_topic_resplit answered partial
+    with a blocking "rerun content_brief_reanchor", which its own follow-up
+    runs; the stage failed and the retry passed; ISSUES 177).
+    """
+    if not isinstance(need, dict) or str(need.get("type") or "").strip() != "rerun_stage":
+        return False
+    target = str(need.get("stage") or "").strip()
+    if not target or target == stage_key:
+        return False
+    if target in _SELF_FOLLOWUP_STAGES.get(stage_key, frozenset()):
+        return True
+    try:
+        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+        order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+        if stage_key in order and target in order:
+            return order.index(target) > order.index(stage_key)
+    except Exception:
+        return False
+    return False
+
+
 _FAIL_OPEN_PARTIAL_STAGES = frozenset(
     {
         "edl_narrative_audit",
@@ -409,6 +442,22 @@ def run_llm_stage_simple(
                         stage=stage_key,
                         detail={"cta_need_count": len(cta_needs)},
                     )
+            walk_needs = [n for n in needs if is_walk_satisfied_need(stage_key, n)]
+            if walk_needs:
+                needs = [
+                    ({**n, "blocking": False} if is_walk_satisfied_need(stage_key, n) else n)
+                    if isinstance(n, dict)
+                    else n
+                    for n in needs
+                ]
+                envelope = {**envelope, "needs": needs}
+                ctx.log(
+                    f"{stage_key}: demoted {len(walk_needs)} rerun need(s) the walk satisfies "
+                    "(own follow-up or a later stage): "
+                    + ", ".join(str(n.get("stage")) for n in walk_needs[:4]),
+                    level="info",
+                    stage=stage_key,
+                )
             msg = f"LLM stage {stage_key} incomplete: status={envelope.get('status')} needs={needs[:3]}"
             artifacts = envelope.get("artifacts")
             # Ranking persist is deterministic (CTA omit + hard-keep). A usable

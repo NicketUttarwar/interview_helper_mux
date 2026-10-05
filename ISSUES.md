@@ -6131,6 +6131,39 @@ Tests: `tests/test_edl_follows_selection_and_finale_chapters.py` (5).
 
 ---
 
+## [177] PRODUCT: a blocking "rerun_stage" need for work the walk does anyway failed the stage (macOS exec_024, step 18)
+
+**Stage / area:** `llm_simple.run_llm_stage_simple` (needs handling), new
+`is_walk_satisfied_need`
+**Status:** FIXED
+
+**Seen:** `LLM stage boundary_topic_resplit incomplete: status=partial
+needs=[{'type': 'rerun_stage', 'stage': 'content_brief_reanchor', 'reason':
+'Remap topics, claims, and narrative beats from superseded parent IDs to the
+revised segment IDs ...', 'blocking': True}]`, then `Failed: Stage
+boundary_topic_resplit` (3 errors). On the retry the model returned a
+non-blocking need, the stage was accepted, and its own follow-up ran
+segment_classification and content_brief_reanchor, the work the first answer
+had asked for.
+
+**Cause:** a blocking need fails the stage unless one of three per-stage
+demotions applies (speaker_roles, transitions, nugget_layup_compose).
+`boundary_topic_resplit` reruns `segment_classification` and
+`content_brief_reanchor` as nested stages after it persists, and needs for a
+stage later in the pipeline are satisfied by the walk itself (run 22's
+gap_framing_compose asked for episode_structure_compose the same way).
+
+**Fix:** `is_walk_satisfied_need`: a `rerun_stage` need is non-blocking when
+the requested stage is one the current stage reruns as its own follow-up
+(`_SELF_FOLLOWUP_STAGES`) or comes later in `ANALYSIS_ORDER` +
+`DELIVERY_ORDER`; the demotion is logged. Needs for upstream stages stay
+blocking. The existing rule then accepts a partial with valid artifacts and
+only non-blocking needs on the second attempt.
+
+Tests: `tests/test_walk_satisfied_needs.py` (4).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
