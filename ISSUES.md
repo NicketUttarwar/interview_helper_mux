@@ -5944,6 +5944,43 @@ Tests: `tests/test_nugget_layup.py::test_publish_keeps_partial_prior_body_under_
 
 ---
 
+## [172] PRODUCT: after re-segmentation renumbered ids, readers paired the stale episode structure with live segment text; gap_framing_compose answered partial and fell back (macOS exec_022)
+
+**Stage / area:** `episode_structure.load_episode_structure` and its readers
+(`stages/gaps.py`, `stages/selection.py`, `stages/analysis_extended.py`,
+`sound_design`, `opening_orientation`, `shape_order_emit`,
+`talking_points_authority`, `assembly_ledger`, `timeline_optimizer`)
+**Status:** FIXED
+
+**Seen:** `LLM stage gap_framing_compose incomplete: status=partial needs=
+[rerun_stage episode_structure_compose: "Reconcile the duplicated
+episode_structure.segment_order with the ordered manifest ... target contexts
+are shifted or role-inconsistent after seg_013 ... seg_021 is an interviewee
+answer but its target context is only 'Okay.'"]` at error level; the stage
+fell back to a deterministic cover and the run continued.
+
+**Cause:** the walk re-segmented after the first compose (hitch,
+classification, then the connector fuse merged 15 seams), renumbering segment
+ids. `gap_framing_compose` ran again before `episode_structure_compose`, so
+its packet carried the structure built for the old ids next to contexts built
+from the new manifest. Thirteen readers took `episode_structure.json` from
+disk as is.
+
+**Fix:** `load_episode_structure` returns a live structure: when the stored
+one names segment ids the manifest no longer has
+(`episode_structure_is_stale`), it is rebuilt in memory with
+`build_episode_structure(refresh=True)` and marked
+`rebuilt_in_memory_from_stale`; nothing is persisted (the owner stage stays
+the writer). Every direct reader now goes through it. The two callers that
+work on the stored document use `live=False`: the hitch's
+`align_episode_structure_to_narrative` (it remaps the stored ids and
+persists) and the GUI endpoint (it shows what is on disk). `artifact_repairs`
+keeps its raw read for the same reason.
+
+Tests: `tests/test_episode_structure_live_after_resegmentation.py` (3).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -1087,7 +1087,8 @@ def align_episode_structure_to_narrative(
             chapter_order.append(sid)
             seen.add(sid)
 
-    doc = load_episode_structure(ctx)
+    # The stored document: this remaps its old ids and persists it.
+    doc = load_episode_structure(ctx, live=False)
     if not isinstance(doc, dict):
         try:
             doc = build_episode_structure(ctx, refresh=False)

@@ -12,7 +12,7 @@ from interview_mux.timeline_optimizer.config import optimizer_cfg
 def _hook_id(ctx: RunContext) -> str | None:
     if ctx.artifact_exists("understanding/episode_structure.json"):
         try:
-            es = ctx.read_json("understanding/episode_structure.json")
+            es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
             if isinstance(es, dict) and es.get("hook_segment_id"):
                 return str(es["hook_segment_id"])
         except Exception:

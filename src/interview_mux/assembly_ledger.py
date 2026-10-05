@@ -322,7 +322,7 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
 
     volley_of: dict[str, str] = {}
     if ctx.artifact_exists("understanding/episode_structure.json"):
-        es = ctx.read_json("understanding/episode_structure.json")
+        es = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
         if isinstance(es, dict):
             for v in es.get("speaker_volleys") or []:
                 if not isinstance(v, dict):

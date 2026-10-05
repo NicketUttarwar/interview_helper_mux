@@ -220,7 +220,7 @@ def _proxy_risk_candidates(ctx: RunContext) -> list[tuple[str, str, float]]:
 
     try:
         if ctx.artifact_exists("understanding/episode_structure.json"):
-            doc = ctx.read_json("understanding/episode_structure.json")
+            doc = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
             if isinstance(doc, dict):
                 for i, ch in enumerate(doc.get("chapters") or []):
                     if not isinstance(ch, dict):
@@ -2207,7 +2207,7 @@ def _gap_framing_compose_payload(
     if c.artifact_exists("understanding/delivery_brief.json"):
         payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
     if c.artifact_exists("understanding/episode_structure.json"):
-        payload["episode_structure"] = c.read_json("understanding/episode_structure.json")
+        payload["episode_structure"] = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(c) or {})
     # VO density contract for compose. Prefer air-order / episode structure /
     # warrant count — never inflate from full manifest before selection exists.
     gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
@@ -2222,7 +2222,7 @@ def _gap_framing_compose_payload(
             if isinstance(sel, dict):
                 ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
         if ordered_n <= 0 and c.artifact_exists("understanding/episode_structure.json"):
-            ep = c.read_json("understanding/episode_structure.json")
+            ep = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(c) or {})
             if isinstance(ep, dict):
                 order = ep.get("ordered_segment_ids") or ep.get("segment_order") or []
                 if isinstance(order, list) and order:

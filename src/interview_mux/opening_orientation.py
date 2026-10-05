@@ -68,7 +68,7 @@ def native_cold_open_segment_id(
         if isinstance(cold, dict) and str(cold.get("kind") or "none") != "none":
             candidates.extend([cold.get("segment_id"), cold.get("hook_segment_id")])
     if ctx.artifact_exists("understanding/episode_structure.json"):
-        structure = ctx.read_json("understanding/episode_structure.json")
+        structure = (__import__("interview_mux.episode_structure", fromlist=["load_episode_structure"]).load_episode_structure(ctx) or {})
         if isinstance(structure, dict):
             candidates.append(structure.get("hook_segment_id"))
             cold = structure.get("cold_open")
