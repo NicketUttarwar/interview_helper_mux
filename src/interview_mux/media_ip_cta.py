@@ -231,7 +231,8 @@ def never_touch_source_intervals(ctx: RunContext) -> list[tuple[int, int, str]]:
     Remaining dropped-parent slabs punch holes for on-air keeps (manifest bounds)
     so packaging speech is not zeroed inside a mega parent range.
     """
-    by_id = _segments_by_id(ctx)
+    # Excluded ids are the point here; the live view has no row for them.
+    by_id = _all_segments_by_id(ctx)
     ordered: list[str] = []
     if ctx.artifact_exists("master/selection.json"):
         try:
@@ -763,7 +764,7 @@ def never_touch_texts(ctx: RunContext) -> list[str]:
     ids = never_touch_segment_ids(ctx)
     if not ids:
         return []
-    by_id = _segments_by_id(ctx)
+    by_id = _all_segments_by_id(ctx)
     out: list[str] = []
     for sid in ids:
         text = str((by_id.get(sid) or {}).get("text") or "").strip()
@@ -2007,8 +2008,8 @@ def on_air_orphaned_cta_scrap_ids(
     except Exception:
         story = set()
     by_id = _segments_by_id(ctx)
-    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
-        by_id, ordered, parents
+    tail = _closing_outro_tail_ids(by_id, ordered, parents, sel, _all_segments_by_id(ctx)) | _tape_tail_scrap_ids(
+        by_id, ordered, parents, _all_segments_by_id(ctx)
     )
     out: list[str] = []
     for sid in ordered:
@@ -2046,8 +2047,8 @@ def closing_outro_tail_segment_ids(
     if not ordered or not parents:
         return set()
     by_id = _segments_by_id(ctx)
-    return _closing_outro_tail_ids(by_id, ordered, parents, sel) | _tape_tail_scrap_ids(
-        by_id, ordered, parents
+    return _closing_outro_tail_ids(by_id, ordered, parents, sel, _all_segments_by_id(ctx)) | _tape_tail_scrap_ids(
+        by_id, ordered, parents, _all_segments_by_id(ctx)
     )
 
 
@@ -2055,6 +2056,7 @@ def _tape_tail_scrap_ids(
     by_id: dict[str, Any],
     ordered: list[str],
     parents: set[str],
+    parent_rows: dict[str, Any] | None = None,
 ) -> set[str]:
     """Top-level on-air scraps that start after the tape's closing sponsor read.
 
@@ -2066,13 +2068,20 @@ def _tape_tail_scrap_ids(
     after the outro stays.
     """
     rows = [r for r in by_id.values() if isinstance(r, dict)]
+    rows += [r for r in (parent_rows or {}).values() if isinstance(r, dict)]
     ends = [int(r.get("end_ms") or 0) for r in rows]
     if not ends:
         return set()
     tape_end = max(ends)
     closing_start: int | None = None
     for parent in parents:
+        # The live NLE view drops excluded rows, and the closing sponsor read
+        # is excluded: without the manifest row there was no closing_start and
+        # nothing after the outro was ever a tail scrap (exec_026 seg_033,
+        # ISSUES 180).
         row = by_id.get(parent)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            row = (parent_rows or {}).get(parent)
         if not isinstance(row, dict) or row.get("start_ms") is None:
             continue
         if tape_end - int(row.get("end_ms") or 0) > 120_000:
@@ -2086,6 +2095,8 @@ def _tape_tail_scrap_ids(
         if sid in parents or any(_is_nle_child(sid, p) for p in parents if p):
             continue
         row = by_id.get(sid)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            row = (parent_rows or {}).get(sid)
         if not isinstance(row, dict) or row.get("start_ms") is None:
             continue
         if int(row.get("start_ms") or 0) < closing_start:
@@ -2105,6 +2116,7 @@ def _closing_outro_tail_ids(
     ordered: list[str],
     parents: set[str],
     selection: dict[str, Any],
+    all_rows: dict[str, Any] | None = None,
 ) -> set[str]:
     """Children after the sponsor read in an excluded CTA parent that closes the tape.
 
@@ -2117,7 +2129,13 @@ def _closing_outro_tail_ids(
     Excluded siblings are often gone from the live manifest, so they are read
     from the selection and ordered by split suffix (a, b, ... aa).
     """
-    ends = [int((row or {}).get("end_ms") or 0) for row in by_id.values() if isinstance(row, dict)]
+    # The tape's real end includes excluded closing material; the live view
+    # alone understates it and lets a mid-tape parent pass as closing (ISSUES 180).
+    ends = [
+        int((row or {}).get("end_ms") or 0)
+        for row in [*by_id.values(), *(all_rows or {}).values()]
+        if isinstance(row, dict)
+    ]
     if not ends:
         return set()
     tape_end = max(ends)
@@ -2949,6 +2967,24 @@ def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
     return _manifest_segments_by_id(ctx)
 
 
+def _all_segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """Rows for excluded ids too: CTA parents and children are excluded by design.
+
+    Falls back to the manifest when the NLE state cannot be read (ISSUES 180).
+    """
+    try:
+        from interview_mux.nle_state import segments_by_id_including_excluded
+
+        rows = segments_by_id_including_excluded(ctx)
+    except Exception:
+        rows = {}
+    if rows:
+        merged = dict(_manifest_segments_by_id(ctx))
+        merged.update(rows)
+        return merged
+    return _manifest_segments_by_id(ctx)
+
+
 def _manifest_segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
     """Manifest bounds only — NLE trims must not shrink never-touch keep holes."""
     if not ctx.artifact_exists("segments/manifest.json"):
@@ -3580,7 +3616,7 @@ def _cover_targets(
 
 
 def _texts_for(ctx: RunContext, ids: list[str]) -> list[str]:
-    by_id = _segments_by_id(ctx)
+    by_id = _all_segments_by_id(ctx)
     out: list[str] = []
     for sid in ids:
         text = str((by_id.get(sid) or {}).get("text") or "").strip()

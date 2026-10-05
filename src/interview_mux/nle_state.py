@@ -438,6 +438,32 @@ def is_source_spine(
     return all(a <= b for a, b in zip(starts, starts[1:]))
 
 
+def segments_by_id_including_excluded(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """Every segment row with NLE bounds applied, excluded ones included.
+
+    The live view drops excluded rows, and some exist only as NLE overrides
+    (CTA split children), so the manifest cannot stand in. A check that looks
+    up an excluded CTA parent or child silently found nothing (exec_026: no
+    closing sponsor row, so the post-outro scrap was never a tail; ISSUES 180).
+    Excluded rows carry ``excluded: True``.
+    """
+    manifest = ctx.read_json("segments/manifest.json")
+    nle = load_nle(ctx)
+    applied = apply_segments_with_nle(
+        manifest.get("segments") or [], nle, include_excluded=True
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for seg in applied:
+        sid = seg.get("segment_id")
+        if not sid:
+            continue
+        clean = {k: v for k, v in seg.items() if not str(k).startswith("_")}
+        if seg.get("_excluded"):
+            clean["excluded"] = True
+        out[sid] = clean
+    return out
+
+
 def segments_by_id_with_nle(ctx: RunContext) -> dict[str, dict[str, Any]]:
     manifest = ctx.read_json("segments/manifest.json")
     nle = load_nle(ctx)
@@ -452,7 +478,12 @@ def segments_by_id_with_nle(ctx: RunContext) -> dict[str, dict[str, Any]]:
     return out
 
 
-def apply_segments_with_nle(segments: list[dict[str, Any]], nle: dict[str, Any]) -> list[dict[str, Any]]:
+def apply_segments_with_nle(
+    segments: list[dict[str, Any]],
+    nle: dict[str, Any],
+    *,
+    include_excluded: bool = False,
+) -> list[dict[str, Any]]:
     overrides = nle.get("segment_overrides") or {}
     order = nle.get("sequence_order") or []
     by_id = {s["segment_id"]: dict(s) for s in segments if s.get("segment_id")}
@@ -488,11 +519,14 @@ def apply_segments_with_nle(segments: list[dict[str, Any]], nle: dict[str, Any])
         if ov.get("label"):
             seg["_nle_label"] = ov["label"]
 
+    def _keep(seg: dict[str, Any]) -> bool:
+        return include_excluded or not seg.get("_excluded")
+
     if order:
-        ordered = [by_id[sid] for sid in order if sid in by_id and not by_id[sid].get("_excluded")]
-        rest = [s for sid, s in by_id.items() if sid not in order and not s.get("_excluded")]
+        ordered = [by_id[sid] for sid in order if sid in by_id and _keep(by_id[sid])]
+        rest = [s for sid, s in by_id.items() if sid not in order and _keep(s)]
         return ordered + rest
-    return [s for s in by_id.values() if not s.get("_excluded")]
+    return [s for s in by_id.values() if _keep(s)]
 
 
 def _child_suffix(index: int) -> str:

@@ -1287,6 +1287,18 @@ def _readmit_cta_story_children(
     missing = [s for s in story if s not in have and s not in ban]
     if not missing:
         return ordered
+    # A story child a later pass NLE-excluded has no live row: it read as
+    # start 0 and was readmitted as the cold open (ISSUES 180).
+    try:
+        from interview_mux.nle_state import segments_by_id_with_nle
+
+        live = segments_by_id_with_nle(ctx)
+        if live:
+            missing = [s for s in missing if s in live]
+    except Exception:
+        pass
+    if not missing:
+        return ordered
     if len(missing) > max_readmit:
         applied.append(
             {

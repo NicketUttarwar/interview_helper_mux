@@ -379,6 +379,7 @@ def hard_keep_segment_ids(
         pass
     ids = _drop_blank_unusable_keeps(ctx, {s for s in ids if s})
     ids = _drop_orphan_keeps_not_in_manifest(ctx, ids)
+    ids = _drop_tape_tail_scrap_keeps(ctx, ids)
     # A keep whose tape a fuse union folded into an on-air survivor is kept:
     # its audio airs under the survivor's id. Junction and overlap repair both
     # retire such ids; without this every consumer of the keep list refused the
@@ -398,6 +399,41 @@ def hard_keep_segment_ids(
     except Exception:
         pass
     return _collapse_overlapping_keeps(ctx, ids)
+
+
+def _drop_tape_tail_scrap_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
+    """No keep source may protect a scrap after the tape's closing sponsor read.
+
+    exec_026: the low-conf island scan hard-included seg_033, the undecodable
+    last 5 s of tape after the closing sponsor read ("You are listening to
+    usHS\ufffd bone..."), at its top decile. As a keep it was protected from
+    the outro-tail omit and aired as the episode's last line (ISSUES 180).
+    Whatever flagged it, a scrap after the closing CTA is credits, not story.
+    """
+    if not ids:
+        return ids
+    try:
+        from interview_mux.media_ip_cta import (
+            _cta_exclude_parent_ids,
+            _all_segments_by_id,
+            _segments_by_id,
+            _tape_tail_scrap_ids,
+            never_touch_segment_ids,
+        )
+
+        sel: dict[str, Any] = {}
+        if ctx.artifact_exists("master/selection.json"):
+            loaded = ctx.read_json("master/selection.json")
+            sel = loaded if isinstance(loaded, dict) else {}
+        parents = _cta_exclude_parent_ids(sel) | never_touch_segment_ids(ctx)
+        if not parents:
+            return ids
+        scraps = _tape_tail_scrap_ids(
+            _segments_by_id(ctx), sorted(ids), parents, _all_segments_by_id(ctx)
+        )
+    except Exception:
+        return ids
+    return ids - scraps
 
 
 # Framing VO cover beats hard-keep restore but is not an "unplayable" class.

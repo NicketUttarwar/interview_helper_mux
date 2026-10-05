@@ -6283,6 +6283,61 @@ Tests: `tests/test_edl_never_drops_must_air.py` (7),
 
 ---
 
+## [180] PRODUCT: the undecodable last 5 s of tape aired as the episode's closing line (macOS exec_026, 72/72, 0 errors)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids`, `media_ip_cta` tail and
+never-touch checks, new `nle_state.segments_by_id_including_excluded`
+**Status:** FIXED
+
+**Seen:** exec_026 finished with 0 errors, but the master's last clip was
+`seg_033` (59:22 to 59:27), whose transcript is an STT hallucination after the
+closing sponsor read: "You most of the time, Michael. You are listening to
+usHS\ufffd bone and cut -edge on depression ... ouribaigilaw .com ...", 86
+words with zero-length timings over 5 s. ISSUES 170 was meant to catch exactly
+this scrap.
+
+**Causes (two, both needed):**
+1. The tail check `_tape_tail_scrap_ids` finds the closing sponsor parent's
+   start in `_segments_by_id`, the live NLE view. That view drops every
+   excluded row, and the sponsor read (`seg_032`, `seg_032a-f`) is excluded by
+   design, so there was no closing start and nothing was ever a tail scrap.
+   170's tests passed because their fixtures kept the parent row.
+2. `low_conf_island_scan` hard-included `seg_033` in its top decile (the most
+   STT-uncertain speech), so `hard_keep_segment_ids` protected it from any
+   omit.
+
+**Family audit (51 live-view call sites):** the same missing-row failure was
+in `never_touch_source_intervals` (excluded CTA children's tape never became
+never-touch, so a speech clip could extend into sponsor tape), the tail
+check's candidate loop, `_closing_outro_tail_ids` (tape end understated
+without excluded closing rows), `_texts_for` and the `never_touch_texts`
+fallback (empty CTA wording), and the latent `_readmit_cta_story_children`
+(an NLE-excluded child read as start 0 and readmitted as the cold open; off by
+config). Sites that rely on "missing row = empty text" stay on the live view.
+
+**Fix:**
+- `nle_state.segments_by_id_including_excluded` (and
+  `apply_segments_with_nle(include_excluded=True)`) returns every row with NLE
+  bounds, NLE-only children included, excluded ones flagged.
+  `media_ip_cta._all_segments_by_id` merges it over the manifest.
+- The tail check, closing-tail tape end, never-touch intervals and CTA texts
+  read excluded rows from it.
+- `hard_keep._drop_tape_tail_scrap_keeps`: no keep source may protect a scrap
+  that starts after the closing sponsor read.
+- The CTA story readmit skips children a later pass excluded.
+
+On exec_026's artifacts: `seg_033` is no longer a keep, the closing-tail check
+returns it, and the sponsor read's children are never-touch intervals.
+
+Tests: `tests/test_tape_tail_scrap_after_excluded_outro.py` (5).
+
+Not fixed here (product decision, logged): 6 of 7 reorder bridges were
+suppressed by the clone-adjacency rule (cloned host voice next to the real
+host), so story_health reports 11 missing reorder bridges; listen_delight
+passes (0.957).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
