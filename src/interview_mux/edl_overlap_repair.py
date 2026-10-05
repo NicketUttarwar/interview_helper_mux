@@ -70,7 +70,9 @@ def _chapter_by_segment(ctx: RunContext) -> dict[str, str]:
             continue
         for sid in ch.get("segment_ids") or []:
             if sid:
-                out[str(sid)] = cid
+                # First chapter wins, as in relabel_chapters_contiguous; the last
+                # chapter winning let a doubly-claimed id union across chapters.
+                out.setdefault(str(sid), cid)
     return out
 
 
@@ -966,6 +968,15 @@ def repair_overlapping_source_ranges(
         list(working.get("ordered_segment_ids") or []), remap
     )
     self_drop = []
+    # A transition renamed onto the survivor no longer sits between adjacent
+    # speech clips when the union moved; QC refused it once per merge and the
+    # retry cost one of the EDL's three invokes (client exec_018; ISSUES 175).
+    speech_seq = [
+        str(c.get("segment_id") or "")
+        for c in (working.get("clips") or [])
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+    ]
+    adjacent = {(speech_seq[i], speech_seq[i + 1]) for i in range(len(speech_seq) - 1)}
     next_clips: list[Any] = []
     for clip in working.get("clips") or []:
         if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
@@ -974,6 +985,9 @@ def repair_overlapping_source_ranges(
         after_id = str(clip.get("after_segment_id") or "")
         before_id = str(clip.get("before_segment_id") or "")
         if after_id and before_id and after_id == before_id:
+            self_drop.append(clip)
+            continue
+        if after_id and before_id and (after_id, before_id) not in adjacent:
             self_drop.append(clip)
             continue
         next_clips.append(clip)

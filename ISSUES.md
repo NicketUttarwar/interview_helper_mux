@@ -6047,6 +6047,48 @@ sandwiched-child test fails on the unfixed code).
 
 ---
 
+## [175] PRODUCT: EDL stage hardening: a segment two chapters claimed stopped the client run at edl, and an audit found eight more EDL blockers whose only heal cannot run under the freeze (client exec_018, step 58)
+
+**Stage / area:** `edl`: `gates.check_edl_narrative_qc`,
+`artifact_repairs.repair_edl_narrative_selection`, `edl_narrative_qc`,
+`edl_overlap_repair`, `publishability_boundary._check_phantom_vo`
+**Status:** FIXED
+
+**Seen (client):** run stopped at 57/72 with `edl` incomplete. Strict EDL
+narrative QC: chapters "The challenge of finding rare circulating tumour
+cells" [seg_016, seg_015] and "From cell counts to actionable single-cell
+analysis" [seg_015, seg_022, seg_018] overlap in final EDL order; "Re-run
+full_master_ranking". Earlier attempts also showed a misplaced transition
+(seg_022 -> seg_015) and a clone-voice adjacency warning that cleared on
+retry. EDL hit `max_invokes_per_identity` (3/3).
+
+**Cause:** `relabel_chapters_contiguous` (entry 152) already turns chapter
+membership into a partition of the air order (first claim wins), but only
+the narrative audit's repair loop called it. The EDL gate's own repair
+(`repair_edl_narrative_selection`) only dropped blanks and filled gaps, and
+the re-rank QC asks for cannot run under the hard freeze.
+
+**Fix:** the EDL gate's repair applies the relabel (a label-only write,
+`narrative_metadata_align`, allowed under the freeze). A read-only audit of
+every blocker at and around `edl` then found these dead ends, fixed in the
+same change:
+
+| # | check | why it looped | fix |
+|---|---|---|---|
+| 1 | chapters overlap / chapter split (`_validate_chapter_continuity`) | relabel not run at edl | relabel in the EDL pre-repair |
+| 2 | chapter references a segment the EDL omitted as unplayable | relabel works on the selection, not EDL speech | ignore `omitted_unplayable_segment_ids`, as parity does |
+| 3 | framing before impact, framing-covered segment on air, ordering constraint violated, `air_order_integrity` critical | remedy is a re-rank or re-compose; both refused under the hard freeze | recorded as warnings while the order is frozen (still errors before the freeze) |
+| 4 | transition no longer between adjacent clips after an overlap merge | renamed onto the survivor in place; cleared only on the next invoke | `edl_overlap_repair` drops transitions that are not adjacent after the rebuild |
+| 5 | overlap merge chapter lookup | last chapter won, relabel uses first | first chapter wins |
+| 6 | phantom VO at post_edl (WAV exists, no EDL clip) | the builder skips clone-adjacent / out-of-selection lines on purpose | lines in `suppressed_clone_adjacency` / `gap_targets_not_in_selection` are exempt |
+| 7 | missing transition clip where the builder seated a layup that was then suppressed or had no WAV | the seam is empty on purpose | exempt when the seam's layup or target is in `missing_vo_files` / suppressed |
+| 8 | gap_report duplicate line_id / identical text | counted lines that never air; the compose dedupe is refused under the freeze | count only lines seated in the EDL |
+
+Tests: `tests/test_edl_chapter_overlap_repaired_at_edl.py` (7, including the
+client's chapter shape before and after).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

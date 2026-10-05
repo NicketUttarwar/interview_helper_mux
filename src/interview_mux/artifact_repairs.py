@@ -7788,6 +7788,19 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
             )
     except Exception:
         pass
+    # Chapters as a partition of the locked air order: a segment two chapters
+    # claim keeps its first chapter, and a chapter split by another's run is
+    # merged into its neighbour. Only labels change, so the hard freeze allows
+    # it (narrative_metadata_align). The EDL gate never ran this; only the
+    # narrative audit's repair loop did (ISSUES 152), so EDL QC refused a
+    # shared seg_015 on the client run until the invoke cap (ISSUES 175).
+    try:
+        relabeled, relabel_changed = relabel_chapters_contiguous(sel)
+        if relabel_changed:
+            sel = relabeled
+            notes.append({"action": "relabel_chapters_contiguous_edl"})
+    except Exception:
+        pass
     order_set = set(order)
     fp = fingerprint_artifact(sel, "edl_narrative_audit")
     # Persist selection exclude/order repair BEFORE optional coverage mutations so a
