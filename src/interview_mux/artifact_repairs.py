@@ -4351,9 +4351,102 @@ def repair_narrative_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
                     }
                 )
             out["chapters"] = new_chapters
+    constraints = out.get("ordering_constraints")
+    if isinstance(constraints, list) and constraints:
+        starts: dict[str, int] = {}
+        try:
+            if ctx is not None and ctx.artifact_exists("segments/manifest.json"):
+                man = ctx.read_json("segments/manifest.json")
+                for row in (man or {}).get("segments") or []:
+                    if isinstance(row, dict) and row.get("segment_id") and row.get("start_ms") is not None:
+                        starts[str(row["segment_id"])] = int(row.get("start_ms") or 0)
+        except Exception:
+            starts = {}
+        kept_constraints, broken = break_ordering_constraint_cycles(constraints, starts)
+        if broken:
+            out["ordering_constraints"] = kept_constraints
+            applied.append({"action": "break_ordering_constraint_cycles", "dropped": broken[:12]})
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def break_ordering_constraint_cycles(
+    constraints: list[Any], starts: dict[str, int] | None = None
+) -> tuple[list[Any], list[dict[str, str]]]:
+    """Drop the fewest ordering edges so the constraints admit some order.
+
+    A cycle (exec_022: seg_017 -> seg_024 -> seg_015 -> seg_016 -> seg_017,
+    from the narrative LLM) cannot be satisfied: ranking answered partial,
+    its commit was refused twice and the stage failed (ISSUES 173). In each
+    cycle the edge that jumps furthest backwards in tape time goes (tape order
+    is the natural default); with no backward edge, the cycle's last edge.
+    """
+    starts = starts or {}
+
+    def _ends(row: Any) -> tuple[str, str]:
+        if not isinstance(row, dict):
+            return "", ""
+        before = str(row.get("before_segment_id") or row.get("before") or row.get("setup_segment_id") or "").strip()
+        after = str(row.get("after_segment_id") or row.get("after") or row.get("payoff_segment_id") or "").strip()
+        return before, after
+
+    kept = list(constraints)
+    dropped: list[dict[str, str]] = []
+
+    def _find_cycle() -> list[int]:
+        """Edge indices of one cycle in ``kept`` (empty when acyclic)."""
+        graph: dict[str, list[tuple[str, int]]] = {}
+        for i, row in enumerate(kept):
+            a, b = _ends(row)
+            if a and b and a != b:
+                graph.setdefault(a, []).append((b, i))
+        state: dict[str, int] = {}
+        stack: list[tuple[str, int]] = []  # (node, edge index that reached it)
+
+        def _dfs(node: str) -> list[int]:
+            state[node] = 1
+            for nxt, edge_i in graph.get(node, []):
+                if state.get(nxt) == 1:
+                    nodes = [n for n, _e in stack]
+                    begin = nodes.index(nxt)
+                    return [e for _n, e in stack[begin + 1 :]] + [edge_i]
+                if not state.get(nxt):
+                    stack.append((nxt, edge_i))
+                    found = _dfs(nxt)
+                    if found:
+                        return found
+                    stack.pop()
+            state[node] = 2
+            return []
+
+        for root in list(graph):
+            if not state.get(root):
+                stack.clear()
+                stack.append((root, -1))
+                found = _dfs(root)
+                if found:
+                    return found
+        return []
+
+    for _ in range(len(kept) + 1):
+        cycle_edges = _find_cycle()
+        if not cycle_edges:
+            break
+
+        def _backjump(edge_i: int) -> int:
+            a, b = _ends(kept[edge_i])
+            if a in starts and b in starts:
+                return starts[a] - starts[b]
+            return -(10**12)
+
+        victim = max(cycle_edges, key=_backjump)
+        if _backjump(victim) <= 0:
+            victim = cycle_edges[-1]
+        a, b = _ends(kept[victim])
+        dropped.append({"before": a, "after": b})
+        kept.pop(victim)
+    return kept, dropped
 
 
 def enrich_narrative_plan_for_persist(ctx: Any, doc: dict[str, Any]) -> dict[str, Any]:

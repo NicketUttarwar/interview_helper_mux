@@ -5981,6 +5981,37 @@ Tests: `tests/test_episode_structure_live_after_resegmentation.py` (3).
 
 ---
 
+## [173] PRODUCT: the narrative LLM returned ordering constraints that form a cycle, so full_master_ranking could not produce any order and failed (macOS exec_022, step 44)
+
+**Stage / area:** `artifact_repairs.repair_narrative_plan`, new
+`break_ordering_constraint_cycles`
+**Status:** FIXED
+
+**Seen:** `full_master_ranking` answered partial twice: "The ordering
+constraints create a cycle: seg_017 must precede seg_024, seg_024 must precede
+seg_015, seg_015 must precede seg_016, and seg_016 must precede seg_017", then
+the commit barrier refused its output and the stage failed loudly (entry 163).
+The walk continued on the previous selection.
+
+**Cause:** `narrative_arc_plan` produced the cyclic set itself; nothing checked
+that ordering constraints admit an order before ranking used them.
+(`order_reconcile` flips constraints to match an existing selection, which
+cannot create a cycle, but runs only when a selection exists.)
+
+**Fix:** `repair_narrative_plan` breaks every cycle before the plan is
+persisted: in each cycle the edge that jumps furthest backwards in tape time is
+dropped (tape order is the natural default), else the cycle's last edge; the
+dropped edges are recorded in the plan's repair meta. On exec_022's set it
+drops seg_024 -> seg_015 and keeps the other four; an acyclic set is untouched.
+
+Tests: `tests/test_ordering_constraint_cycles.py` (4).
+`tests/test_narrative_plan_orphan_constraints.py::test_fused_ref_is_remapped_orphan_ref_is_dropped_live_ref_is_kept`
+had asserted a repaired plan holding both seg_046 -> seg_030 and
+seg_030 -> seg_046 (a two-node cycle created by the fused-id remap); it now
+expects the satisfiable set and the recorded cycle break.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
