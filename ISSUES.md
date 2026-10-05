@@ -6164,6 +6164,59 @@ Tests: `tests/test_walk_satisfied_needs.py` (4).
 
 ---
 
+## [178] PRODUCT: a reordered air order cut keepers by their air neighbours, not their tape neighbours (macOS exec_025, step 58 edl)
+
+**Stage / area:** `stages/assembly.build_flow1_edl`, `ideal_cuts.resolve_keeper_air_bounds`,
+`write_staging.run_wrapped_stage`
+**Status:** FIXED
+
+**Seen:** `dispatch refused for incomplete critical edl (max_invokes_per_identity)`
+after three EDL attempts that each logged "EDL QC passed" and no error. The
+EDL had 14 speech clips, the selection 15: `seg_021` was missing.
+`media_ip_cta` and `air_order` then tried to take `seg_021` off the order and
+removal authority refused (must-air).
+
+**Cause:** the air order was `... seg_026, seg_025, seg_021, seg_028 ...`
+(tape 32:13, 31:39, 27:48, 35:22). The builder passed the previously *aired*
+clip's end as the keeper's disjointness floor, and the next *aired* clip's
+start as its cap. For `seg_021` (27:48 to 28:36) the floor was `seg_025`'s end
+at 32:13, past `seg_021`'s own end; edge refine seated the clip on `seg_026`'s
+head words ("Okay. We do the whole genome", 0.94 s), the residual overlap
+trim cut it to 280 ms, and it fell out of the EDL. The EDL's
+`stage_outputs_present` then saw clips != selection and
+`heal_or_refuse_mark` refused `outputs_missing`; `run_edl` raises
+`SystemExit` for that refusal, which `run_wrapped_stage` (catching
+`Exception`) never logged, so the walk retried to the cap with no reason on
+record.
+
+The same mix-up on the cap side hit runs 22 to 24 silently: a clip whose
+air-next keeper starts *earlier* on tape got a cap before its own start,
+collapsed below the minimum keep and reverted to the full raw slab
+(`min_keep_revert`), airing single clips of 15.5, 10.6 and 11.0 minutes
+against the 3-minute keeper budget.
+
+**Fix:**
+- `build_flow1_edl` computes both bounds from tape neighbours among on-air
+  segments: the floor is the latest end of any tape-earlier on-air clip
+  (its resolved end once emitted, its raw end before), the cap the earliest
+  start of any tape-later on-air clip. In tape order these equal the old
+  air-neighbour values.
+- `resolve_keeper_air_bounds` ignores a "next" keeper that starts at or
+  before this keeper's start and a "previous" keeper that ends at or after
+  this keeper's end (defence for the hitch callers).
+- `run_wrapped_stage` logs a stage's `SystemExit` refusal with its reason
+  before re-raising.
+
+Replayed on a copy of exec_025: the EDL completes and marks done, `seg_021`
+airs its own 27:48 to 28:36, no clip exceeds 3 minutes (`seg_028` was a
+14.4 minute revert; it is now a 3.0 minute budget cut), timeline 32.6 to 22.3
+minutes.
+
+Tests: `tests/test_reorder_keeps_tape_spans.py` (3, on real exec_025 words;
+all three fail on the old code).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

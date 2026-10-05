@@ -659,7 +659,43 @@ def build_flow1_edl(
     duration_fn = vo_duration_ms or _wav_duration_ms
     emitted_line_ids: set[str] = set()
     emitted_sentence_keys: set[str] = set()
-    prev_speech_end_ms: int | None = None
+    resolved_end_by_sid: dict[str, int] = {}
+
+    def _raw_start(o: str) -> int | None:
+        row = segments_by_id.get(o)
+        if not isinstance(row, dict) or row.get("start_ms") is None:
+            return None
+        try:
+            return int(row["start_ms"])
+        except (TypeError, ValueError):
+            return None
+
+    # Keepers stay disjoint on the tape, not in air order. A reordered episode
+    # airs a tape-later clip before a tape-earlier one; flooring the open at
+    # the previously aired clip's end pushed seg_021 (27:48) past its own end
+    # onto seg_026's head (32:13) and the EDL lost it (exec_025, ISSUES 178).
+    def _tape_prev_end(sid: str, start: int) -> int | None:
+        ends: list[int] = []
+        for o in ordered:
+            s0 = _raw_start(o) if o != sid else None
+            if s0 is None or s0 >= start:
+                continue
+            if o in resolved_end_by_sid:
+                ends.append(resolved_end_by_sid[o])
+            else:
+                try:
+                    ends.append(int(segments_by_id[o].get("end_ms") or s0))
+                except (TypeError, ValueError):
+                    continue
+        return max(ends) if ends else None
+
+    def _tape_next_start(sid: str, start: int) -> int | None:
+        later = [
+            s0
+            for o in ordered
+            if o != sid and (s0 := _raw_start(o)) is not None and s0 > start
+        ]
+        return min(later) if later else None
 
     def _last_non_silence_type() -> str:
         for clip in reversed(clips):
@@ -873,11 +909,8 @@ def build_flow1_edl(
         speech_start = int(seg["start_ms"])
         speech_end = int(seg["end_ms"])
         air_meta: dict = {}
-        next_keeper_start = None
-        if nxt:
-            nxt_seg = segments_by_id.get(nxt)
-            if isinstance(nxt_seg, dict) and nxt_seg.get("start_ms") is not None:
-                next_keeper_start = int(nxt_seg["start_ms"])
+        next_keeper_start = _tape_next_start(str(sid), speech_start)
+        prev_speech_end_ms = _tape_prev_end(str(sid), speech_start)
         if ideal_cuts is not None or words:
             from interview_mux.media_ip_cta import never_touch_end_cap_ms
 
@@ -1027,7 +1060,7 @@ def build_flow1_edl(
             ]
         clips.append(speech_clip)
         timeline_ms += speech_dur
-        prev_speech_end_ms = speech_end
+        resolved_end_by_sid[str(sid)] = speech_end
 
         after_lines = _gap_lines_for_segment(
             gap_report,

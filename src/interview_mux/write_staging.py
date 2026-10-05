@@ -1689,6 +1689,20 @@ def run_wrapped_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
             )
         except WriteApprovalPending:
             raise
+        except SystemExit as exc:
+            # A stage that refuses its own completion raises SystemExit, which
+            # the Exception arm never saw: the walk retried to the invoke cap
+            # with no reason on record (exec_025 edl; ISSUES 178).
+            try:
+                ctx.log(
+                    f"Stage {stage_id} refused completion: {exc}",
+                    level="warning",
+                    stage=stage_id,
+                    detail={"event": "stage_refused", "reason": str(exc)[:400]},
+                )
+            except Exception:
+                pass
+            raise
         except Exception as exc:
             from interview_mux.operator_trace import log_stage_error
 

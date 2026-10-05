@@ -1531,6 +1531,14 @@ def resolve_keeper_air_bounds(
             start, end = orig_start, orig_end
             meta["air_bound_reason"] = "ideal_window_rejected"
 
+    # A neighbour bound only applies to a tape neighbour: a "next" keeper that
+    # starts before this one, or a "previous" keeper that ends after this one,
+    # is an air-order neighbour from a reorder and would empty the keeper
+    # (exec_025 seg_021; ISSUES 178).
+    if next_keeper_start_ms is not None and int(next_keeper_start_ms) <= orig_start:
+        next_keeper_start_ms = None
+    if prev_keeper_end_ms is not None and int(prev_keeper_end_ms) + 80 >= orig_end:
+        prev_keeper_end_ms = None
     hard_cap = None
     if next_keeper_start_ms is not None:
         hard_cap = int(next_keeper_start_ms) - 80
