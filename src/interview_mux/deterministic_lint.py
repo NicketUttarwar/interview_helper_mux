@@ -850,7 +850,7 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
             )
 
             errors.extend(ordering_constraint_errors(ordered, plan))
-            errors.extend(finale_tail_errors(ordered, plan))
+            errors.extend(finale_tail_errors(ordered, plan, artifacts.get("chapters")))
     if ordered:
         from interview_mux.air_order_integrity import (
             chapter_opening_mask_violations,

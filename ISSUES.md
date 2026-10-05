@@ -6089,6 +6089,48 @@ client's chapter shape before and after).
 
 ---
 
+## [176] PRODUCT: the finale rule judged ranking's order by the pre-ranking narrative chapters, and the EDL disagreed with the selection after an overlap merge depending on the freeze (macOS exec_023)
+
+**Stage / area:** `selection_order_repair.finale_tail_errors` (with
+`deterministic_lint`, `story_health`, `stages/selection`),
+`edl_overlap_repair.repair_overlapping_source_ranges`
+**Status:** FIXED
+
+**Seen (run 23, reached G-Publish, post-master quality passing):**
+1. `full_master_ranking` failed once: the commit barrier refused its order
+   with "early-chapter segment(s) after finale block: ['seg_049']"; the final
+   master still ended on seg_049 and the listen critic and story health each
+   flagged the same `finale_tail` (run 22 had the same flag).
+2. EDL QC failed once after `EDL overlap merge: seg_048→seg_046`: speech
+   order [..., seg_044, seg_045, seg_047, seg_046, seg_049] against the
+   selection [..., seg_044, seg_046, seg_045, seg_047, seg_049]. The walk
+   recovered by re-running upstream stages and purging a VO take.
+
+**Cause:**
+1. Ranking swapped the last two narrative chapters; in its own chapters
+   seg_049 closes the final chapter. `finale_tail_errors` read chapter
+   membership only from the narrative plan, written before ranking, where
+   seg_049 belonged to the chapter that is no longer last.
+2. After the merge, the selection either takes the rename (first occurrence
+   kept) or the freeze refuses it and the consumed id is retired (survivor in
+   place). Entry 167 seated the EDL union at the survivor's slot, which matched
+   run 19's branch and not run 23's.
+
+**Fix:**
+1. `finale_tail_errors(..., selection_chapters)` uses the ranking's own
+   chapters when they give at least two; the lint and the selection stage
+   pass the ranking output's chapters, and story health passes the committed
+   selection's chapters when that selection is the order being judged. A real
+   early-chapter segment after the final chapter is still flagged.
+2. After the selection updates, the merge reorders the EDL's speech blocks to
+   the committed selection (each block keeps its before/after VO), drops
+   transitions that are no longer between neighbours, retimes and rewrites
+   the EDL. Only a pure reordering is applied.
+
+Tests: `tests/test_edl_follows_selection_and_finale_chapters.py` (5).
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

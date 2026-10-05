@@ -208,7 +208,7 @@ def finalize_selection_order(
         artifacts, _ = repair_air_order_integrity(ctx, artifacts)
 
     final_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-    tail_errs = finale_tail_errors(final_ordered, plan)
+    tail_errs = finale_tail_errors(final_ordered, plan, artifacts.get("chapters"))
     if tail_errs:
         artifacts, _ = repair_selection_order(
             artifacts, plan, source_start_ms=starts,

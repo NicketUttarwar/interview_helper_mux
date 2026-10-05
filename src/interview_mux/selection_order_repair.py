@@ -55,15 +55,31 @@ def ordering_constraint_errors(
 def finale_tail_errors(
     ordered: list[str],
     narrative_plan: dict[str, Any] | None,
+    selection_chapters: list[Any] | None = None,
 ) -> list[str]:
     """Flag early-chapter segments parked after the last act's members.
 
     Overlapping chapter membership resolves to the *latest* chapter so shared
     finale anchors are not treated as early-chapter ids.
+
+    ``selection_chapters`` are the ranking's own chapters for this order. They
+    win over the pre-ranking narrative plan: ranking may reorder chapters, and
+    judged by the plan a closing line of the new final chapter read as
+    "early-chapter after finale" (exec_023: seg_049 closed "What Has to Be
+    Proven" after ranking swapped the last two chapters; the commit barrier
+    refused ranking and the critic flagged the master; ISSUES 176).
     """
-    if not isinstance(narrative_plan, dict) or len(ordered) < 3:
+    if len(ordered) < 3:
         return []
-    chapters = [c for c in (narrative_plan.get("chapters") or []) if isinstance(c, dict)]
+    chapters: list[dict[str, Any]] = []
+    if isinstance(selection_chapters, list):
+        chapters = [
+            c for c in selection_chapters if isinstance(c, dict) and (c.get("segment_ids") or [])
+        ]
+    if len(chapters) < 2:
+        if not isinstance(narrative_plan, dict):
+            return []
+        chapters = [c for c in (narrative_plan.get("chapters") or []) if isinstance(c, dict)]
     if len(chapters) < 2:
         return []
     # Latest chapter wins on overlaps (finale membership takes priority).

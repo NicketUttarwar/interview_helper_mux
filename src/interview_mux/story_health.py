@@ -35,7 +35,17 @@ def evaluate_story_health(
 
     for msg in ordering_constraint_errors(ordered_ids, narrative_plan):
         issues.append({"code": "ordering_constraint", "severity": "error", "message": msg})
-    for msg in finale_tail_errors(ordered_ids, narrative_plan):
+    selection_chapters = None
+    if ctx is not None:
+        try:
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                sel_order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+                if sel_order == ordered_ids:
+                    selection_chapters = (sel or {}).get("chapters")
+        except Exception:
+            selection_chapters = None
+    for msg in finale_tail_errors(ordered_ids, narrative_plan, selection_chapters):
         issues.append({"code": "finale_tail", "severity": "error", "message": msg})
 
     if ctx is not None and ordered_ids:
