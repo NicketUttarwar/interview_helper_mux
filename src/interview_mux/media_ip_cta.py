@@ -418,6 +418,7 @@ def clamp_edl_speech_away_from_never_touch(
         out["clips"] = clips
         return out, []
     changed_rows: list[dict[str, Any]] = []
+    clamped_ids: set[int] = set()
     for index, clip in enumerate(clips):
         if str(clip.get("type") or "") != "speech":
             continue
@@ -429,6 +430,7 @@ def clamp_edl_speech_away_from_never_touch(
         new_ss, new_se, notes = clamp_source_away_from_never_touch(ss, se, ranges)
         if not notes or (new_ss == ss and new_se == se):
             continue
+        clamped_ids.add(id(clip))
         clip["source_start_ms"] = new_ss
         clip["source_end_ms"] = new_se
         clip["duration_ms"] = max(0, new_se - new_ss)
@@ -451,6 +453,11 @@ def clamp_edl_speech_away_from_never_touch(
     dropped_ids: list[str] = []
     drop_reasons: dict[str, str] = {}
     man_by_id = _manifest_segments_by_id(ctx)
+    on_air = [
+        str(c.get("segment_id"))
+        for c in clips
+        if str(c.get("type") or "") == "speech" and c.get("segment_id")
+    ]
     for clip in clips:
         if str(clip.get("type") or "") != "speech":
             kept.append(clip)
@@ -463,12 +470,26 @@ def clamp_edl_speech_away_from_never_touch(
             kept.append(clip)
             continue
         sid = str(clip.get("segment_id") or "")
+        # A must-air keep is never dropped here: the selection would refuse the
+        # omit and the EDL would never match it again (exec_025 seg_021, a
+        # 280 ms clip this clamp never touched; ISSUES 179). The live-EDL
+        # writer reseats it on its own tape instead.
+        try:
+            from interview_mux.removal_authority import removal_block_reason
+
+            blocked = removal_block_reason(ctx, sid, on_air=on_air)
+        except Exception:
+            blocked = None
+        if blocked:
+            kept.append(clip)
+            continue
         seg = man_by_id.get(sid) or {}
-        reason = (
-            "never_touch_unplayable"
-            if _is_cta_class_keep(seg if isinstance(seg, dict) else None)
-            else "dropped_unplayable_never_touch"
-        )
+        if id(clip) not in clamped_ids:
+            reason = "dropped_unplayable_short"
+        elif _is_cta_class_keep(seg if isinstance(seg, dict) else None):
+            reason = "never_touch_unplayable"
+        else:
+            reason = "dropped_unplayable_never_touch"
         dropped_ids.append(sid)
         drop_reasons[sid] = reason
         changed_rows.append(

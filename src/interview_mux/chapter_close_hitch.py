@@ -464,6 +464,7 @@ def _next_chapter_start_ms(
     plan: dict[str, Any],
     keepers: list[dict[str, Any]],
     chapter_id: str,
+    after_ms: int | None = None,
 ) -> int | None:
     chapters = [c for c in (plan.get("chapters") or []) if isinstance(c, dict)]
     idx = next(
@@ -480,6 +481,11 @@ def _next_chapter_start_ms(
     ids = [str(s).strip() for s in (nxt.get("segment_ids") or []) if str(s).strip()]
     by_id = {str(k.get("segment_id")): k for k in keepers}
     starts = [int(by_id[s]["start_ms"]) for s in ids if s in by_id]
+    if after_ms is not None:
+        # The next chapter in plan order can start earlier on tape (a
+        # reordered episode); only a start after this keeper bounds it
+        # (ISSUES 179).
+        starts = [s for s in starts if s > int(after_ms)]
     return min(starts) if starts else None
 
 
@@ -620,7 +626,7 @@ def compute_recut_windows(
             extended = new_end > end
         else:
             if is_last and cid:
-                nxt_ch = _next_chapter_start_ms(plan, rows, cid)
+                nxt_ch = _next_chapter_start_ms(plan, rows, cid, after_ms=start)
                 if nxt_ch is not None:
                     bound = min(bound, nxt_ch - int(next_keeper_eps_ms))
                 elif next_start is not None:

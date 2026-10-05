@@ -6217,6 +6217,72 @@ all three fail on the old code).
 
 ---
 
+## [179] PRODUCT: family sweep of 178: no producer reads an air neighbour as a tape neighbour, and no EDL write drops a must-air keep
+
+**Stage / area:** `media_ip_cta`, `air_order.write_live_edl`, `junction_snip_qa`,
+`chapter_close_hitch`, `ideal_cuts`, `gap_framing`, `opening_adjacency_repair`,
+`thought_complete_recut`
+**Status:** FIXED
+
+**Why 178 was not the whole story:** 175 and 176 hardened the EDL against
+chapter overlaps and merge reorders. exec_025's failure had a different root
+(air order treated as tape order) and a second, independent defect that turned
+it into a dead end: the never-touch clamp in `write_live_edl` deleted every
+speech clip under 400 ms, including one it never clamped (`seg_021`, 280 ms
+after the overlap trim), labelled it `dropped_unplayable_never_touch`, and
+asked the selection to omit it. Removal authority refused (must-air), so the
+EDL and the selection could never agree. A sweep then found the same
+air-vs-tape shape in six more producers.
+
+**Fixes:**
+- *EDL never loses a must-air keep.*
+  - `clamp_edl_speech_away_from_never_touch` never drops a protected keep.
+  - An unprotected short clip it did not clamp is still dropped (the selection
+    follows), but is labelled `dropped_unplayable_short`.
+  - New `air_order.restore_protected_speech_clips` runs inside
+    `write_live_edl`, the one writer every EDL producer passes. A protected
+    keep that is missing, unplayable (< 400 ms) or seated on none of its own
+    tape is reseated from its manifest span, clamped off never-touch tape and
+    off other on-air clips, after the nearest earlier keep. It logs a warning.
+- *`junction_snip_qa._next_speech_source_start`:* returns the earliest on-air
+  speech start after the clip on tape, not the next clip in air order.
+  Before, the cap could fall before the clip's own start (no repair possible),
+  or an extend could run into a tape-later clip that airs elsewhere.
+- *`junction_snip_qa._merge_candidate_for_clip`:* a reordered air neighbour
+  read as gap 0, and the fused union aired the unselected tape between them.
+  Now a neighbour must also be the tape neighbour in the same direction, and
+  a union that covers another on-air clip is refused.
+- *`chapter_close_hitch._next_chapter_start_ms`:* the next chapter in plan
+  order can start earlier on tape. Only starts after the keeper bound it.
+- *`ideal_cuts.snap_ideal_cuts` (new `resolve_cut_overlaps`):* compared
+  against the last kept cut's end, so any should_keep or optional cut that
+  started before the last must_keep ended was dropped, however far away. Now
+  a cut is dropped only on a real interval overlap.
+- *`gap_framing.drop_contiguous_light_bridge_lines`:* a target before its air
+  predecessor on tape (a short predecessor makes the gap read near 0) is a
+  backward jump. The bridge VO is kept.
+- *`opening_adjacency_repair.drop_post_coda_reverse_jump_from_selection`:* a
+  late-tape clip is the coda only when it airs in the closing chapter.
+  Mid-arc late tape no longer deletes the early chapter after it.
+- *`thought_complete_recut.apply_thought_complete_to_clips`:* the extension
+  stops at the start of a tape-later clip that aired earlier. Before, that
+  tape played twice.
+
+Checked and safe (no change): `edl_overlap_repair`, `segment_fuse`, `edl_qc`,
+`edl_narrative_qc`, `cut_edge_refine`, `sound_design`, `diarization_suspicion`,
+`air_order_integrity`, `air_script`, `seam_autopsy`, `reorder_bridges`,
+`listen_quality`, `listenability_guards`, `information_packages`,
+`talking_points_authority`, `gap_vo_prior_context`, `mix_junction_seat`.
+`selection_order_repair` orders by tape but never cuts or drops audio.
+
+Replayed on a copy of exec_025 with 178's bound fix reverted: the net reseats
+`seg_021` on its own tape and the EDL completes.
+
+Tests: `tests/test_edl_never_drops_must_air.py` (7),
+`tests/test_reorder_family_sweep.py` (9); each fails on the old code.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064
