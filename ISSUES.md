@@ -6336,6 +6336,67 @@ suppressed by the clone-adjacency rule (cloned host voice next to the real
 host), so story_health reports 11 missing reorder bridges; listen_delight
 passes (0.957).
 
+## [181] PRODUCT: the first ranking commit on a new source was refused with hard_keep_missing_from_order:seg_007 (maintainer's exec_024, granola 47-minute source, stalled at 40 of 72)
+
+**Stage / area:** `selection_constraints.lattice_lint_codes`,
+`hard_keep.hard_keep_segment_ids`, `hard_keep.enforce_hard_keeps`,
+`framing_coverage_guard.inject_ranking_lattice_keeps`,
+`deterministic_lint._lint_full_master_ranking`,
+`artifact_sanitize.selection._hard_keep_ids`
+**Status:** FIXED
+
+**Seen:** exec_024 cleared analysis and reached `full_master_ranking`. The
+LLM produced an order; the seal refused it with
+`selection_lattice_seal_refused: hard_keep_missing_from_order:seg_007`, so
+`master/selection.json` never landed. The orchestrator dispatched
+`selection_order_sanitize`, which refused for `missing_hard_input` (the same
+missing file); the second-wind retry hit the identical seal failure; the
+attempt memo refused a third dispatch and delivery stopped incomplete.
+
+**Cause:** two judges of the same proposed selection read different
+documents. `enforce_hard_keeps` reads the proposal: a keep the finalize pass
+excluded with a typed omit (opening constitution `opening_slot_overflow` /
+`opening_skipped_duplicate` / `late_intro_reset`, the finale rule's
+`finale_tail_leftover`, any `cta_*`) is exempt and not restored.
+`lattice_lint_codes` called `hard_keep_segment_ids(ctx)` with no selection,
+and that list drops typed omits by reading `master/selection.json` from disk.
+On a first commit the file does not exist, so the omit was invisible, seg_007
+stayed a demand, and every commit was refused. The same disk read sat under
+`inject_ranking_lattice_keeps` (re-admitting constitution-excluded keeps the
+finalize pass then dropped again), the ranking deterministic lint, and the
+sanitizer's keep list.
+
+**Family (every judge of a proposed selection that read the keep list from
+disk):** the seal lint, the ranking injector, `_lint_full_master_ranking`,
+`artifact_sanitize.selection` (shape and family-cap checks),
+`air_order_integrity.lint_hard_keep_family_errors`, and the undersize
+pull-back in `selection_membership`. Consumers that judge the committed file
+(junction QA, EDL speech list, CTA omit refusal, air script omits) stay on
+disk.
+
+**Fix:**
+- `hard_keep_segment_ids(ctx, selection=...)`: the keep list is judged
+  against the selection in hand (the proposal when given, else disk). One
+  exemption list, `hard_keep.keep_exempt_ids`, serves the restore, the lint
+  and the injector: playability's unplayable and CTA classes, `cta_*`, and
+  the framing VO cover. The CTA-parent transfer, the lattice and editorial
+  rulings and the tape-tail scrap check read the same document.
+- Every judge above passes the document it is judging.
+
+Tests: `tests/test_hard_keep_judged_against_proposal.py` (7): first commit
+with a constitution omit seals; first commit whose finalize omits an early
+keep seals; the committed file neither overrides nor excuses the proposal;
+an editorial aside is still restored; the injector does not re-admit a typed
+omit but still injects an aside in tape order; the deterministic lint reads
+the proposal.
+
+Not fixed here (upstream regressions, pre-existing on upstream main
+`872361153`, pass on `d55f0c6c1`):
+`tests/test_hr2_off_bus_selection.py::test_asc_b3_pass_a_omits_leave_selection_unchanged`,
+`::test_asc_b3_pass_a_ignores_selection_commit_bus` (pass A omits now empty),
+`tests/test_junction_snip_qa.py::test_jsq_b1_advisory_mode_still_blocks_critical_incomplete`
+(junction commitment remaster refuses before the advisory check).
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)

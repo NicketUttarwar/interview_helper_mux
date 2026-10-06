@@ -395,7 +395,7 @@ def test_seal_selection_lattice_strips_unplayable(monkeypatch):
     )
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda ctx: set(),
+        lambda ctx, **k: set(),
     )
     monkeypatch.setattr(
         "interview_mux.framing_coverage_guard.validate_framing_ranking",
@@ -433,7 +433,7 @@ def test_seal_selection_lattice_fail_closed_on_missing_keep(monkeypatch):
     )
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda ctx: {"seg_must"},
+        lambda ctx, **k: {"seg_must"},
     )
     monkeypatch.setattr(
         "interview_mux.framing_coverage_guard.validate_framing_ranking",

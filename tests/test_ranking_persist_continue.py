@@ -260,7 +260,7 @@ def test_hard_keep_in_ordered_ids(tmp_path, monkeypatch: pytest.MonkeyPatch) -> 
     ctx = isolated_run_ctx(tmp_path, "ranking_hard_keep")
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda _ctx: {"seg_001"},
+        lambda _ctx, **_k: {"seg_001"},
     )
     from interview_mux.hard_keep import enforce_hard_keeps
 

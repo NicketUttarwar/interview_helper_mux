@@ -31,7 +31,7 @@ def test_hard_keep_is_not_excluded_by_framing_coverage(monkeypatch: pytest.Monke
     monkeypatch.setattr(
         "interview_mux.gap_framing.ranking_exclude_segment_ids", lambda c: ["seg_059", "seg_060"]
     )
-    monkeypatch.setattr("interview_mux.hard_keep.hard_keep_segment_ids", lambda c: {"seg_059"})
+    monkeypatch.setattr("interview_mux.hard_keep.hard_keep_segment_ids", lambda c, **_k: {"seg_059"})
     monkeypatch.setattr(
         "interview_mux.framing_coverage_guard.validate_framing_ranking", lambda c, s: []
     )

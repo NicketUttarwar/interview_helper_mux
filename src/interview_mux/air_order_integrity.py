@@ -1694,7 +1694,7 @@ def lint_hard_keep_family_errors(
     """Parent hard-keep with partial letter-split family mid-arc."""
     from interview_mux.hard_keep import hard_keep_segment_ids
 
-    keeps = hard_keep_segment_ids(ctx)
+    keeps = hard_keep_segment_ids(ctx, selection=selection)
     if not keeps:
         return []
     ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]

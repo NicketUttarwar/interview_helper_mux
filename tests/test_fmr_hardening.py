@@ -368,7 +368,7 @@ def test_fmr_s2_inject_ranking_lattice_keeps(
     )
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda _ctx: {"seg_keep"},
+        lambda _ctx, **_k: {"seg_keep"},
     )
     from interview_mux.framing_coverage_guard import inject_ranking_lattice_keeps
 

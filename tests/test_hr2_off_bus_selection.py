@@ -57,7 +57,9 @@ def _seed_meander(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> list[str]
                 "topic_tags": ["origin_story"],
             }
         )
-        t += 8_500
+        # One beat a minute: a 96-second tape sat wholly inside the opening
+        # window and the opening constitution excluded half of it on write.
+        t += 60_000
     ctx.write_json("segments/manifest.json", {"segments": segs}, skip_handoff=True)
     ctx.write_json(
         "master/selection.json",
@@ -78,7 +80,7 @@ def _seed_meander(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> list[str]
     write_plan(ctx, forced_sparse_plan(reason="hr2_air_script"))
     monkeypatch.setattr(
         "interview_mux.air_script.hard_keep_segment_ids",
-        lambda _c: {"seg_003"},
+        lambda _c, **_k: {"seg_003"},
     )
     monkeypatch.setattr(
         "interview_mux.air_script.compile_circumstance_card",

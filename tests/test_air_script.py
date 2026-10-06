@@ -146,7 +146,7 @@ def test_pass_a_does_not_omit_setup_or_hard_keeps(tmp_path, monkeypatch):
     _seed_plan(ctx, ordered=ordered, talking_points=["seg_001", "seg_002", "seg_005"])
     monkeypatch.setattr(
         "interview_mux.air_script.hard_keep_segment_ids",
-        lambda _c: {"seg_003"},
+        lambda _c, **_k: {"seg_003"},
     )
     monkeypatch.setattr(
         "interview_mux.air_script.compile_circumstance_card",

@@ -791,7 +791,7 @@ def test_exclude_micro_refuses_hard_keep_so_edl_stays_with_selection(tmp_path, m
     ctx = isolated_run_ctx(tmp_path, "exec_junction_hard_keep")
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda _ctx: {"seg_keep"},
+        lambda _ctx, **_k: {"seg_keep"},
     )
     ctx.write_json(
         "master/selection.json",
@@ -1224,6 +1224,9 @@ def test_jsq_b1_advisory_mode_still_blocks_critical_incomplete(tmp_path, monkeyp
         lambda ctx_, edl_, findings_, cfg=None: (edl_, [], False),
     )
     monkeypatch.setattr(junction_snip_qa, "remaster_mix_only", lambda ctx_: None)
+    # ENDD-2: the commitment seat is hard. The fixture renders no mix, so the
+    # seat is stubbed; the advisory-mode block is what this test exercises.
+    monkeypatch.setattr("interview_mux.air_order.mix_outputs_seated", lambda ctx_: True)
     monkeypatch.setattr(junction_snip_qa, "apply_feel_directives", lambda *a, **k: False)
     monkeypatch.setattr(
         junction_snip_qa,

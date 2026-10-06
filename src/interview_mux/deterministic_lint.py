@@ -828,7 +828,8 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
     from interview_mux.hard_keep import hard_keep_segment_ids
 
     errors.extend(validate_framing_ranking(ctx, artifacts))
-    keep_ids = hard_keep_segment_ids(ctx)
+    # The keep list is judged against the artifacts being linted (ISSUES 181).
+    keep_ids = hard_keep_segment_ids(ctx, selection=artifacts)
     ordered_set = set(ordered)
     if manifest_ids:
         for sid in manifest_ids:
