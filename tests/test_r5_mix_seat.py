@@ -152,6 +152,10 @@ def test_r5b_commitment_remaster_bypasses_low_gain(
         "interview_mux.thrash_hardening.note_junction_remaster",
         lambda _ctx: 1,
     )
+    monkeypatch.setattr(
+        "interview_mux.air_order.mix_outputs_seated",
+        lambda _ctx: True,
+    )
 
     ok_feel, _ = junction_snip_qa._budgeted_remaster_mix(ctx, path="feel")
     assert ok_feel is False

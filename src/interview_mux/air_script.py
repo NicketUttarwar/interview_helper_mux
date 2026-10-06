@@ -44,7 +44,7 @@ def air_script_cfg() -> dict[str, Any]:
         # Default True for Manual; full-auto/homunculus override below.
         "fail_open": True,
         "bed_coverage_aim_lo": 0.40,
-        "bed_coverage_aim_hi": 0.85,
+        "bed_coverage_aim_hi": 0.99,
     }
     if isinstance(raw, dict):
         out = {**defaults, **raw}
@@ -1154,23 +1154,61 @@ def hunt_sonic_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
                     "why": f"abundant constant-level underbed for scene {scene.get('scene_id')}",
                 }
             )
-        opportunities.append(
-            {
-                "kind": "scene_resolve",
-                "segment_id": segs[-1],
-                "suggested_role": "theme_chapter_resolve",
-                "why": "chapter / talking-point cadence",
-            }
-        )
-        if si > 0 or card.get("richer_musical_hinges"):
+        if si > 0:
+            from interview_mux.chapter_music_bridge import bridge_duration_ms
+
+            bms = bridge_duration_ms()
+            # Bridge replaces stacked resolve+stinger on the same seam (lane exclusivity).
             opportunities.append(
                 {
-                    "kind": "hinge_stinger",
+                    "kind": "chapter_music_bridge",
                     "segment_id": segs[-1],
-                    "suggested_role": "theme_emphasis",
-                    "why": "scene hinge punctuator",
+                    "after_segment_id": segs[-1],
+                    "suggested_role": "theme_transition",
+                    "duration_ms": bms,
+                    "preserve_bridge_ms": bms,
+                    "carry_into_next": True,
+                    "break_contiguous_bed": True,
+                    "why": "chapter / scene music-only bridge",
                 }
             )
+        else:
+            opportunities.append(
+                {
+                    "kind": "scene_resolve",
+                    "segment_id": segs[-1],
+                    "suggested_role": "theme_chapter_resolve",
+                    "why": "chapter / talking-point cadence",
+                }
+            )
+            if card.get("richer_musical_hinges"):
+                opportunities.append(
+                    {
+                        "kind": "hinge_stinger",
+                        "segment_id": segs[-1],
+                        "suggested_role": "theme_emphasis",
+                        "why": "scene hinge punctuator",
+                    }
+                )
+    gap_by_target: dict[str, list[dict[str, Any]]] = {}
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            gap_doc = ctx.read_json("understanding/gap_report.json")
+            for ln in (gap_doc or {}).get("interviewer_lines") or []:
+                if not isinstance(ln, dict):
+                    continue
+                tid = str(ln.get("targets_segment_id") or "")
+                if tid:
+                    gap_by_target.setdefault(tid, []).append(ln)
+        except Exception:
+            gap_by_target = {}
+    chapter_hinge_targets: set[str] = set()
+    for si, scene in enumerate(scenes):
+        if si <= 0:
+            continue
+        segs = [str(s) for s in (scene.get("segment_ids") or []) if s in set(ordered)]
+        if segs:
+            chapter_hinge_targets.add(segs[0])
     for beat in beats:
         move = str(beat.get("montage_move") or "")
         sid = str(beat.get("segment_id") or "")
@@ -1184,14 +1222,17 @@ def hunt_sonic_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
                 }
             )
         if move in {"music_face_out", "air_breathe"} and sid:
-            opportunities.append(
-                {
-                    "kind": "hinge_stinger",
-                    "segment_id": sid,
-                    "suggested_role": "theme_emphasis",
-                    "why": f"air_script {move}",
-                }
-            )
+            # music_face_out earns a chapter_music_bridge below when VO is substantial;
+            # air_breathe keeps a light punctuator only.
+            if move == "air_breathe":
+                opportunities.append(
+                    {
+                        "kind": "hinge_stinger",
+                        "segment_id": sid,
+                        "suggested_role": "theme_emphasis",
+                        "why": f"air_script {move}",
+                    }
+                )
         if move in VO_SEAT_MOVES and sid:
             opportunities.append(
                 {
@@ -1199,6 +1240,29 @@ def hunt_sonic_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
                     "segment_id": sid,
                     "suggested_role": "theme_underscore",
                     "why": "post-VO air swell",
+                }
+            )
+        if sid and _beat_earns_chapter_music_bridge(
+            move=move,
+            sid=sid,
+            gap_lines=gap_by_target.get(sid) or [],
+            first_after_chapter_hinge=sid in chapter_hinge_targets,
+        ):
+            from interview_mux.chapter_music_bridge import bridge_duration_ms
+
+            bms = bridge_duration_ms()
+            opportunities.append(
+                {
+                    "kind": "chapter_music_bridge",
+                    "segment_id": sid,
+                    "after_segment_id": _prev_ordered_segment(ordered, sid) or sid,
+                    "before_segment_id": sid,
+                    "suggested_role": "theme_transition",
+                    "duration_ms": bms,
+                    "preserve_bridge_ms": bms,
+                    "carry_into_next": True,
+                    "break_contiguous_bed": True,
+                    "why": f"substantial VO music bridge ({move or 'chapter'})",
                 }
             )
     for sid in _pause_tail_segment_ids(ctx, ordered):
@@ -1227,7 +1291,53 @@ def hunt_sonic_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         out.append(row)
-    return out
+    from interview_mux.chapter_music_bridge import apply_bridge_sparsity
+
+    seg_durs = {
+        str(s.get("segment_id")): max(
+            0, int(s.get("end_ms") or 0) - int(s.get("start_ms") or 0)
+        )
+        for s in (
+            (ctx.read_json("segments/manifest.json") or {}).get("segments") or []
+            if ctx.artifact_exists("segments/manifest.json")
+            else []
+        )
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    return apply_bridge_sparsity(out, segment_durs=seg_durs, ordered_segment_ids=ordered)
+
+
+def _prev_ordered_segment(ordered: list[str], sid: str) -> str | None:
+    try:
+        i = ordered.index(sid)
+    except ValueError:
+        return None
+    return ordered[i - 1] if i > 0 else None
+
+
+def _beat_earns_chapter_music_bridge(
+    *,
+    move: str,
+    sid: str,
+    gap_lines: list[dict[str, Any]],
+    first_after_chapter_hinge: bool,
+) -> bool:
+    from interview_mux.chapter_music_bridge import vo_line_earns_bridge
+
+    if move in {"information_package", "music_face_out"}:
+        if not gap_lines:
+            # Package / face-out beat without a gap row still qualifies (Shape seat).
+            return True
+        return any(
+            vo_line_earns_bridge(ln, montage_move=move) for ln in gap_lines if isinstance(ln, dict)
+        )
+    if first_after_chapter_hinge and move in VO_SEAT_MOVES:
+        return any(
+            vo_line_earns_bridge(ln, montage_move=move, first_after_chapter_hinge=True)
+            for ln in gap_lines
+            if isinstance(ln, dict)
+        )
+    return False
 
 
 def attach_sonic_scenes(ctx: RunContext) -> dict[str, Any]:
@@ -1689,6 +1799,21 @@ def cues_from_sonic_plan(
                 }
                 cues.append(cue)
             continue
+        elif kind == "chapter_music_bridge":
+            asset = _pick("stinger", "theme_transition", "theme_chapter_resolve", "theme_emphasis")
+            placement = "after_segment"
+            role = str((asset or {}).get("role") or "theme_transition")
+            if role not in {"theme_transition", "theme_chapter_resolve"}:
+                role = "theme_transition"
+            level = -12
+            bms = int(row.get("preserve_bridge_ms") or row.get("duration_ms") or 4000)
+            extra["preserve_bridge_ms"] = bms
+            extra["carry_into_next"] = bool(row.get("carry_into_next", True))
+            extra["break_contiguous_bed"] = True
+            extra["chapter_music_bridge"] = True
+            before = str(row.get("before_segment_id") or "")
+            if before:
+                extra["before_segment_id"] = before
         elif kind in {"scene_resolve", "package_faceout"}:
             asset = _pick("stinger", "theme_chapter_resolve", "theme_emphasis")
             placement = "after_segment"

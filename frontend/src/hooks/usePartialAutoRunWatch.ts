@@ -61,17 +61,18 @@ export function usePartialAutoRunWatch(opts: {
 
       if (!isPartialAutoCheckpoint(refreshed, gPublish)) return;
 
+      const atGPublish = isGPublishReviewCheckpoint(gPublish, refreshed);
       const key = [
         refreshed.transcript_review_pending ? "g0" : "",
         refreshed.journey?.blocking?.reason ?? "",
         refreshed.job?.status ?? "",
         refreshed.job?.message ?? "",
-        isGPublishReviewCheckpoint(gPublish) ? "g_publish" : "",
+        atGPublish ? "g_publish" : "",
       ].join("|");
       if (key === lastCheckpointKeyRef.current) return;
       lastCheckpointKeyRef.current = key;
 
-      if (isGPublishReviewCheckpoint(gPublish)) {
+      if (atGPublish) {
         setActiveTab("pipeline");
         await selectStage("podcast_publish");
         return;
@@ -100,6 +101,7 @@ export function usePartialAutoRunWatch(opts: {
     setJobRunning,
     gPublish?.pending,
     gPublish?.package_ready,
+    gPublish?.has_master,
     gPublish?.skipped,
   ]);
 }

@@ -283,6 +283,13 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         blocked_class = str(getattr(exc, "error_class", "") or "").strip()
         if blocked_class:
             return blocked_class
+    # Paperwork-only claim inventory (before incomplete_cut catch-all).
+    if (
+        "junction_claim_inventory_stale" in msg
+        or "claimed_repairs_missing_from_edl" in msg
+        or "seam_autopsy_claim_inventory" in msg
+    ):
+        return "junction_claim_inventory_stale"
     # Stringified publishability / junction residual blocks (plain RuntimeError).
     if (
         "incomplete_cut_unresolved" in msg
@@ -291,6 +298,7 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
             "publishability blocked" in msg
             and "pre_mix" in msg
             and ("incomplete_cut" in msg or "on_a_roll" in msg or "critical_residuals" in msg)
+            and "claimed_repairs_missing_from_edl" not in msg
         )
         or (
             stage in {"mix", "junction_snip_qa", "master_finalize"}
@@ -1381,6 +1389,25 @@ def playbook_incomplete_cut_unresolved(ctx: RunContext) -> list[str]:
     return artifacts
 
 
+def playbook_junction_claim_inventory_stale(ctx: RunContext) -> list[str]:
+    """Reconcile stale applied stamps; resume mix (no junction ladder/remaster)."""
+    from interview_mux.junction_snip_qa import QA_REL, reconcile_junction_claim_inventory
+
+    ok = False
+    try:
+        ok = bool(reconcile_junction_claim_inventory(ctx))
+    except Exception:
+        ok = False
+    artifacts = [QA_REL] if ctx.artifact_exists(QA_REL) else []
+    if ok:
+        # Mix remains the owner for speech-first bed remaster after paperwork.
+        _unmark_stages(ctx, "mix", force=True)
+        artifacts.append(".stage_done/mix")
+        return artifacts
+    artifacts.append("unresolved:junction_claim_inventory_stale")
+    return artifacts
+
+
 def playbook_vo_seated_coverage(ctx: RunContext) -> list[str]:
     from interview_mux.vo_contract import repair_vo_contract_drift
 
@@ -1659,6 +1686,12 @@ def handle_stage_failure(
         elif error_class == "incomplete_cut_unresolved":
             resume_on_budget = "junction_snip_qa"
             _unmark_stages(ctx, "junction_snip_qa", "mix", force=True)
+        elif error_class in {
+            "junction_claim_inventory_stale",
+            "claimed_repairs_missing_from_edl",
+        }:
+            resume_on_budget = "mix"
+            _unmark_stages(ctx, "mix", force=True)
         elif error_class in {
             "opening_orientation_inaudible",
             "vo_audibility_drift",
@@ -1994,6 +2027,17 @@ def handle_stage_failure(
                 for a in (artifacts or [])
             )
             resume_stage = "junction_snip_qa"
+        elif error_class in {
+            "junction_claim_inventory_stale",
+            "claimed_repairs_missing_from_edl",
+        }:
+            playbook_id = "junction_claim_inventory_stale"
+            artifacts = playbook_junction_claim_inventory_stale(ctx)
+            recovered = bool(artifacts) and not any(
+                str(a).startswith("missing:") or "unresolved" in str(a).lower()
+                for a in (artifacts or [])
+            )
+            resume_stage = "mix"
         elif error_class == "vo_seated_coverage":
             playbook_id = "vo_seated_coverage"
             from interview_mux.execution_contract import run_edl_vo_coverage_ladder

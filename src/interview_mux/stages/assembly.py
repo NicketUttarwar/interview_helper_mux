@@ -646,6 +646,36 @@ def build_flow1_edl(
         )
         timeline_ms += max(0, pad)
 
+    def _append_chapter_music_bridge(*, after_segment_id: str = "", before_segment_id: str = "") -> None:
+        """Reserve fixed 4s music-filled air (not generic chapter_hinge silence)."""
+        nonlocal timeline_ms
+        from interview_mux.chapter_music_bridge import (
+            CHAPTER_MUSIC_BRIDGE_AIR_KIND,
+            bridge_duration_ms,
+            chapter_music_bridge_cfg,
+        )
+
+        if not chapter_music_bridge_cfg().get("chapter_music_bridge_enable", True):
+            return
+        # One bridge per seam — skip if we just placed one.
+        if clips and str(clips[-1].get("air_kind") or "") == CHAPTER_MUSIC_BRIDGE_AIR_KIND:
+            return
+        pad = bridge_duration_ms()
+        clip: dict = {
+            "type": "silence",
+            "air_kind": CHAPTER_MUSIC_BRIDGE_AIR_KIND,
+            "duration_ms": pad,
+            "timeline_start_ms": timeline_ms,
+            "preserve_planned_music": True,
+            "required_seam_hitch": True,
+        }
+        if after_segment_id:
+            clip["after_segment_id"] = after_segment_id
+        if before_segment_id:
+            clip["before_segment_id"] = before_segment_id
+        clips.append(clip)
+        timeline_ms += pad
+
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
             if line.get("skipped_optional"):
@@ -848,6 +878,41 @@ def build_flow1_edl(
             if placement == "after" and _is_orientation(line):
                 est_ms = int(float(line.get("estimated_duration_sec") or 0) * 1000)
                 _append_opening_music_marker(max(dur, est_ms, 1000))
+            # Substantial chapter/package VO: 4s music-only before speech (not short bridges).
+            elif placement == "before" and not _is_orientation(line):
+                try:
+                    from interview_mux.chapter_music_bridge import (
+                        montage_move_for_segment,
+                        vo_line_earns_bridge,
+                    )
+                    from interview_mux.mastering_plan_loader import load_plan_raw
+
+                    plan = load_plan_raw(ctx) if ctx is not None else {}
+                    if not isinstance(plan, dict):
+                        plan = {}
+                    move = montage_move_for_segment(plan, sid)
+                    first_after = False
+                    spine = plan.get("story_spine") if isinstance(plan.get("story_spine"), dict) else {}
+                    scenes = [s for s in (spine.get("scenes") or []) if isinstance(s, dict)]
+                    for si, scene in enumerate(scenes):
+                        if si <= 0:
+                            continue
+                        segs = [str(x) for x in (scene.get("segment_ids") or [])]
+                        if segs and segs[0] == sid:
+                            first_after = True
+                            break
+                    if vo_line_earns_bridge(
+                        line,
+                        montage_move=move,
+                        first_after_chapter_hinge=first_after,
+                        measured_duration_ms=dur or None,
+                    ):
+                        _append_chapter_music_bridge(
+                            after_segment_id=str(prev_sid or ""),
+                            before_segment_id=sid,
+                        )
+                except Exception:
+                    pass
             clip = {
                 "type": "vo_pickup",
                 "line_id": line.get("line_id"),
@@ -1154,7 +1219,21 @@ def build_flow1_edl(
             if tr:
                 text = str(tr.get("text") or "")
                 from interview_mux.spoken_copy_guard import script_hash
+                from interview_mux.chapter_music_bridge import chapter_hinge_earns_bridge
+                from interview_mux.seam_glue import is_chapter_scale_pair
 
+                tr_type = str(tr.get("type") or "bridge")
+                chapter_scale = tr_type == "chapter" or is_chapter_scale_pair(
+                    {"after_segment_id": sid, "before_segment_id": nxt, "type": tr_type}
+                )
+                same_ans = _same_answer_seam(sid, nxt)
+                # Music-only bridge *before* spoken hitch so VO rides under music.
+                if chapter_hinge_earns_bridge(
+                    transition_type=tr_type,
+                    is_chapter_scale=chapter_scale,
+                    same_answer=same_ans,
+                ):
+                    _append_chapter_music_bridge(after_segment_id=sid, before_segment_id=nxt)
                 tr_path = (
                     resolve_transition_path(sid, nxt) if resolve_transition_path else None
                 )
@@ -1170,7 +1249,7 @@ def build_flow1_edl(
                     "after_segment_id": sid,
                     "before_segment_id": nxt,
                     "text": text,
-                    "transition_type": tr.get("type", "bridge"),
+                    "transition_type": tr_type,
                     "duration_ms": tr_dur,
                     "timeline_start_ms": timeline_ms,
                     "script_hash": script_hash(text),
@@ -1182,7 +1261,11 @@ def build_flow1_edl(
                     clip_tr["source_path"] = tr_rel
                 clips.append(clip_tr)
                 timeline_ms += tr_dur
-                if not _same_answer_seam(sid, nxt):
+                if not same_ans and not chapter_hinge_earns_bridge(
+                    transition_type=tr_type,
+                    is_chapter_scale=chapter_scale,
+                    same_answer=same_ans,
+                ):
                     if tr_dur > 0:
                         _append_air("chapter_hinge", tr_dur)
                     else:
@@ -1191,18 +1274,39 @@ def build_flow1_edl(
                 # No spoken transition: still need audible chapter/reorder hitch
                 # unless this is the same answer continuing on tape.
                 needs_hitch = suppressed_transition
+                chapter_scale = False
                 if not needs_hitch:
                     from interview_mux.reorder_bridges import build_reorder_bridges
 
                     bridges = build_reorder_bridges([sid, nxt], segments_by_id)
                     needs_hitch = bool(bridges.get("pairs"))
-                if needs_hitch and not _same_answer_seam(sid, nxt):
-                    _append_air(
-                        "chapter_hinge",
-                        max(int(speech_dur), 1000),
-                        required_seam_hitch=True,
-                        clone_adjacency_hitch=bool(suppressed_transition),
-                    )
+                    try:
+                        from interview_mux.seam_glue import is_chapter_scale_pair
+
+                        for pair in bridges.get("pairs") or []:
+                            if isinstance(pair, dict) and is_chapter_scale_pair(pair):
+                                chapter_scale = True
+                                break
+                    except Exception:
+                        chapter_scale = False
+                same_ans = _same_answer_seam(sid, nxt)
+                if needs_hitch and not same_ans:
+                    from interview_mux.chapter_music_bridge import chapter_hinge_earns_bridge
+
+                    if chapter_hinge_earns_bridge(
+                        is_chapter_scale=chapter_scale,
+                        same_answer=same_ans,
+                    ):
+                        _append_chapter_music_bridge(
+                            after_segment_id=sid, before_segment_id=nxt
+                        )
+                    else:
+                        _append_air(
+                            "chapter_hinge",
+                            max(int(speech_dur), 1000),
+                            required_seam_hitch=True,
+                            clone_adjacency_hitch=bool(suppressed_transition),
+                        )
 
     if omitted_unplayable and ctx is not None:
         try:

@@ -95,7 +95,7 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "restate_min_vo_tokens": 6,
             "allow_summary_overlap_max": 0.62,
             "enforce_courtesy": True,
-            "require_forward_cue": True,
+            "require_forward_cue": False,
             "require_cold_open_layup": True,
         },
     }

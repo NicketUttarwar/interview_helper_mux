@@ -265,12 +265,20 @@ def finalize_selection_order(
         )
 
     should_block = block_ranking_on_critical() if block_on_critical is None else block_on_critical
-    if should_block and critical_violations(violations):
+    crit = critical_violations(violations)
+    # Fail closed when opening projection left late_opening criticals — soak flag
+    # must not allow dirty land that bounce-loops sanitize ↔ ranking.
+    late_opening_left = [
+        v
+        for v in crit
+        if str(v.get("code") or "") == "late_opening_cluster"
+    ]
+    if late_opening_left or (should_block and crit):
         raise ValueError(
             "air_order_integrity critical violations: "
             + "; ".join(
                 str(v.get("message") or v.get("code") or "")
-                for v in critical_violations(violations)[:3]
+                for v in (late_opening_left or crit)[:3]
             )
         )
     if should_block and health.get("verdict") == "fail":

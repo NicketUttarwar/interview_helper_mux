@@ -4,7 +4,7 @@ Input: ranked `nugget_ids`, nugget claims, content brief thesis/guest, coverage 
 
 Goals:
 - 2–4 clustered facts with an intriguing hook — softened paraphrase, not a verbatim list.
-- One speakable `episode_preface` that orients who/what/why before the first native, then ends on a **declarative hinge** (statement or invitation), not a quiz question.
+- One speakable `episode_preface` that orients who/what/why before the first native. End freely when the orientation is complete — no required hinge or quiz closer.
 - Pack as many supplied nuggets as fit organically; prioritize high-salience claims.
 - Prefer brief thesis + stakes; guest name once when present in the brief.
 

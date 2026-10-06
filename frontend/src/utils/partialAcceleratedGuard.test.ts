@@ -212,6 +212,46 @@ describe("partialAcceleratedGuard", () => {
     ).toBe("none");
   });
 
+  it("lifts overlay at g_publish from run snapshot when /g-publish poll is null", () => {
+    const r = run({
+      meta: { ...accelerated, g_publish_pending: true },
+      job: {
+        status: "gate",
+        stage: "g_publish",
+        message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+      },
+      journey: {
+        blocking: {
+          blocked: true,
+          reason: "llm_gate",
+          stage_id: "g_publish",
+          message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+        },
+      },
+      stages: [{ id: "master_finalize", status: "done" }],
+    });
+    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
+    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(false);
+  });
+
+  it("keeps Ship checkpoint after Prepare clears the gate (until upload)", () => {
+    const r = run({
+      meta: { ...accelerated, g_publish_pending: false, g_publish_cleared: true },
+      stages: [{ id: "master_finalize", status: "done" }],
+    });
+    const gPublish = {
+      pending: false,
+      cleared: true,
+      has_master: true,
+      package_ready: false,
+      skipped: false,
+      already_uploaded_count: 0,
+    };
+    expect(isPartialAutoCheckpoint(r, gPublish)).toBe(true);
+    expect(resolveOperatorCover(r, gPublish, { jobRunning: true })).toBe("none");
+  });
+
   it("shows accelerated cover during automated phase", () => {
     const r = run({
       meta: accelerated,

@@ -653,21 +653,25 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     if over and not any(e.startswith("hard_keep_same_family_over_budget:") for e in errors):
         errors.append(f"same_family_budget_exceeded:{sorted(over.items())[:4]}")
 
-    # Integrity: apply opening-tape repair (host intro first) then record leftovers.
+    # Integrity: convergent opening projection (+ seam, reproject) then leftovers.
     try:
         from interview_mux.air_order_integrity import (
             collect_violations,
             critical_violations,
-            repair_opening_tape_integrity,
+            repair_air_order_integrity,
         )
+        from interview_mux.order_hash import bump_order_lock
 
-        repaired, integ_actions = repair_opening_tape_integrity(ctx, out)
-        if integ_actions:
+        repaired, integ_actions = repair_air_order_integrity(ctx, out)
+        if integ_actions or repaired.get("ordered_segment_ids") != out.get(
+            "ordered_segment_ids"
+        ):
             out = repaired
             ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
             actions.extend(integ_actions)
             after_n = len(ordered)
             metrics["after_count"] = after_n
+            out = bump_order_lock(out, source="artifact_sanitize.selection")
         viol = collect_violations(ctx, out)
         crit = critical_violations(viol)
         if crit:

@@ -28,6 +28,46 @@ _RECUT_FRAG_RE = re.compile(r"^(seg_\d+)([a-z]+)$", re.IGNORECASE)
 INTEGRITY_REL = "master/air_order_integrity.json"
 OPERATOR_LOG_REL = "operator/air_order_integrity.log.jsonl"
 
+# Sticky exclude reasons from the opening constitution. Hard-keep / incomplete-seam
+# must not restore or pull these ids back onto air.
+OPENING_CONSTITUTION_EXCLUDE_REASONS: frozenset[str] = frozenset(
+    {
+        "opening_skipped_duplicate",
+        "opening_slot_overflow",
+        "late_intro_reset",
+    }
+)
+
+
+def is_opening_constitution_exclude_reason(reason: str | None) -> bool:
+    return str(reason or "").strip() in OPENING_CONSTITUTION_EXCLUDE_REASONS
+
+
+def constitution_excluded_ids(selection: dict[str, Any] | None) -> set[str]:
+    """Ids currently typed-excluded by the opening constitution."""
+    if not isinstance(selection, dict):
+        return set()
+    out: set[str] = set()
+    rationales = (
+        selection.get("exclude_rationales")
+        if isinstance(selection.get("exclude_rationales"), dict)
+        else {}
+    )
+    for row in selection.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "").strip()
+            reason = str(row.get("reason") or rationales.get(sid) or "").strip()
+        else:
+            sid = str(row or "").strip()
+            reason = str(rationales.get(sid) or "").strip()
+        if sid and is_opening_constitution_exclude_reason(reason):
+            out.add(sid)
+    for sid, reason in rationales.items():
+        key = str(sid or "").strip()
+        if key and is_opening_constitution_exclude_reason(str(reason or "")):
+            out.add(key)
+    return out
+
 
 def air_order_integrity_cfg() -> dict[str, Any]:
     mastering = merged_config().get("mastering") or {}
@@ -156,6 +196,219 @@ def resolved_segment_starts(ctx: RunContext) -> dict[str, int]:
             except (TypeError, ValueError):
                 continue
     return starts
+
+
+def resolved_segment_spans(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """segment_id → {start_ms, end_ms, text, speaker_id} from boundaries/manifest."""
+    spans: dict[str, dict[str, Any]] = {}
+    for rel in ("segments/boundaries.json", "segments/segments.json", "segments/manifest.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        rows: list[Any] = []
+        if isinstance(doc, dict):
+            rows = list(doc.get("boundaries") or doc.get("segments") or [])
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("segment_id"):
+                continue
+            sid = str(row["segment_id"])
+            try:
+                start = int(row.get("start_ms") or row.get("source_start_ms") or 0)
+                end = int(row.get("end_ms") or row.get("source_end_ms") or start)
+            except (TypeError, ValueError):
+                continue
+            spans[sid] = {
+                "start_ms": start,
+                "end_ms": end,
+                "text": str(row.get("text") or ""),
+                "speaker_id": str(row.get("speaker_id") or row.get("speaker") or ""),
+            }
+    return spans
+
+
+def _fill_span_text_from_words(
+    spans: dict[str, dict[str, Any]],
+    words: list[dict[str, Any]] | None,
+) -> None:
+    """Mutate spans in place: fill empty text from G0 words when available."""
+    if not words or not spans:
+        return
+    from interview_mux.gap_vo_prior_context import _word_token
+
+    for span in spans.values():
+        if str(span.get("text") or "").strip():
+            continue
+        try:
+            start = int(span.get("start_ms") or 0)
+            end = int(span.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        toks = [
+            _word_token(w)
+            for w in words
+            if isinstance(w, dict)
+            and int(w.get("end_ms") or 0) > start
+            and int(w.get("start_ms") or 0) < end
+            and _word_token(w)
+        ]
+        if toks:
+            span["text"] = " ".join(toks)
+
+
+def _load_transcript_words(ctx: RunContext) -> list[dict[str, Any]]:
+    for rel in (
+        "operator/transcript_corrected.json",
+        "transcript/full.json",
+        "transcripts/full.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if isinstance(doc, dict):
+            words = doc.get("words")
+            if isinstance(words, list) and words:
+                return [w for w in words if isinstance(w, dict)]
+    return []
+
+
+def incomplete_seam_pairs(
+    spans: dict[str, dict[str, Any]],
+    *,
+    on_air: set[str] | None = None,
+    words: list[dict[str, Any]] | None = None,
+) -> list[tuple[str, str]]:
+    """Chronological (A,B) pairs where B's open finishes A's clause (incomplete seam).
+
+    When ``on_air`` is set, only pairs where A is on-air are returned (B may be
+    off-air — caller decides whether to pull B or drop A).
+    """
+    from interview_mux.gap_vo_prior_context import (
+        SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
+        source_adjacent_completes,
+        source_adjacent_completes_at,
+    )
+
+    if not spans:
+        return []
+    if words:
+        _fill_span_text_from_words(spans, words)
+    chrono = sorted(
+        spans.keys(),
+        key=lambda sid: (int(spans[sid].get("start_ms") or 0), sid),
+    )
+    pairs: list[tuple[str, str]] = []
+    for i in range(len(chrono) - 1):
+        a_id = chrono[i]
+        b_id = chrono[i + 1]
+        if on_air is not None and a_id not in on_air:
+            continue
+        a = spans[a_id]
+        b = spans[b_id]
+        try:
+            a_end = int(a.get("end_ms") or 0)
+            b_start = int(b.get("start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        gap = b_start - a_end
+        if gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS or gap < -500:
+            continue
+        a_spk = str(a.get("speaker_id") or "")
+        b_spk = str(b.get("speaker_id") or "")
+        same = (not a_spk or not b_spk) or a_spk == b_spk
+        # Allow tight diarization flips on the completing phrase.
+        if not same and gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS:
+            continue
+        prev_text = str(a.get("text") or "")
+        later_text = str(b.get("text") or "")
+        completes = False
+        if prev_text.strip() and later_text.strip():
+            completes = source_adjacent_completes(
+                prev_text,
+                later_text,
+                max(0, gap),
+                same_speaker=same or gap <= SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
+            )
+        elif words:
+            completes = source_adjacent_completes_at(
+                words,
+                a_end,
+                max_gap_ms=SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
+            )
+        if not completes:
+            continue
+        pairs.append((a_id, b_id))
+    return pairs
+
+
+def repair_incomplete_seam_order(
+    ordered: list[str],
+    spans: dict[str, dict[str, Any]],
+    *,
+    words: list[dict[str, Any]] | None = None,
+    blocked_ids: set[str] | None = None,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Ensure incomplete-seam pairs keep A immediately before B on air.
+
+    - If A and B are both on-air but B precedes A (or they are non-adjacent),
+      move so A immediately precedes B.
+    - If A is on-air and B is missing, pull B onto air right after A.
+    - Never pull ``blocked_ids`` (opening constitution excludes) back onto air.
+    """
+    base = [str(s) for s in ordered if str(s).strip()]
+    if len(base) < 1 or not spans:
+        return base, []
+    blocked = {str(s) for s in (blocked_ids or set()) if str(s).strip()}
+    on_air = set(base)
+    pairs = incomplete_seam_pairs(spans, on_air=on_air, words=words)
+    if not pairs:
+        return base, []
+    new_order = list(base)
+    actions: list[dict[str, Any]] = []
+    for a_id, b_id in pairs:
+        if a_id not in new_order:
+            continue
+        if b_id in blocked:
+            continue
+        if b_id not in new_order:
+            # Pull completing segment onto air immediately after A.
+            ia = new_order.index(a_id)
+            new_order = new_order[: ia + 1] + [b_id] + new_order[ia + 1 :]
+            actions.append(
+                {
+                    "action": "incomplete_seam_pull_completion",
+                    "code": "incomplete_seam_order",
+                    "after_segment_id": a_id,
+                    "before_segment_id": b_id,
+                }
+            )
+            continue
+        ia = new_order.index(a_id)
+        ib = new_order.index(b_id)
+        if ia + 1 == ib:
+            continue
+        # Remove B, then place it immediately after A (recompute A's index).
+        without_b = [s for s in new_order if s != b_id]
+        ia2 = without_b.index(a_id)
+        # If B was before A, also ensure A is not left after other material that
+        # belonged between them — place B right after A.
+        new_order = without_b[: ia2 + 1] + [b_id] + without_b[ia2 + 1 :]
+        actions.append(
+            {
+                "action": "incomplete_seam_adjacency",
+                "code": "incomplete_seam_order",
+                "after_segment_id": a_id,
+                "before_segment_id": b_id,
+                "was_index_a": ia,
+                "was_index_b": ib,
+            }
+        )
+    return new_order, actions
 
 
 def letter_split_family(sid: str, ordered: list[str] | None = None) -> list[str]:
@@ -574,6 +827,108 @@ def _exclude_segments(
     return out
 
 
+def intentional_cold_open_intent(
+    selection: dict[str, Any],
+    ctx: RunContext | None = None,
+) -> str | None:
+    """Return declared cold-open segment id when Mode B intent is present."""
+    if not isinstance(selection, dict):
+        return None
+    native = str(selection.get("native_cold_open_segment_id") or "").strip()
+    if native:
+        return native
+    cold = selection.get("cold_open")
+    if isinstance(cold, dict):
+        kind = str(cold.get("kind") or "").strip().lower()
+        if kind and kind not in {"none", "", "null"}:
+            head = str(
+                cold.get("segment_id")
+                or cold.get("open_segment_id")
+                or (selection.get("ordered_segment_ids") or [None])[0]
+                or ""
+            ).strip()
+            return head or None
+    if ctx is not None and ctx.artifact_exists("mastering/mastering_plan.json"):
+        try:
+            plan = ctx.read_json("mastering/mastering_plan.json")
+        except Exception:
+            plan = None
+        if isinstance(plan, dict):
+            cold = plan.get("cold_open")
+            if isinstance(cold, dict):
+                kind = str(cold.get("kind") or "").strip().lower()
+                if kind and kind not in {"none", "", "null"}:
+                    head = str(
+                        cold.get("segment_id")
+                        or cold.get("open_segment_id")
+                        or (selection.get("ordered_segment_ids") or [None])[0]
+                        or ""
+                    ).strip()
+                    return head or None
+    return None
+
+
+def _opening_families_chrono(
+    ordered: list[str],
+    opening_ids: set[str],
+    starts: dict[str, int],
+) -> list[tuple[str, list[str]]]:
+    """[(parent, frags_on_air sorted by source start)] earliest family first."""
+    by_parent: dict[str, list[str]] = {}
+    for sid in ordered:
+        if sid not in opening_ids:
+            continue
+        parent = _parent_seg_id(sid)
+        by_parent.setdefault(parent, []).append(sid)
+
+    def _fam_start(parent: str, frags: list[str]) -> int:
+        vals = [resolved_source_start_ms(s, starts) for s in frags]
+        vals = [int(v) for v in vals if v is not None]
+        if vals:
+            return min(vals)
+        parent_start = resolved_source_start_ms(parent, starts)
+        return int(parent_start) if parent_start is not None else 10**12
+
+    rows = [
+        (parent, sorted(frags, key=lambda s: (resolved_source_start_ms(s, starts) or 0, s)))
+        for parent, frags in by_parent.items()
+    ]
+    rows.sort(key=lambda row: (_fam_start(row[0], row[1]), row[0]))
+    return rows
+
+
+def _clear_constitution_excludes_for(
+    selection: dict[str, Any],
+    restored: set[str],
+) -> dict[str, Any]:
+    """Drop sticky constitution excludes for ids we intentionally put back on air."""
+    if not restored:
+        return selection
+    out = dict(selection)
+    excl = []
+    for row in out.get("excluded_segment_ids") or []:
+        sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+        reason = (
+            str(row.get("reason") or "")
+            if isinstance(row, dict)
+            else str((out.get("exclude_rationales") or {}).get(sid) or "")
+        )
+        if sid in restored and is_opening_constitution_exclude_reason(reason):
+            continue
+        excl.append(row)
+    out["excluded_segment_ids"] = excl
+    rationales = (
+        dict(out.get("exclude_rationales") or {})
+        if isinstance(out.get("exclude_rationales"), dict)
+        else {}
+    )
+    for sid in restored:
+        if is_opening_constitution_exclude_reason(str(rationales.get(sid) or "")):
+            rationales.pop(sid, None)
+    out["exclude_rationales"] = rationales
+    return out
+
+
 def repair_opening_tape_integrity(
     ctx: RunContext,
     selection: dict[str, Any],
@@ -581,11 +936,18 @@ def repair_opening_tape_integrity(
     mode: str = "prepend",
     starts: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Apply opening-tape sub-rule; return (selection, actions).
+    """Convergent opening projection; return (selection, actions).
 
-    Default ``prepend`` keeps a strong native host intro on air by moving the
-    late opening-tape family to the front. ``drop_if_guest_first`` remains as an
-    explicit override for callers that still want exclusion.
+    Mode A (default / accident guest-first): chronological host-first opening
+    prefix capped at ``opening_air_slots``; surplus families typed-excluded as
+    ``opening_slot_overflow``.
+
+    Mode B (declared cold open): keep declared head; typed-exclude violating
+    opening families (especially late earliest-tape host intro) as
+    ``opening_skipped_duplicate``.
+
+    ``drop_if_guest_first`` remains an explicit override that excludes late
+    opening clusters under guest-first instead of projecting.
     """
     out = dict(selection)
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
@@ -593,24 +955,24 @@ def repair_opening_tape_integrity(
         return out, []
     if starts is None:
         starts = resolved_segment_starts(ctx)
+    if not starts:
+        return out, []
     pol = _resolve_policy(ctx, None, selection=out, starts=starts)
     actions: list[dict[str, Any]] = []
+    opening_ids = opening_tape_segment_ids(
+        ordered, starts, policy=pol, ctx=ctx
+    )
+    if not opening_ids:
+        return out, []
+
     guest_first = _guest_first_open_established(
         ordered, starts, policy=pol, ctx=ctx
     )
     late = late_opening_cluster_violations(
         ctx, ordered, starts=starts, policy=pol
     )
-    opening_ids = opening_tape_segment_ids(
-        ordered, starts, policy=pol, ctx=ctx
-    )
-    if not late and guest_first:
-        for idx, sid in enumerate(ordered):
-            if sid in opening_ids and idx >= 1:
-                late.append({"segment_ids": letter_split_family(sid, ordered)})
-    if not late:
-        return out, actions
-    to_drop: list[str] = []
+    cold_head = intentional_cold_open_intent(out, ctx)
+    mode_b = bool(cold_head)
 
     def _family_sorted(family: list[str]) -> list[str]:
         return sorted(
@@ -621,74 +983,215 @@ def repair_opening_tape_integrity(
             ),
         )
 
+    # Explicit legacy override: drop late clusters under guest-first.
     if mode == "drop_if_guest_first" and guest_first:
+        to_drop: list[str] = []
         for v in late:
             to_drop.extend(str(s) for s in (v.get("segment_ids") or []) if s)
-    elif guest_first:
-        # One-shot: earliest-tape host intro to front. Prepending every late
-        # family leaves the last cluster first and guest_first stays true
-        # (exec_002 late_opening_cluster ×4 on consecutive opening tape).
-        host_parent = ""
-        host_start: int | None = None
-        for sid in opening_ids:
-            start = resolved_source_start_ms(sid, starts)
-            if start is None:
-                continue
-            parent = _parent_seg_id(sid)
-            if host_start is None or int(start) < host_start:
-                host_start = int(start)
-                host_parent = parent
-        family = [s for s in ordered if _parent_seg_id(s) == host_parent] if host_parent else []
-        if family and _parent_seg_id(ordered[0]) != host_parent:
-            rest = [s for s in ordered if s not in set(family)]
-            family_sorted = _family_sorted(family)
-            ordered = family_sorted + rest
-            actions.append({"action": "prepend_opening_family", "ids": family_sorted[:12]})
-    else:
-        for v in late:
-            family = [str(s) for s in (v.get("segment_ids") or []) if s]
-            if not family:
-                continue
-            rest = [s for s in ordered if s not in set(family)]
-            family_sorted = _family_sorted(family)
-            ordered = family_sorted + rest
-            actions.append({"action": "prepend_opening_family", "ids": family_sorted[:12]})
-    if to_drop:
-        reason = "opening_skipped_duplicate" if guest_first else "late_intro_reset"
-        out = _exclude_segments(out, to_drop, reason=reason)
-        actions.append({"action": "exclude_opening_cluster", "reason": reason, "ids": to_drop[:12]})
-    elif actions:
-        out["ordered_segment_ids"] = ordered
-        # Clear stale opening_skipped_duplicate excludes for ids we restored.
-        restored = {
-            sid
-            for act in actions
-            if act.get("action") == "prepend_opening_family"
-            for sid in (act.get("ids") or [])
-        }
-        if restored:
-            excl = []
-            for row in out.get("excluded_segment_ids") or []:
-                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
-                reason = (
-                    str(row.get("reason") or "")
-                    if isinstance(row, dict)
-                    else str((out.get("exclude_rationales") or {}).get(sid) or "")
-                )
-                if sid in restored and reason == "opening_skipped_duplicate":
-                    continue
-                excl.append(row)
-            out["excluded_segment_ids"] = excl
-            rationales = (
-                dict(out.get("exclude_rationales") or {})
-                if isinstance(out.get("exclude_rationales"), dict)
-                else {}
+        if not to_drop and guest_first:
+            for idx, sid in enumerate(ordered):
+                if sid in opening_ids and idx >= 1:
+                    to_drop.extend(letter_split_family(sid, ordered))
+        if to_drop:
+            out = _exclude_segments(out, to_drop, reason="opening_skipped_duplicate")
+            actions.append(
+                {
+                    "action": "exclude_opening_cluster",
+                    "reason": "opening_skipped_duplicate",
+                    "ids": to_drop[:12],
+                }
             )
-            for sid in restored:
-                if rationales.get(sid) == "opening_skipped_duplicate":
-                    rationales.pop(sid, None)
-            out["exclude_rationales"] = rationales
+        return out, actions
+
+    families = _opening_families_chrono(ordered, opening_ids, starts)
+    if not families:
+        return out, []
+    slots = max(1, int(opening_air_slots(ctx=ctx, policy=pol)))
+
+    if mode_b:
+        # Mode B: keep intentional cold-open head; exclude violating opening tape.
+        head = cold_head if cold_head in ordered else ordered[0]
+        head_parent = _parent_seg_id(head)
+        head_family = [s for s in ordered if _parent_seg_id(s) == head_parent]
+        to_drop_set: set[str] = set()
+        earliest_parent = families[0][0]
+        if earliest_parent != head_parent:
+            for parent, frags in families:
+                if parent == earliest_parent:
+                    to_drop_set.update(frags)
+                    actions.append(
+                        {
+                            "action": "exclude_opening_cluster",
+                            "reason": "opening_skipped_duplicate",
+                            "ids": frags[:12],
+                            "mode": "cold_open",
+                        }
+                    )
+                    break
+        remaining = [
+            (p, f)
+            for p, f in families
+            if p != head_parent and not set(f) <= to_drop_set
+        ]
+        keep_budget = max(0, slots - 1)
+        if len(remaining) > keep_budget:
+            for parent, frags in reversed(remaining[keep_budget:]):
+                to_drop_set.update(frags)
+                actions.append(
+                    {
+                        "action": "exclude_opening_cluster",
+                        "reason": "opening_slot_overflow",
+                        "ids": frags[:12],
+                        "mode": "cold_open",
+                    }
+                )
+        trial_order = [s for s in ordered if s not in to_drop_set]
+        if trial_order and _parent_seg_id(trial_order[0]) != head_parent:
+            rest = [s for s in trial_order if s not in set(head_family)]
+            trial_order = _family_sorted(
+                [s for s in head_family if s in trial_order]
+            ) + rest
+            actions.append(
+                {
+                    "action": "preserve_cold_open_head",
+                    "ids": [head][:12],
+                }
+            )
+        still_late = late_opening_cluster_violations(
+            ctx, trial_order, starts=starts, policy=pol
+        )
+        for v in still_late:
+            frags = [str(s) for s in (v.get("segment_ids") or []) if s]
+            frags = [s for s in frags if _parent_seg_id(s) != head_parent]
+            if not frags:
+                continue
+            to_drop_set.update(frags)
+            actions.append(
+                {
+                    "action": "exclude_opening_cluster",
+                    "reason": "opening_skipped_duplicate",
+                    "ids": frags[:12],
+                    "mode": "cold_open",
+                }
+            )
+        if to_drop_set or (trial_order != ordered):
+            new_order = [s for s in trial_order if s not in to_drop_set]
+            if new_order and _parent_seg_id(new_order[0]) != head_parent:
+                hf = [s for s in new_order if _parent_seg_id(s) == head_parent]
+                rest = [s for s in new_order if s not in set(hf)]
+                new_order = _family_sorted(hf) + rest
+            out["ordered_segment_ids"] = new_order
+            if to_drop_set:
+                overflow_ids = {
+                    sid
+                    for act in actions
+                    if act.get("reason") == "opening_slot_overflow"
+                    for sid in (act.get("ids") or [])
+                }
+                skip_ids = [s for s in to_drop_set if s not in overflow_ids]
+                over_ids = [s for s in to_drop_set if s in overflow_ids]
+                if skip_ids:
+                    out = _exclude_segments(
+                        out, skip_ids, reason="opening_skipped_duplicate"
+                    )
+                if over_ids:
+                    out = _exclude_segments(
+                        out, over_ids, reason="opening_slot_overflow"
+                    )
+            kept = set(new_order)
+            out = _clear_constitution_excludes_for(out, kept)
+        return out, actions
+
+    # Mode A: chronological host-first prefix; typed-exclude surplus.
+    keep_families = families[:slots]
+    surplus = families[slots:]
+    keep_ids: list[str] = []
+    for _parent, frags in keep_families:
+        keep_ids.extend(frags)
+    keep_set = set(keep_ids)
+    drop_ids: list[str] = []
+    for _parent, frags in surplus:
+        drop_ids.extend(frags)
+    prefix = _family_sorted(keep_ids)
+    drop_set = set(drop_ids)
+    body = [s for s in ordered if s not in keep_set and s not in drop_set]
+    new_order = prefix + body
+    changed = new_order != ordered or bool(drop_ids)
+
+    if not changed:
+        if guest_first and keep_families:
+            host_parent = keep_families[0][0]
+            if _parent_seg_id(ordered[0]) != host_parent:
+                host_frags = [s for s in ordered if _parent_seg_id(s) == host_parent]
+                rest = [s for s in ordered if s not in set(host_frags)]
+                new_order = _family_sorted(host_frags) + rest
+                changed = True
+                actions.append(
+                    {
+                        "action": "prepend_opening_family",
+                        "ids": _family_sorted(host_frags)[:12],
+                        "mode": "host_first",
+                    }
+                )
+        if not changed:
+            # Even when order already host-first within budget, no-op.
+            if not late and not guest_first:
+                return out, actions
+            # late with host-first head but still violations → fall through via surplus empty
+            if not late:
+                return out, actions
+
+    # Always project when late or guest_first or surplus, even if order coincidentally ok.
+    if late or guest_first or drop_ids or new_order != ordered:
+        if prefix and (not ordered or prefix[0] != ordered[0] or new_order != ordered):
+            if not any(a.get("action") == "prepend_opening_family" for a in actions):
+                actions.append(
+                    {
+                        "action": "prepend_opening_family",
+                        "ids": prefix[:12],
+                        "mode": "host_first",
+                    }
+                )
+        if drop_ids:
+            actions.append(
+                {
+                    "action": "exclude_opening_cluster",
+                    "reason": "opening_slot_overflow",
+                    "ids": drop_ids[:12],
+                    "mode": "host_first",
+                }
+            )
+            out = _exclude_segments(out, drop_ids, reason="opening_slot_overflow")
+        out["ordered_segment_ids"] = new_order
+        out = _clear_constitution_excludes_for(out, set(prefix))
+
+        still = late_opening_cluster_violations(
+            ctx, list(out.get("ordered_segment_ids") or []), starts=starts, policy=pol
+        )
+        if still:
+            extra: list[str] = []
+            for v in still:
+                extra.extend(str(s) for s in (v.get("segment_ids") or []) if s)
+            if keep_families:
+                host_parent = keep_families[0][0]
+                extra = [s for s in extra if _parent_seg_id(s) != host_parent]
+            if extra:
+                out = _exclude_segments(out, extra, reason="opening_slot_overflow")
+                actions.append(
+                    {
+                        "action": "exclude_opening_cluster",
+                        "reason": "opening_slot_overflow",
+                        "ids": extra[:12],
+                        "mode": "host_first_sweep",
+                    }
+                )
+                out["ordered_segment_ids"] = [
+                    s
+                    for s in (out.get("ordered_segment_ids") or [])
+                    if s not in set(extra)
+                ]
     return out, actions
+
 
 
 # A closing line the episode is allowed to end on even when it sits earlier on
@@ -834,6 +1337,58 @@ def repair_air_order_integrity(
                 out["exclude_rationales"] = rationales
     out, opening_actions = repair_opening_tape_integrity(ctx, out, starts=starts)
     actions.extend(opening_actions)
+
+    # Incomplete-seam adjacency: if B finishes A's clause on tape, air must keep
+    # A immediately before B (or pull B onto air). Not free-form chapter reshape.
+    # Never pull opening-constitution excludes back onto air.
+    blocked = constitution_excluded_ids(out)
+    spans = resolved_segment_spans(ctx)
+    words = _load_transcript_words(ctx)
+    ordered_after = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    seam_order, seam_actions = repair_incomplete_seam_order(
+        ordered_after,
+        spans,
+        words=words or None,
+        blocked_ids=blocked,
+    )
+    if seam_actions and seam_order != ordered_after:
+        out["ordered_segment_ids"] = seam_order
+        actions.extend(seam_actions)
+        # Clear stale excludes for ids we pulled back — never constitution reasons.
+        pulled_ids = {
+            str(a.get("before_segment_id") or "")
+            for a in seam_actions
+            if a.get("action") == "incomplete_seam_pull_completion"
+        }
+        pulled_ids.discard("")
+        pulled_ids -= blocked
+        if pulled_ids:
+            excl = []
+            for row in out.get("excluded_segment_ids") or []:
+                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+                reason = (
+                    str(row.get("reason") or "")
+                    if isinstance(row, dict)
+                    else str((out.get("exclude_rationales") or {}).get(sid) or "")
+                )
+                if sid in pulled_ids and not is_opening_constitution_exclude_reason(reason):
+                    continue
+                excl.append(row)
+            out["excluded_segment_ids"] = excl
+            rationales = (
+                dict(out.get("exclude_rationales") or {})
+                if isinstance(out.get("exclude_rationales"), dict)
+                else {}
+            )
+            for sid in pulled_ids:
+                if not is_opening_constitution_exclude_reason(
+                    str(rationales.get(sid) or "")
+                ):
+                    rationales.pop(sid, None)
+            out["exclude_rationales"] = rationales
+        # Seam may reorder kept ids — re-project opening so criticals stay cleared.
+        out, reopen = repair_opening_tape_integrity(ctx, out, starts=starts)
+        actions.extend(reopen)
     return out, actions
 
 

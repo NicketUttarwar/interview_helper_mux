@@ -619,6 +619,169 @@ def junction_recut_precedes_mix(ctx: RunContext) -> bool:
     return bool(junction_precedes_mix(ctx))
 
 
+def reconcile_junction_claim_inventory(ctx: RunContext) -> bool:
+    """Rewrite stale applied stamps to match EDL; refresh autopsy. No remaster.
+
+    Paperwork-only path for ``claimed_repairs_missing_from_edl`` when live
+    incomplete-cut detect is clean. Supersedes unmatched applied rows (keeps
+    evidence), aligns conflicting NLE overrides for those sids to the EDL, and
+    refreshes seam autopsy commitment. Returns True when commitment is
+    ``committed`` afterward (or already was).
+    """
+    from interview_mux.seam_autopsy import (
+        _applied_repairs_resolved,
+        refresh_autopsy_commitment,
+        verify_commitment,
+    )
+
+    if not ctx.artifact_exists(QA_REL) or not ctx.artifact_exists("master/edl.json"):
+        return False
+    try:
+        report = ctx.read_json(QA_REL)
+        edl = ctx.read_json("master/edl.json")
+    except Exception:
+        return False
+    if not isinstance(report, dict) or not isinstance(edl, dict):
+        return False
+
+    commitment = verify_commitment(ctx, report, edl=edl)
+    if str(commitment.get("status") or "") == "committed":
+        return True
+
+    if "claimed_repairs_missing_from_edl" not in (commitment.get("reasons") or []):
+        # Other diverge reasons (assembly freshness / order) — not this path.
+        return False
+
+    live = live_incomplete_cut_critical_findings(ctx)
+    live_sids = {
+        str(f.get("segment_id") or "")
+        for f in live
+        if isinstance(f, dict) and str(f.get("segment_id") or "")
+    }
+
+    applied = [dict(a) for a in (report.get("applied") or []) if isinstance(a, dict)]
+    if not applied:
+        return False
+
+    _resolved, unresolved_now = _applied_repairs_resolved(edl, {"applied": applied})
+    unresolved_indexes: set[int] = set()
+    for key in unresolved_now:
+        parts = str(key).split(":", 2)
+        try:
+            unresolved_indexes.add(int(parts[0]))
+        except ValueError:
+            continue
+    if not unresolved_indexes:
+        return False
+
+    changed = False
+    superseded_sids: set[str] = set()
+    for index, row in enumerate(applied):
+        if index not in unresolved_indexes:
+            continue
+        if str(row.get("status") or "") not in {"applied", "already_present"}:
+            continue
+        sid = str(row.get("segment_id") or "")
+        if sid and sid in live_sids:
+            # Live hanging cut still present — do not bless via supersede.
+            continue
+        row = dict(row)
+        row["status"] = "superseded"
+        row["supersede_reason"] = "claim_inventory_reconcile_edl_mismatch"
+        applied[index] = row
+        if sid:
+            superseded_sids.add(sid)
+        changed = True
+
+    if not changed:
+        return False
+
+    report = dict(report)
+    report["applied"] = applied
+    report["claim_inventory_reconciled_at"] = _now()
+    try:
+        from interview_mux.write_staging import write_mirrored_json
+
+        write_mirrored_json(ctx, QA_REL, report)
+    except Exception:
+        ctx.write_json(QA_REL, report, skip_handoff=True)
+
+    # Align junction-owned NLE overrides for superseded sids to EDL (third liar).
+    if superseded_sids:
+        try:
+            nle = load_nle(ctx)
+            overrides = (
+                nle.get("segment_overrides")
+                if isinstance(nle, dict) and isinstance(nle.get("segment_overrides"), dict)
+                else {}
+            )
+            speech = {
+                str(c.get("segment_id") or ""): c
+                for c in (edl.get("clips") or [])
+                if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+            }
+            nle_changed = False
+            for sid in superseded_sids:
+                clip = speech.get(sid)
+                ov = overrides.get(sid) if isinstance(overrides, dict) else None
+                if not isinstance(clip, dict) or not isinstance(ov, dict):
+                    continue
+                if ov.get("excluded"):
+                    continue
+                edl_start = int(clip.get("source_start_ms") or 0)
+                edl_end = int(clip.get("source_end_ms") or edl_start)
+                ov_start = int(ov["start_ms"]) if ov.get("start_ms") is not None else edl_start
+                ov_end = int(ov["end_ms"]) if ov.get("end_ms") is not None else edl_end
+                if abs(ov_start - edl_start) >= 20 or abs(ov_end - edl_end) >= 20:
+                    ov = dict(ov)
+                    ov["start_ms"] = edl_start
+                    ov["end_ms"] = edl_end
+                    ov["aligned_from_edl_at"] = _now()
+                    ov["align_reason"] = "claim_inventory_reconcile"
+                    overrides[sid] = ov
+                    nle_changed = True
+            if nle_changed and isinstance(nle, dict):
+                nle = dict(nle)
+                nle["segment_overrides"] = overrides
+                save_nle(ctx, nle)
+        except Exception:
+            pass
+
+    try:
+        from interview_mux.seam_autopsy import AUTOPSY_REL, build_autopsy, write_autopsy
+
+        if ctx.artifact_exists(AUTOPSY_REL):
+            refresh_autopsy_commitment(ctx)
+        else:
+            write_autopsy(
+                ctx,
+                build_autopsy(ctx, phase="post_junction", snip_report=report, edl=edl),
+            )
+    except Exception:
+        try:
+            refresh_autopsy_commitment(ctx)
+        except Exception:
+            pass
+
+    # Stamp commitment onto the QA report for Done Authority readers.
+    # Paperwork success = claim inventory cleared (assembly freshness is mix-owned).
+    try:
+        commitment2 = verify_commitment(ctx, report, edl=edl)
+        report = dict(report)
+        report["commitment"] = commitment2
+        try:
+            from interview_mux.write_staging import write_mirrored_json
+
+            write_mirrored_json(ctx, QA_REL, report)
+        except Exception:
+            ctx.write_json(QA_REL, report, skip_handoff=True)
+        return "claimed_repairs_missing_from_edl" not in (
+            commitment2.get("reasons") or []
+        )
+    except Exception:
+        return False
+
+
 def clear_stale_incomplete_cut_residuals(ctx: RunContext) -> bool:
     """Drop stamped incomplete-cut criticals when live detect is clean.
 
@@ -1399,6 +1562,9 @@ def detect_junction_findings(
                         evidence=str(hollow.get("evidence") or "hollow opening_music"),
                     )
                 continue
+            # chapter_music_bridge is intentional music-filled air (4s), not dead pad.
+            if air == "chapter_music_bridge":
+                continue
             if air == "impact_hold":
                 continue
             if dur > dead_air_clamp:
@@ -1874,7 +2040,26 @@ def apply_junction_repairs(
             exclude_reasons=exclude_reasons,
         )
         if did:
-            applied.append({**f, "status": "applied", "keep_end_ms": (f.get("detail") or {}).get("keep_end_ms")})
+            sid_tc = str(f.get("segment_id") or "")
+            landed_end = None
+            for c in clips:
+                if (
+                    isinstance(c, dict)
+                    and str(c.get("type") or "") == "speech"
+                    and str(c.get("segment_id") or "") == sid_tc
+                ):
+                    landed_end = int(c.get("source_end_ms") or 0)
+                    break
+            if landed_end is None:
+                landed_end = (f.get("detail") or {}).get("keep_end_ms")
+            applied.append(
+                {
+                    **f,
+                    "status": "applied",
+                    "keep_end_ms": landed_end,
+                    "applied_ms": landed_end,
+                }
+            )
             changed = True
         else:
             # F5 2C: recut noop → fuse into an EDL neighbor; else omit the hang.
@@ -2201,7 +2386,11 @@ def apply_junction_repairs(
         for c in clips:
             if str(c.get("type") or "") != "silence":
                 continue
-            if str(c.get("air_kind") or "") in {"impact_hold", "opening_music"}:
+            if str(c.get("air_kind") or "") in {
+                "impact_hold",
+                "opening_music",
+                "chapter_music_bridge",
+            }:
                 continue
             dur = int(c.get("duration_ms") or 0)
             if dur > rec:
@@ -2571,8 +2760,33 @@ def _sync_edl_speech_bounds_from_nle(
     return out, True
 
 
+def commitment_remaster_needed(ctx: RunContext) -> bool:
+    """ENDD-1: True when commitment remaster must run (missing/unseated/mtime skew)."""
+    asm_path = ctx.final_path("master", "assembly.wav")
+    edl_path = ctx.final_path("master", "edl.json")
+    if not asm_path.is_file():
+        return True
+    mtime_skew = False
+    if edl_path.is_file():
+        try:
+            mtime_skew = asm_path.stat().st_mtime_ns < edl_path.stat().st_mtime_ns
+        except OSError:
+            mtime_skew = True
+    try:
+        from interview_mux.air_order import mix_outputs_seated
+
+        unseated = not mix_outputs_seated(ctx)
+    except Exception:
+        unseated = True
+    return unseated or mtime_skew
+
+
 def remaster_mix_only(ctx: RunContext) -> None:
-    """Rebuild mix from current EDL (and placement adjustments) without wiping EDL."""
+    """Rebuild mix from current EDL (and placement adjustments) without wiping EDL.
+
+    End-D: all content ``write_live_edl`` happens **before** nested ``run_mix``.
+    After render/promote, only mtime polish + seat verification — no EDL rewrite.
+    """
     from interview_mux.assembly_ledger import write_assembly_ledger
     from interview_mux.mix_junction_seat import remaster_session
     from interview_mux.stages import assembly
@@ -2599,6 +2813,7 @@ def remaster_mix_only(ctx: RunContext) -> None:
                 level="warning",
                 stage=STAGE_ID,
             )
+        # --- Pre-mix EDL content rewrites only (ENDD-4) ---
         if ctx.artifact_exists("master/edl.json"):
             try:
                 edl_sync = ctx.read_json("master/edl.json")
@@ -2672,7 +2887,7 @@ def remaster_mix_only(ctx: RunContext) -> None:
             REMASTER_MIX_SIDE_EFFECTS,
             stage_id=STAGE_ID,
         )
-        # Promote may rewrite edl.json after assembly.wav; keep HX-2 mtime seat.
+        # ENDD-4: no content write_live_edl after render. Mtime polish only.
         from interview_mux.air_order import ensure_assembly_mtime_seats_edl
 
         ensure_assembly_mtime_seats_edl(ctx)
@@ -2754,8 +2969,54 @@ def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bo
             level="warning",
             stage=STAGE_ID,
         )
-    remaster_mix_only(ctx)
+    # ENDD-5: defer (do not steal) while music_epoch remaster is owed.
+    if is_commitment:
+        try:
+            from interview_mux.mix_junction_seat import (
+                MusicEpochOwnsRemaster,
+                junction_remaster_blocked_by_music_epoch,
+            )
+
+            if junction_remaster_blocked_by_music_epoch(ctx):
+                ctx.log(
+                    "junction_snip_qa: commitment remaster deferred (music_epoch owed)",
+                    level="info",
+                    stage=STAGE_ID,
+                )
+                return False, used
+        except Exception:
+            pass
+    try:
+        remaster_mix_only(ctx)
+    except Exception as rem_exc:
+        try:
+            from interview_mux.mix_junction_seat import MusicEpochOwnsRemaster
+
+            if isinstance(rem_exc, MusicEpochOwnsRemaster):
+                ctx.log(
+                    "junction_snip_qa: commitment remaster deferred (music_epoch owns)",
+                    level="info",
+                    stage=STAGE_ID,
+                )
+                return False, used
+        except Exception:
+            pass
+        raise
     note_junction_remaster(ctx)
+    # ENDD-2: commitment success requires mix_outputs_seated — never hollow True.
+    if is_commitment:
+        try:
+            from interview_mux.air_order import mix_outputs_seated
+
+            if not mix_outputs_seated(ctx):
+                ctx.log(
+                    "junction_snip_qa: commitment remaster left mix unseated — refuse",
+                    level="error",
+                    stage=STAGE_ID,
+                )
+                return False, used + 1
+        except Exception:
+            return False, used + 1
     return True, used + 1
 
 
@@ -3422,6 +3683,16 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         "generated_at": _now(),
     }
     ctx.write_json(QA_REL, report)
+    # Honesty SSOT: drop stale applied claims before autopsy (no remaster).
+    try:
+        reconcile_junction_claim_inventory(ctx)
+        if ctx.artifact_exists(QA_REL):
+            refreshed = ctx.read_json(QA_REL)
+            if isinstance(refreshed, dict):
+                report = refreshed
+                applied = list(report.get("applied") or applied)
+    except Exception:
+        pass
 
     audit = run_junction_feel_audit(ctx, report, cfg=conf)
     report["llm_calls"] = thought_llm_calls + int(audit.get("llm_calls") or 0)
@@ -3490,43 +3761,59 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
 
             write_live_edl(ctx, current_edl, source=STAGE_ID)
 
-        # If assembly is older than the committed EDL (or missing), remaster once.
+        # ENDD-1: remaster when assembly missing, gen/ledger unseated, or mtime skew.
+        # ENDD-2: success requires mix_outputs_seated. ENDD-5: defer if music_epoch owed.
         try:
-            asm_path = ctx.final_path("master", "assembly.wav")
-            edl_path = ctx.final_path("master", "edl.json")
-            needs_remaster = (not asm_path.is_file()) or (
-                edl_path.is_file()
-                and asm_path.is_file()
-                and asm_path.stat().st_mtime_ns < edl_path.stat().st_mtime_ns
+            from interview_mux.air_order import mix_outputs_seated
+            from interview_mux.mix_junction_seat import (
+                junction_remaster_blocked_by_music_epoch,
             )
-            if needs_remaster:
-                ctx.log(
-                    "junction_snip_qa: remastering mix so assembly matches current EDL",
-                    level="info",
-                    stage=STAGE_ID,
-                )
-                remastered, _used = _budgeted_remaster_mix(ctx, path="commitment")
-                if remastered:
-                    remaster_rounds += 1
-                    report["remaster_rounds"] = remaster_rounds
-                    ctx.write_json(QA_REL, report)
-                    if ctx.artifact_exists("master/edl.json"):
-                        loaded = ctx.read_json("master/edl.json")
-                        if isinstance(loaded, dict):
-                            current_edl = loaded
-                else:
-                    report["commitment_remaster_refused"] = True
-                    ctx.write_json(QA_REL, report)
-                    from interview_mux.loud_fail import raise_loud_failure
 
-                    _persist_terminal_autopsy(ctx, edl=current_edl)
-                    raise_loud_failure(
-                        ctx,
-                        "Junction commitment remaster refused while assembly is "
-                        "older than live EDL — refuse hollow junction_done",
+            needs_remaster = commitment_remaster_needed(ctx)
+            if needs_remaster:
+                if junction_remaster_blocked_by_music_epoch(ctx):
+                    report["commitment_remaster_deferred_music_epoch"] = True
+                    ctx.write_json(QA_REL, report)
+                    ctx.log(
+                        "junction_snip_qa: commitment remaster deferred "
+                        "(music_epoch / speech_first remaster owed)",
+                        level="info",
                         stage=STAGE_ID,
-                        reason="junction_commitment_remaster_refused",
                     )
+                else:
+                    ctx.log(
+                        "junction_snip_qa: remastering mix so assembly matches "
+                        "current EDL (commitment seat)",
+                        level="info",
+                        stage=STAGE_ID,
+                    )
+                    remastered, _used = _budgeted_remaster_mix(ctx, path="commitment")
+                    seated_ok = False
+                    try:
+                        seated_ok = bool(remastered and mix_outputs_seated(ctx))
+                    except Exception:
+                        seated_ok = False
+                    if seated_ok:
+                        remaster_rounds += 1
+                        report["remaster_rounds"] = remaster_rounds
+                        ctx.write_json(QA_REL, report)
+                        if ctx.artifact_exists("master/edl.json"):
+                            loaded = ctx.read_json("master/edl.json")
+                            if isinstance(loaded, dict):
+                                current_edl = loaded
+                    else:
+                        report["commitment_remaster_refused"] = True
+                        ctx.write_json(QA_REL, report)
+                        from interview_mux.loud_fail import raise_loud_failure
+
+                        _persist_terminal_autopsy(ctx, edl=current_edl)
+                        raise_loud_failure(
+                            ctx,
+                            "Junction commitment remaster refused or left mix "
+                            "unseated — refuse hollow junction_done",
+                            stage=STAGE_ID,
+                            reason="junction_commitment_remaster_refused",
+                        )
         except Exception as exc:
             from interview_mux.loud_fail import LoudStageFailure, raise_loud_failure
 
@@ -3598,7 +3885,16 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         "critical_incomplete_cut_residuals",
         "critical_junction_residuals_after_two_runs",
         "junction_feel_audit_unavailable",
+        # ENDD-6: commitment / remaster / assembly seat stay hard under aspirational.
+        "junction_commitment_diverged",
+        "junction_commitment_remaster_refused",
+        "junction_commitment_remaster_failed",
+        "assembly_not_rendered_from_current_edl",
     }
+    if report.get("commitment_remaster_refused"):
+        blocking_reasons.append("junction_commitment_remaster_refused")
+    if report.get("assembly_not_rendered_from_current_edl"):
+        blocking_reasons.append("assembly_not_rendered_from_current_edl")
     try:
         from interview_mux.aspirational_quality import (
             is_aspirational_enabled,

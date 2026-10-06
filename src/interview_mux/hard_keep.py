@@ -415,6 +415,8 @@ def _hard_keep_exempt_reasons() -> frozenset[str]:
                 "blank_or_unusable_answer_audio",
                 "finale_tail_leftover",
                 "opening_skipped_duplicate",
+                "opening_slot_overflow",
+                "late_intro_reset",
                 "never_touch_unplayable",
                 "cta_omit",
                 "media_ip_cta",
@@ -580,42 +582,70 @@ def _place_or_omit_restored_for_finale(
                 guest_first = True
 
         if guest_first:
-            # Prefer native host intro on air: prepend early hard-keeps, do not trash.
-            from interview_mux.selection_order_repair import resolved_source_start_ms
-
-            prepend_candidates = list(omitted)
-            family_sorted = sorted(
-                prepend_candidates,
-                key=lambda s: (
-                    resolved_source_start_ms(s, starts) or starts.get(s) or 0,
-                    prepend_candidates.index(s),
-                ),
+            # Opening constitution owns guest-first / slot overflow. Do not prepend
+            # constitution-excluded intros back onto air (re-inflates late_opening).
+            from interview_mux.air_order_integrity import (
+                is_opening_constitution_exclude_reason,
             )
-            ordered = family_sorted + [s for s in ordered if s not in set(family_sorted)]
-            kept_restored = list(dict.fromkeys(kept_restored + family_sorted))
-            omitted = []
-            # Drop stale opening_skipped_duplicate excludes for restored intros.
-            excl = []
-            for row in selection.get("excluded_segment_ids") or []:
-                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
-                reason = (
-                    str(row.get("reason") or "")
-                    if isinstance(row, dict)
-                    else str((selection.get("exclude_rationales") or {}).get(sid) or "")
-                )
-                if sid in set(family_sorted) and reason == "opening_skipped_duplicate":
-                    continue
-                excl.append(row)
-            selection["excluded_segment_ids"] = excl
+
             rationales = (
                 dict(selection.get("exclude_rationales") or {})
                 if isinstance(selection.get("exclude_rationales"), dict)
                 else {}
             )
-            for sid in family_sorted:
-                if rationales.get(sid) == "opening_skipped_duplicate":
-                    rationales.pop(sid, None)
-            selection["exclude_rationales"] = rationales
+            constitution_blocked: set[str] = set()
+            for row in selection.get("excluded_segment_ids") or []:
+                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+                reason = (
+                    str(row.get("reason") or "")
+                    if isinstance(row, dict)
+                    else str(rationales.get(sid) or "")
+                )
+                if sid and is_opening_constitution_exclude_reason(reason):
+                    constitution_blocked.add(sid)
+            for sid, reason in rationales.items():
+                if is_opening_constitution_exclude_reason(str(reason or "")):
+                    constitution_blocked.add(str(sid))
+
+            # Only prepend early hard-keeps that are NOT constitution-excluded.
+            prepend_candidates = [
+                s for s in omitted if s not in constitution_blocked
+            ]
+            still_omit = [s for s in omitted if s in constitution_blocked]
+            if prepend_candidates:
+                from interview_mux.selection_order_repair import resolved_source_start_ms
+
+                family_sorted = sorted(
+                    prepend_candidates,
+                    key=lambda s: (
+                        resolved_source_start_ms(s, starts) or starts.get(s) or 0,
+                        prepend_candidates.index(s),
+                    ),
+                )
+                ordered = family_sorted + [
+                    s for s in ordered if s not in set(family_sorted)
+                ]
+                kept_restored = list(dict.fromkeys(kept_restored + family_sorted))
+            omitted = still_omit
+            if still_omit:
+                excl = list(selection.get("excluded_segment_ids") or [])
+                seen_ex = set()
+                for row in excl:
+                    if isinstance(row, dict):
+                        seen_ex.add(str(row.get("segment_id") or ""))
+                    elif isinstance(row, str):
+                        seen_ex.add(row)
+                for sid in still_omit:
+                    if sid in seen_ex:
+                        continue
+                    excl.append(
+                        {
+                            "segment_id": sid,
+                            "reason": rationales.get(sid) or "opening_skipped_duplicate",
+                        }
+                    )
+                    seen_ex.add(sid)
+                selection["excluded_segment_ids"] = excl
         else:
             excl = list(selection.get("excluded_segment_ids") or [])
             seen_ex = set()

@@ -215,8 +215,8 @@ export function GPublishReviewSection({
       <div className="g-publish-review-head">
         <h3>Review before upload</h3>
         <p className="hint">
-          Edit the episode title, show description, and cover art. Listen to the final master, then
-          save your changes before uploading to S3.
+          Edit the episode title, show description, and cover art. Listen to the final master.
+          Edits are saved automatically when you publish to S3.
         </p>
       </div>
 
@@ -349,25 +349,15 @@ export function GPublishReviewSection({
           ) : null}
 
           <div className="g-publish-review-actions">
-            <button
-              type="button"
-              className={`btn primary${saveAck && !dirty ? " g-publish-save-done" : ""}`}
-              data-testid="g-publish-save-review"
-              disabled={saving || uploading || !dirty}
-              title={
-                saving
-                  ? "Saving…"
-                  : dirty
-                    ? "Save title, description, and cover selection"
-                    : saveAck
-                      ? "All changes saved"
-                      : "No unsaved changes"
-              }
-              onClick={() => void save()}
-            >
-              {saving ? "Saving…" : dirty ? "Save changes" : saveAck ? "Saved" : "Save changes"}
-            </button>
-            {saveAck && !dirty ? (
+            {saving ? (
+              <p className="hint sm" role="status" aria-live="polite" data-testid="g-publish-saving">
+                <span className="spinner-inline" aria-hidden /> Saving edits…
+              </p>
+            ) : dirty ? (
+              <p className="hint sm g-publish-save-hint" data-testid="g-publish-dirty-hint">
+                Unsaved edits — they will be saved when you publish to S3.
+              </p>
+            ) : saveAck ? (
               <p
                 className="g-publish-save-ack"
                 role="status"
@@ -376,10 +366,9 @@ export function GPublishReviewSection({
               >
                 {saveAck}
               </p>
-            ) : null}
-            {!dirty && !saveAck ? (
-              <p className="hint sm g-publish-save-hint">No unsaved edits — change a field to enable Save.</p>
-            ) : null}
+            ) : (
+              <p className="hint sm g-publish-save-hint">No unsaved edits.</p>
+            )}
           </div>
         </div>
       ) : null}

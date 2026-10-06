@@ -35,8 +35,9 @@ PLAYABILITY_BLOCKERS: frozenset[str] = frozenset(
         "selection_edl_order_drift",
         "pending_write_barrier",
         "hosted_vo_wav_coverage",
-        # Cluster C: zero synth seats under hosted Yes is playability, not aspirational.
-        "hosted_vo_hollow_zero",
+        # hosted_vo_hollow_zero demoted: count-floor emptiness is advisory so a
+        # short/empty hosted VO set never blocks the final master. Wav coverage
+        # and other audibility blockers above remain playability.
     }
 )
 
@@ -46,6 +47,7 @@ COUNT_SCORE_FLOOR_GATES: frozenset[str] = frozenset(
         "hosted_vo_floor",
         "hosted_vo_floor_unmet",
         "hosted_vo_floor_unsatisfiable",
+        "hosted_vo_hollow_zero",
         "min_layup_coverage",
         "nugget_air_coverage",
         "listenability_contract",
@@ -383,22 +385,10 @@ def proceed_on_floor_miss(
 ) -> None:
     """Record advisory and clear count-floor thrash stamps — walk continues.
 
-    Cluster C: hosted_vo with have < 1 must never aspirational-continue.
+    Hosted VO count floor (including have==0 / HOLLOW_ZERO) is advisory-only so
+    the pipeline can always continue to a final master. Still stamps identity via
+    callers; this records the floor advisory + aspirational_proceeded flag.
     """
-    gid = str(gate_id or "").strip()
-    if gid.startswith("hosted_vo") and int(have or 0) < 1:
-        try:
-            from interview_mux.hosted_vo_authority import floor_snapshot
-
-            floor_snapshot(ctx, persist=True)
-            ctx.log(
-                f"progress_floors refused aspirational hollow_zero: {gid} have={have}",
-                level="warning",
-                stage="floor_progress",
-            )
-        except Exception:
-            pass
-        return
     detail: dict[str, Any] = {
         "have": have,
         "need": need,

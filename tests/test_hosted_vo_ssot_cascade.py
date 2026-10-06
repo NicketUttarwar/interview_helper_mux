@@ -167,11 +167,10 @@ def test_cascade_i8_edl_clip_only_force_keep_drop_orphan_cannot_delete(
 # --- cascade-aspirational-zero-leaks ---
 
 
-def test_cascade_aspirational_zero_leaks_sanitize_raise_gap_framing(
+def test_cascade_hollow_zero_advisory_continues(
     tmp_path, monkeypatch
 ) -> None:
-    """sanitize + raise_unsatisfiable + gap_framing incompleteness refuse aspirational at have==0."""
-    from interview_mux.artifact_sanitize.air_script import sanitize_air_contract
+    """HOLLOW_ZERO is advisory — raise/incompleteness do not hard-stop the master."""
     from interview_mux.nugget_layup import raise_hosted_vo_floor_unsatisfiable
 
     _warrant_floor(monkeypatch)
@@ -180,35 +179,18 @@ def test_cascade_aspirational_zero_leaks_sanitize_raise_gap_framing(
     _write(ctx, "understanding/gap_report.json", {"interviewer_lines": []})
     _write(ctx, "understanding/nugget_layup_plan.json", {"_meta": {}})
 
-    assert not may_aspirational_proceed(ctx)
+    assert may_aspirational_proceed(ctx)
     assert identify_hosted_vo_floor(ctx, persist=True).status == "HOLLOW_ZERO"
 
-    from interview_mux.loud_fail import LoudStageFailure
-
-    raised = False
-    try:
-        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
-    except LoudStageFailure as exc:
-        raised = True
-        assert "hosted_vo_floor_unsatisfiable" in str(exc)
-    assert raised, "HOLLOW_ZERO must hard-stop raise_*, never aspirational-continue"
+    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
     meta = ctx.read_json("run_meta.json")
-    assert not meta.get("floor_aspirational_proceeded")
+    assert meta.get("floor_aspirational_proceeded") is True
 
     reason = _gap_framing_compose_hosted_floor_incompleteness(ctx)
-    assert reason is not None
-    assert "HOLLOW" in reason.upper() or "have 0" in reason or "has 0" in reason
+    assert reason is None
 
     synth = synthetic_vo_incompleteness(ctx, "nugget_layup_compose")
-    assert synth is not None
-
-    dry = sanitize_air_contract(ctx)
-    actions = list(dry.get("actions") or []) if isinstance(dry, dict) else []
-    assert not any(
-        a.get("action") == "hosted_vo_floor_aspirational_continue"
-        for a in actions
-        if isinstance(a, dict)
-    )
+    assert synth is None
 
 
 # --- cascade-strip-last-seat ---
@@ -300,14 +282,9 @@ def test_cascade_mint_pin_have_zero_never_edl_narrative_audit(
     assert ident.resume_producer in {"nugget_layup_compose", "gap_framing_compose"}
     assert ident.resume_producer != "edl_narrative_audit"
 
+    # Count-floor incompleteness is advisory (None); resume pin still prefers layup/compose.
     reason = synthetic_vo_incompleteness(ctx, "nugget_layup_compose")
-    assert reason is not None
-    assert "edl_narrative_audit" not in reason
-    assert (
-        "nugget_layup_compose" in reason
-        or "gap_framing_compose" in reason
-        or ident.resume_producer in reason
-    )
+    assert reason is None
 
     pin = canonical_resume_pin(
         ctx,

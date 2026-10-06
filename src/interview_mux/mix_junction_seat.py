@@ -127,9 +127,36 @@ def music_epoch_pre_beds_seat(ctx: RunContext) -> bool:
         return True
 
 
-def begin_remaster(ctx: RunContext, *, owner: str = "junction") -> None:
-    """Stamp explicit remaster ownership (replaces bare unmarked-mix heuristic)."""
+class MusicEpochOwnsRemaster(Exception):
+    """Junction must not steal remaster while music-epoch bed remaster is owed.
+
+    Callers defer (skip commitment remaster) — never treat as a stage-killing steal.
+    """
+
+
+def junction_remaster_blocked_by_music_epoch(ctx: RunContext) -> bool:
+    """True when junction must defer remaster to music_epoch / speech-first beds."""
+    if remaster_owner(ctx) == "music_epoch":
+        return True
+    try:
+        if speech_first_remaster_owed(ctx):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def begin_remaster(ctx: RunContext, *, owner: str = "junction") -> bool:
+    """Stamp explicit remaster ownership. Returns False if junction must defer.
+
+    End-D: never overwrite ``music_epoch`` ownership while speech-first bed
+    remaster is owed — junction commitment remaster defers to mix.
+    """
     own = str(owner or "junction").strip() or "junction"
+    if own in {"junction", "junction_snip_qa"} and junction_remaster_blocked_by_music_epoch(
+        ctx
+    ):
+        return False
     prev = _read_epoch_row(ctx)
     _write_epoch_row(
         ctx,
@@ -141,6 +168,7 @@ def begin_remaster(ctx: RunContext, *, owner: str = "junction") -> None:
             "remaster_failed_at": "",
         },
     )
+    return True
 
 
 def clear_remaster(ctx: RunContext) -> None:
@@ -180,8 +208,13 @@ def remaster_session(ctx: RunContext, *, owner: str = "junction") -> Iterator[No
     Hard failures (exception): keep owner so junction can retry the same flight.
     Successful return without seating: keep owner + log (caller must reseat).
     Seated mix: clear owner.
+    End-D: if junction cannot steal music_epoch, raises ``MusicEpochOwnsRemaster``
+    (caller defers — not a stage-killing steal).
     """
-    begin_remaster(ctx, owner=owner)
+    if not begin_remaster(ctx, owner=owner):
+        raise MusicEpochOwnsRemaster(
+            "junction remaster deferred — music_epoch / speech_first remaster owed"
+        )
     try:
         yield
     except Exception:

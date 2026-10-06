@@ -85,6 +85,17 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
         action="junction_ladder",
         blocking_checkpoint="pre_mix",
     ),
+    # Paperwork-only: stale applied stamps vs EDL — reconcile, do not ladder.
+    "junction_claim_inventory_stale": PlaybookSpec(
+        resume_stage="mix",
+        action="claim_reconcile",
+        blocking_checkpoint="pre_mix",
+    ),
+    "claimed_repairs_missing_from_edl": PlaybookSpec(
+        resume_stage="mix",
+        action="claim_reconcile",
+        blocking_checkpoint="pre_mix",
+    ),
     "pending_write_barrier": PlaybookSpec(
         resume_stage="junction_snip_qa", action="approve_or_rerun_producer"
     ),
@@ -600,6 +611,19 @@ def classify_heal_error(
             detail="assembly_not_rendered — remaster mix (not junction incomplete-cut)",
         )
 
+    # Paperwork-only claim inventory (exec_023) — not the incomplete-cut ladder.
+    if (
+        "junction_claim_inventory_stale" in low
+        or "claimed_repairs_missing_from_edl" in low
+        or "seam_autopsy_claim_inventory" in low
+    ):
+        return HealRoute(
+            family="junction_claim_inventory_stale",
+            from_stage="mix",
+            action="claim_reconcile",
+            detail="claim inventory stale — reconcile applied stamps (not junction ladder)",
+        )
+
     if (
         "incomplete_cut_unresolved" in low
         or "critical_incomplete_cut" in low
@@ -613,6 +637,8 @@ def classify_heal_error(
                 or "on_a_roll" in low
                 or "seam_autopsy" in low
             )
+            and "claimed_repairs_missing_from_edl" not in low
+            and "junction_claim_inventory_stale" not in low
         )
         or (
             stage_l in {"mix", "junction_snip_qa", "master_finalize"}

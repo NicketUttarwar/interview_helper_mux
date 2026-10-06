@@ -401,6 +401,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         "first_question_start_ms": None,
         "first_speech_start_ms": None,
         "opening_music_window": None,
+        "chapter_music_bridge_windows": [],
         "orientation_window": None,
         "orientation_bed_overlap_allowed": False,
         "vo_windows": live_vo_windows,
@@ -543,6 +544,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     and bool(clip.get("preserve_planned_music"))
                     and not clip.get("omitted_theme_slot")
                 )
+                chapter_bridge = str(clip.get("air_kind") or "") == "chapter_music_bridge"
+                if chapter_bridge:
+                    try:
+                        from interview_mux.chapter_music_bridge import bridge_duration_ms
+
+                        pad = max(pad, bridge_duration_ms())
+                    except Exception:
+                        pad = max(pad, 4000)
                 # Never expand opening_music air without an audible cold_open WAV.
                 if opening_music and cold_bridge_ms > 0:
                     try:
@@ -636,6 +645,15 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 and str(clip.get("air_kind") or "") == "opening_music"
             ):
                 live_landmarks["opening_music_window"] = (t_start, t_end)
+            elif (
+                ctype == "silence"
+                and str(clip.get("air_kind") or "") == "chapter_music_bridge"
+            ):
+                windows = live_landmarks.get("chapter_music_bridge_windows")
+                if not isinstance(windows, list):
+                    windows = []
+                    live_landmarks["chapter_music_bridge_windows"] = windows
+                windows.append((t_start, t_end))
 
         if missing_vo:
             from interview_mux.loud_fail import raise_loud_failure
@@ -1485,6 +1503,18 @@ def flow1_overlays_from_sdp(
     # not dozens of independently faded clips. Collapse them before rendering.
     ordered_timing_ids = list(segment_timing.keys())
     order_pos = {sid: i for i, sid in enumerate(ordered_timing_ids)}
+    # Chapter music bridges break contiguous underbeds at the outgoing segment.
+    bridge_break_after: set[str] = {
+        str(c.get("after_segment_id") or c.get("segment_id") or "")
+        for c in cues
+        if isinstance(c, dict)
+        and (
+            bool(c.get("chapter_music_bridge"))
+            or bool(c.get("break_contiguous_bed"))
+            or c.get("preserve_bridge_ms") is not None
+        )
+        and str(c.get("after_segment_id") or c.get("segment_id") or "")
+    }
     rendered_cues: list[dict[str, Any]] = []
     for raw_cue in cues:
         if not isinstance(raw_cue, dict):
@@ -1509,6 +1539,7 @@ def flow1_overlays_from_sdp(
                 and prev_sid in order_pos
                 and sid in order_pos
                 and order_pos[sid] == order_pos[prev_sid] + 1
+                and prev_sid not in bridge_break_after
             )
             if contiguous:
                 scene_xf = int(music_cfg.get("scene_crossfade_ms") or 1800)
@@ -1789,7 +1820,103 @@ def flow1_overlays_from_sdp(
                 )
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
-        if asset_role != "theme_cold_open" and _cue_uses_pause_alignment(cue, asset):
+        is_chapter_bridge = bool(cue.get("chapter_music_bridge")) or cue.get(
+            "preserve_bridge_ms"
+        ) is not None
+        if is_chapter_bridge and asset_role in {
+            "theme_transition",
+            "theme_chapter_resolve",
+            "theme_emphasis",
+        }:
+            from interview_mux.chapter_music_bridge import bridge_duration_ms
+
+            bridge_ms = int(cue.get("preserve_bridge_ms") or bridge_duration_ms())
+            windows = landmarks.get("chapter_music_bridge_windows") or []
+            after = str(cue.get("after_segment_id") or cue.get("segment_id") or "")
+            placed = False
+            if isinstance(windows, list) and windows:
+                # Prefer air window nearest the outgoing segment end.
+                target_ms = (
+                    int(segment_timing[after][1])
+                    if after in segment_timing
+                    else int(pos or 0)
+                )
+                best = min(
+                    windows,
+                    key=lambda w: abs(int(w[0]) - target_ms)
+                    if isinstance(w, (list, tuple)) and len(w) == 2
+                    else 10**12,
+                )
+                if isinstance(best, (list, tuple)) and len(best) == 2:
+                    pos = int(best[0])
+                    bridge_ms = max(bridge_ms, int(best[1]) - int(best[0]))
+                    placed = True
+            if not placed and after in segment_timing:
+                pos = int(segment_timing[after][1])
+            # Speech-free bridge body: pad/trim to fixed tasteful length.
+            # Presence widen already ran on ``base`` for these roles — do not
+            # re-enhance here (would re-enter on stereo after pan/fade).
+            if len(cue_audio) < bridge_ms:
+                pad = AudioSegment.silent(
+                    duration=bridge_ms - len(cue_audio),
+                    frame_rate=cue_audio.frame_rate or DEFAULT_FRAME_RATE,
+                )
+                if cue_audio.channels and pad.channels != cue_audio.channels:
+                    pad = pad.set_channels(int(cue_audio.channels))
+                cue_audio = cue_audio + pad
+            cue_audio = cue_audio[:bridge_ms]
+            # Carry same stem under the next speech as a constant underbed.
+            if cue.get("carry_into_next", True):
+                nxt = str(cue.get("before_segment_id") or "")
+                if not nxt and after and after in order_pos:
+                    # Fall forward one segment in air order when before unset.
+                    idx = order_pos[after]
+                    if idx + 1 < len(ordered_timing_ids):
+                        nxt = ordered_timing_ids[idx + 1]
+                if nxt and nxt in segment_timing:
+                    n0, n1 = segment_timing[nxt]
+                    try:
+                        carry = load_audio(wav) if wav is not None else cue_audio
+                    except Exception:
+                        carry = cue_audio
+                    carry = carry.set_channels(1).set_frame_rate(DEFAULT_FRAME_RATE)
+                    need = max(1, int(n1) - int(n0))
+                    while len(carry) < need and len(carry) > 0:
+                        carry += carry
+                    carry = carry[:need]
+                    bed_level = -14.0
+                    try:
+                        from interview_mux.creative_delivery import _bed_level_band
+
+                        lo, hi = _bed_level_band()
+                        bed_level = (float(lo) + float(hi)) / 2.0
+                    except Exception:
+                        pass
+                    if cue.get("carry_level_db") is not None:
+                        try:
+                            bed_level = float(cue.get("carry_level_db"))
+                        except (TypeError, ValueError):
+                            pass
+                    fade_in_ms = min(700, max(1, need // 4))
+                    fade_out_ms = min(2200, max(1, need // 3))
+                    carry = organic_fade_in(carry.apply_gain(bed_level), fade_in_ms)
+                    carry = organic_fade_out(carry, fade_out_ms)
+                    out.append(
+                        {
+                            "audio": carry,
+                            "position_ms": int(n0),
+                            "role": "bed",
+                            "music_role": "theme_underscore",
+                            "asset_id": asset_id,
+                            "cue_id": str(cue.get("cue_id") or "") + "_carry",
+                            "segment_ids": [nxt],
+                            "level_db": bed_level,
+                            "duck_db": 0.0,
+                            "missing_asset": bool(missing_asset),
+                            "chapter_music_bridge_carry": True,
+                        }
+                    )
+        elif asset_role != "theme_cold_open" and _cue_uses_pause_alignment(cue, asset):
             dur_s = float(asset.get("duration_seconds") or 0.4)
             musical_punct = asset_role in THEME_PUNCTUATOR_ROLES or is_theme_role(asset_role)
             legacy_sting = asset_role in ("chapter_stinger", "transition_stinger", "transition_whoosh")
@@ -1807,8 +1934,10 @@ def flow1_overlays_from_sdp(
                 air_windows=air_windows,
             )
         # Accents over speech must sidechain-duck after final position is known.
+        # Chapter music bridges are speech-free by construction — skip ducking.
         if (
-            asset_role in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}
+            not is_chapter_bridge
+            and asset_role in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}
             and speech_stem is not None
             and len(speech_stem) > 0
             and pos is not None
@@ -2475,7 +2604,12 @@ def load_audio(path: Path) -> AudioSegment:
 
 
 def enhance_speech_free_theme(segment: AudioSegment, *, role: str) -> AudioSegment:
-    """Stereo width + gentle high shelf for cold open / outro / accents (beds stay mono)."""
+    """Stereo width + gentle high shelf for cold open / outro / accents (beds stay mono).
+
+    Always collapses to mono before presence EQ / pseudo-stereo so re-entry on an
+    already-widened stem (or any multi-channel cue) cannot trip pydub's
+    ``from_mono_audiosegments`` contract.
+    """
     from interview_mux.music_motif import THEME_BED_ROLES, is_theme_role
 
     role_s = str(role or "")
@@ -2483,20 +2617,27 @@ def enhance_speech_free_theme(segment: AudioSegment, *, role: str) -> AudioSegme
         return segment.set_channels(1)
     if not is_theme_role(role_s) and role_s not in {"theme_cold_open", "theme_outro", "theme_emphasis", "theme_chapter_resolve", "theme_transition"}:
         return segment
+    # Channel contract: pseudo-stereo requires mono L/R sources.
+    mono = segment.set_channels(1)
+    if mono.frame_rate and mono.frame_rate != DEFAULT_FRAME_RATE:
+        mono = mono.set_frame_rate(DEFAULT_FRAME_RATE)
     cfg = _music_presence_cfg()
     width = float(cfg.get("speech_free_stereo_width") or 0.35)
     shelf_db = float(cfg.get("speech_free_high_shelf_db") or 1.5)
     # Mild presence EQ via high-pass residual blend (pydub-safe, no extra deps).
-    bright = segment.high_pass_filter(int(cfg.get("speech_free_high_shelf_hz") or 6000)).apply_gain(shelf_db)
-    mixed = segment.overlay(bright)
+    bright = mono.high_pass_filter(int(cfg.get("speech_free_high_shelf_hz") or 6000)).apply_gain(shelf_db)
+    mixed = mono.overlay(bright).set_channels(1)
     # Pseudo-stereo: duplicate with slight delay/pan.
     if width > 0.01:
         delay_ms = max(8, int(18 * width))
+        rate = mixed.frame_rate or DEFAULT_FRAME_RATE
         left = mixed
-        right = AudioSegment.silent(duration=delay_ms, frame_rate=mixed.frame_rate) + mixed
+        right = AudioSegment.silent(duration=delay_ms, frame_rate=rate).set_channels(1) + mixed
         right = right[: len(left)]
         if len(right) < len(left):
-            right = right + AudioSegment.silent(duration=len(left) - len(right), frame_rate=mixed.frame_rate)
+            right = right + AudioSegment.silent(
+                duration=len(left) - len(right), frame_rate=rate
+            ).set_channels(1)
         stereo = AudioSegment.from_mono_audiosegments(left, right)
         return stereo
     return mixed.set_channels(1)

@@ -22,7 +22,8 @@ export function usePartialAutoGPublish(run: RunData | null): PartialAutoGPublish
           if (!cancelled) setPayload(data);
         })
         .catch(() => {
-          if (!cancelled) setPayload(null);
+          // Keep last good snapshot — a transient /g-publish failure must not
+          // put the accelerated cover back over an open Ship checkpoint.
         });
     };
     load();

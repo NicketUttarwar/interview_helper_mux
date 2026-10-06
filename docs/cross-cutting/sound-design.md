@@ -49,7 +49,9 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 
 Example: interview about **founders / ESOP** → motif family with warm acoustic + piano DNA → `theme_underscore` under important beats; `theme_chapter_resolve` cadences at chapter hinges — never woodtick/murmur.
 
-**Music elevates Shape structure, not coverage theater:** every `theme_*` cue is a mutation on the music/SFX/air axis of the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) (soft bands: bed coverage 0.40–0.85, hinge stinger 0.3–1.0). A cue earns its place by marking a real hinge, filling an actual dead-air gap, or selling a payoff the plan already decided on — never to check off "has music here." Mechanical, unmotivated cue placement shows up as `sonic_weave` degradation at the [hard-delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) downstream.
+**Music elevates Shape structure, not coverage theater:** every `theme_*` cue is a mutation on the music/SFX/air axis of the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) (soft bands: bed coverage 0.40–0.99, hinge stinger 0.3–1.0). A cue earns its place by marking a real hinge, filling an actual dead-air gap, or selling a payoff the plan already decided on — never to check off "has music here." Mechanical, unmotivated cue placement shows up as `sonic_weave` degradation at the [hard-delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) downstream.
+
+**Chapter music bridge (sparse, 4s):** at chapter/scene hinges and before substantial VO inserts (`information_package` / `music_face_out` / first VO after a chapter hinge; never short transition/hitch lines), face out the prior underbed, reserve `air_kind=chapter_music_bridge` (4000 ms music-only), then carry the same stem under the incoming speech. Config: `mastering.music_continuity.chapter_music_bridge_*`.
 
 ---
 
@@ -378,7 +380,7 @@ Accents that overlap speech still sidechain-duck; underbeds stay at a constant l
 — see [mix-house-chain.md](./mix-house-chain.md#speech-wins-beds--vonative-harmony-plan-4).
 
 Bed/hinge-stinger coverage floors are the same **Shape-owned soft bands**
-(`bed_coverage` `0.40–0.85`, `hinge_stinger_coverage` `0.3–1.0`) enforced by
+(`bed_coverage` `0.40–0.99`, `hinge_stinger_coverage` `0.3–1.0`) enforced by
 `soundscape_verify.py` post-mix — see [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 Post-mix remediation for a low ratio only seeds beds on real
 palette/quartile-mapped segments, preferring to extend an already-bedded

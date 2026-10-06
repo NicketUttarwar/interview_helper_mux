@@ -51,6 +51,8 @@ def note_gap_vo_rebudget_after_selection(
         vo_min = int(math.ceil(ordered_n * min_r)) if min_r > 0 else 0
         vo_ideal = max(vo_min, int(math.ceil(ordered_n * tgt_r)))
         floor = min_synthetic_vo_lines(ctx)
+        # Never let density ideal undercut the hosted VO count floor target.
+        vo_ideal = max(vo_ideal, int(floor))
         active = count_active_gap_vo_lines(ctx)
         doc = {
             "version": 1,
@@ -59,7 +61,7 @@ def note_gap_vo_rebudget_after_selection(
             "vo_line_budget": {
                 "min": vo_min,
                 "ideal": vo_ideal,
-                "max": max(vo_ideal, vo_min),
+                "max": max(vo_ideal, vo_min, int(floor)),
                 "scale_basis": "selection",
             },
             "hosted_floor": floor,

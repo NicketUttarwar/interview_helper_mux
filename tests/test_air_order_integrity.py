@@ -324,3 +324,274 @@ def test_junction_source_skips_layup_invalidate(tmp_path, monkeypatch):
     )
     assert "invalidated_downstream:nugget_layup_compose" in notes2
     assert calls == ["nugget_layup_compose"]
+
+
+def test_exec_022_dense_accident_guest_first_projects_host_first():
+    """Dense keep-all open: Mode A host-first prefix + overflow exclude → ok."""
+    starts = {
+        "seg_001": 5_699,
+        "seg_002": 31_140,
+        "seg_003": 41_880,
+        "seg_004": 85_520,
+        "seg_005": 102_740,
+        "seg_006": 110_840,
+        "seg_007": 134_479,
+        "seg_008": 164_620,
+        "seg_009": 172_560,
+        "seg_012": 250_000,
+    }
+    ctx = _FakeCtx(starts)
+    # Accident guest-first (seg_004 leads) with 7+ opening families — no cold-open flag.
+    selection = {
+        "ordered_segment_ids": [
+            "seg_004",
+            "seg_001",
+            "seg_005",
+            "seg_007",
+            "seg_006",
+            "seg_003",
+            "seg_002",
+            "seg_009",
+            "seg_008",
+            "seg_012",
+        ],
+        "excluded_segment_ids": [],
+        "chapters": [
+            {"title": "Open", "segment_ids": ["seg_004", "seg_001", "seg_005"]},
+        ],
+    }
+    policy = {
+        "opening_window_ms": 180_000,
+        "opening_air_slots": 6,
+        "count_opening_by_family": True,
+    }
+    before = late_opening_cluster_violations(
+        ctx, selection["ordered_segment_ids"], starts=starts, policy=policy
+    )
+    assert critical_violations(before)
+    repaired, actions = repair_opening_tape_integrity(ctx, selection)
+    ordered = [str(s) for s in (repaired.get("ordered_segment_ids") or [])]
+    assert ordered[0] == "seg_001"
+    after = late_opening_cluster_violations(
+        ctx, ordered, starts=starts, policy=policy
+    )
+    assert not critical_violations(after)
+    excl = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in (repaired.get("excluded_segment_ids") or [])
+    }
+    # Slot budget 6 → at least one opening family excluded.
+    assert excl
+    assert any(
+        (repaired.get("exclude_rationales") or {}).get(s) == "opening_slot_overflow"
+        or (
+            isinstance(row, dict)
+            and row.get("reason") == "opening_slot_overflow"
+        )
+        for s, row in [
+            (
+                str(r.get("segment_id") if isinstance(r, dict) else r),
+                r,
+            )
+            for r in (repaired.get("excluded_segment_ids") or [])
+        ]
+    )
+    # Idempotent.
+    again, actions2 = repair_opening_tape_integrity(ctx, repaired)
+    assert again.get("ordered_segment_ids") == ordered
+    assert actions
+    # Chapters pruned of excluded ids.
+    ch_ids = (again.get("chapters") or [{}])[0].get("segment_ids") or []
+    assert all(s in ordered for s in ch_ids)
+
+
+def test_cold_open_mode_b_preserves_head_excludes_host_intro():
+    starts = {
+        "seg_001": 0,
+        "seg_003": 50_000,
+        "seg_050": 200_000,
+    }
+    ctx = _FakeCtx(starts)
+    selection = {
+        "ordered_segment_ids": ["seg_003", "seg_050", "seg_001"],
+        "excluded_segment_ids": [],
+        "native_cold_open_segment_id": "seg_003",
+    }
+    repaired, actions = repair_opening_tape_integrity(ctx, selection)
+    ordered = [str(s) for s in (repaired.get("ordered_segment_ids") or [])]
+    assert ordered[0] == "seg_003"
+    assert "seg_001" not in ordered
+    excl = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in (repaired.get("excluded_segment_ids") or [])
+    }
+    assert "seg_001" in excl
+    assert (repaired.get("exclude_rationales") or {}).get("seg_001") == (
+        "opening_skipped_duplicate"
+    )
+    assert any(a.get("mode") == "cold_open" for a in actions)
+    assert not late_opening_cluster_violations(ctx, ordered)
+
+
+def test_slot_overflow_host_first_excludes_surplus():
+    starts = {f"seg_{i:03d}": i * 15_000 for i in range(1, 12)}
+    starts["seg_099"] = 400_000
+    ctx = _FakeCtx(starts)
+    opening = [f"seg_{i:03d}" for i in range(1, 10)]  # 9 opening families
+    selection = {
+        "ordered_segment_ids": opening + ["seg_099"],
+        "excluded_segment_ids": [],
+    }
+    policy = {
+        "opening_window_ms": 180_000,
+        "opening_air_slots": 6,
+        "count_opening_by_family": True,
+    }
+    repaired, _ = repair_opening_tape_integrity(ctx, selection)
+    ordered = [str(s) for s in (repaired.get("ordered_segment_ids") or [])]
+    assert ordered[0] == "seg_001"
+    on_air_opening = [
+        s
+        for s in ordered
+        if (starts.get(s) or 0) < 180_000
+    ]
+    assert len(on_air_opening) <= 6
+    assert "seg_099" in ordered
+    assert not critical_violations(
+        late_opening_cluster_violations(ctx, ordered, starts=starts, policy=policy)
+    )
+
+
+def test_hard_keep_does_not_restore_opening_slot_overflow(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.run_context import RunContext
+    from interview_mux.hard_keep import enforce_hard_keeps
+
+    ctx = RunContext(create=True)
+    (tmp_path / "segments").mkdir(parents=True, exist_ok=True)
+    import json
+
+    (tmp_path / "segments" / "boundaries.json").write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {"segment_id": "seg_001", "start_ms": 0},
+                    {"segment_id": "seg_007", "start_ms": 100_000},
+                    {"segment_id": "seg_050", "start_ms": 500_000},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "interview_mux.hard_keep.hard_keep_segment_ids",
+        lambda _ctx: {"seg_007", "seg_001", "seg_050"},
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_001", "seg_050"],
+        "excluded_segment_ids": [
+            {"segment_id": "seg_007", "reason": "opening_slot_overflow"}
+        ],
+        "exclude_rationales": {"seg_007": "opening_slot_overflow"},
+    }
+    out = enforce_hard_keeps(ctx, selection)
+    ordered = out.get("ordered_segment_ids") or []
+    assert "seg_007" not in ordered
+    excl = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in (out.get("excluded_segment_ids") or [])
+    }
+    assert "seg_007" in excl
+
+
+def test_incomplete_seam_does_not_pull_constitution_exclude():
+    from interview_mux.air_order_integrity import repair_incomplete_seam_order
+
+    spans = {
+        "seg_001": {
+            "start_ms": 0,
+            "end_ms": 1000,
+            "text": "we call it provision",
+            "speaker_id": "spk_0",
+        },
+        "seg_002": {
+            "start_ms": 1100,
+            "end_ms": 2000,
+            "text": "called LDT for short",
+            "speaker_id": "spk_0",
+        },
+    }
+    ordered, actions = repair_incomplete_seam_order(
+        ["seg_001"],
+        spans,
+        blocked_ids={"seg_002"},
+    )
+    assert "seg_002" not in ordered
+    assert not any(a.get("action") == "incomplete_seam_pull_completion" for a in actions)
+
+
+def test_late_opening_heal_pins_sanitize_not_ranking():
+    from interview_mux.stage_completion import producer_pin_for_token
+
+    assert (
+        producer_pin_for_token(
+            "air_order_integrity_critical:late_opening_cluster"
+        )
+        == "selection_order_sanitize"
+    )
+    assert producer_pin_for_token("late_opening_cluster") == "selection_order_sanitize"
+
+
+def test_finalize_fails_closed_on_residual_late_opening(monkeypatch, tmp_path):
+    """Even with block_ranking_on_critical false, residual late_opening raises."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.run_context import RunContext
+    from interview_mux.stages.selection import finalize_selection_order
+
+    ctx = RunContext(create=True)
+
+    def _noop_repair(_ctx, selection, **_kw):
+        return selection, []
+
+    def _critical_late(_ctx, selection, **_kw):
+        return [
+            {
+                "code": "late_opening_cluster",
+                "severity": "critical",
+                "message": "Opening-tape cluster ['seg_001'] after guest-first open at index 2",
+            }
+        ]
+
+    monkeypatch.setattr(
+        "interview_mux.air_order_integrity.repair_air_order_integrity",
+        _noop_repair,
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_order_integrity.collect_violations",
+        _critical_late,
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_order_integrity.block_ranking_on_critical",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.hard_keep.enforce_hard_keeps",
+        lambda _ctx, sel: sel,
+    )
+    monkeypatch.setattr(
+        "interview_mux.selection_order_repair.repair_selection_order",
+        lambda sel, *a, **k: (sel, []),
+    )
+    artifacts = {
+        "ordered_segment_ids": ["seg_003", "seg_050", "seg_001"],
+        "excluded_segment_ids": [],
+    }
+    try:
+        finalize_selection_order(
+            ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
+        )
+        raised = False
+    except ValueError as exc:
+        raised = True
+        assert "late_opening" in str(exc).lower() or "air_order_integrity" in str(exc)
+    assert raised

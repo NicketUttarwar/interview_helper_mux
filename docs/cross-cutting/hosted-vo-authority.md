@@ -25,10 +25,10 @@ Implementation: [`src/interview_mux/hosted_vo_authority.py`](../../src/interview
 | `UNWARRANTED` | Not hosted G-Framing Yes |
 | `WAIVED` | G1 skip / sticky waive |
 | `MET` | `have >= need` |
-| `PARTIAL` | `1 <= have < need` — aspirational stretch OK |
-| `HOLLOW_ZERO` | warranted and `have < 1` — **playability block** |
+| `PARTIAL` | `1 <= have < need` — **advisory** (never blocks master) |
+| `HOLLOW_ZERO` | warranted and `have < 1` — **advisory** (never blocks master) |
 
-Persisted on `run_meta.hosted_vo_floor_identity`. Never aspirational-continue on `HOLLOW_ZERO`.
+`need` defaults to **3** (`analysis.gap_fill.min_synthetic_vo_lines`) — a **target**, not a ship gate. Persisted on `run_meta.hosted_vo_floor_identity`. Under-floor still stamps floor advisories / action_trace so the miss is visible; only loud playability-block for this count floor is removed. Other playability blockers (e.g. `hosted_vo_wav_coverage`, missing master) are unchanged.
 
 ## Disposition priority (orientation)
 
@@ -49,18 +49,20 @@ Intentional omit must clear EDL + WAV + seats atomically. Heard artifacts always
 - Post-synth: gate returns True; WAV clamp / omit-ledger use their own rendered-floor rules.
 - Wire every stamper (Pass B filter, air_contract E1/E4, `mark_gap_line_not_on_air`, drift repair, omit ledger) through this helper — do not re-implement hollow-only (`active < 1`) band-aids.
 
-## Rank-to-budget step-down
+## Rank-to-budget adopt (under-floor publish)
 
 `vo_budget_bands` → `(need, ideal, max)`. `score_hosted_vo_line` / `rank_to_budget_select` / `apply_rank_to_budget_fill`:
 
 - Keep **orientation** always; rank contentful body lines by severity, open TP/nuggets, origin, copy length.
-- **Fill up to ideal** by adopting framing / fill priors into `nugget_layup` (no invent). Prefer-native plan skips (`listener_already_oriented`, `native_self_orients`, …) are **soft** under ideal — cleared when a ranked prior is adopted onto that target.
-- Hollow-preserve uses the same ranker (keep top ideal) instead of mass-deleting `gap_framing_compose` then re-admitting to floor.
-- Soft-omit / process prune only the tail below the ranked cut; floor gate remains the backstop.
+- When layup publish is under `need`, **`publish_layup_plan_to_gap_report`** runs one rank-to-budget adopt (`fill_to="need"`) from a draft-backed pool: live prior ∪ hash-fresh `gap_report.draft.json` ∪ plan rows with recoverable text. Adopted lines re-home to `nugget_layup` (no invent). Prefer-native plan skips are soft under fill and may clear when a ranked prior lands on that target.
+- Draft lines are ignored when `selection_order_content_hash` disagrees with current selection (stale after reorder).
+- Single adopt per selection hash (anti-thrash); still under need → advisory continue and publish best-effort body.
+- Soft-omit / process prune must not peel below `need` pre-synth when lines exist; under-floor count never hard-stops the run.
 
 ## Floor / heal
 
 - Single `have()` / `need()` — no divergent counters for policy.
+- `escalation_should_block` is always false for hosted VO count-floor PARTIAL/HOLLOW_ZERO.
 - Escalations are derived: `reconcile_escalations` triple-clears operator JSON + run_meta + plan `_meta` when `have >= 1`.
 - On **MET**, also clears stale hollow-era `floor_aspirational_proceeded` / `aspirational_proceeded` and `floor_advisories` rows for `hosted_vo_floor` with `have < need`. `floor_snapshot(persist=True)` invokes reconcile so evaluate paths self-heal.
 - Heal pin for hollow / no-synthesize → `nugget_layup_compose` or `gap_framing_compose` only (never `edl_narrative_audit`).

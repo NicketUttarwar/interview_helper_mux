@@ -1487,10 +1487,12 @@ def resolve_keeper_air_bounds(
     from pathlib import Path
 
     from interview_mux.gap_vo_prior_context import (
+        SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
         clause_continues_after,
         clause_continues_before,
         is_legal_conceptual_hinge,
         is_legal_conceptual_open,
+        source_adjacent_completes_at,
     )
 
     conf = ideal_cuts_cfg()
@@ -1799,6 +1801,25 @@ def resolve_keeper_air_bounds(
     if never_touch_cap_ms is not None and end > int(never_touch_cap_ms):
         end = int(never_touch_cap_ms)
         meta["air_bound_reason"] = f"{meta['air_bound_reason']}+never_touch_cap"
+
+    # Incomplete-seam preserve: if raising start would drop a prefix that finishes
+    # the previous tape clause ("provision" → "called LDT"), refuse the raise and
+    # keep the prefix on this keeper. Order-lock ensures A airs before B so the
+    # completion is heard once; no dual source ownership.
+    if words and start > orig_start:
+        if source_adjacent_completes_at(
+            words,
+            orig_start,
+            max_gap_ms=SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
+        ):
+            start = orig_start
+            meta["air_bound_reason"] = (
+                f"{meta['air_bound_reason']}+incomplete_seam_preserve"
+            )
+            # Ideal window may have clamped end into a distant hinge; if keeping
+            # the open empties the legal span, restore original end too.
+            if end <= start:
+                end = orig_end
 
     meta["after_start_ms"] = start
     meta["after_end_ms"] = end

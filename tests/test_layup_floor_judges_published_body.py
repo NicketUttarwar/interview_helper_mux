@@ -49,18 +49,18 @@ def test_live_line_over_a_stale_hollow_snapshot_proceeds(tmp_path, monkeypatch) 
     assert not [e for e in ctx._test_errors if "unsatisfiable" in e]
 
 
-def test_hollow_publish_still_fails_loudly(tmp_path, monkeypatch) -> None:
+def test_hollow_publish_advisory_continues(tmp_path, monkeypatch) -> None:
     from interview_mux.nugget_layup import raise_hosted_vo_floor_unsatisfiable
 
     ctx, proceeded = _setup(tmp_path, monkeypatch, aspirational=True)
-    with pytest.raises(Exception, match="hosted_vo_floor_unsatisfiable"):
-        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
-    assert not proceeded
+    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
+    assert proceeded and proceeded[0]["have"] == 0
+    assert not [e for e in ctx._test_errors if "unsatisfiable" in e]
 
 
-def test_short_floor_without_aspirational_still_fails(tmp_path, monkeypatch) -> None:
+def test_short_floor_without_aspirational_still_advisory(tmp_path, monkeypatch) -> None:
     from interview_mux.nugget_layup import raise_hosted_vo_floor_unsatisfiable
 
     ctx, proceeded = _setup(tmp_path, monkeypatch, aspirational=False)
-    with pytest.raises(Exception, match="hosted_vo_floor_unsatisfiable"):
-        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=1, eligible_nuggets=1)
+    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=1, eligible_nuggets=1)
+    assert proceeded and proceeded[0]["have"] == 1

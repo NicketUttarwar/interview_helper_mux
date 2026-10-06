@@ -40,6 +40,8 @@ STRUCTURAL_HALT_CLASSES: frozenset[str] = frozenset(
         "finalize_input_missing",
         "post_master_quality_missing",
         "incomplete_cut_unresolved",
+        "junction_claim_inventory_stale",
+        "claimed_repairs_missing_from_edl",
         "layup_coverage",
         "layup_stale",
         "missing_g1_pickup",

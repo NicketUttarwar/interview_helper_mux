@@ -995,32 +995,8 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
         )
     except Exception as exc:
         errors.append(f"vo_value_gate failed: {exc}")
-    # R8: preface / cold-open forward cue is flush-blocking when G-Framing Yes
-    # and the line is present (heal token → gap_framing_compose).
-    try:
-        from interview_mux.gap_vo_gates import gap_framing_enabled
-        from interview_mux.gap_vo_prior_context import has_forward_cue
-        from interview_mux.opening_orientation import is_episode_orientation
-
-        if gap_framing_enabled(ctx):
-            for ln in lines:
-                if not isinstance(ln, dict):
-                    continue
-                text = str(ln.get("text") or "").strip()
-                if not text:
-                    continue
-                cat = str(ln.get("line_category") or "").lower()
-                is_orient = bool(is_episode_orientation(ln))
-                if not is_orient and "preface" not in cat and "cold_open" not in cat:
-                    continue
-                if not has_forward_cue(text):
-                    lid = ln.get("line_id") or "?"
-                    errors.append(
-                        f"missing_forward_cue: {lid} last sentence needs a forward cue"
-                    )
-                    break
-    except Exception:
-        pass
+    # Forward-unlock endings are optional (require_forward_cue default false).
+    # Opt-in gate still lives in vo_value_violations when config enables it.
     return errors
 
 

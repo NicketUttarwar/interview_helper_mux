@@ -20,6 +20,7 @@ from typing import Any
 from interview_mux.config import merged_config
 from interview_mux.gap_vo_prior_context import (
     CROSS_SPEAKER_COMPLETION_GAP_MS,
+    SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
     clause_continues_after,
     ends_complete_thought,
     ends_hanging_setup,
@@ -27,6 +28,7 @@ from interview_mux.gap_vo_prior_context import (
     later_opens_nominal_complement,
     opens_with_backchannel_completion,
     opens_with_clause_continuer,
+    source_adjacent_completes,
 )
 from interview_mux.run_context import RunContext
 
@@ -223,6 +225,10 @@ def incomplete_thought_hints(hints: dict[str, Any] | None) -> bool:
     if not isinstance(hints, dict):
         return False
     if hints.get("hanging_setup_end") or hints.get("island_straddle"):
+        return True
+    # High-confidence incomplete seam (provision → called LDT) even when the
+    # prior is not lexically hanging / pause looked "complete".
+    if hints.get("source_adjacent_completes"):
         return True
     if hints.get("later_opens_backchannel_completion") and not hints.get(
         "earlier_lands_complete_idea"
@@ -483,9 +489,25 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
         if len(earlier_close) < min(80, close_max) and earlier_full:
             earlier_close = earlier_full[-close_max:]
         hanging = hanging or ends_hanging_setup(earlier_close) or ends_hanging_setup(earlier_full)
+        adj_prev = earlier_close or earlier_full or tail_text
+        adj_later = head_text or str(later.get("text") or "")
+        # Tight cross-speaker only for appositive/completion seams (diarization flips).
+        adj_same = same_speaker or gap_ms <= SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS
+        adjacent_completes = source_adjacent_completes(
+            adj_prev,
+            adj_later,
+            gap_ms,
+            same_speaker=adj_same,
+        )
         lands_complete = bool(
-            ends_complete_thought(earlier_full or tail_text, next_pause_ms=gap_ms)
+            ends_complete_thought(
+                earlier_full or tail_text,
+                next_pause_ms=gap_ms,
+                later_head=adj_later,
+                same_speaker=adj_same,
+            )
             and not hanging
+            and not adjacent_completes
         )
         topic_score = _topic_overlap_score(earlier, later)
         pair_id = f"{a_id}__{b_id}"
@@ -493,7 +515,10 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
             "hanging_setup_end": bool(hanging),
             "clause_continues_after": bool(continues),
             "later_opens_continuer": bool(later_continuer),
+            # Classic nominal complement still requires a hanging prior; appositive
+            # incomplete seams ride on source_adjacent_completes instead.
             "later_opens_nominal_complement": bool(later_nominal and hanging),
+            "source_adjacent_completes": bool(adjacent_completes),
             "later_opens_backchannel_completion": bool(
                 later_backchannel and gap_ms <= CROSS_SPEAKER_COMPLETION_GAP_MS
             ),
@@ -566,6 +591,7 @@ def deterministic_fallback_verdict(packet: dict[str, Any]) -> dict[str, Any]:
                 label
                 for label, fired in (
                     ("hanging setup", hanging),
+                    ("source-adjacent completes", bool(hints.get("source_adjacent_completes"))),
                     ("later opens continuer", bool(hints.get("later_opens_continuer"))),
                     (
                         "later opens backchannel completion",

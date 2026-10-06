@@ -1,13 +1,13 @@
 # nugget-layup-compose examples (reference)
 
-**Good — topic hook + unlock (no speaker names)**
+**Good — topic hook, free-form ending (no speaker names)**
 
-- `text`: "The next piece is cell biopsy: circulating tumour cells, not blood-borne DNA fragments alone. Let's hear the explanation for what limits ctDNA-only analysis."
-- `text`: "Before the five-x scale-up, the real unlock was protein-aware buyers snacking on the bar — that rewrote the addressable market. Let's hear what happens when that demand nearly broke the supply chain."
+- `text`: "The next piece is cell biopsy: circulating tumour cells, not blood-borne DNA fragments alone."
+- `text`: "Before the five-x scale-up, the real unlock was protein-aware buyers snacking on the bar — that rewrote the addressable market."
 
 **Good — company/product nouns OK**
 
-- `text`: "OneCell reports a 99.8 percent equivalency in an independent PGDx comparison. Let's hear how that validation was run."
+- `text`: "OneCell reports a 99.8 percent equivalency in an independent PGDx comparison."
 
 **Bad — role label / documentary narrator**
 
@@ -21,6 +21,6 @@
 
 - `text`: "Utawar says imaging may not detect a secondary tumour until nine millimetres. He closes with the access goal." — use they or rephrase without a pronoun.
 
-**Bad — name-attribution hinge**
+**Bad — stock forward-unlock scaffolding**
 
-- `text`: "Let's hear Utawar explain why cell biopsy matters." — prefer "Let's hear the explanation for why cell biopsy matters."
+- `text`: "… Let's hear how that beat lands." / "Let's hear Utawar explain why cell biopsy matters." — end freely on the fact; do not force a hinge or name who speaks next.

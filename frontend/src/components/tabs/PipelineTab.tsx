@@ -42,7 +42,7 @@ export function PipelineTab() {
     Boolean(run) &&
     isPartialAcceleratedRun(run) &&
     run?.meta?.partial_auto_complete !== true &&
-    isGPublishReviewCheckpoint(partialAutoGPublish);
+    isGPublishReviewCheckpoint(partialAutoGPublish, run);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleOverscrollRetry = useCallback(async () => {

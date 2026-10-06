@@ -51,10 +51,10 @@ def test_identify_hollow_zero_persists(tmp_path, monkeypatch) -> None:
     assert ident.status == "HOLLOW_ZERO"
     meta = ctx.read_json("run_meta.json")
     assert meta.get(FLOOR_IDENTITY_META_KEY, {}).get("status") == "HOLLOW_ZERO"
-    assert not may_aspirational_proceed(ctx)
+    assert may_aspirational_proceed(ctx)
 
 
-def test_may_aspirational_only_partial(tmp_path, monkeypatch) -> None:
+def test_may_aspirational_partial_and_hollow(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "exec_hvo_partial")
     init_run_meta_for_test(ctx)
     monkeypatch.setattr(

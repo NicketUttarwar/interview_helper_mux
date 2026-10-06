@@ -369,15 +369,14 @@ def hosted_framing_requires_synthetic_vo(ctx: RunContext) -> bool:
 
 
 def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
-    """Ship bar: G-Framing Yes on hosted 1:1 requires cloned host questions.
+    """Hosted VO count floor target (need=3): under-floor is advisory, never a ship bar.
 
-    Under ``progress_floors.hosted_vo.aspirational``, PARTIAL shortfalls become
-    advisories. HOLLOW_ZERO never advisory-continues (Cluster C SSOT).
+    PARTIAL and HOLLOW_ZERO stamp advisories via ``proceed_on_floor_miss`` and
+    return None so the pipeline can always continue to a final master.
     """
     try:
         from interview_mux.hosted_vo_authority import (
             floor_snapshot,
-            may_aspirational_proceed,
             reconcile_escalations,
         )
 
@@ -388,7 +387,6 @@ def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
         if stage_id not in _GAP_VO_COUNT_STAGES and stage_id not in _EDL_VO_COUNT_STAGES:
             return None
         if snap.identity.status == "HOLLOW_ZERO":
-            # One-shot reseat before declaring incomplete.
             try:
                 from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
 
@@ -396,41 +394,35 @@ def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
                 snap = floor_snapshot(ctx, stage_id=stage_id, persist=True)
             except Exception:
                 pass
-            if snap.identity.status == "HOLLOW_ZERO":
-                return snap.identity.prose or (
-                    f"G-Framing Yes requires ≥{snap.need} synthetic host line(s), "
-                    f"gap_report has {snap.have} — resume {snap.resume_producer}"
-                )
-        if snap.identity.status == "PARTIAL":
-            if may_aspirational_proceed(ctx, stage_id=stage_id):
-                try:
-                    from interview_mux.floor_progress import proceed_on_floor_miss
+            if snap.identity.status in {"MET", "UNWARRANTED", "WAIVED"}:
+                reconcile_escalations(ctx, snap)
+                return None
+        if snap.identity.status in {"PARTIAL", "HOLLOW_ZERO"}:
+            try:
+                from interview_mux.floor_progress import proceed_on_floor_miss
 
-                    proceed_on_floor_miss(
-                        ctx,
-                        gate_id="hosted_vo_floor",
-                        have=snap.have,
-                        need=snap.need,
-                        pool_exhausted=True,
-                        extra={
-                            "stage_id": stage_id,
-                            "source": "synthetic_vo_incompleteness",
-                            "cause": snap.identity.cause,
-                        },
-                    )
-                    reconcile_escalations(ctx, snap)
-                    return None
-                except Exception:
-                    pass
-            return (
-                f"G-Framing Yes requires ≥{snap.need} synthetic host line(s), "
-                f"have {snap.have}"
-            )
+                proceed_on_floor_miss(
+                    ctx,
+                    gate_id="hosted_vo_floor",
+                    have=snap.have,
+                    need=snap.need,
+                    pool_exhausted=True,
+                    extra={
+                        "stage_id": stage_id,
+                        "source": "synthetic_vo_incompleteness",
+                        "cause": snap.identity.cause,
+                        "mode": "advisory_count_floor_continue",
+                    },
+                )
+                reconcile_escalations(ctx, snap)
+            except Exception:
+                pass
+            return None
         reconcile_escalations(ctx, snap)
         return None
     except Exception:
         pass
-    # Legacy fallback if authority import fails.
+    # Legacy fallback if authority import fails — still advisory-continue.
     if not hosted_framing_requires_synthetic_vo(ctx):
         return None
     need = min_synthetic_vo_lines(ctx)
@@ -445,64 +437,45 @@ def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
             except Exception:
                 pass
         if have < need:
-            if have < 1:
-                return (
-                    f"G-Framing Yes requires ≥{need} synthetic host line(s), "
-                    f"gap_report has {have} — resume nugget_layup_compose"
-                )
             try:
-                from interview_mux.floor_progress import (
-                    hosted_vo_aspirational,
-                    proceed_on_floor_miss,
-                )
+                from interview_mux.floor_progress import proceed_on_floor_miss
 
-                if hosted_vo_aspirational(ctx):
-                    proceed_on_floor_miss(
-                        ctx,
-                        gate_id="hosted_vo_floor",
-                        have=have,
-                        need=need,
-                        pool_exhausted=True,
-                        extra={"stage_id": stage_id, "source": "synthetic_vo_incompleteness"},
-                    )
-                    return None
+                proceed_on_floor_miss(
+                    ctx,
+                    gate_id="hosted_vo_floor",
+                    have=have,
+                    need=need,
+                    pool_exhausted=True,
+                    extra={
+                        "stage_id": stage_id,
+                        "source": "synthetic_vo_incompleteness",
+                        "mode": "advisory_count_floor_continue",
+                    },
+                )
             except Exception:
                 pass
-            return (
-                f"G-Framing Yes requires ≥{need} synthetic host line(s), "
-                f"gap_report has {have}"
-            )
         return None
     if stage_id in _EDL_VO_COUNT_STAGES:
         have = max(count_active_gap_vo_lines(ctx), count_edl_vo_pickup(ctx))
         if have < need:
-            if have < 1:
-                return (
-                    f"G-Framing Yes requires ≥{need} synthetic host VO clip(s) on the "
-                    f"timeline, have {have} — resume nugget_layup_compose"
-                )
             try:
-                from interview_mux.floor_progress import (
-                    hosted_vo_aspirational,
-                    proceed_on_floor_miss,
-                )
+                from interview_mux.floor_progress import proceed_on_floor_miss
 
-                if hosted_vo_aspirational(ctx):
-                    proceed_on_floor_miss(
-                        ctx,
-                        gate_id="hosted_vo_floor",
-                        have=have,
-                        need=need,
-                        pool_exhausted=True,
-                        extra={"stage_id": stage_id, "source": "synthetic_vo_incompleteness_edl"},
-                    )
-                    return None
+                proceed_on_floor_miss(
+                    ctx,
+                    gate_id="hosted_vo_floor",
+                    have=have,
+                    need=need,
+                    pool_exhausted=True,
+                    extra={
+                        "stage_id": stage_id,
+                        "source": "synthetic_vo_incompleteness_edl",
+                        "mode": "advisory_count_floor_continue",
+                    },
+                )
             except Exception:
                 pass
-            return (
-                f"G-Framing Yes requires ≥{need} synthetic host VO clip(s) on the "
-                f"timeline, have {have}"
-            )
+        return None
     return None
 
 

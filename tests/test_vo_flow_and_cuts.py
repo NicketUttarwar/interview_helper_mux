@@ -577,7 +577,7 @@ def test_preface_abstract_quiz_closer_fails_and_repairs_declarative() -> None:
     )
 
 
-def test_spoken_layup_required() -> None:
+def test_spoken_layup_allows_free_form_ending() -> None:
     line = {
         "line_id": "vo_sum_seg_010",
         "line_category": "story_bridge",
@@ -596,11 +596,11 @@ def test_spoken_layup_required() -> None:
         },
         ordered_ids=["seg_009", "seg_010"],
     )
-    assert any("forward cue" in e for e in errs)
+    assert not any("forward cue" in e for e in errs)
 
 
-def test_repair_last_sentence_layup_single_sentence_gets_forward_cue() -> None:
-    """exec_11630 vo_bridge_seg_044: single factual sentence must not stay cue-less."""
+def test_repair_last_sentence_layup_preserves_free_form_ending() -> None:
+    """Single factual sentence may stay cue-less — no stock hinge append."""
     from interview_mux.gap_vo_prior_context import repair_last_sentence_layup
 
     fixed = repair_last_sentence_layup(
@@ -610,8 +610,9 @@ def test_repair_last_sentence_layup_single_sentence_gets_forward_cue() -> None:
         target_text="Imaging still takes months.",
         target_segment_id="seg_044",
     )
-    assert has_forward_cue(fixed)
     assert "Trial enrolment is only the first decision" in fixed
+    assert "beat lands" not in fixed.lower()
+    assert "let's hear" not in fixed.lower()
 
 
 def test_choose_seam_synthetic_layup_wins_over_transition() -> None:

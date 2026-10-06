@@ -33,9 +33,27 @@ def skip_copy_draft_to_final(ctx: RunContext, *, reason: str = "pass2_skipped") 
     else:
         report = _empty_report()
 
-    # Dual-write draft if missing
+    # Dual-write draft if missing (stamp selection hash for adopt freshness).
     if not ctx.artifact_exists(DRAFT_REL) and isinstance(report, dict):
-        ctx.write_json(DRAFT_REL, report)
+        draft_out = dict(report)
+        dmeta = (
+            dict(draft_out.get("_meta") or {})
+            if isinstance(draft_out.get("_meta"), dict)
+            else {}
+        )
+        try:
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                if isinstance(sel, dict):
+                    h = str(sel.get("order_content_hash") or "").strip()
+                    if h:
+                        dmeta["selection_order_content_hash"] = h
+                        draft_out["selection_order_content_hash"] = h
+        except Exception:
+            pass
+        if dmeta:
+            draft_out["_meta"] = dmeta
+        ctx.write_json(DRAFT_REL, draft_out)
 
     ctx.write_json(FINAL_REL, report)
     marker = {
@@ -69,9 +87,24 @@ def g1_reachable(ctx: RunContext) -> bool:
 
 
 def dual_write_draft_from_compose(ctx: RunContext) -> None:
-    """After compose, snapshot draft alongside final."""
+    """After compose, snapshot draft alongside final (stamp selection hash for freshness)."""
     if not ctx.artifact_exists(FINAL_REL):
         return
     report = ctx.read_json(FINAL_REL)
-    if isinstance(report, dict):
-        ctx.write_json(DRAFT_REL, report)
+    if not isinstance(report, dict):
+        return
+    out = dict(report)
+    meta = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                h = str(sel.get("order_content_hash") or "").strip()
+                if h:
+                    meta["selection_order_content_hash"] = h
+                    out["selection_order_content_hash"] = h
+    except Exception:
+        pass
+    if meta:
+        out["_meta"] = meta
+    ctx.write_json(DRAFT_REL, out)

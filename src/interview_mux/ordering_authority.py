@@ -50,6 +50,39 @@ def _speech_first_mix_allowed(ctx: Any) -> bool:
         return False
 
 
+def _junction_commitment_reseat(ctx: Any) -> bool:
+    """ENDD-3: junction may run for commitment remaster when mix is unseated.
+
+    Only when music remaster is not owed and there are no live critical
+    incomplete-cut findings (those stay ``junction_recut_precedes_mix``).
+    """
+    try:
+        from interview_mux.air_order import mix_outputs_seated
+        from interview_mux.mix_junction_seat import (
+            remaster_owner,
+            speech_first_remaster_owed,
+        )
+
+        if mix_outputs_seated(ctx):
+            return False
+        # ENDD-5: mix wins while music remaster is owed — do not exempt junction.
+        if speech_first_remaster_owed(ctx) or remaster_owner(ctx) == "music_epoch":
+            return False
+    except Exception:
+        return False
+    # Live critical incomplete-cut → recut path owns precedence, not reseat.
+    if _junction_recut_precedes_mix(ctx):
+        return False
+    try:
+        from interview_mux.junction_snip_qa import live_incomplete_cut_critical_findings
+
+        if live_incomplete_cut_critical_findings(ctx):
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def ordering_exempt(ctx: Any, stage: str, prerequisite: str | None) -> str | None:
     """Reason ``stage`` may run while ``prerequisite`` is incomplete, else None.
 
@@ -62,6 +95,9 @@ def ordering_exempt(ctx: Any, stage: str, prerequisite: str | None) -> str | Non
         # mix refuses until then, so junction may run ahead of mix and music.
         if _junction_recut_precedes_mix(ctx):
             return "junction_recut_precedes_mix"
+        # ENDD-3: unseated assembly + music remaster not owed → commitment reseat.
+        if _junction_commitment_reseat(ctx):
+            return "junction_commitment_reseat"
     if sid == "mix" and pre in MUSIC_BEFORE_MIX:
         # HAU speech-first: beds are optional for the first seat.
         if _beds_deferred_for_mix(ctx):
