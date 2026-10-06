@@ -197,11 +197,10 @@ def test_hosted_1on1_requires_synthetic_vo_lines(tmp_path: Path) -> None:
         {"interviewer_lines": []},
         skip_handoff=True,
     )
-    # HOLLOW_ZERO is still incomplete. PARTIAL (1 line) may aspirational-continue.
-    reason = synthetic_vo_incompleteness(ctx, "nugget_layup_compose")
-    assert reason and ("synthetic host" in reason or "HOLLOW_ZERO" in reason)
-    assert synthetic_vo_incompleteness(ctx, "g1_vo_pickup")
-    assert synthetic_vo_incompleteness(ctx, "edl")
+    # HOLLOW_ZERO / under-floor is advisory — incompleteness returns None.
+    assert synthetic_vo_incompleteness(ctx, "nugget_layup_compose") is None
+    assert synthetic_vo_incompleteness(ctx, "g1_vo_pickup") is None
+    assert synthetic_vo_incompleteness(ctx, "edl") is None
     ctx.write_json(
         "understanding/gap_report.json",
         {
@@ -261,7 +260,8 @@ def test_compose_not_held_to_min_vo_floor(tmp_path: Path) -> None:
     )
     assert synthetic_vo_incompleteness(ctx, "gap_framing_compose") is None
     assert synthetic_vo_incompleteness(ctx, "optimal_questions") is None
-    assert synthetic_vo_incompleteness(ctx, "nugget_layup_compose")
+    # Layup stage under-floor is advisory too (need=3 target, not a ship bar).
+    assert synthetic_vo_incompleteness(ctx, "nugget_layup_compose") is None
 
 
 def test_blank_delivery_does_not_count_toward_vo_floor(tmp_path: Path) -> None:

@@ -167,7 +167,7 @@ def _standards_for_pace(pace: str, underscore: str) -> dict[str, Any]:
         min_rel = 14.0
     if underscore in {"skip", "sparse_or_skip"}:
         min_rel = 10.0
-    # Soft ceiling for beds under speech — Shape band ~0.40–0.85 (not the old 0.55 cap).
+    # Soft ceiling for beds under speech — Shape band ~0.40–0.99 (not the old 0.55/0.85 caps).
     coverage = 0.85
     if underscore == "sparse":
         coverage = 0.55
@@ -900,14 +900,14 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     bed_range = sap_mix.get("bed_level_db_range") or [-16.0, -12.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
         bed_range = [-16.0, -12.0]
-    # Default ceiling ~85% so compose can fill mid/late show; min floor stays ~40%.
-    coverage = 0.85
+    # Default ceiling ~99% so compose can fill nearly show-wide; min floor stays ~40%.
+    coverage = 0.99
     if underscore == "sparse":
         coverage = 0.55
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
-        coverage = 0.85
+        coverage = 0.99
 
     mix = {
         "bed_level_db_range": [float(bed_range[0]), float(bed_range[1])],

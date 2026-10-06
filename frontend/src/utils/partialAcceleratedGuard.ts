@@ -40,8 +40,88 @@ export function deliveryOrderViolation(after: string, before: string): boolean {
 export interface PartialAutoGPublishState {
   pending?: boolean;
   package_ready?: boolean;
+  package_complete?: boolean;
+  /** Master wav present — review UI can open before podcast_publish mints package_ready. */
+  has_master?: boolean;
   skipped?: boolean;
+  /** Gate cleared (Prepare/Continue) — keep Ship UI until upload or skip. */
+  cleared?: boolean;
   already_uploaded_count?: number;
+}
+
+/** True when the run snapshot already proves a master exists (no /g-publish poll needed). */
+export function runHasCommittedMaster(run: RunData | null | undefined): boolean {
+  if (!run?.stages?.length) return false;
+  for (const stage of run.stages) {
+    if (stage.id === "master_finalize" && stage.status === "done") return true;
+    if (stage.id !== "podcast_publish" && stage.id !== "podcast_encode_mp3") continue;
+    const arts = [
+      ...(stage.artifacts_present ?? []),
+      ...(stage.artifacts_committed ?? []),
+      ...(stage.artifacts ?? []),
+    ];
+    if (
+      arts.some((a) => {
+        const s = String(a);
+        return s.includes("master.wav") || s.includes("audio.mp3");
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Operator can open G-Publish review (title/cover) once master exists; package_ready
+ * comes after Prepare. Prefer the /g-publish poll, but fall back to the run snapshot
+ * so a slow/failed poll cannot leave the accelerated cover stuck at Ship.
+ */
+export function isGPublishReviewCheckpoint(
+  gPublish: PartialAutoGPublishState | null | undefined,
+  run?: RunData | null,
+): boolean {
+  if (gPublish?.skipped || run?.meta?.g_publish_skipped) {
+    return false;
+  }
+  const uploaded = Number(gPublish?.already_uploaded_count || 0) >= 1;
+  if (uploaded) return false;
+
+  if (
+    gPublish?.pending &&
+    (gPublish.package_ready || gPublish.package_complete || gPublish.has_master)
+  ) {
+    return true;
+  }
+  // Prepare/Continue clears the gate before S3 — keep Ship UI mounted through packaging/upload.
+  if (
+    (gPublish?.cleared || run?.meta?.g_publish_cleared) &&
+    (gPublish?.has_master || runHasCommittedMaster(run))
+  ) {
+    return true;
+  }
+  // Poll missing/stale: gate is already waiting and master is on disk per stages.
+  if (run && isGPublishGatePending(run) && runHasCommittedMaster(run)) {
+    return true;
+  }
+  return false;
+}
+
+/** Job/block is the G-Publish sign-off — not yet the editable review UI. */
+export function isGPublishGatePending(run: RunData | null | undefined): boolean {
+  if (!run) return false;
+  if (run.meta?.g_publish_pending && !run.meta?.g_publish_skipped && !run.meta?.g_publish_cleared) {
+    return true;
+  }
+  const jobStage = String(run.job?.stage || run.job?.current_stage || "");
+  if (jobStage === "g_publish" || jobStage === "podcast_publish") return true;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  const blockStage = String(blocking?.stage_id || "");
+  const reason = String(blocking?.reason || "");
+  if (reason === "g_publish") return true;
+  if (blockStage === "g_publish" || blockStage === "podcast_publish") return true;
+  const msg = `${run.job?.message || ""} ${blocking?.message || ""}`.toLowerCase();
+  return msg.includes("final sign-off") || msg.includes("g-publish");
 }
 
 /** Job statuses that mean the operator must act — overlay must unmount. */
@@ -151,6 +231,10 @@ function blockingNeedsOperator(run: RunData): boolean {
 /**
  * Any pause that requires a human click. Overlay unmounts; buttons must work.
  * After the operator acts, this goes false and the accelerated cover returns.
+ *
+ * Partial-auto: keep the accelerated cover through delivery until G-Publish
+ * review is showable (master/package). Bare `job.status=gate` / `llm_gate` for
+ * `g_publish` must not lift early while the review panel cannot mount.
  */
 export function isPartialAutoCheckpoint(
   run: RunData | null | undefined,
@@ -158,6 +242,14 @@ export function isPartialAutoCheckpoint(
 ): boolean {
   if (!run) return false;
   if (isTranscriptReviewCheckpoint(run)) return true;
+  // Must-act ship review — lift only when title/cover edit UI can mount.
+  if (isGPublishReviewCheckpoint(gPublish, run)) return true;
+
+  const holdOverlayForGPublish =
+    isPartialAcceleratedRun(run) &&
+    isGPublishGatePending(run) &&
+    !isGPublishReviewCheckpoint(gPublish, run);
+
   const driverOwns = driverOwnsFramingFamily(run);
   if (run.gap_framing_decision_pending && !driverOwns) return true;
   if (run.pickup_speaker_pending && !driverOwns) return true;
@@ -165,11 +257,17 @@ export function isPartialAutoCheckpoint(
   if (OPERATOR_JOB_STATUSES.has(status)) {
     const driverOwnedFramingGate =
       status === "gate" && driverOwns && isFramingFamilyJob(run);
-    if (!driverOwnedFramingGate) return true;
+    if (holdOverlayForGPublish) {
+      /* keep accelerated cover until review payload is ready */
+    } else if (!driverOwnedFramingGate) {
+      return true;
+    }
   }
   if (run.job?.needs_stage_reuse) return true;
-  if (gPublish?.pending && gPublish.package_ready && !gPublish.skipped) return true;
-  if (blockingNeedsOperator(run)) return true;
+  if (blockingNeedsOperator(run)) {
+    if (holdOverlayForGPublish) return false;
+    return true;
+  }
   return false;
 }
 

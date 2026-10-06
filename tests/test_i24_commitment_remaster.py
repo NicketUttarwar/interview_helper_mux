@@ -62,6 +62,11 @@ def test_i24_commitment_path_bypasses_low_gain(
         "interview_mux.thrash_hardening.note_junction_remaster",
         lambda _ctx: 1,
     )
+    # ENDD-2: commitment success requires seated mix.
+    monkeypatch.setattr(
+        "interview_mux.air_order.mix_outputs_seated",
+        lambda _ctx: True,
+    )
 
     # Cosmetic path still refuses.
     ok_feel, _ = junction_snip_qa._budgeted_remaster_mix(ctx, path="feel")

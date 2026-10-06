@@ -2145,7 +2145,7 @@ def _set_host_guest_speakers(ctx: RunContext) -> None:
     )
 
 
-def test_spoken_copy_keeps_nugget_body_and_appends_cue(monkeypatch):
+def test_spoken_copy_keeps_nugget_body_free_form_ending(monkeypatch):
     ctx = RunContext("exec_nugget_heal_body", create=True)
     target = (
         "Mohan walks through how a blood draw finds circulating tumour cells."
@@ -2208,7 +2208,8 @@ def test_spoken_copy_keeps_nugget_body_and_appends_cue(monkeypatch):
     text = str(row.get("text") or "")
     assert row.get("skip") is not True
     assert "cell biopsy" in text.lower()
-    assert "?" in text
+    # Free-form ending: keep grounded nugget body; do not force a "?" unlock.
+    assert "beat lands" not in text.lower()
     assert "mohan" not in text.lower()
     assert "story in motion" not in text.lower()
     assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
@@ -3007,10 +3008,11 @@ def _partial_prior_setup(monkeypatch, run_id: str, *, aspirational: bool):
 
 
 def test_publish_keeps_partial_prior_body_under_aspirational_floors(monkeypatch):
-    """exec_021 (ISSUES 171): all layups skipped, 2 compose lines live, floor 3.
+    """exec_021 (ISSUES 171): all layups skipped, prior compose lines live, floor 3.
 
     The hollow plan must not raise unsatisfiable at error level; the live prior
-    body is kept and the partial floor proceeds on the advisory.
+    body (plus free-form episode orientation when emitted) is kept and the
+    partial floor proceeds on the advisory.
     """
     ctx, plan = _partial_prior_setup(monkeypatch, "exec_layup_partial_prior", aspirational=True)
     report = publish_layup_plan_to_gap_report(ctx, plan)
@@ -3019,10 +3021,24 @@ def test_publish_keeps_partial_prior_body_under_aspirational_floors(monkeypatch)
         for ln in (report.get("interviewer_lines") or [])
         if isinstance(ln, dict) and not ln.get("skipped_optional") and not ln.get("air_script_omit")
     ]
-    assert len(kept) == 2
+    # Prior body (2) + optional free-form episode orientation.
+    assert len(kept) >= 2
+    assert any(str(ln.get("targets_segment_id") or "") == "seg_012" for ln in kept)
+    assert any(str(ln.get("targets_segment_id") or "") == "seg_022" for ln in kept)
 
 
-def test_partial_prior_without_aspirational_floors_still_escalates(monkeypatch):
+def test_partial_prior_without_aspirational_floors_still_advises(monkeypatch):
+    """Strict floor miss is advisory-continue — publish keeps prior body, no raise."""
     ctx, plan = _partial_prior_setup(monkeypatch, "exec_layup_partial_strict", aspirational=False)
-    with pytest.raises(Exception, match="hosted_vo_floor_unsatisfiable"):
-        publish_layup_plan_to_gap_report(ctx, plan)
+    # Suppress orientation so only the 2 prior compose lines remain (< floor 3).
+    monkeypatch.setattr(
+        "interview_mux.opening_orientation.ensure_episode_orientation",
+        lambda ctx, gap_report, *args, **kwargs: (gap_report, []),
+    )
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    kept = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict) and not ln.get("skipped_optional") and not ln.get("air_script_omit")
+    ]
+    assert len(kept) == 2

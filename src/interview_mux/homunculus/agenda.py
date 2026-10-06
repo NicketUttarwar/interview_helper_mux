@@ -823,6 +823,14 @@ def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
                 return False
         except Exception:
             pass
+    # ENDD-7: fingerprint match alone is not enough — mix must be seated vs live EDL.
+    try:
+        from interview_mux.air_order import mix_outputs_seated
+
+        if not mix_outputs_seated(ctx):
+            return False
+    except Exception:
+        return False
     return True
 
 

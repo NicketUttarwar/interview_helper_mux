@@ -799,9 +799,8 @@ def test_demote_uncovered_high_gaps_clears_listenability_ratio(ctx: RunContext) 
     assert uncovered_high_gap_ratio(ctx) == 0.0
 
 
-def test_preface_forward_cue_heal(ctx: RunContext) -> None:
+def test_preface_free_form_ending_not_force_healed(ctx: RunContext) -> None:
     from interview_mux.artifact_repairs import repair_gap_report
-    from interview_mux.gap_vo_prior_context import has_forward_cue
 
     ctx.write_json(
         "master/selection.json",
@@ -824,6 +823,7 @@ def test_preface_forward_cue_heal(ctx: RunContext) -> None:
             ]
         },
     )
+    original = "Precision oncology is reshaping how we detect cancer."
     doc = {
         "interviewer_lines": [
             {
@@ -831,17 +831,17 @@ def test_preface_forward_cue_heal(ctx: RunContext) -> None:
                 "line_category": "episode_preface",
                 "episode_orientation": True,
                 "targets_segment_id": "seg_010",
-                "text": "Precision oncology is reshaping how we detect cancer.",
+                "text": original,
                 "delivery": "synthesize",
             }
         ]
     }
     repaired, notes = repair_gap_report(ctx, doc)
     line = (repaired.get("interviewer_lines") or [doc["interviewer_lines"][0]])[0]
-    assert has_forward_cue(str(line.get("text") or ""))
-    assert any(n.get("action") == "preface_forward_cue_heal" for n in notes) or has_forward_cue(
-        str(line.get("text") or "")
-    )
+    text = str(line.get("text") or "")
+    assert original in text or text.rstrip(".!?") == original.rstrip(".!?")
+    assert "beat lands" not in text.lower()
+    assert not any(n.get("action") == "preface_forward_cue_heal" for n in notes)
 
 
 def test_preface_cold_open_layup_heal_restatement(ctx: RunContext) -> None:

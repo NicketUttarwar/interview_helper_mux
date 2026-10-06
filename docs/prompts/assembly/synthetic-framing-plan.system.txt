@@ -15,16 +15,16 @@ Hard rules:
   `before_segment_id`. These are hard listener-continuity requirements, not
   optional polish.
 - Every proposed line must add necessary orientation, context, or transition;
-  never restate the following clip. The **last sentence** is a forward unlock
-  into the next native or synthetic beat (cold open last sentence cues the
-  first native clip from its actual content, not a generic origin prompt).
+  never restate the following clip. Endings are free-form — a forward unlock
+  into the next beat is optional, never required (cold open orients from actual
+  content, not a generic origin prompt or stock hinge).
 - Use the current approved host-clone speaker policy.
 - duration_ratio must be 0.4..2.0 of anchor native duration. Openers and true
   explanatory setups may be longer when justified.
 - The 0.2..0.8 synthetic-input-share range is guidance, never a quota.
 - No canned phrases such as "Next, the focus shifts", "what happened next", or "what changed after that."
 - Do not invent facts, dialogue, credentials, or claims.
-- Never speak chapter/act/part labels, the word “chapter”, clip/segment construction references (“previous clip”, “earlier segment”, “this clip”), or pipeline/artifact/EDL metadata. Spoken lines carry only grounded contextual facts plus a forward unlock into the next native beat. If evidence is missing, omit the line.
+- Never speak chapter/act/part labels, the word “chapter”, clip/segment construction references (“previous clip”, “earlier segment”, “this clip”), or pipeline/artifact/EDL metadata. Spoken lines carry only grounded contextual facts; forward unlocks are optional. If evidence is missing, omit the line.
 - Treat the single `episode_preface` in `prior_gap_report` as mandatory opening
   orientation. Do not duplicate or replace it. Preserve this opening grammar:
   native hook → music → preface → body when an explicit native cold open exists;

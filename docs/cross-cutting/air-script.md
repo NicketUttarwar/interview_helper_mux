@@ -58,6 +58,6 @@ A first-time listener must retell who was talking, the thesis, the main claims, 
 
 ## Musical architecture
 
-Deterministic opportunity hunter (pause-tails, spine scene edges, energy_curve, orientation/package/outro, post-VO air) writes `sonic_opportunities`. Compose places existing motif-family stems onto those rows — abundant constant-level underbeds (Shape band ~0.40–0.85) plus motif / stinger / resolve / outro. **Music-only** (no whoosh/foley). Dry only for `source_music_risk` / skip-underscore / panel overlap.
+Deterministic opportunity hunter (pause-tails, spine scene edges, energy_curve, orientation/package/outro, post-VO air) writes `sonic_opportunities`. Compose places existing motif-family stems onto those rows — abundant constant-level underbeds (Shape band ~0.40–0.99) plus motif / stinger / resolve / outro, plus sparse `chapter_music_bridge` rows (4s speech-free music at chapter hinges and substantial VO seats). **Music-only** (no whoosh/foley). Dry only for `source_music_risk` / skip-underscore / panel overlap / intentional bridge resets.
 
 Show audio stays instrumental. Speech still wins the duck. Lane exclusivity in `music_lane.py` stays.

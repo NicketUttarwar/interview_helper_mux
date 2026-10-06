@@ -11,6 +11,8 @@ import {
 import { GPublishReviewSection, type GPublishSaveFn } from "./GPublishReviewSection";
 
 const SYNC_REQUEST_TIMEOUT_MS = 25_000;
+const PREPARE_POLL_MS = 2000;
+const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface GPublishPayload {
   pending: boolean;
@@ -23,6 +25,8 @@ interface GPublishPayload {
   skipped?: boolean;
   cleared?: boolean;
   package_ready?: boolean;
+  package_complete?: boolean;
+  missing_files?: string[];
   has_master?: boolean;
   ready_package_count?: number;
   already_uploaded_count?: number;
@@ -33,15 +37,37 @@ interface GPublishPayload {
   sync_job?: Record<string, unknown>;
 }
 
-type UploadPhase = "idle" | "starting" | "uploading" | "success" | "error";
+type PublishPhase =
+  | "idle"
+  | "saving"
+  | "preparing"
+  | "starting"
+  | "uploading"
+  | "success"
+  | "error";
 
-/** Ship gate: review package metadata + upload this run only to the selected catalog podcast. */
+function isPackageReady(data: GPublishPayload | null | undefined): boolean {
+  if (!data) return false;
+  const missing = Array.isArray(data.missing_files) ? data.missing_files : [];
+  return (
+    data.package_complete === true ||
+    data.package_ready === true ||
+    Number(data.ready_package_count || 0) >= 1 ||
+    (missing.length === 0 && Boolean(data.has_master) && Boolean(data.cleared || data.pending))
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Ship gate: one primary action — save edits (if any), prepare package, upload this run to S3. */
 export function GPublishPanel() {
   const { runId, refreshRun, appendClientLog, showToast } = useApp();
   const [payload, setPayload] = useState<GPublishPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewDirty, setReviewDirty] = useState(false);
-  const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
+  const [publishPhase, setPublishPhase] = useState<PublishPhase>("idle");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const saveReviewRef = useRef<GPublishSaveFn | null>(null);
   const watchingSyncRef = useRef(false);
@@ -57,7 +83,7 @@ export function GPublishPanel() {
       setPayload(data);
       return data;
     } catch {
-      setPayload(null);
+      // Keep last good snapshot — transient failures must not blank the Ship UI.
       return null;
     }
   }, [runId]);
@@ -72,7 +98,7 @@ export function GPublishPanel() {
       const sj = data.sync_job || {};
       if (String(sj.execution_id || "") !== runId) return false;
       if (sj.status === "running") {
-        setUploadPhase("uploading");
+        setPublishPhase("uploading");
         setStatusMessage(String(sj.message || "Uploading this run to S3…"));
         return false;
       }
@@ -84,7 +110,7 @@ export function GPublishPanel() {
           sj.message ||
           sj.error ||
           "Upload failed";
-        setUploadPhase("error");
+        setPublishPhase("error");
         setStatusMessage(String(detail));
         setBusy(false);
         return true;
@@ -94,18 +120,22 @@ export function GPublishPanel() {
           Number(data.already_uploaded_count || 0) >= 1 ||
           Boolean((data.publish_result as { uploaded?: boolean } | undefined)?.uploaded);
         const msg = String(sj.message || "Upload finished");
-        setUploadPhase(uploaded ? "success" : "success");
-        setStatusMessage(uploaded ? `Uploaded to S3. ${msg}` : msg);
+        setPublishPhase("success");
+        setStatusMessage(
+          uploaded
+            ? `Published — this run is on S3. ${msg}`
+            : `Upload finished. ${msg}`,
+        );
         setBusy(false);
-        if (uploaded) void refreshRun();
+        showToast(uploaded ? "Published — this run is on S3" : "Upload finished", "success");
+        void refreshRun();
         return true;
       }
       return false;
     },
-    [runId, refreshRun],
+    [runId, refreshRun, showToast],
   );
 
-  // Surface an existing sync error/success for this run on load (no silent grey button).
   useEffect(() => {
     if (!payload || !runId) return;
     const sj = payload.sync_job || {};
@@ -115,7 +145,6 @@ export function GPublishPanel() {
     }
   }, [payload, runId, applySyncTerminal]);
 
-  // Poll while this run's sync job is in flight (ignore stale jobs for other executions).
   useEffect(() => {
     if (!runId) return;
     const job = payload?.sync_job || {};
@@ -143,125 +172,142 @@ export function GPublishPanel() {
   const syncJob = payload.sync_job || {};
   const syncIsThisRun = String(syncJob.execution_id || "") === runId;
   const syncRunning = syncIsThisRun && syncJob.status === "running";
-  const readyCount = Number(payload.ready_package_count || 0);
-  const uploadedCount = Number(payload.already_uploaded_count || 0);
-  const thisRunReady = readyCount >= 1;
+  const thisRunReady = isPackageReady(payload);
   const thisRunUploaded =
-    uploadedCount >= 1 ||
+    Number(payload.already_uploaded_count || 0) >= 1 ||
     Boolean((payload.publish_result as { uploaded?: boolean } | undefined)?.uploaded) ||
-    (Boolean(payload.cleared && !payload.skipped) && uploadedCount >= 1);
-  const showReview = Boolean(payload.package_ready || payload.has_master);
+    (Boolean(payload.cleared && !payload.skipped) &&
+      Number(payload.already_uploaded_count || 0) >= 1);
+  const showReview = Boolean(payload.package_ready || payload.has_master || thisRunReady);
 
-  const prepare = async () => {
-    setBusy(true);
-    setUploadPhase("idle");
-    setStatusMessage("Preparing local episode package…");
+  const waitForPackageReady = async (): Promise<GPublishPayload | null> => {
+    const started = Date.now();
+    while (Date.now() - started < PREPARE_TIMEOUT_MS) {
+      const latest = await reload();
+      if (latest && isPackageReady(latest)) return latest;
+      const missing = latest?.missing_files?.length
+        ? ` (waiting on ${latest.missing_files.join(", ")})`
+        : "";
+      setStatusMessage(`Preparing local episode package…${missing}`);
+      await sleep(PREPARE_POLL_MS);
+    }
+    return null;
+  };
+
+  const startS3Upload = async (): Promise<void> => {
+    flushSync(() => {
+      setPublishPhase("uploading");
+      setStatusMessage("Contacting server to start S3 upload…");
+    });
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+    let started: { ok?: boolean; started?: boolean; job?: Record<string, unknown> };
     try {
-      const res = await api<{ ok?: boolean; started?: boolean }>(
-        `/api/runs/${runId}/g-publish/continue`,
-        { method: "POST" },
+      started = await api<{ ok?: boolean; started?: boolean; job?: Record<string, unknown> }>(
+        `/api/runs/${runId}/g-publish/sync`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+          signal: controller.signal,
+        },
       );
-      appendClientLog(
-        "G-Publish — preparing local episode package (no S3)",
-        "action",
-        "podcast_publish",
-        "gui.g_publish.prepare",
-      );
-      await refreshRun();
-      await reload();
-      setStatusMessage(
-        res?.started
-          ? "Preparing local episode package — watch Activity for progress."
-          : "Prepare cleared — package stages starting.",
-      );
-      showToast("Preparing local episode package", "success");
-    } catch (err) {
-      setUploadPhase("error");
-      setStatusMessage(String(err));
-      showToast(String(err), "error");
     } finally {
-      setBusy(false);
+      window.clearTimeout(timeoutId);
+    }
+    watchingSyncRef.current = true;
+    setPublishPhase("uploading");
+    setStatusMessage(
+      String(
+        (started.job as { message?: string } | undefined)?.message ||
+          "Uploading this run to S3 (additive, this execution only)…",
+      ),
+    );
+    appendClientLog(
+      "G-Publish — uploading this run's package to S3",
+      "action",
+      "podcast_publish",
+      "gui.g_publish.sync",
+    );
+    showToast("Uploading this run to S3…", "info");
+    const latest = await reload();
+    if (latest && applySyncTerminal(latest)) {
+      return;
     }
   };
 
-  const syncThisRun = async () => {
-    // Paint status before any network await — otherwise a hung serve leaves a
-    // grey button with no visible feedback (React won't flush until first await).
+  const publishToS3 = async () => {
     flushSync(() => {
       setBusy(true);
-      setUploadPhase("starting");
-      setStatusMessage("Starting S3 upload for this run…");
+      setPublishPhase("saving");
+      setStatusMessage(
+        reviewDirty ? "Saving title/cover edits…" : "Checking package, then uploading…",
+      );
     });
     try {
-      if (reviewDirty && saveReviewRef.current) {
-        flushSync(() => {
-          setStatusMessage("Saving review edits, then uploading…");
-        });
+      if (reviewDirty) {
+        if (!saveReviewRef.current) {
+          setPublishPhase("error");
+          setStatusMessage("Could not save review — reload the page and try again.");
+          setBusy(false);
+          return;
+        }
         const ok = await saveReviewRef.current();
         if (!ok) {
-          setUploadPhase("error");
-          setStatusMessage("Could not save review — fix title/description, then try Upload again.");
+          setPublishPhase("error");
+          setStatusMessage("Could not save review — fix title/description, then try again.");
           setBusy(false);
           return;
         }
         setReviewDirty(false);
-      } else if (reviewDirty) {
-        setUploadPhase("error");
-        setStatusMessage("Save your review changes, then try Upload again.");
-        setBusy(false);
-        return;
       }
 
-      flushSync(() => {
-        setUploadPhase("uploading");
-        setStatusMessage("Contacting server to start S3 upload…");
-      });
-
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
-      let started: { ok?: boolean; started?: boolean; job?: Record<string, unknown> };
-      try {
-        started = await api<{ ok?: boolean; started?: boolean; job?: Record<string, unknown> }>(
-          `/api/runs/${runId}/g-publish/sync`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-            signal: controller.signal,
-          },
+      let latest = await reload();
+      if (!isPackageReady(latest)) {
+        flushSync(() => {
+          setPublishPhase("preparing");
+          setStatusMessage("Preparing local episode package…");
+        });
+        const res = await api<{ ok?: boolean; started?: boolean; deferred?: boolean }>(
+          `/api/runs/${runId}/g-publish/continue`,
+          { method: "POST" },
         );
-      } finally {
-        window.clearTimeout(timeoutId);
+        appendClientLog(
+          "G-Publish — preparing local episode package (no S3)",
+          "action",
+          "podcast_publish",
+          "gui.g_publish.prepare",
+        );
+        await refreshRun();
+        setStatusMessage(
+          res?.deferred
+            ? "Preparing package (orchestrator)…"
+            : res?.started
+              ? "Preparing local episode package…"
+              : "Preparing local episode package…",
+        );
+        latest = await waitForPackageReady();
+        if (!latest || !isPackageReady(latest)) {
+          setPublishPhase("error");
+          setStatusMessage(
+            "Package did not finish preparing in time. Watch Activity/Logs, then try Publish again.",
+          );
+          setBusy(false);
+          return;
+        }
       }
-      watchingSyncRef.current = true;
-      setUploadPhase("uploading");
-      setStatusMessage(
-        String(
-          (started.job as { message?: string } | undefined)?.message ||
-            "Uploading this run to S3 (additive, this execution only)…",
-        ),
-      );
-      appendClientLog(
-        "G-Publish — uploading this run's package to S3",
-        "action",
-        "podcast_publish",
-        "gui.g_publish.sync",
-      );
-      showToast("Uploading this run to S3…", "info");
-      const latest = await reload();
-      if (latest && applySyncTerminal(latest)) {
-        return;
-      }
-      // Keep busy until poll sees done/error for this run.
+
+      await startS3Upload();
     } catch (err) {
       watchingSyncRef.current = false;
       const aborted =
         (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError");
       const msg = aborted
-        ? "Upload request timed out — the server was too busy to start sync. Hard-refresh and try again."
+        ? "Publish request timed out — the server was too busy. Hard-refresh and try again."
         : String(err);
-      setUploadPhase("error");
+      setPublishPhase("error");
       setStatusMessage(msg);
       showToast(msg, "error");
       setBusy(false);
@@ -270,17 +316,17 @@ export function GPublishPanel() {
 
   const skip = async () => {
     setBusy(true);
-    setUploadPhase("idle");
+    setPublishPhase("idle");
     setStatusMessage("Skipping S3 upload for this run…");
     try {
       await api<{ ok?: boolean }>(`/api/runs/${runId}/g-publish/skip`, { method: "POST" });
       appendClientLog("G-Publish skipped", "action", "podcast_publish", "gui.g_publish.skip");
       await refreshRun();
       setPayload({ ...payload, pending: false, skipped: true, cleared: false });
-      setStatusMessage("G-Publish skipped — local package kept; nothing uploaded.");
+      setStatusMessage("Skipped — local package kept; nothing uploaded.");
       showToast("G-Publish skipped", "info");
     } catch (err) {
-      setUploadPhase("error");
+      setPublishPhase("error");
       setStatusMessage(String(err));
       showToast(String(err), "error");
     } finally {
@@ -288,24 +334,59 @@ export function GPublishPanel() {
     }
   };
 
+  const inFlight =
+    busy ||
+    syncRunning ||
+    publishPhase === "saving" ||
+    publishPhase === "preparing" ||
+    publishPhase === "starting" ||
+    publishPhase === "uploading";
+
   const bannerClass =
-    uploadPhase === "error"
+    publishPhase === "error"
       ? "g-publish-status error"
-      : uploadPhase === "success" || thisRunUploaded
+      : publishPhase === "success" || thisRunUploaded
         ? "g-publish-status success"
-        : uploadPhase === "uploading" || uploadPhase === "starting" || syncRunning
+        : inFlight
           ? "g-publish-status progress"
           : "g-publish-status";
+
+  const phaseLabel =
+    publishPhase === "error"
+      ? "Publish failed"
+      : publishPhase === "success" || thisRunUploaded
+        ? "Published"
+        : publishPhase === "saving"
+          ? "Saving…"
+          : publishPhase === "preparing"
+            ? "Preparing package…"
+            : publishPhase === "uploading" || publishPhase === "starting" || syncRunning
+              ? "Uploading…"
+              : payload.skipped
+                ? "Skipped"
+                : "Ready to publish";
 
   const bannerText =
     statusMessage ||
     (thisRunUploaded
-      ? "This run is on S3."
-      : thisRunReady
-        ? "Local package ready — upload to S3 or skip."
-        : payload.incomplete_count
-          ? "Package incomplete — prepare first."
-          : "Waiting for local package…");
+      ? "This run is on S3 — publish complete."
+      : payload.skipped
+        ? "Skipped — local package kept; nothing uploaded."
+        : thisRunReady
+          ? "Listen to the master, edit title/cover if needed, then publish."
+          : "Listen to the master, edit title/cover if needed, then publish (prepares the package automatically).");
+
+  const primaryLabel = thisRunUploaded
+    ? "Published"
+    : publishPhase === "saving"
+      ? "Saving…"
+      : publishPhase === "preparing"
+        ? "Preparing package…"
+        : publishPhase === "uploading" || publishPhase === "starting" || syncRunning
+          ? "Uploading…"
+          : reviewDirty
+            ? "Save & publish to S3"
+            : "Publish to S3";
 
   return (
     <div data-partial-auto-checkpoint="g_publish">
@@ -314,9 +395,9 @@ export function GPublishPanel() {
         title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}
       >
         <p className="hint">
-          Review title, description, and cover below. Listen to the final master, save your edits,
-          then upload this run&apos;s package to {payload.show_title ?? "Zero Shot Podcast DEMO"}{" "}
-          (S3 + CloudFront invalidation). Sync never deletes remote files or other executions.
+          Review title, description, and cover. One click saves any edits, finishes the local
+          package if needed, and uploads this run to {payload.show_title ?? "Zero Shot Podcast DEMO"}{" "}
+          (S3). Sync never deletes remote files or other executions.
         </p>
 
         <div
@@ -325,23 +406,11 @@ export function GPublishPanel() {
           aria-live="polite"
           data-testid="g-publish-status"
         >
-          {(uploadPhase === "uploading" || uploadPhase === "starting" || syncRunning) && (
-            <span className="spinner-inline" aria-hidden />
-          )}
+          {inFlight && <span className="spinner-inline" aria-hidden />}
           <div className="g-publish-status-copy">
-            <strong>
-              {uploadPhase === "error"
-                ? "Upload failed"
-                : uploadPhase === "success" || thisRunUploaded
-                  ? "Upload complete"
-                  : uploadPhase === "uploading" || syncRunning
-                    ? "Uploading…"
-                    : uploadPhase === "starting"
-                      ? "Starting upload…"
-                      : "Publish status"}
-            </strong>
+            <strong>{phaseLabel}</strong>
             <p>{bannerText}</p>
-            {feedUrl && (uploadPhase === "success" || thisRunUploaded) ? (
+            {feedUrl && (publishPhase === "success" || thisRunUploaded) ? (
               <p className="hint sm">
                 Feed:{" "}
                 <a href={feedUrl} target="_blank" rel="noreferrer">
@@ -358,6 +427,7 @@ export function GPublishPanel() {
             onDirtyChange={setReviewDirty}
             onRegisterSave={registerSave}
             onSaved={() => {
+              setPublishPhase((prev) => (prev === "success" || prev === "error" ? prev : "idle"));
               void reload();
               void refreshRun();
             }}
@@ -399,49 +469,32 @@ export function GPublishPanel() {
           </>
         ) : null}
 
-        <div className="gate-actions-row">
-          {payload.pending && !payload.package_ready ? (
-            <button
-              type="button"
-              className="btn sm primary"
-              disabled={busy || syncRunning}
-              onClick={() => void prepare()}
-            >
-              Prepare package for this run
-            </button>
-          ) : null}
+        <div className="gate-actions-row g-publish-actions" data-testid="g-publish-actions">
           <button
             type="button"
             className="btn sm primary"
             data-testid="g-publish-upload"
-            disabled={busy || syncRunning || !thisRunReady || thisRunUploaded}
+            disabled={inFlight || thisRunUploaded || Boolean(payload.skipped)}
             title={
               thisRunUploaded
-                ? "Already uploaded"
+                ? "Already published"
                 : reviewDirty
-                  ? "Will save review edits, then upload"
-                  : !thisRunReady
-                    ? "Local package not ready"
-                    : undefined
+                  ? "Saves edits, prepares package if needed, then uploads"
+                  : "Prepares package if needed, then uploads this run to S3"
             }
-            onClick={() => void syncThisRun()}
+            onClick={() => void publishToS3()}
           >
-            {syncRunning || uploadPhase === "uploading"
-              ? "Uploading…"
-              : thisRunUploaded
-                ? "Uploaded"
-                : reviewDirty
-                  ? "Save & upload this run to S3"
-                  : "Upload this run to S3"}
+            {primaryLabel}
           </button>
-          {payload.pending ? (
+          {payload.pending || (payload.cleared && !thisRunUploaded && !payload.skipped) ? (
             <button
               type="button"
               className="btn sm ghost"
-              disabled={busy || syncRunning}
+              data-testid="g-publish-skip"
+              disabled={inFlight}
               onClick={() => void skip()}
             >
-              Skip
+              Skip upload
             </button>
           ) : null}
         </div>

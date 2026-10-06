@@ -44,7 +44,7 @@ Low-conf fuse + density must_keep: [low-conf-connector-fuse.md](./low-conf-conne
 
 | Legacy | Role under layup authority |
 |--------|----------------------------|
-| `gap_framing_compose` | Gap *detection* hints only; not authoritative air copy |
+| `gap_framing_compose` | Gap *detection* hints; draft snapshot may be rank-adopted under hosted floor |
 | `gap_framing_recompose` | Thin adapter: re-publish layups / keep orientation (`nugget_layup_authority`) |
 | `synthetic_framing_plan` | Demoted to empty lines (no content recovery LLM) |
 | `seam_glue` placeholders | Suppressed when a before-VO layup already targets the next native |
@@ -57,7 +57,7 @@ Low-conf fuse + density must_keep: [low-conf-connector-fuse.md](./low-conf-conne
 | **Dual SSOT (H3)** | `gap_report` vs `nugget_layup_plan` | **Gap owns air** (VO count, hosted floor, what synthesizes). **Plan owns ledger** (QC, skips, waived/open ids, `compose_shards_pending` / `compose_qc_pending`). Floor restore may keep prior gap lines without re-airing typed-skip plan rows. |
 | **QC before publish (P1)** | `run_nugget_layup_compose.persist` | Recover/park/spine run in memory; authoritative gap publish only after QC would pass. On fail: stamp `_meta.compose_qc_pending`, keep prior gap. |
 | **Craft spine (H1/P7)** | `apply_craft_spine_or_skip` | After ≤1 degraded LLM regen, craft fail → corpus-grounded spine or typed skip — never a third LLM call. |
-| **Floor unsatisfiable (P2)** | `raise_hosted_vo_floor_unsatisfiable` | When deterministic materialize cannot hold G-Framing floor: under `mastering.progress_floors.hosted_vo.aspirational` (default **true**) → stretch revive discarded then **advisory-continue** for **PARTIAL** (`have≥1`); **HOLLOW_ZERO** never advisory — see [hosted-vo-authority.md](hosted-vo-authority.md). Legacy `progress_floors.enabled: false` still escalates once (`hosted_vo_floor_unsatisfiable`, empty heal pin). |
+| **Floor under target (P2)** | `raise_hosted_vo_floor_unsatisfiable` + publish adopt | Hosted floor `need=3` is a **target**. Under-floor publish runs one draft-backed rank-to-budget adopt (`fill_to=need`); if still short (including `have=0`), **advisory-continue** and publish best-effort body — never loud-block the master. See [hosted-vo-authority.md](hosted-vo-authority.md). |
 | **Gap single-flight (P8)** | `gap_report_write_lock` | Serialize compose publish → QC assert against concurrent writers. |
 | **Body ownership** | `lint_gap_report_layup_authority` + `restore_layup_lines` (`repair_gap_report`, `selection_framing_apply`) | Only the publish path writes body `interviewer_lines`. Any other writer that drops lay-ups has them re-injected; foreign origins and coverage below `min_layup_coverage` (default **0.70**) fail the lint. |
 | **Typed skips / omit ledger** | `stamp_typed_skip`, `is_justified_skip_row`, `understanding/omit_ledger.json` | Skips must carry reason + evidence + compensating path. Justified skips leave the coverage denominator; `materialize_over_skipped_layups` must not revive them. G1 / seam / EDL consult the ledger via `effective_air_contract`. Under `recovery_policy.vo_posture=sparse_omit` (monologue / sparse-host — **not** balanced 1:1), compose **must not** call `materialize_over_skipped_layups` — stamp value-less holes instead of force-air. Never lower `min_layup_coverage`. |

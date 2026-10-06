@@ -221,8 +221,9 @@ def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
 def orientation_copy_unusable(text: str) -> bool:
     """True when copy cannot carry guest identity, topic, and listener stakes.
 
-    A trailing forward-cue question is fine after a factual setup. A line that
-    is only a meta-question ("What should we listen for as that opens?") is not.
+    A trailing forward-cue is fine after a factual setup. A line that is only a
+    meta-question ("What should we listen for as that opens?") is not. Abstract
+    quiz closers after a usable body are healed by last-sentence repair, not here.
     """
     t = " ".join(str(text or "").split())
     if not t:

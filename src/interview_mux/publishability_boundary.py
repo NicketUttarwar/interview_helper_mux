@@ -512,6 +512,15 @@ _REMASTER_ONLY_SEAM_REASONS = frozenset(
     }
 )
 
+# Stale junction "applied" stamps vs EDL — paperwork, not a live hanging cut.
+# Mapping to incomplete_cut_unresolved deadlocks mix↔junction under speech-first
+# remaster (exec_023: claimed_repairs_missing_from_edl + speech_first_remaster_pending).
+_CLAIM_INVENTORY_SEAM_REASONS = frozenset(
+    {
+        "claimed_repairs_missing_from_edl",
+    }
+)
+
 
 def _seam_autopsy_blocking_reasons(ctx: RunContext) -> list[str]:
     """HX-3 1B: live ``master/seam_autopsy.json`` first, ``mastering/`` fallback."""
@@ -531,12 +540,31 @@ def _seam_autopsy_blocking_reasons(ctx: RunContext) -> list[str]:
 
 
 def _incomplete_cut_seam_reasons(ctx: RunContext) -> list[str]:
-    """Seam blockers that are true incomplete-cut / residual — not remaster-only."""
+    """Seam blockers that are true incomplete-cut / residual — not remaster/paperwork."""
     return [
         r
         for r in _seam_autopsy_blocking_reasons(ctx)
-        if r not in _REMASTER_ONLY_SEAM_REASONS
+        if r not in _REMASTER_ONLY_SEAM_REASONS and r not in _CLAIM_INVENTORY_SEAM_REASONS
     ]
+
+
+def _claim_inventory_stale_reasons(ctx: RunContext) -> list[str]:
+    """Paperwork-only claim/EDL diverge when live incomplete-cut detect is clean."""
+    reasons = [
+        r
+        for r in _seam_autopsy_blocking_reasons(ctx)
+        if r in _CLAIM_INVENTORY_SEAM_REASONS
+    ]
+    if not reasons:
+        return []
+    try:
+        from interview_mux.junction_snip_qa import live_incomplete_cut_critical_findings
+
+        if live_incomplete_cut_critical_findings(ctx):
+            return []
+    except Exception:
+        return []
+    return reasons
 
 
 def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
@@ -557,10 +585,13 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
         # real mix stage keeps this refusal.
         if getattr(ctx, "_junction_snip_qa_inner", False):
             return []
-        # Mix remaster is the owner of commitment diverge — do not refuse pre_mix
-        # solely because seam_autopsy still lists assembly_not_rendered.
+        # Mix remaster is the owner of assembly_not_rendered diverge — do not
+        # refuse pre_mix solely for that remaster-only reason. Claim-inventory
+        # stale still falls through (reconcile / junction_claim_inventory_stale).
         if active_stage_id() == "mix" and not live_incomplete_cut_critical_findings(ctx):
-            if not _incomplete_cut_seam_reasons(ctx):
+            if not _incomplete_cut_seam_reasons(ctx) and not _claim_inventory_stale_reasons(
+                ctx
+            ):
                 return []
     except Exception:
         pass
@@ -626,6 +657,29 @@ def _check_critical_junction(ctx: RunContext) -> list[PublishabilityViolation]:
                     detail="; ".join(reasons[:4]),
                 )
             )
+            return out
+        claim_reasons = _claim_inventory_stale_reasons(ctx)
+        if claim_reasons:
+            # Best-effort paperwork reconcile before blocking mix (no ladder/remaster).
+            reconciled = False
+            try:
+                from interview_mux.junction_snip_qa import reconcile_junction_claim_inventory
+
+                reconciled = bool(reconcile_junction_claim_inventory(ctx))
+            except Exception:
+                reconciled = False
+            if reconciled:
+                claim_reasons = []
+            else:
+                claim_reasons = _claim_inventory_stale_reasons(ctx)
+            if claim_reasons:
+                out.append(
+                    PublishabilityViolation(
+                        error_class="junction_claim_inventory_stale",
+                        code="seam_autopsy_claim_inventory",
+                        detail="; ".join(claim_reasons[:4]),
+                    )
+                )
     return out
 
 

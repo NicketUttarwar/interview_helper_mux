@@ -30,6 +30,36 @@ describe("findPendingFocusStage", () => {
     expect(findPendingFocusStage(run)).toBe("transcript_review");
   });
 
+  it("maps virtual g_publish gate / llm_gate blocking to podcast_publish", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "podcast_publish",
+          title: "Package episode",
+          description: "",
+          status: "pending",
+        },
+      ],
+      meta: { g_publish_pending: true },
+      job: {
+        status: "gate",
+        stage: "g_publish",
+        message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+      },
+      journey: makeJourney({
+        phase: "ship",
+        blocking: {
+          blocked: true,
+          reason: "llm_gate",
+          stage_id: "g_publish",
+          message: "Final sign-off: listen to the master and check the cover, then Continue or Skip.",
+        },
+      }),
+    });
+    expect(findPendingFocusStage(run)).toBe("podcast_publish");
+    expect(resolveOperatorFocusStageId(run)).toBe("podcast_publish");
+  });
+
   it("focuses podcast_publish when G-Publish is pending even if an earlier stage is incomplete", () => {
     const run = minimalRun({
       stages: [

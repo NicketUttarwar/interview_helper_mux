@@ -7,8 +7,8 @@ Why hosted VO count goes low (census):
 Disposition priority (first match wins):
   HEARD_KEEP → HOLLOW_MINT → OPERATOR_OMIT → NATIVE_OMIT → KEEP_REQUIRED
 
-Floor: HOLLOW_ZERO (have<1) is playability; PARTIAL may aspirational-continue;
-MET/UNWARRANTED/WAIVED are non-blocking for count floors.
+Floor: need=3 is a target. PARTIAL and HOLLOW_ZERO are advisory (never block
+the final master); MET/UNWARRANTED/WAIVED are non-blocking for count floors.
 """
 
 from __future__ import annotations
@@ -583,24 +583,36 @@ def apply_rank_to_budget_fill(
     pool_lines: list[dict[str, Any]],
     plan: dict[str, Any] | None = None,
     seen_targets: set[str] | None = None,
+    fill_to: str = "ideal",
+    need_override: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
-    """Fill ``keep_lines`` up to ideal from ranked ``pool_lines`` (adopt, no invent).
+    """Fill ``keep_lines`` from ranked ``pool_lines`` (adopt, no invent).
 
-    Returns ``(lines, meta, plan_or_none)``. Mutates plan rows when adopting over
-    prefer-native skips so plan and gap_report stay aligned.
+    ``fill_to`` is ``\"need\"`` (under-floor publish) or ``\"ideal\"`` (default soft
+    density). Returns ``(lines, meta, plan_or_none)``. Mutates plan rows when
+    adopting over prefer-native skips so plan and gap_report stay aligned.
     """
     need_n, ideal_n, _max_n = vo_budget_bands(ctx)
+    if need_override is not None:
+        need_n = max(0, int(need_override))
+        ideal_n = max(need_n, ideal_n)
+    fill_mode = str(fill_to or "ideal").strip().lower()
+    if fill_mode not in {"need", "ideal"}:
+        fill_mode = "ideal"
+    target_n = need_n if fill_mode == "need" else ideal_n
     active = count_active_synth_lines(keep_lines)
     meta: dict[str, Any] = {
         "rank_to_budget_fill": True,
         "need": need_n,
         "ideal": ideal_n,
+        "fill_to": fill_mode,
+        "target": target_n,
         "active_before": active,
         "adopted_line_ids": [],
     }
-    if active >= ideal_n:
+    if active >= target_n:
         meta["active_after"] = active
-        meta["skipped"] = "already_at_ideal"
+        meta["skipped"] = "already_at_target"
         return list(keep_lines), meta, plan if isinstance(plan, dict) else None
 
     live: set[str] = set()
@@ -632,7 +644,7 @@ def apply_rank_to_budget_fill(
         if tid:
             reserved.add(tid)
 
-    shortfall = ideal_n - active
+    shortfall = max(0, target_n - active)
     _kept, _pruned, sel_meta = rank_to_budget_select(
         pool_lines,
         need=min(need_n, shortfall),
@@ -974,18 +986,9 @@ def floor_snapshot(
 ) -> HostedFloorSnapshot:
     identity = identify_hosted_vo_floor(ctx, stage_id=stage_id, persist=persist)
     warranted = identity.status not in {"UNWARRANTED", "WAIVED"}
-    aspirational_ok = identity.status == "PARTIAL"
-    # HOLLOW_ZERO always blocks; PARTIAL blocks only when progress floors off.
+    # Count-floor miss (PARTIAL or HOLLOW_ZERO) is advisory — never blocks master.
+    aspirational_ok = identity.status in {"PARTIAL", "HOLLOW_ZERO"}
     escalation_should_block = False
-    if identity.status == "HOLLOW_ZERO":
-        escalation_should_block = True
-    elif identity.status == "PARTIAL":
-        try:
-            from interview_mux.floor_progress import hosted_vo_aspirational
-
-            escalation_should_block = not hosted_vo_aspirational(ctx)
-        except Exception:
-            escalation_should_block = True
     snap = HostedFloorSnapshot(
         identity=identity,
         warranted=warranted,
@@ -1006,7 +1009,7 @@ def floor_snapshot(
 
 
 def may_aspirational_proceed(ctx: RunContext, *, stage_id: str | None = None) -> bool:
-    """True only for PARTIAL floors — never HOLLOW_ZERO."""
+    """True for under-floor hosted VO (PARTIAL or HOLLOW_ZERO) — never blocks master."""
     snap = floor_snapshot(ctx, stage_id=stage_id, persist=True)
     return bool(snap.aspirational_ok)
 

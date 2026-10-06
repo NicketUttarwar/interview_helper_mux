@@ -6,11 +6,16 @@ import { countRequiredAttention, topAttentionItem } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker } from "./stageOutputs";
 import { isStageHidden } from "./stageVisibility";
-import { gateFocusStageId } from "./gateFocus";
+import { canonicalizeOperatorStageId, gateFocusStageId } from "./gateFocus";
 
 export { stageTitleById as stageTitleForId } from "./logDisplay";
 export { isCustomRunArtifactPath } from "../generated/customRunArtifactPaths";
-export { gateFocusStageId, operatorGateFocusStage, upstreamStageFromGateMessage } from "./gateFocus";
+export {
+  canonicalizeOperatorStageId,
+  gateFocusStageId,
+  operatorGateFocusStage,
+  upstreamStageFromGateMessage,
+} from "./gateFocus";
 
 export function filterCustomRunHandoffPaths(paths: string[]): string[] {
   return paths.filter(isCustomRunArtifactPath);
@@ -92,7 +97,8 @@ export function findPendingFocusStage(
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
-    const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
+    const focusSid = canonicalizeOperatorStageId(blocking.stage_id) || blocking.stage_id;
+    const blockedStage = run.stages.find((s) => s.id === focusSid);
     if (!(blockedStage && isStageHidden(blockedStage))) {
       const reason = blocking.reason || "";
       if (
@@ -101,9 +107,10 @@ export function findPendingFocusStage(
         reason === "g1_5_preview_pickup" ||
         reason === "pickup_speaker" ||
         reason === "llm_gate" ||
-        reason === "g_publish"
+        reason === "g_publish" ||
+        focusSid === "podcast_publish"
       ) {
-        return blocking.stage_id;
+        return focusSid;
       }
     }
   }
@@ -112,19 +119,22 @@ export function findPendingFocusStage(
     const gateStage = gateFocusStageId(run.job);
     if (gateStage) return gateStage;
   }
-  if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
+  if (run.job?.needs_stage_reuse && run.job.stage) {
+    return canonicalizeOperatorStageId(run.job.stage) || run.job.stage;
+  }
   if (
     run.job?.status === "needs_operator" &&
     !isApiConsentJobPending(run, grants) &&
     run.job.stage
   ) {
-    return run.job.stage;
+    return canonicalizeOperatorStageId(run.job.stage) || run.job.stage;
   }
 
   if (blocking?.blocked && blocking.stage_id) {
-    const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
+    const focusSid = canonicalizeOperatorStageId(blocking.stage_id) || blocking.stage_id;
+    const blockedStage = run.stages.find((s) => s.id === focusSid);
     if (!(blockedStage && isStageHidden(blockedStage))) {
-      return blocking.stage_id;
+      return focusSid;
     }
   }
 

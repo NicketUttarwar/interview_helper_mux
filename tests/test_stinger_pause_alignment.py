@@ -252,3 +252,135 @@ def test_flow1_overlays_pause_trigger_rhetorical_punctuator(tmp_path: Path, monk
     assert len(overlays) == 1
     assert overlays[0]["position_ms"] == 500
     assert overlays[0]["role"] == "punctuator"
+
+
+def test_pause_align_uses_edl_air_window_not_wide_manifest(tmp_path: Path, monkeypatch) -> None:
+    """exec_017: wide manifest + cropped EDL must not project stingers past the show."""
+    from interview_mux.sound_design import _align_stinger_to_pause_tail
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_stinger_air_window", create=True)
+
+    # Wide fused/hitch bounds (like seg_013 on exec_017).
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_013", start_ms=700_300, end_ms=1_558_270),
+        ),
+    )
+    # Tight EDL air cut that actually plays.
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_013"],
+            "timeline_duration_ms": 344_153,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_013",
+                    "source_start_ms": 1_438_200,
+                    "source_end_ms": 1_456_100,
+                    "timeline_start_ms": 326_253,
+                    "duration_ms": 17_900,
+                }
+            ],
+        },
+    )
+    # Pause near the end of the wide window — the buggy mapper used this.
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                {"text": "early", "start_ms": 700_300, "end_ms": 700_500},
+                {"text": "late", "start_ms": 1_550_000, "end_ms": 1_550_400},
+                {"text": "air", "start_ms": 1_440_000, "end_ms": 1_440_300},
+                {"text": "clip", "start_ms": 1_441_000, "end_ms": 1_441_400},
+            ]
+        },
+    )
+    ctx.write_json("understanding/source_acoustic_profile.json", _profile(min_pause=400))
+
+    segments_by_id = {
+        "seg_013": {"segment_id": "seg_013", "start_ms": 700_300, "end_ms": 1_558_270}
+    }
+    segment_timing = {"seg_013": (326_253, 344_153)}
+    hinge = 326_253
+    mapped = _align_stinger_to_pause_tail(
+        ctx,
+        pos=hinge,
+        cue={"placement": "before_segment", "segment_id": "seg_013"},
+        placement="before_segment",
+        profile=_profile(min_pause=400),
+        transcript=ctx.read_json("transcript/full.json"),
+        segments_by_id=segments_by_id,
+        segment_timing=segment_timing,
+    )
+    # Must stay near the aired clip, never ~1.17e6 (exec_017 orphan).
+    assert 326_253 - 2000 <= mapped <= 344_153 + 2000
+    assert mapped < 500_000
+
+
+def test_clamp_rejects_mapped_stinger_outside_air_window(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux.sound_design import _clamp_mapped_stinger_to_air_window
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_stinger_clamp", create=True)
+    out = _clamp_mapped_stinger_to_air_window(
+        ctx,
+        mapped=1_176_493,
+        segment_id="seg_013",
+        segment_timing={"seg_013": (326_253, 344_153)},
+        fallback_pos=326_253,
+    )
+    assert out == 326_253
+
+
+def test_drop_punctuator_past_speech_end_keeps_bookend(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux.sound_design import _drop_punctuators_past_speech_end
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_drop_past_end", create=True)
+    overlays = [
+        {
+            "asset_id": "show_theme_v1_full_bed_close",
+            "role": "theme",
+            "music_role": "theme_outro",
+            "position_ms": 1_067_718,
+            "preserve_full_duration": True,
+            "audio": AudioSegment.silent(duration=100),
+        },
+        {
+            "asset_id": "show_theme_v1_stinger_01",
+            "role": "theme_punctuator",
+            "music_role": "theme_emphasis",
+            "position_ms": 1_176_493,
+            "audio": AudioSegment.silent(duration=100),
+        },
+        {
+            "asset_id": "ok_sting",
+            "role": "stinger",
+            "position_ms": 900_000,
+            "audio": AudioSegment.silent(duration=100),
+        },
+    ]
+    kept = _drop_punctuators_past_speech_end(
+        ctx, overlays, speech_end_ms=1_067_718, grace_ms=2000
+    )
+    ids = [o["asset_id"] for o in kept]
+    assert "show_theme_v1_full_bed_close" in ids
+    assert "ok_sting" in ids
+    assert "show_theme_v1_stinger_01" not in ids
+
+
+def test_overlay_may_extend_only_bookends() -> None:
+    from interview_mux.sound_design import _overlay_may_extend_timeline
+
+    assert _overlay_may_extend_timeline(
+        {"music_role": "theme_outro", "preserve_full_duration": True}
+    )
+    assert _overlay_may_extend_timeline({"role": "theme", "music_role": "theme_cold_open"})
+    assert not _overlay_may_extend_timeline(
+        {"role": "theme_punctuator", "music_role": "theme_emphasis"}
+    )
+    assert not _overlay_may_extend_timeline({"role": "stinger"})

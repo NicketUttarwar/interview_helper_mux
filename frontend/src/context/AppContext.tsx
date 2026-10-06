@@ -871,13 +871,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         persistSessionUi();
         return;
       }
+      // Virtual G-Publish gate → Package episode workbench (hosts GPublishPanel).
+      const resolvedStageId =
+        stageId === "g_publish" ? "podcast_publish" : stageId;
       if (opts?.pinned !== false) {
-        userPinnedStageIdRef.current = stageId;
-        setPinnedStageId(stageId);
+        userPinnedStageIdRef.current = resolvedStageId;
+        setPinnedStageId(resolvedStageId);
       }
-      const sameStage = selectedStageIdRef.current === stageId;
-      setSelectedStageId(stageId);
-      selectedStageIdRef.current = stageId;
+      const sameStage = selectedStageIdRef.current === resolvedStageId;
+      setSelectedStageId(resolvedStageId);
+      selectedStageIdRef.current = resolvedStageId;
       if (opts?.stepId !== undefined) {
         setActiveStepIdState(opts.stepId);
         activeStepIdRef.current = opts.stepId;
@@ -893,7 +896,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const maybeAutoSelectRunningStage = useCallback(
     (job: JobState | null | undefined) => {
       if (!job || !isJobActivelyRunning(job)) return;
-      const stageId = job.current_stage || job.stage;
+      const rawStageId = job.current_stage || job.stage;
+      const stageId = rawStageId === "g_publish" ? "podcast_publish" : rawStageId;
       if (!stageId) return;
       const pinnedSid = userPinnedStageIdRef.current;
       if (pinnedSid && pinnedSid !== stageId) return;

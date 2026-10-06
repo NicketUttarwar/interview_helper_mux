@@ -339,7 +339,7 @@ def test_gap_compose_predicate_includes_line_and_high_counts(ctx: RunContext) ->
     assert "ln=1" in token
 
 
-def test_forward_cue_lint_blocking_when_framing_yes(ctx: RunContext) -> None:
+def test_forward_cue_lint_not_blocking_when_framing_yes(ctx: RunContext) -> None:
     from interview_mux.deterministic_lint import _lint_optimal_questions
     from interview_mux.gap_vo_gates import set_gap_framing_enabled
 
@@ -354,14 +354,9 @@ def test_forward_cue_lint_blocking_when_framing_yes(ctx: RunContext) -> None:
             }
         ]
     }
-    # Without a forward-looking cue this should block under framing Yes.
+    # Free-form endings are allowed — missing forward cue is not flush-blocking.
     errors = _lint_optimal_questions(arts, ctx)
-    # May or may not trip depending on has_forward_cue heuristics; if text has
-    # no cue pattern, expect missing_forward_cue.
-    from interview_mux.gap_vo_prior_context import has_forward_cue
-
-    if not has_forward_cue("Welcome back. Today we dig in."):
-        assert any("missing_forward_cue" in e for e in errors)
+    assert not any("missing_forward_cue" in e for e in errors)
 
 
 def test_demote_refused_under_framing_yes_with_uncovered(

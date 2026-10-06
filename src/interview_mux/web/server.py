@@ -2087,6 +2087,11 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("publish/package_ready.json")
             else {}
         )
+        from interview_mux.g_publish_review import missing_publish_package_files
+
+        missing_files = missing_publish_package_files(ctx)
+        package_complete = len(missing_files) == 0
+        marker_ready = bool(isinstance(package_ready, dict) and package_ready.get("ready"))
         base = str(targets.get("feed_base_url") or "").rstrip("/")
         feed_url = feed_url_from_base(base, cfg=show) or None
         # Counts + sync are scoped to this run only — never sibling executions.
@@ -2110,7 +2115,10 @@ def create_app() -> FastAPI:
                 else ""
             )
             or None,
-            "package_ready": bool(isinstance(package_ready, dict) and package_ready.get("ready")),
+            # Honest readiness: marker alone is not enough (hollow ready lied before).
+            "package_ready": bool(marker_ready and package_complete),
+            "package_complete": package_complete,
+            "missing_files": missing_files,
             "has_master": committed_master_wav(ctx),
             "publish_result": result if isinstance(result, dict) else {},
             "ready_package_count": int(sync_summary.get("ready_package_count") or 0),

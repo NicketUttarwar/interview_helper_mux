@@ -2,6 +2,18 @@
 
 import type { RunData } from "../types";
 
+/**
+ * Virtual gate ids (not in run.stages) → concrete workbench stage that hosts the panel.
+ * G-Publish job/blocking often lands as `g_publish`; the review UI lives on `podcast_publish`.
+ */
+export function canonicalizeOperatorStageId(
+  stageId: string | null | undefined,
+): string | null {
+  if (!stageId) return null;
+  if (stageId === "g_publish") return "podcast_publish";
+  return stageId;
+}
+
 export function operatorGateFocusStage(
   message: string | undefined,
   jobStage?: string | null,
@@ -10,6 +22,13 @@ export function operatorGateFocusStage(
   const low = message.toLowerCase();
   if (low.includes("transcript review")) {
     return "transcript_review";
+  }
+  if (
+    low.includes("final sign-off") ||
+    low.includes("g-publish") ||
+    (low.includes("check the cover") && low.includes("continue or skip"))
+  ) {
+    return "podcast_publish";
   }
   if (low.includes("framing posture") || low.includes("framing_posture_decide")) {
     return "framing_posture_decide";
@@ -41,5 +60,6 @@ export function gateFocusStageId(job: RunData["job"]): string | null {
   const operator = operatorGateFocusStage(msg, job.stage);
   if (operator) return operator;
   if (!job.stage) return null;
-  return upstreamStageFromGateMessage(msg, job.stage) || job.stage;
+  const raw = upstreamStageFromGateMessage(msg, job.stage) || job.stage;
+  return canonicalizeOperatorStageId(raw);
 }

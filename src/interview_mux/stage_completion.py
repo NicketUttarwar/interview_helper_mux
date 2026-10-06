@@ -539,21 +539,17 @@ def _gap_evals_warrant_hosted_vo(ctx: RunContext) -> bool:
 
 
 def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | None:
-    """When G-Framing Yes + evals warrant VO, refuse compose if lines < hosted floor.
+    """Hosted VO count floor under G-Framing Yes — advisory only, never incomplete.
 
-    Cluster C: HOLLOW_ZERO never aspirational-continues; PARTIAL may.
-
-    S9 (safest): when layup authority stamp is live **with** a plan on disk,
-    floor incompleteness belongs to ``nugget_layup_compose`` — compose no-ops
-    under that stamp and must not thrash on hosted_vo_floor. Orphan stamp
-    (no plan) still evaluates floor here after clear-and-run.
+    S9: when layup authority stamp is live **with** a plan on disk, floor
+    ownership belongs to ``nugget_layup_compose``. Under-floor (PARTIAL /
+    HOLLOW_ZERO) stamps advisories and returns None so compose can complete.
     """
     try:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
         from interview_mux.gap_vo_gates import gap_framing_enabled
         from interview_mux.hosted_vo_authority import (
             floor_snapshot,
-            may_aspirational_proceed,
             reconcile_escalations,
         )
 
@@ -589,30 +585,8 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
         return None
     need = snap.need
     active = snap.have
-    if snap.identity.status == "PARTIAL" and may_aspirational_proceed(
-        ctx, stage_id="gap_framing_compose"
-    ):
-        try:
-            from interview_mux.floor_progress import proceed_on_floor_miss
-
-            proceed_on_floor_miss(
-                ctx,
-                gate_id="hosted_vo_floor",
-                have=active,
-                need=need,
-                pool_exhausted=True,
-                extra={
-                    "source": "gap_framing_compose_incompleteness",
-                    "cause": snap.identity.cause,
-                },
-            )
-            reconcile_escalations(ctx, snap)
-            return None
-        except Exception:
-            pass
-    if snap.identity.status == "HOLLOW_ZERO":
-        # Still allow empty when evals do not warrant (Q6B).
-        if not _gap_evals_warrant_hosted_vo(ctx):
+    if snap.identity.status in {"PARTIAL", "HOLLOW_ZERO"}:
+        if snap.identity.status == "HOLLOW_ZERO" and not _gap_evals_warrant_hosted_vo(ctx):
             try:
                 ctx.log(
                     "gap_framing_compose Q6B: HOLLOW_ZERO but evals do not warrant "
@@ -625,39 +599,26 @@ def _gap_framing_compose_hosted_floor_incompleteness(ctx: RunContext) -> str | N
             except Exception:
                 pass
             return None
-        resume = writable_gap_body_stage(ctx, snap.resume_producer or high_gap_heal_resume_stage(ctx))
-        if resume == "nugget_layup_compose":
-            return (
-                "hosted_vo_floor_unmet — resume nugget_layup_compose: "
-                f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
-            )
-        return (
-            "gap_framing_compose hosted_vo_floor — resume gap_framing_compose: "
-            f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
-        )
-    if not _gap_evals_warrant_hosted_vo(ctx):
         try:
-            ctx.log(
-                "gap_framing_compose Q6B: framing Yes with active lines below floor "
-                f"({active}<{need}) but evals do not warrant hosted VO — allowing empty",
-                level="info",
-                stage="gap_framing_compose",
-                action_id="gap_framing_compose.q6b_empty_allowed",
-                detail={"active": active, "need": need},
+            from interview_mux.floor_progress import proceed_on_floor_miss
+
+            proceed_on_floor_miss(
+                ctx,
+                gate_id="hosted_vo_floor",
+                have=active,
+                need=need,
+                pool_exhausted=True,
+                extra={
+                    "source": "gap_framing_compose_incompleteness",
+                    "cause": snap.identity.cause,
+                    "mode": "advisory_count_floor_continue",
+                },
             )
+            reconcile_escalations(ctx, snap)
         except Exception:
             pass
         return None
-    resume = writable_gap_body_stage(ctx, snap.resume_producer or high_gap_heal_resume_stage(ctx))
-    if resume == "nugget_layup_compose":
-        return (
-            "hosted_vo_floor_unmet — resume nugget_layup_compose: "
-            f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
-        )
-    return (
-        "gap_framing_compose hosted_vo_floor — resume gap_framing_compose: "
-        f"G-Framing Yes requires ≥{need} synthetic host line(s), gap_report has {active}"
-    )
+    return None
 
 
 def _missing_framing_vo_ladder_incompleteness(ctx: RunContext) -> str | None:
@@ -1824,12 +1785,13 @@ def stage_artifact_incompleteness(
                         + tail
                     )
                 if meta.get("hosted_vo_floor_unsatisfiable"):
+                    # Count-floor miss is advisory — clear thrash stamp path and continue.
                     try:
                         from interview_mux.hosted_vo_authority import (
                             floor_snapshot,
-                            may_aspirational_proceed,
                             reconcile_escalations,
                         )
+                        from interview_mux.floor_progress import proceed_on_floor_miss
 
                         snap = floor_snapshot(
                             ctx, stage_id="nugget_layup_compose", persist=True
@@ -1837,40 +1799,23 @@ def stage_artifact_incompleteness(
                         detail = meta.get("hosted_vo_floor_unsatisfiable_detail") or {}
                         active = int(detail.get("active") or snap.have or 0)
                         need_n = int(detail.get("need") or snap.need or 0)
-                        if snap.identity.status == "HOLLOW_ZERO" or active < 1:
-                            return (
-                                "hosted_vo_floor_unsatisfiable — needs_operator "
-                                "(do not recompose): "
-                                f"need={need_n} active={active} "
-                                f"eligible={detail.get('eligible_nugget_count')}"
-                            )
-                        if may_aspirational_proceed(
-                            ctx, stage_id="nugget_layup_compose"
-                        ):
-                            from interview_mux.floor_progress import proceed_on_floor_miss
-
-                            proceed_on_floor_miss(
-                                ctx,
-                                gate_id="hosted_vo_floor",
-                                have=active,
-                                need=need_n,
-                                pool_exhausted=True,
-                                extra={
-                                    "source": "stage_completion_unsatisfiable_cleared",
-                                    "eligible": detail.get("eligible_nugget_count"),
-                                    "cause": snap.identity.cause,
-                                },
-                            )
-                            reconcile_escalations(ctx, snap)
-                            return None
+                        proceed_on_floor_miss(
+                            ctx,
+                            gate_id="hosted_vo_floor",
+                            have=active,
+                            need=need_n,
+                            pool_exhausted=True,
+                            extra={
+                                "source": "stage_completion_unsatisfiable_cleared",
+                                "eligible": detail.get("eligible_nugget_count"),
+                                "cause": snap.identity.cause,
+                                "mode": "advisory_count_floor_continue",
+                            },
+                        )
+                        reconcile_escalations(ctx, snap)
                     except Exception:
                         pass
-                    detail = meta.get("hosted_vo_floor_unsatisfiable_detail") or {}
-                    return (
-                        "hosted_vo_floor_unsatisfiable — needs_operator (do not recompose): "
-                        f"need={detail.get('need')} active={detail.get('active')} "
-                        f"eligible={detail.get('eligible_nugget_count')}"
-                    )
+                    return None
         except Exception:
             pass
         try:
@@ -2710,6 +2655,8 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "g1_vo_open": "vo_synthesize",  # synth path; record path via resolve_g1_vo_open_resume
     "g1_vo_incomplete": "vo_synthesize",
     "incomplete_cut_unresolved": "junction_snip_qa",
+    "junction_claim_inventory_stale": "mix",
+    "claimed_repairs_missing_from_edl": "mix",
     "voice_reference_pending": "missing_framing",
     "gap_delivery_pending": "missing_framing",
     "clone_consent_pending": "missing_framing",
@@ -2788,6 +2735,11 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "hard_keep_exceeds_fragment_depth": "full_master_ranking",
     "hard_keep_same_family_over_budget": "full_master_ranking",
     "hard_keep_span_collision": "full_master_ranking",
+    # late_opening is fixed by local opening projection in sanitize — do not
+    # bounce to ranking (identical-failure thrash). Other integrity codes still
+    # pin ranking.
+    "air_order_integrity_critical:late_opening_cluster": "selection_order_sanitize",
+    "late_opening_cluster": "selection_order_sanitize",
     "air_order_integrity_critical": "full_master_ranking",
     "never_exclude_primary_impact": "full_master_ranking",
     "framing:primary impact": "full_master_ranking",
@@ -3524,7 +3476,12 @@ def producer_pin_for_token(
         if "nugget_layup" in key:
             return "nugget_layup_compose"
         return "air_script_compose"
-    # SOS harden: lattice / integrity tokens pin ranking (not sanitize self-loop).
+    # SOS harden: lattice / integrity tokens pin ranking (not sanitize self-loop),
+    # except late_opening_cluster which convergent sanitize projection heals locally.
+    if "late_opening_cluster" in key or (
+        "air_order_integrity_critical" in key and "late_opening" in key
+    ):
+        return "selection_order_sanitize"
     if (
         "hard_keep_missing_from_order" in key
         or "hard_keep_exceeds_fragment_depth" in key

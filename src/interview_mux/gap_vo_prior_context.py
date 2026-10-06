@@ -492,11 +492,162 @@ def later_opens_nominal_complement(text: str) -> bool:
     return True
 
 
+# Appositive / restrictive-complement openers that finish a prior NP
+# ("a provision called LDT"). Not added to bare _CONTINUER_OPEN_TOKENS —
+# only via source_adjacent_completes / gap-aware paths.
+_APPOSITIVE_COMPLEMENT_OPENERS = frozenset(
+    {
+        "called",
+        "named",
+        "aka",
+        "namely",
+    }
+)
+_APPOSITIVE_COMPLEMENT_PHRASE_RE = re.compile(
+    r"^(?:known\s+as|also\s+known\s+as|referred\s+to\s+as)\b",
+    re.IGNORECASE,
+)
+# Tight gap for high-confidence appositive completion (exec_019 ~1s breath).
+SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS = 1500
+
+
+def _later_opens_appositive_complement(later_head: str) -> bool:
+    stripped = (later_head or "").strip()
+    if not stripped:
+        return False
+    if _APPOSITIVE_COMPLEMENT_PHRASE_RE.match(stripped):
+        return True
+    first = _normalize_tok(stripped.split(None, 1)[0])
+    return first in _APPOSITIVE_COMPLEMENT_OPENERS
+
+
+def _prior_strong_new_unit_close(prev_text: str) -> bool:
+    """True when prior already closed a sentence hard enough that later is a new unit."""
+    stripped = (prev_text or "").strip()
+    if not stripped:
+        return True
+    if stripped.endswith("...") or stripped.endswith("…"):
+        return False
+    # Terminal punct + not a soft-hang setup → treat as finished idea.
+    if stripped[-1:] in ".!?" and not ends_setup_ignoring_terminal_punct(stripped):
+        return True
+    return False
+
+
+def _later_looks_capitalized_new_sentence(later_head: str) -> bool:
+    """Capitalized multi-word open after a close reads as a new sentence, not apposition."""
+    stripped = (later_head or "").lstrip()
+    if not stripped:
+        return False
+    first_word = stripped.split(None, 1)[0]
+    # STT often capitalizes every word; require an alphabetic capital that is not
+    # an all-caps acronym (LDT) and looks sentence-initial with a following space.
+    if not first_word or not first_word[0].isupper():
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", first_word)
+    if len(letters) >= 2 and letters.isupper():
+        return False  # acronym like LDT
+    # "Called him yesterday" after a long pause — capitalized continuer as new sentence.
+    return first_word[0].isupper() and first_word[1:].islower()
+
+
+def source_adjacent_completes(
+    prev_text: str,
+    later_head: str,
+    gap_ms: int,
+    *,
+    same_speaker: bool = True,
+) -> bool:
+    """True when later source words finish the prior clause (incomplete seam).
+
+    High-confidence only: appositive/complement opens (``called``/``named``/…)
+    or classic continuers within a tight gap, without treating every content-noun
+    close as hanging. Cross-speaker allowed only under the same tight gap
+    (diarization flips on the last phrase).
+    """
+    try:
+        gap = max(0, int(gap_ms))
+    except (TypeError, ValueError):
+        return False
+    if gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS:
+        return False
+    prev = (prev_text or "").strip()
+    later = (later_head or "").strip()
+    if not prev or not later:
+        return False
+    if _prior_strong_new_unit_close(prev):
+        # Finished sentence + capitalized new sentence after even a short pause → no.
+        if gap >= DEFAULT_PAUSE_SPLIT_MS and _later_looks_capitalized_new_sentence(later):
+            return False
+        if gap >= DEFAULT_PAUSE_SPLIT_MS:
+            return False
+    if not same_speaker and gap > CROSS_SPEAKER_COMPLETION_GAP_MS:
+        return False
+    # Cross-speaker appositive still needs the tight appositive gap, not the
+    # wider clause-continue ceiling.
+    if not same_speaker and gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS:
+        return False
+
+    if _later_opens_appositive_complement(later):
+        # "That's my provision." / long pause / "Called him…" rejected above.
+        # Soft hang or no terminal punct → appositive completes the NP.
+        if _prior_strong_new_unit_close(prev) and _later_looks_capitalized_new_sentence(
+            later
+        ):
+            return False
+        return True
+
+    # Classic continuers (and/but/which/…) — tight gap, no strong close.
+    if opens_with_clause_continuer(later):
+        if ends_hanging_setup(prev) or ends_unfinished_nominal(prev):
+            return True
+        if prev[-1:] not in ".!?" and gap < DEFAULT_PAUSE_SPLIT_MS:
+            return True
+
+    # later_opens_nominal_complement is broad (any content noun open). Only
+    # trust it when the prior is already an unfinished NP / hanging setup.
+    if later_opens_nominal_complement(later) and (
+        ends_hanging_setup(prev) or ends_unfinished_nominal(prev)
+    ):
+        return True
+    return False
+
+
+def source_adjacent_completes_at(
+    words: list[dict[str, Any]],
+    end_ms: int,
+    *,
+    max_gap_ms: int = SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS,
+    max_lookahead_ms: int | None = None,
+) -> bool:
+    """Word-timeline form of :func:`source_adjacent_completes`."""
+    if not words or end_ms < 0:
+        return False
+    look = int(max_lookahead_ms if max_lookahead_ms is not None else max(max_gap_ms, 4000))
+    ahead = words_after_end(
+        words, end_ms, max_lookahead_ms=look, abut_tol_ms=WORD_ABUT_TOL_MS
+    )
+    if not ahead:
+        return False
+    first_start = int(ahead[0].get("start_ms") or 0)
+    gap = max(0, first_start - int(end_ms))
+    if gap > int(max_gap_ms):
+        return False
+    prev = _text_ending_at(words, end_ms)
+    later = " ".join(_word_token(w) for w in ahead[:12])
+    prev_spk = speaker_at_ms(words, end_ms)
+    later_spk = str(ahead[0].get("speaker_id") or ahead[0].get("speaker") or "").strip()
+    same = (not prev_spk or not later_spk) or prev_spk == later_spk
+    return source_adjacent_completes(prev, later, gap, same_speaker=same)
+
+
 def ends_complete_thought(
     text: str,
     *,
     next_pause_ms: int | None = None,
     pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+    later_head: str | None = None,
+    same_speaker: bool = True,
 ) -> bool:
     """True when text ends on terminal punctuation, or on a non-hanging word
     followed by a pause long enough to read as a finished thought.
@@ -506,6 +657,9 @@ def ends_complete_thought(
     (``next_pause_ms >= pause_split_ms``) so mid-sentence commas/breaths
     aren't mistaken for a complete thought. Hanging multi-word setups are
     never complete even with a long pause.
+
+    When ``later_head`` is supplied, source-adjacent completion (e.g.
+    ``provision`` → ``called LDT``) overrides pause-based completeness.
     """
     stripped = (text or "").strip()
     if not stripped:
@@ -514,6 +668,13 @@ def ends_complete_thought(
     if stripped.endswith("...") or stripped.endswith("…"):
         return False
     if ends_hanging_setup(stripped):
+        return False
+    if later_head is not None and source_adjacent_completes(
+        stripped,
+        later_head,
+        int(next_pause_ms if next_pause_ms is not None else 0),
+        same_speaker=same_speaker,
+    ):
         return False
     if stripped[-1] in ".!?":
         return True
@@ -655,6 +816,13 @@ def same_answer_continues(
         words, left_end_ms, max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS)
     ):
         return True
+    if source_adjacent_completes_at(
+        words,
+        left_end_ms,
+        max_gap_ms=min(int(max_gap_ms), SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS),
+        max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS),
+    ):
+        return True
     left_text = _text_ending_at(words, left_end_ms)
     if left_text and ends_setup_ignoring_terminal_punct(left_text):
         return True
@@ -749,6 +917,15 @@ def clause_continues_after(
     later_head = " ".join(_word_token(w) for w in ahead[:12])
     last = _last_token(end_text)
     adjective_tail = bool(last) and bool(_NOMINAL_ADJECTIVE_RE.match(last))
+    # Incomplete seam: "provision" → "called LDT" even when prior is not
+    # lexically hanging and the breath ≈ pause_split.
+    if source_adjacent_completes_at(
+        words,
+        end_ms,
+        max_gap_ms=min(int(max_lookahead_ms), SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS),
+        max_lookahead_ms=max_lookahead_ms,
+    ):
+        return True
     if hanging_close and gap <= CLAUSE_CONTINUE_MAX_GAP_MS:
         if opens_with_backchannel_completion(later_head) or first_tok in _CONTINUER_OPEN_TOKENS:
             return True
@@ -1034,6 +1211,42 @@ def _next_segment_pause_ms(
     return max(0, gap)
 
 
+def _chronological_next_segment(
+    seg_id: str,
+    *,
+    segments_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Tape-order neighbor after ``seg_id`` (by source start), not air order."""
+    cur = segments_by_id.get(seg_id)
+    if not isinstance(cur, dict):
+        return None
+    try:
+        cur_end = int(cur.get("end_ms") or 0)
+        cur_start = int(cur.get("start_ms") or 0)
+    except (TypeError, ValueError):
+        return None
+    best: dict[str, Any] | None = None
+    best_start: int | None = None
+    for sid, seg in segments_by_id.items():
+        if sid == seg_id or not isinstance(seg, dict):
+            continue
+        try:
+            start = int(seg.get("start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        # Prefer the segment that starts at/after this end (abutting OK).
+        if start < cur_end - WORD_ABUT_TOL_MS and start < cur_start:
+            continue
+        if start < cur_end - 500:
+            # Overlapping / nested — skip unless it starts exactly at the seam.
+            if abs(start - cur_end) > WORD_ABUT_TOL_MS:
+                continue
+        if best_start is None or start < best_start:
+            best = seg
+            best_start = start
+    return best
+
+
 def build_prior_native_context(
     *,
     target_segment_id: str,
@@ -1074,7 +1287,34 @@ def build_prior_native_context(
     next_pause_ms = _next_segment_pause_ms(
         prior_id, ordered_ids=ordered_ids, segments_by_id=segments_by_id
     )
-    complete = _ends_complete_thought(text, next_pause_ms=next_pause_ms)
+    later_head: str | None = None
+    same_spk = True
+    chrono_next = _chronological_next_segment(prior_id, segments_by_id=segments_by_id)
+    if isinstance(chrono_next, dict):
+        later_head = str(chrono_next.get("text") or "").strip()[:240] or None
+        try:
+            gap = int(chrono_next.get("start_ms") or 0) - int(prior.get("end_ms") or 0)
+            next_pause_ms = max(0, gap) if next_pause_ms is None else min(
+                int(next_pause_ms), max(0, gap)
+            )
+        except (TypeError, ValueError):
+            pass
+        prior_spk = str(prior.get("speaker_id") or "").strip()
+        later_spk = str(chrono_next.get("speaker_id") or "").strip()
+        same_spk = (not prior_spk or not later_spk) or prior_spk == later_spk
+    complete = _ends_complete_thought(
+        text,
+        next_pause_ms=next_pause_ms,
+        later_head=later_head,
+        same_speaker=same_spk,
+    )
+    if later_head and source_adjacent_completes(
+        text,
+        later_head,
+        int(next_pause_ms or 0),
+        same_speaker=same_spk,
+    ):
+        complete = False
     impact = _looks_like_impact_beat(prior, cfg=settings, next_pause_ms=next_pause_ms)
     return {
         "segment_id": prior_id,
@@ -1363,7 +1603,7 @@ def vo_value_gate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "restate_min_vo_tokens": 6,
         "allow_summary_overlap_max": 0.75,
         "enforce_courtesy": True,
-        "require_forward_cue": True,
+        "require_forward_cue": False,
         "require_cold_open_layup": True,
     }
     return {**defaults, **block}
@@ -1451,6 +1691,13 @@ _GENERIC_HANDOFF_RE = re.compile(
     r"now let['’]?s hear|let['’]?s get into it)\b",
     re.IGNORECASE,
 )
+# Abstract quiz closers sound like planner prompts, not podcast cold opens
+# (exec_017: "What does the conventional route ask of a patient?").
+_WEAK_QUIZ_PREFACE_RE = re.compile(
+    r"\bwhat does (?:the|that|this|a|an)\b.+\b"
+    r"(?:ask|reveal|mean|tell|require|demand|suggest|imply)\b",
+    re.IGNORECASE,
+)
 
 
 def last_spoken_sentence(text: str) -> str:
@@ -1500,7 +1747,7 @@ def cold_open_layup_ok(
     target_text: str,
     ordered_ids: list[str] | None = None,
 ) -> bool:
-    """Preface / first-segment last sentence must cue the actual first native, not a generic origin prompt."""
+    """Preface / first-segment may be free-form, but must not restate T or use stock quiz/origin closers."""
     category = str(line.get("line_category") or "").strip().lower()
     tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
     ordered = [str(s) for s in (ordered_ids or []) if s]
@@ -1510,9 +1757,10 @@ def cold_open_layup_ok(
     last = last_spoken_sentence(str(line.get("text") or ""))
     if not last:
         return False
-    if not has_forward_cue(last):
-        return False
     if _GENERIC_HANDOFF_RE.search(last):
+        return False
+    # Preface quiz closers fail the cold-open bar even when they "cue" a topic.
+    if category == "episode_preface" and _WEAK_QUIZ_PREFACE_RE.search(last):
         return False
     tgt = str(target_text or "").strip()
     if not tgt:
@@ -1529,14 +1777,25 @@ def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
     """Grounded last-sentence candidates that survive spoken_copy + cold-open checks."""
     tgt_l = str(target_text or "").lower()
     cues: list[str] = []
+    preface = category == "episode_preface"
     if "contrast" in tgt_l or "versus" in tgt_l or "vs." in tgt_l:
-        cues.append("What does that contrast reveal?")
+        if preface:
+            cues.append("That contrast is where the conversation opens.")
+        else:
+            cues.append("What does that contrast reveal?")
     if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
-        cues.append(
-            "What made that deal possible?"
-            if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
-            else "What was at stake in that exit?"
-        )
+        if preface:
+            cues.append(
+                "Let's open on what made that deal possible."
+                if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+                else "Let's open on what was at stake in that exit."
+            )
+        else:
+            cues.append(
+                "What made that deal possible?"
+                if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+                else "What was at stake in that exit?"
+            )
     if any(
         tok in tgt_l
         for tok in (
@@ -1552,19 +1811,28 @@ def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
             "founder",
         )
     ):
+        if preface:
+            cues.extend(
+                [
+                    "Let's start with that introduction.",
+                    "That introduction is where we begin.",
+                ]
+            )
+        else:
+            cues.extend(
+                [
+                    "Who is at the center — and why start there?",
+                    "Why open by establishing that introduction?",
+                    "What should we know before that introduction lands?",
+                ]
+            )
+    if preface:
+        # Optional natural closers only — never stock "beat lands" scaffolding.
         cues.extend(
             [
-                "Who is he — and why start there?",
-                "Why open by establishing who he is?",
-                "What should we know about him before that introduction lands?",
-            ]
-        )
-    if category == "episode_preface":
-        cues.extend(
-            [
-                "Let's hear how that opening beat lands.",
                 "That opening sets the stakes we'll follow.",
                 "Let's start with how that story begins.",
+                "This is where the conversation begins.",
             ]
         )
     else:
@@ -1669,20 +1937,15 @@ def repair_last_sentence_layup(
             continue
         return candidate
 
-    # Last resort: always attach a speakable forward cue. A single factual
-    # sentence with no body split used to return unchanged (exec_11630
-    # vo_bridge_seg_044 → post-commit "needs a forward cue" loop).
-    fallback = "Let's hear how that beat lands."
+    # Last resort: keep free-form copy. Do not append stock "Let's hear…" /
+    # "beat lands" hinges — forward-unlock endings are optional.
     if body:
-        return _fit(body, fallback)
-    if stripped and not stripped.endswith("?"):
-        base = stripped.rstrip(".!?…").rstrip()
-        return _fit(f"{base}.", fallback) if base else fallback
-    if stripped.endswith("?"):
+        return body if body[-1:] in ".!?…" else f"{body}."
+    if stripped:
         if max_words is not None and max_words > 0 and _word_n(stripped) > max_words:
-            return _fit("", stripped)  # question alone; _fit truncates if needed
+            return _fit("", stripped)
         return stripped
-    return fallback or seeded or stripped
+    return seeded or stripped
 
 
 def vo_value_violations(
@@ -1724,7 +1987,7 @@ def vo_value_violations(
         tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
         if not text:
             continue
-        if settings.get("require_forward_cue", True) and not has_forward_cue(text):
+        if settings.get("require_forward_cue", False) and not has_forward_cue(text):
             errs.append(f"{lid}: last sentence needs a forward cue into the next beat")
         target = segs.get(tid) or {}
         target_text = str(target.get("text") or target.get("text_excerpt") or "")
@@ -1732,8 +1995,8 @@ def vo_value_violations(
             line, target_text=target_text, ordered_ids=ordered_ids
         ):
             errs.append(
-                f"{lid}: cold-open / preface last sentence must cue the first native clip "
-                "without restating it or using a generic origin prompt"
+                f"{lid}: cold-open / preface must not restate the first native clip "
+                "or close with a weak quiz / generic origin prompt"
             )
         if not tid or not target_text:
             continue
@@ -1807,17 +2070,15 @@ def courtesy_seed_text(
     diversified = _COURTESY_SEED_POOL[pool_i]
     if category == "episode_preface":
         if impact and quote:
-            candidate = "That landing stays with you — what should we listen for next?"
+            candidate = "That landing stays with you as the conversation opens."
         else:
-            # Avoid show-scaffold phrases that spoken_copy_guard omits entirely
-            # ("Coming up — where does this stretch lead?"), which left orientation
-            # with no forward cue and failed cold_open_layup_ok.
-            candidate = "Let's hear how that opening beat lands."
+            # Free-form orientation — no stock forward-unlock hinge required.
+            candidate = "That opening sets the stakes we'll follow."
     elif category == "segment_summary":
         if quote:
-            candidate = "Keep that beat in mind — what claim follows?"
+            candidate = "Keep that beat in mind as the next claim lands."
         else:
-            candidate = "Here's the hinge — what should we listen for next?"
+            candidate = "Here's the hinge into what follows."
     elif category == "story_bridge":
         if impact and quote:
             candidate = "That's a sharp point — how does it set up what comes next?"

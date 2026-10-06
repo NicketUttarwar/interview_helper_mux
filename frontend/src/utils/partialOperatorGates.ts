@@ -35,7 +35,7 @@ export function partialMustActCopy(): string {
 }
 
 export function partialMustActOverlayCopy(): string {
-  return `You'll be prompted when your input is needed — required stops are ${PARTIAL_MUST_ACT_LABEL}. Other gates (${PARTIAL_MAY_PAUSE_LABEL}) may also pause the run. Watch the stage list and Logs for progress.`;
+  return `This cover stays up while the run walks. It lifts for transcript review (G0) and again at Ship for final title/cover edits before publish. Other gates (${PARTIAL_MAY_PAUSE_LABEL}) may also pause. Watch the stage list and Logs for progress.`;
 }
 
 export function partialMustActStartHint(): string {

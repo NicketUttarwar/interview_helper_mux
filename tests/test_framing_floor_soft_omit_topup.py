@@ -72,17 +72,46 @@ def test_framing_floor_topup_clears_soft_omit_when_hollow(ctx: RunContext) -> No
             "air_script_omit": True,
             "omit": True,
             "skip_reason_code": "air_script_omit_sync",
-        }
+            "severity": "high",
+            "required": True,
+        },
+        {
+            "line_id": "vo_layup_seg_040",
+            "origin": "gap_framing_compose",
+            "targets_segment_id": "seg_040",
+            "placement": "before",
+            "delivery": "synthesize",
+            "text": "Second host bridge restores floor density for listeners.",
+            "severity": "high",
+            "required": True,
+        },
+        {
+            "line_id": "vo_layup_seg_041",
+            "origin": "gap_framing_compose",
+            "targets_segment_id": "seg_041",
+            "placement": "before",
+            "delivery": "synthesize",
+            "text": "Third host bridge completes the hosted VO floor target.",
+            "severity": "high",
+            "required": True,
+        },
     ]
-    with pytest.raises(RuntimeError, match="peeled"):
-        _framing_floor_topup(
-            ctx,
-            candidate_lines=[],
-            prior_lines=prior,
-            seen_targets=set(),
-            need=3,
-            plan={"layups": []},
-        )
+    filled, _notes, _plan = _framing_floor_topup(
+        ctx,
+        candidate_lines=[],
+        prior_lines=prior,
+        seen_targets=set(),
+        need=3,
+        plan={"layups": []},
+    )
+    active = _count_active_synthetic_lines(filled)
+    assert active >= 3
+    adopted = next(
+        ln for ln in filled if str(ln.get("line_id")) == "vo_layup_seg_037"
+    )
+    assert adopted.get("origin") == "nugget_layup"
+    assert not adopted.get("skipped_optional")
+    assert not adopted.get("air_script_omit")
 
 
 def test_may_soft_omit_refuses_below_floor_pre_synth(

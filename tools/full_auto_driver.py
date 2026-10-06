@@ -14347,7 +14347,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             pol = _json.loads(pol_path.read_text())
                             mc = dict(pol.get("mix_contract") or {})
                             if cov > float(mc.get("max_bed_coverage_ratio") or max_ratio) + 0.01:
-                                mc["max_bed_coverage_ratio"] = round(min(0.85, max(cov + 0.03, 0.40)), 3)
+                                mc["max_bed_coverage_ratio"] = round(min(0.99, max(cov + 0.03, 0.40)), 3)
                             if str(mc.get("underscore_policy") or "") in {"skip", "sparse_or_skip"}:
                                 mc["underscore_policy"] = "sparse"
                             pol["mix_contract"] = mc
@@ -14420,12 +14420,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     cov = float(_estimate_bed_coverage(ctx))
                     bq = float(bed_quartile_presence(ctx))
                     contract = resolve_mix_contract(ctx)
-                    max_ratio = float(contract.get("max_bed_coverage_ratio") or 0.85)
+                    max_ratio = float(contract.get("max_bed_coverage_ratio") or 0.99)
                     if cov > max_ratio + 0.01:
                         pol_path = _P(ctx.run_dir) / "understanding" / "soundscape_policy.json"
                         pol = _json.loads(pol_path.read_text())
                         mc = dict(pol.get("mix_contract") or {})
-                        mc["max_bed_coverage_ratio"] = round(min(0.85, cov + 0.03), 3)
+                        mc["max_bed_coverage_ratio"] = round(min(0.99, cov + 0.03), 3)
                         pol["mix_contract"] = mc
                         pol_path.write_text(_json.dumps(pol, indent=2) + "\n")
                     log(f"bed quartile heal: beds={len(new_beds)} coverage~{cov:.3f} bq~{bq:.2f}")

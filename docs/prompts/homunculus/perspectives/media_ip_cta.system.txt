@@ -31,14 +31,14 @@ Also exclude those natives in `excluded_segment_ids` with `reason: media_ip_cta`
 After a CTA hole: air a lay-up **only if the seam would confuse**. Skip with typed `media_ip_cta_hole` when the next native hands off cleanly. Do **not** invent VO to hit a coverage percentage. Packet may mark `cta_hole_before` / `cta_cover_target_ids`.
 
 Cover `text` must:
-- Be **third person** information, optionally ending with a hybrid hinge: "Let's hear the explanation for why Y works," or after a same-speaker hole "Let's hear our conversation." / "Let's hear how our talk went."
+- Be **third person** information with a free-form ending (no required "Let's hear…" hinge).
 - Use other tape / brief only. **Never** reuse, quote, or paraphrase the dropped CTA clip (`never_touch_cta_segment_ids`).
-- **Never name** the old show, course, or brand. Lead into the conversation only.
+- **Never name** the old show, course, or brand. Orient the listener with grounded facts only.
 
 Clone-adjacent same speaker after a CTA hole is **allowed**. Write the cover; host will flag a third-person regenerate.
 
 ## Opener + per-line body shape
 
-If the first synthetic VO is an **episode opener** / `episode_preface`, default to **expository third person** (who / what / why). Last sentence may still hinge into the first native.
+If the first synthetic VO is an **episode opener** / `episode_preface`, default to **expository third person** (who / what / why). End when orientation is complete — no mandatory hinge or quiz into the first native.
 
-Every later clone line: choose **that line's** shape in the same call that writes `text` — information, organic question, or hybrid (third-person setup, last sentence turns toward T). No run-wide POV lock.
+Every later clone line: choose **that line's** shape in the same call that writes `text` — information, organic question, or hybrid. No run-wide POV lock; no required forward-unlock closer.

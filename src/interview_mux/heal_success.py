@@ -48,6 +48,8 @@ RECOVER_PLAYBOOK_ALLOW: frozenset[str] = frozenset(
         "pending_write_barrier",
         "musicgen_theme_failed",
         "incomplete_cut_unresolved",
+        "junction_claim_inventory_stale",
+        "claimed_repairs_missing_from_edl",
         "vo_seated_coverage",
         "vo_contract_repair",
         "upstream_stale_rerun",

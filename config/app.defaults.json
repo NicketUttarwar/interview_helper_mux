@@ -295,7 +295,7 @@
       "host_vo_duration_max_ratio": 0.45,
       "host_vo_quartile_presence_min_ratio": 0.5,
       "bed_coverage_min_ratio": 0.4,
-      "bed_coverage_max_ratio": 0.85,
+      "bed_coverage_max_ratio": 0.99,
       "bed_quartile_presence_min_ratio": 0.5,
       "hinge_stinger_coverage_min_ratio": 0.3,
       "hinge_stinger_coverage_max_ratio": 1.0,
@@ -1268,7 +1268,7 @@
         "restate_min_vo_tokens": 6,
         "allow_summary_overlap_max": 0.75,
         "enforce_courtesy": true,
-        "require_forward_cue": true,
+        "require_forward_cue": false,
         "require_cold_open_layup": true
       }
     },
@@ -1577,7 +1577,7 @@
       "enable": true,
       "fail_open": true,
       "bed_coverage_aim_lo": 0.4,
-      "bed_coverage_aim_hi": 0.85,
+      "bed_coverage_aim_hi": 0.99,
       "_comment": "Shape realization on mastering_plan \u2014 docs/cross-cutting/air-script.md. Fail-open only if plan absent."
     },
     "air_order_integrity": {
@@ -1598,7 +1598,7 @@
       "reverse_jump_margin_max_ms": 600000,
       "count_opening_by_family": true,
       "fragmentation_extra_slots": 2,
-      "block_ranking_on_critical": false,
+      "block_ranking_on_critical": true,
       "block_publish_on_critical": true,
       "invalidate_edl_on_order_change": true,
       "invalidate_transitions_on_order_change": true,
@@ -1847,7 +1847,12 @@
     "music_continuity": {
       "prefer_contiguous_beds": true,
       "scene_crossfade_ms": 2400,
-      "require_true_bookend_anchors": true
+      "require_true_bookend_anchors": true,
+      "chapter_music_bridge_enable": true,
+      "chapter_music_bridge_ms": 4000,
+      "min_bridge_separation_ms": 45000,
+      "vo_bridge_min_duration_ms": 6000,
+      "vo_bridge_min_words": 18
     }
   },
   "_comment_v2": "Greenfield simplified master podcast app \u2014 see NORTH_STAR.md",

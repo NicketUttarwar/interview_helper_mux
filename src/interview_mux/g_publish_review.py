@@ -188,8 +188,70 @@ def apply_cover_from_path(ctx: RunContext, source_rel: str) -> str:
     return cover_rel
 
 
+def missing_publish_package_files(ctx: RunContext) -> list[str]:
+    """Relative publish/ filenames required for S3 that are absent or empty."""
+    layout = s3_layout(_podcast_cfg(ctx))
+    files = layout["episode_files"]
+    required = [
+        str(files["audio"]),
+        str(files["master"]),
+        str(files["cover"]),
+        str(files["chapters"]),
+        str(files.get("transcript") or "transcript.vtt"),
+        str(files["meta"]),
+        str(files["description"]),
+    ]
+    missing: list[str] = []
+    for name in required:
+        path = _resolve_publish_file(ctx, f"publish/{name}")
+        if path is None:
+            missing.append(name)
+    return missing
+
+
+def ensure_publish_package_sidecars(ctx: RunContext) -> list[str]:
+    """Mint chapters + Apple transcript into publish/ when missing (review save / prepare).
+
+    Returns remaining missing filenames after the attempt (empty when sync-ready).
+    """
+    layout = s3_layout(_podcast_cfg(ctx))
+    files = layout["episode_files"]
+    chapters_name = str(files["chapters"])
+    transcript_name = str(files.get("transcript") or "transcript.vtt")
+
+    if _resolve_publish_file(ctx, f"publish/{chapters_name}") is None:
+        from interview_mux.podcast_rss.chapters import build_timed_chapters
+
+        chapters_doc = build_timed_chapters(ctx)
+        ctx.write_json(f"publish/{chapters_name}", chapters_doc)
+
+    if _resolve_publish_file(ctx, f"publish/{transcript_name}") is None:
+        if not ctx.artifact_exists("master/transcript.vtt"):
+            raise FileNotFoundError(
+                "master/transcript.vtt missing — resume master_transcript_build before G-Publish upload"
+            )
+        master_vtt = ctx.read_path("master/transcript.vtt")
+        if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
+            raise FileNotFoundError(
+                "master/transcript.vtt missing — cannot package Apple transcript"
+            )
+        transcript_dest = ctx.path(f"publish/{transcript_name}")
+        transcript_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(master_vtt, transcript_dest)
+        final_vtt = ctx.final_path("publish", transcript_name)
+        if transcript_dest.resolve() != final_vtt.resolve():
+            final_vtt.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(transcript_dest, final_vtt)
+
+    return missing_publish_package_files(ctx)
+
+
 def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str) -> None:
-    """Rewrite package markers after operator edits (no S3)."""
+    """Rewrite package markers after operator edits (no S3).
+
+    Never stamps ``ready:true`` unless chapters/transcript/audio/cover are on disk —
+    a hollow ready marker disables Upload (sync incomplete) and hides Prepare.
+    """
     layout = s3_layout(_podcast_cfg(ctx))
     files = layout["episode_files"]
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -200,6 +262,9 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
 
     title = title.strip() or "Untitled Episode"
     description = description.strip() or title
+
+    missing_after = ensure_publish_package_sidecars(ctx)
+    package_complete = len(missing_after) == 0
 
     ctx.write_json(
         "publish/episode_meta.json",
@@ -226,22 +291,24 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
         "podcast_id": podcast_id_from_ctx(ctx),
         "source_audio_hash": source_hash,
         "prepared_at": prepared_at,
-        "package_status": "ready_local",
+        "package_status": "ready_local" if package_complete else "incomplete",
         "cover_source": (
             (cover_meta or {}).get("cover_source") if isinstance(cover_meta, dict) else "unknown"
         ),
         "operator_reviewed": True,
+        "missing_files": missing_after,
     }
     ctx.write_json(f"publish/{files['meta']}", episode_draft)
     ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
     ctx.write_json(
         "publish/package_ready.json",
         {
-            "ready": True,
+            "ready": package_complete,
             "prepared_at": prepared_at,
             "execution_id": execution_id,
             "title": title,
             "operator_reviewed": True,
+            "missing_files": missing_after,
             "files": {
                 "audio": files["audio"],
                 "master": files["master"],
@@ -256,13 +323,18 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
     ctx.write_json(
         "publish/publish_result.json",
         {
-            "local_package": True,
+            "local_package": package_complete,
             "uploaded": False,
             "execution_id": execution_id,
             "title": title,
             "prepared_at": prepared_at,
             "operator_reviewed": True,
-            "hint": "G-Publish → Upload this run to S3 (or scripts/sync_podcast_episodes.py --execution-id …)",
+            "missing_files": missing_after,
+            "hint": (
+                "G-Publish → Upload this run to S3 (or scripts/sync_podcast_episodes.py --execution-id …)"
+                if package_complete
+                else "Package incomplete — click Prepare package, then Upload."
+            ),
         },
     )
 

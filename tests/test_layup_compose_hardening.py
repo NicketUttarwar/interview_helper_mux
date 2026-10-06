@@ -6,9 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from interview_mux.artifact_ownership import heal_pin_for
 from interview_mux.delivery_guardrails import clamp_resume_through_order
-from interview_mux.loud_fail import LoudStageFailure
 from interview_mux.nugget_layup import (
     CORPUS_REL,
     GAP_REL,
@@ -163,8 +161,8 @@ def test_craft_spine_skips_unhealable_canned_row():
         assert len(text.split()) >= 8
 
 
-def test_hosted_vo_floor_unsatisfiable_heal_pin_empty(monkeypatch):
-    """Legacy path (progress floors off) still loud-fails with empty heal pin."""
+def test_hosted_vo_floor_unsatisfiable_advisory_stamps(monkeypatch):
+    """Under-floor (including hollow) is advisory — stamps signal, no loud fail."""
     monkeypatch.setattr(
         "interview_mux.floor_progress.hosted_vo_aspirational",
         lambda _ctx=None: False,
@@ -172,24 +170,17 @@ def test_hosted_vo_floor_unsatisfiable_heal_pin_empty(monkeypatch):
     ctx = RunContext("exec_layup_floor_unsat", create=True)
     _seed(ctx, ["seg_001"])
     ctx.write_json(PLAN_REL, {"ordered_segment_ids": ["seg_001"], "layups": []})
-    with pytest.raises(LoudStageFailure) as ei:
-        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
-    assert ei.value.reason == "hosted_vo_floor_unsatisfiable"
-    assert heal_pin_for("hosted_vo_floor_unsatisfiable", ctx=ctx) == ""
+    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
     plan = ctx.read_json(PLAN_REL)
     assert (plan.get("_meta") or {}).get("hosted_vo_floor_unsatisfiable") is True
-    esc = ctx.read_json("operator/escalations/nugget_layup_compose.json")
-    assert esc.get("reason") == "hosted_vo_floor_unsatisfiable"
 
 
-def test_hosted_vo_floor_aspirational_no_loud_fail():
-    """HOLLOW_ZERO (active=0) still loud-fails; aspirational only waives PARTIAL."""
+def test_hosted_vo_floor_hollow_no_loud_fail():
+    """HOLLOW_ZERO advisory-continues; never loud-blocks the master."""
     ctx = RunContext("exec_layup_floor_asp", create=True)
     _seed(ctx, ["seg_001"])
     ctx.write_json(PLAN_REL, {"ordered_segment_ids": ["seg_001"], "layups": []})
-    with pytest.raises(LoudStageFailure) as ei:
-        raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
-    assert ei.value.reason == "hosted_vo_floor_unsatisfiable"
+    raise_hosted_vo_floor_unsatisfiable(ctx, need=3, active=0, eligible_nuggets=0)
 
 
 def test_invalidate_vo_after_layup_rewrite_drops_wav(tmp_path: Path, monkeypatch):

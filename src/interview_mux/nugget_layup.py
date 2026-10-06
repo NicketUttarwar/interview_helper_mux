@@ -21,6 +21,7 @@ from interview_mux.run_context import RunContext
 CORPUS_REL = "understanding/nugget_corpus.json"
 PLAN_REL = "understanding/nugget_layup_plan.json"
 GAP_REL = "understanding/gap_report.json"
+GAP_DRAFT_REL = "understanding/gap_report.draft.json"
 GAP_WRITE_LOCK_REL = "understanding/.gap_report.write.lock"
 QC_REL = "understanding/nugget_layup_qc.json"
 MASKS_REL = "understanding/native_comprehension_masks.json"
@@ -44,6 +45,7 @@ LAYUP_AIR_ADVISORIES_META_KEY = "layup_air_advisories"
 # LLM analysis fields that make a lay-up a *constructed* next-native setup
 # instead of a generic hinge. Required on every non-skip row.
 ANALYSIS_FIELDS = ("target_beat", "listener_need_entering_T", "forward_unlock")
+REQUIRED_ANALYSIS_FIELDS = ("target_beat", "listener_need_entering_T")
 
 # Body lines that may legitimately survive publish under layup authority.
 AUTHORITY_BODY_ORIGINS = frozenset(
@@ -1024,7 +1026,9 @@ def build_layup_compose_input(
         "information_package_dense_targets": dense_targets,
         "require_layup_per_native": bool(cfg["require_layup_per_native"]),
         "prefer_excluded_nuggets": bool(cfg["prefer_excluded_nuggets"]),
-        "required_analysis_fields": list(ANALYSIS_FIELDS) if cfg["require_analysis_fields"] else [],
+        "required_analysis_fields": (
+            list(REQUIRED_ANALYSIS_FIELDS) if cfg["require_analysis_fields"] else []
+        ),
         "banned_air_phrases": sorted(canned_air_phrases()) if cfg["ban_canned_air"] else [],
         "degraded_layup": deg,
         "slim_open_nuggets": slim_open,
@@ -1745,23 +1749,18 @@ def heal_layup_analysis_fields(
             from interview_mux.media_ip_cta import is_lets_hear_hinge
         except Exception:
             is_lets_hear_hinge = lambda _t: False  # noqa: E731
-        # Compose's third-person + "let's hear…" hinge wins — do not restyle into a WH-question.
-        if body and (is_lets_hear_hinge(body) or is_lets_hear_hinge(unlock)):
-            text = body if is_lets_hear_hinge(body) else f"{body.rstrip('.!?')}. {unlock}".strip()
-        elif body and not body.rstrip().endswith("?"):
-            text = f"{body.rstrip('.!?')}. {unlock}"
-        elif body and canned_air_violations(body):
-            text = f"{_strip_trailing_canned_unlock(body).rstrip('.!?')}. {unlock}".strip()
-            if text.startswith("."):
-                text = unlock
-        else:
-            # Already ends in a question — prefer derived unlock when the trailing
-            # sentence is still a banned generic.
-            parts = [p.strip() for p in _SENTENCE_SPLIT.split(body) if p.strip()]
+        # Keep free-form spoken copy. Only strip banned trailing unlocks; never
+        # force-append a forward-unlock / "let's hear…" hinge.
+        if body and canned_air_violations(body):
+            text = _strip_trailing_canned_unlock(body).strip() or body
+            parts = [p.strip() for p in _SENTENCE_SPLIT.split(text) if p.strip()]
             if parts and canned_air_violations(parts[-1]):
-                text = (" ".join(parts[:-1]).rstrip('.!?') + f". {unlock}").strip()
-            else:
-                text = body
+                text = " ".join(parts[:-1]).strip() or text
+        else:
+            text = body
+        # Preserve intentional let's-hear hinges when the model already wrote them.
+        if body and is_lets_hear_hinge(body):
+            text = body
         text = " ".join(text.split()).strip()
         if text and text != before:
             row["text"] = text
@@ -2353,7 +2352,6 @@ def repair_or_skip_spoken_copy_layups(
     )
     from interview_mux.gap_vo_prior_context import (
         _target_aware_forward_cues,
-        has_forward_cue,
         last_sentence_restates_target,
         repair_last_sentence_layup,
         vo_target_overlap_ratio,
@@ -2547,8 +2545,8 @@ def repair_or_skip_spoken_copy_layups(
                     }
                 )
                 violations = spoken_copy_violations(text, evidence=evidence, seen_texts=seen)
-        # vo_value restatement / missing forward cue can fail delivery even when
-        # spoken_copy_guard's coarser restatement check is quiet.
+        # vo_value restatement can fail delivery even when spoken_copy_guard's
+        # coarser restatement check is quiet. Forward-unlock endings are optional.
         soft_bad = False
         overlap = (
             vo_target_overlap_ratio(text, target_text) if text and target_text else 0.0
@@ -2556,9 +2554,6 @@ def repair_or_skip_spoken_copy_layups(
         preview_ok = _nugget_preview_ok(
             row, text, target_text, overlap=overlap, corpus={"nuggets": list(nuggets.values())}
         )
-        if text and not has_forward_cue(text):
-            soft_bad = True
-            violations = list(violations) + ["missing_forward_cue"]
         if text and target_text and overlap > 0.75 and not preview_ok:
             soft_bad = True
             if "spoken_next_clip_restatement" not in violations:
@@ -2611,18 +2606,17 @@ def repair_or_skip_spoken_copy_layups(
             )
         if nugget_grounded:
             body = setup or " ".join(bit for bit in nugget_bits[:2] if bit).strip() or seed_for_repair
-            cue = unlock or derive_forward_unlock(row, target_text=target_text)
-            if body and cue and cue.casefold() not in body.casefold():
-                candidates.append(f"{body.rstrip('.!?')}. {cue}".strip())
-            candidates.append(" ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip())
+            if body:
+                candidates.append(body)
+            candidates.append(" ".join(bit for bit in nugget_bits[:2] if bit).strip())
             if setup:
-                candidates.append(" ".join(bit for bit in (setup, unlock) if bit).strip())
-            if seed_for_repair and not has_forward_cue(seed_for_repair) and cue:
-                candidates.insert(0, f"{seed_for_repair.rstrip('.!?')}. {cue}".strip())
+                candidates.append(setup)
+            if seed_for_repair:
+                candidates.insert(0, seed_for_repair)
         else:
             candidates = candidates + [
-                " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
-                unlock,
+                " ".join(bit for bit in nugget_bits[:2] if bit).strip(),
+                seed_for_repair,
                 repair_last_sentence_layup(
                     seed_for_repair,
                     target_text=target_text,
@@ -2633,7 +2627,7 @@ def repair_or_skip_spoken_copy_layups(
             if setup and setup.casefold() not in {
                 str(row.get(f) or "").strip().casefold() for f in ANALYSIS_FIELDS
             }:
-                candidates.insert(0, " ".join(bit for bit in (setup, unlock) if bit).strip())
+                candidates.insert(0, setup)
             if restates:
                 candidates.extend(
                     _target_aware_forward_cues(
@@ -2648,14 +2642,12 @@ def repair_or_skip_spoken_copy_layups(
         for candidate in candidates:
             candidate = " ".join(candidate.split()).strip()
             if candidate and candidate[-1:] not in ".!?":
-                candidate += "?"
+                candidate += "."
             if not candidate:
                 continue
             if spoken_copy_violations(candidate, evidence=evidence, seen_texts=seen):
                 continue
             if canned_air_violations(candidate) or _is_generic_unlock(candidate):
-                continue
-            if not has_forward_cue(candidate):
                 continue
             cand_overlap = (
                 vo_target_overlap_ratio(candidate, target_text) if target_text else 0.0
@@ -3189,6 +3181,185 @@ def _scrub_foreign_before_vo_for_hollow_preserve(
     return out
 
 
+def _selection_order_content_hash(ctx: RunContext) -> str:
+    try:
+        if not ctx.artifact_exists("master/selection.json"):
+            return ""
+        sel = ctx.read_json("master/selection.json")
+        if not isinstance(sel, dict):
+            return ""
+        h = str(sel.get("order_content_hash") or "").strip()
+        if h:
+            return h
+        ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+        if not ordered:
+            return ""
+        return hashlib.sha256("|".join(ordered).encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def _draft_pool_lines(
+    ctx: RunContext,
+    *,
+    live_targets: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load hash-fresh draft interviewer_lines for rank-to-budget adopt."""
+    meta: dict[str, Any] = {
+        "draft_present": False,
+        "draft_fresh": False,
+        "stale_draft_ignored": False,
+        "draft_line_count": 0,
+    }
+    if not ctx.artifact_exists(GAP_DRAFT_REL):
+        return [], meta
+    try:
+        draft = ctx.read_json(GAP_DRAFT_REL)
+    except Exception:
+        return [], meta
+    if not isinstance(draft, dict):
+        return [], meta
+    meta["draft_present"] = True
+    cur_hash = _selection_order_content_hash(ctx)
+    draft_meta = draft.get("_meta") if isinstance(draft.get("_meta"), dict) else {}
+    draft_hash = str(
+        draft_meta.get("selection_order_content_hash")
+        or draft.get("selection_order_content_hash")
+        or draft_meta.get("selection_order_hash")
+        or ""
+    ).strip()
+    # Missing stamp: treat as fresh only when selection has no hash yet.
+    if cur_hash and draft_hash and draft_hash != cur_hash:
+        meta["stale_draft_ignored"] = True
+        ctx.log(
+            "nugget_layup: stale draft pool ignored "
+            f"(draft_hash={draft_hash} selection_hash={cur_hash})",
+            level="warning",
+            stage="nugget_layup_compose",
+            action_id="gap_vo.stale_draft_pool_ignored",
+        )
+        return [], meta
+    meta["draft_fresh"] = True
+    live = live_targets or set(_ordered_ids(ctx))
+    out: list[dict[str, Any]] = []
+    for ln in draft.get("interviewer_lines") or []:
+        if not isinstance(ln, dict):
+            continue
+        if not str(ln.get("text") or "").strip():
+            continue
+        tid = str(ln.get("targets_segment_id") or "").strip()
+        if live and tid and tid not in live:
+            continue
+        out.append(dict(ln))
+    meta["draft_line_count"] = len(out)
+    return out, meta
+
+
+def _plan_recoverable_pool_lines(
+    plan: dict[str, Any] | None,
+    *,
+    live_targets: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Plan rows with recoverable text (incl. prefer-native skips) as adopt pool."""
+    from interview_mux.hosted_vo_authority import PREFER_NATIVE_SKIP_CODES
+
+    live = live_targets or set()
+    out: list[dict[str, Any]] = []
+    for row in (plan or {}).get("layups") or []:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("text") or "").strip()
+        tid = str(row.get("target_segment_id") or "").strip()
+        if not text or not tid:
+            continue
+        if live and tid not in live:
+            continue
+        code = str(row.get("skip_reason_code") or "").strip()
+        if row.get("skip") and code and code not in PREFER_NATIVE_SKIP_CODES:
+            # Durable / non-prefer skips stay out of the pool.
+            continue
+        lid = str(row.get("line_id") or "").strip() or f"vo_layup_{tid}"
+        out.append(
+            {
+                "line_id": lid,
+                "origin": "nugget_layup",
+                "gap_type": "nugget_layup",
+                "line_category": "extracted_context",
+                "text": text,
+                "targets_segment_id": tid,
+                "placement": "before",
+                "delivery": "synthesize",
+                "nugget_ids": list(row.get("nugget_ids") or []),
+                "skip_reason_code": code or None,
+            }
+        )
+    return out
+
+
+def _build_rank_to_budget_pool(
+    ctx: RunContext,
+    *,
+    prior_lines: list[dict[str, Any]],
+    plan: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Union live prior + hash-fresh draft + plan recoverable text; dedupe."""
+    from interview_mux.hosted_vo_authority import RANK_ADOPTABLE_ORIGINS
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    live = set(_ordered_ids(ctx))
+    draft_lines, draft_meta = _draft_pool_lines(ctx, live_targets=live)
+    plan_lines = _plan_recoverable_pool_lines(plan, live_targets=live)
+    pool: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_targets: set[str] = set()
+    source_counts = {
+        "prior": 0,
+        "draft": 0,
+        "plan": 0,
+    }
+
+    def _admit(ln: dict[str, Any], source: str) -> None:
+        if is_episode_orientation(ln):
+            return
+        text = str(ln.get("text") or "").strip()
+        if not text:
+            return
+        origin = str(ln.get("origin") or "").strip()
+        if origin and origin not in RANK_ADOPTABLE_ORIGINS:
+            # Draft framing compose is the primary revive source.
+            if origin != "gap_framing_compose" and source != "draft":
+                return
+        lid = str(ln.get("line_id") or "").strip()
+        tid = str(ln.get("targets_segment_id") or "").strip()
+        if lid and lid in seen_ids:
+            return
+        if tid and tid in seen_targets:
+            return
+        if live and tid and tid not in live:
+            return
+        pool.append(dict(ln))
+        if lid:
+            seen_ids.add(lid)
+        if tid:
+            seen_targets.add(tid)
+        source_counts[source] = int(source_counts.get(source) or 0) + 1
+
+    for ln in prior_lines:
+        if isinstance(ln, dict):
+            _admit(ln, "prior")
+    for ln in draft_lines:
+        _admit(ln, "draft")
+    for ln in plan_lines:
+        _admit(ln, "plan")
+
+    meta = {
+        **draft_meta,
+        "pool_source_counts": source_counts,
+        "pool_size": len(pool),
+    }
+    return pool, meta
+
+
 def _framing_floor_topup(
     ctx: RunContext,
     *,
@@ -3197,10 +3368,40 @@ def _framing_floor_topup(
     seen_targets: set[str],
     need: int,
     plan: dict[str, Any] | None = None,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Removed from publish path (S10). Kept as hard-refuse stub to catch rewires."""
-    raise RuntimeError(
-        "nugget_layup:_framing_floor_topup peeled (S10) — use raise_hosted_vo_floor_unsatisfiable"
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any] | None]:
+    """Rank-to-budget adopt toward ``need`` from prior/draft/plan pool (no invent)."""
+    from interview_mux.hosted_vo_authority import apply_rank_to_budget_fill
+
+    notes: list[str] = []
+    pool, pool_meta = _build_rank_to_budget_pool(
+        ctx, prior_lines=prior_lines, plan=plan
+    )
+    if pool_meta.get("stale_draft_ignored"):
+        notes.append("stale_draft_ignored")
+    pool_n = len(pool)
+    natives = len(_ordered_ids(ctx))
+    effective_need = max(0, int(need))
+    if natives > 0:
+        effective_need = min(effective_need, natives)
+    if pool_n > 0:
+        effective_need = min(effective_need, pool_n + _count_active_synthetic_lines(candidate_lines))
+    filled, fill_meta, plan_out = apply_rank_to_budget_fill(
+        ctx,
+        keep_lines=list(candidate_lines or []),
+        pool_lines=pool,
+        plan=plan if isinstance(plan, dict) else None,
+        seen_targets=set(seen_targets or set()),
+        fill_to="need",
+        need_override=effective_need,
+    )
+    adopted = list(fill_meta.get("adopted_line_ids") or [])
+    if adopted:
+        notes.append(f"adopted={len(adopted)}")
+    fill_meta = dict(fill_meta)
+    fill_meta["pool"] = pool_meta
+    fill_meta["effective_need"] = effective_need
+    return filled, notes, plan_out if isinstance(plan_out, dict) else (
+        plan if isinstance(plan, dict) else None
     )
 
 
@@ -3333,9 +3534,9 @@ def publish_layup_plan_to_gap_report(
             seen_targets.add(tid)
 
     candidate_lines = orientation + body
-    # G-Framing Yes floor: never commit a hollow layup-authority gap_report.
-    # Empty compose_restart / mid-shard publishes used to wipe interviewer_lines
-    # to [] then fail synthetic_vo_incompleteness (≥3) in a retry loop.
+    # G-Framing Yes floor: adopt toward need from draft-backed pool; under-floor
+    # is advisory-only (never loud-blocks the master).
+    floor_adopt_meta: dict[str, Any] | None = None
     try:
         from interview_mux.gap_fill_eligibility import (
             hosted_framing_requires_synthetic_vo,
@@ -3346,77 +3547,119 @@ def publish_layup_plan_to_gap_report(
             need = min_synthetic_vo_lines(ctx)
             from interview_mux.hosted_vo_authority import vo_budget_bands
 
-            _need_b, ideal_n, _max_b = vo_budget_bands(ctx)
+            _need_b, _ideal_n, _max_b = vo_budget_bands(ctx)
             need = max(int(need), int(_need_b))
             active_new = _count_active_synthetic_lines(candidate_lines)
             if active_new < need:
-                prior_active = _count_active_synthetic_lines(prior_lines)
+                sel_hash = _selection_order_content_hash(ctx)
+                existing_meta = (
+                    existing.get("_meta")
+                    if isinstance(existing.get("_meta"), dict)
+                    else {}
+                )
+                prior_adopt = (
+                    existing_meta.get("rank_to_budget_adopt")
+                    if isinstance(existing_meta.get("rank_to_budget_adopt"), dict)
+                    else {}
+                )
+                already_adopted = bool(
+                    sel_hash
+                    and str(prior_adopt.get("order_content_hash") or "") == sel_hash
+                )
                 warnings = [
                     str(w)
                     for w in ((plan.get("warnings") or []) if isinstance(plan, dict) else [])
                 ]
-                # A plan whose every row is a typed skip voices nothing, exactly
-                # like an empty plan. It must not replace a body that already
-                # meets the floor (exec_003: 21 skip rows, "all corpus nuggets
-                # are already represented in selected native audio", prior 6
-                # active lines, loud-failed as hosted_vo_floor_unsatisfiable).
                 hollow_plan = (
                     (not (plan.get("layups") or []))
                     or any("compose_restart" in w for w in warnings)
                     or active_new == 0
                 )
-                # A hollow plan never replaces live lines. Fully met priors
-                # were preserved before; a partial prior is preserved too when
-                # progress floors accept a partial floor, instead of raising
-                # unsatisfiable at error level and recovering one step later
-                # on that same body (exec_021: all 27 layups skipped, prior 2
-                # compose lines live; ISSUES 171).
-                partial_prior_ok = False
-                if hollow_plan and 1 <= prior_active < need:
-                    try:
-                        from interview_mux.floor_progress import hosted_vo_aspirational
-
-                        partial_prior_ok = bool(hosted_vo_aspirational(ctx))
-                    except Exception:
-                        partial_prior_ok = False
-                if hollow_plan and (prior_active >= need or partial_prior_ok):
-                    # Preserve prior body verbatim — no rank-select rewrite under floor
-                    # pressure (S10 / verification P0). Plan stays hollow; escalate
-                    # is the only non-preserve path below.
+                prior_active = _count_active_synthetic_lines(prior_lines)
+                if hollow_plan and prior_active >= need and not already_adopted:
+                    # Prefer a prior body that already meets the floor over a hollow plan.
                     ctx.log(
-                        "nugget_layup: refuse hollow gap publish under G-Framing Yes "
-                        f"(active={active_new} < {need}; preserving prior {prior_active} "
-                        "verbatim)",
+                        "nugget_layup: hollow plan under G-Framing Yes "
+                        f"(active={active_new} < {need}; preserving prior {prior_active})",
                         level="warning",
                         stage="nugget_layup_compose",
                     )
                     return existing
-                # Non-hollow plan under the floor: escalate — do not restore priors
-                # or rank-to-budget fill inside publish (S10).
-                raise_hosted_vo_floor_unsatisfiable(
-                    ctx,
-                    need=need,
-                    active=_count_active_synthetic_lines(candidate_lines),
-                    eligible_nuggets=eligible_nugget_count_for_floor(ctx),
-                )
-    except RuntimeError:
-        raise
+                if already_adopted:
+                    floor_adopt_meta = {
+                        "skipped": "already_adopted_this_selection",
+                        "order_content_hash": sel_hash,
+                        "active_before": active_new,
+                        "need": need,
+                    }
+                    ctx.log(
+                        "nugget_layup: skip re-adopt under floor "
+                        f"(active={active_new} < {need}; hash={sel_hash})",
+                        level="info",
+                        stage="nugget_layup_compose",
+                        action_id="gap_vo.rank_to_budget_adopt_skip_thrash",
+                    )
+                else:
+                    filled, adopt_notes, plan_out = _framing_floor_topup(
+                        ctx,
+                        candidate_lines=candidate_lines,
+                        prior_lines=prior_lines,
+                        seen_targets=seen_targets,
+                        need=need,
+                        plan=plan,
+                    )
+                    candidate_lines = filled
+                    if isinstance(plan_out, dict):
+                        plan = plan_out
+                    active_new = _count_active_synthetic_lines(candidate_lines)
+                    floor_adopt_meta = {
+                        "order_content_hash": sel_hash,
+                        "need": need,
+                        "active_after": active_new,
+                        "notes": adopt_notes,
+                    }
+                    ctx.log(
+                        "nugget_layup: rank-to-budget adopt under floor "
+                        f"(active={active_new} need={need} notes={adopt_notes})",
+                        level="info",
+                        stage="nugget_layup_compose",
+                        action_id="gap_vo.rank_to_budget_adopt",
+                        detail=floor_adopt_meta,
+                    )
+                if active_new < need:
+                    # Advisory continue — never loud-block master on count floor.
+                    raise_hosted_vo_floor_unsatisfiable(
+                        ctx,
+                        need=need,
+                        active=active_new,
+                        eligible_nuggets=eligible_nugget_count_for_floor(ctx),
+                    )
     except Exception as _floor_exc:
-        # Never swallow loud / unsatisfiable floor failures.
         from interview_mux.loud_fail import LoudStageFailure
 
+        # Count-floor path must not abort publish; log and continue with best body.
         if isinstance(_floor_exc, LoudStageFailure):
-            raise
-        name = type(_floor_exc).__name__
-        if "Loud" in name or "unsatisfiable" in str(_floor_exc).lower():
-            raise
-        pass
+            ctx.log(
+                f"nugget_layup: floor advisory swallowed loud failure: {_floor_exc}",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+        else:
+            ctx.log(
+                f"nugget_layup: under-floor adopt skipped: {_floor_exc}",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
 
     report = {
         **{k: v for k, v in existing.items() if k not in ("interviewer_lines", "_meta")},
         "interviewer_lines": candidate_lines,
         "nugget_layup_authority": True,
     }
+    if floor_adopt_meta:
+        _rmeta = dict(report.get("_meta") or {}) if isinstance(report.get("_meta"), dict) else {}
+        _rmeta["rank_to_budget_adopt"] = floor_adopt_meta
+        report["_meta"] = _rmeta
     report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
     ordered = _ordered_ids(ctx)
     orient_nugget_ids = [
@@ -3472,6 +3715,17 @@ def publish_layup_plan_to_gap_report(
                 level="info",
                 stage="nugget_layup_compose",
             )
+    if floor_adopt_meta:
+        _rmeta = dict(report.get("_meta") or {}) if isinstance(report.get("_meta"), dict) else {}
+        _rmeta["rank_to_budget_adopt"] = floor_adopt_meta
+        report["_meta"] = _rmeta
+        try:
+            if isinstance(plan, dict) and (
+                floor_adopt_meta.get("notes") or floor_adopt_meta.get("active_after") is not None
+            ):
+                ctx.write_json(PLAN_REL, plan, skip_handoff=True, stage_key="nugget_layup_compose")
+        except Exception:
+            pass
     write_validated_artifact(
         ctx,
         GAP_REL,
@@ -4387,12 +4641,13 @@ def evaluate_layup_craft(
         mask = _mask_for(masks, tid)
         degraded = is_degraded_target(mask) or bool(row.get("degraded_lexicon_island"))
         if settings["require_analysis_fields"]:
-            required = ("target_beat", "forward_unlock") if degraded else ANALYSIS_FIELDS
+            required = ("target_beat",) if degraded else REQUIRED_ANALYSIS_FIELDS
             absent = [f for f in required if not str(row.get(f) or "").strip()]
             soft_absent = []
             if degraded:
                 soft_absent = [
-                    f for f in ANALYSIS_FIELDS if f not in required and not str(row.get(f) or "").strip()
+                    f for f in REQUIRED_ANALYSIS_FIELDS
+                    if f not in required and not str(row.get(f) or "").strip()
                 ]
             if absent:
                 thin.append(tid)
@@ -4964,33 +5219,10 @@ def materialize_over_skipped_layups(
         if craft.get("errors"):
             notes.append(f"skip_craft_fail:{tid}")
             continue
-        # Ensure last sentence satisfies has_forward_cue (question / next-beat cue).
-        if unlock and not text.rstrip().endswith("?"):
-            unlock_core = unlock.rstrip(".!?").strip()
-            if unlock_core and unlock_core.casefold() in text.casefold():
-                # Unlock body already present — don't append a duplicated
-                # "What happens when …?" paraphrase (spoken_repeated_sentence).
-                if not text.rstrip().endswith("?"):
-                    text = text.rstrip(".!") + "?"
-                row["forward_unlock"] = str(row.get("forward_unlock") or unlock).strip() or unlock
-            else:
-                cue = unlock if unlock.endswith("?") else (
-                    unlock.rstrip(".!")
-                    if unlock.lower().startswith(("what", "how", "why", "where", "when", "which"))
-                    else f"What happens when {unlock[0].lower() + unlock[1:].rstrip('.!')}?"
-                )
-                if not cue.endswith("?"):
-                    cue = cue.rstrip(".!") + "?"
-                if canned_air_violations(cue) or _is_generic_unlock(cue):
-                    cue = derive_forward_unlock(row, target_text=str(beat or ""))
-                text = f"{text.rstrip('.!?')}. {cue}"
-                text = " ".join(text.split())
-                row["forward_unlock"] = str(row.get("forward_unlock") or cue).strip() or cue
-        elif not text.rstrip().endswith("?"):
-            cue = derive_forward_unlock(row, target_text=str(beat or ""))
-            text = f"{text.rstrip('.!?')}. {cue}"
-            text = " ".join(text.split())
-            row["forward_unlock"] = str(row.get("forward_unlock") or cue).strip() or cue
+        # Free-form ending OK — keep grounded nugget/setup body without forcing
+        # a forward-unlock question or "Let's hear…" hinge.
+        if unlock and not str(row.get("forward_unlock") or "").strip():
+            row["forward_unlock"] = unlock
         row["skip"] = False
         row.pop("skip_reason_code", None)
         row["text"] = text
@@ -5305,99 +5537,57 @@ def raise_hosted_vo_floor_unsatisfiable(
     active: int,
     eligible_nuggets: int | None = None,
 ) -> None:
-    """Floor shortage: advisory-continue under progress_floors; else loud escalate once.
+    """Floor shortage: always advisory-continue (never loud-blocks the master).
 
-    Cluster C: never aspirational-continue at active==0 (HOLLOW_ZERO).
+    Hosted VO count floor (need=3) is a target. PARTIAL and HOLLOW_ZERO still
+    stamp identity + advisories, but publish and finalize proceed.
     """
+    from interview_mux.floor_progress import proceed_on_floor_miss
+
+    cause = None
     try:
         from interview_mux.hosted_vo_authority import (
             floor_snapshot,
-            may_aspirational_proceed,
             reconcile_escalations,
         )
 
         snap = floor_snapshot(ctx, stage_id="nugget_layup_compose", persist=True)
-        # Hollow is judged on the body being published (``active``). The
-        # snapshot reads the committed body this publish replaces, so its
-        # HOLLOW_ZERO raised a loud failure for a plan with a live line, and
-        # the next call proceeded on the advisory (exec_016, ISSUES 159).
-        if int(active) < 1:
+        cause = snap.identity.cause
+        reconcile_escalations(ctx, snap)
+    except Exception:
+        pass
+    # Stamp durable advisory signal (not a ship bar). Keep unsatisfiable meta for
+    # operators when hollow, without raising LoudStageFailure.
+    if int(active) < 1:
+        try:
             stamp_hosted_vo_floor_unsatisfiable(
                 ctx,
                 need=need,
                 active=active,
                 eligible_nuggets=eligible_nuggets,
             )
-            from interview_mux.loud_fail import raise_loud_failure
-
-            # Name the candidate counts. The snapshot reads the committed body,
-            # so its prose can say "floor met" about a body this publish was
-            # about to replace (exec_003: "[ERROR] hosted_vo_floor met have=6 need=3").
-            raise_loud_failure(
-                ctx,
-                (
-                    "nugget_layup_compose: hosted_vo_floor_unsatisfiable "
-                    f"(active_synthetic={active} < min={need}; "
-                    f"eligible_nuggets={eligible_nuggets or 0}) — escalate once, do not recompose"
-                ),
-                stage="nugget_layup_compose",
-                reason="hosted_vo_floor_unsatisfiable",
-            )
-            return
-        if snap.identity.status != "HOLLOW_ZERO" and may_aspirational_proceed(
-            ctx, stage_id="nugget_layup_compose"
-        ):
-            from interview_mux.floor_progress import proceed_on_floor_miss
-
-            proceed_on_floor_miss(
-                ctx,
-                gate_id="hosted_vo_floor",
-                have=int(active),
-                need=int(need),
-                pool_exhausted=True,
-                extra={
-                    "eligible_nuggets": int(eligible_nuggets or 0),
-                    "mode": "aspirational_unsatisfiable_waived",
-                    "cause": snap.identity.cause,
-                },
-            )
-            reconcile_escalations(ctx, snap)
-            return
-    except Exception:
-        pass
-    try:
-        from interview_mux.floor_progress import hosted_vo_aspirational, proceed_on_floor_miss
-
-        if hosted_vo_aspirational(ctx) and int(active) >= 1:
-            proceed_on_floor_miss(
-                ctx,
-                gate_id="hosted_vo_floor",
-                have=int(active),
-                need=int(need),
-                pool_exhausted=True,
-                extra={
-                    "eligible_nuggets": int(eligible_nuggets or 0),
-                    "mode": "aspirational_unsatisfiable_waived",
-                },
-            )
-            return
-    except Exception:
-        pass
-    stamp_hosted_vo_floor_unsatisfiable(
+        except Exception:
+            pass
+    proceed_on_floor_miss(
         ctx,
-        need=need,
-        active=active,
-        eligible_nuggets=eligible_nuggets,
+        gate_id="hosted_vo_floor",
+        have=int(active),
+        need=int(need),
+        pool_exhausted=True,
+        extra={
+            "eligible_nuggets": int(eligible_nuggets or 0),
+            "mode": "advisory_count_floor_continue",
+            "cause": cause,
+            "active_synthetic": int(active),
+        },
     )
-    from interview_mux.loud_fail import raise_loud_failure
-
-    raise_loud_failure(
-        ctx,
-        "nugget_layup_compose: hosted_vo_floor_unsatisfiable "
+    ctx.log(
+        "nugget_layup_compose: hosted_vo_floor under target "
         f"(active_synthetic={active} < min={need}; "
-        f"eligible_nuggets={eligible_nuggets or 0}) — escalate once, do not recompose",
+        f"eligible_nuggets={eligible_nuggets or 0}) — advisory continue",
+        level="warning",
         stage="nugget_layup_compose",
-        reason="hosted_vo_floor_unsatisfiable",
+        action_id="gap_vo.floor_advisory_continue",
     )
 
 

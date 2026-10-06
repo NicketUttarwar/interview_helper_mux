@@ -5397,8 +5397,40 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .g-publish-review-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
   padding-top: 0.25rem;
+}
+
+.g-publish-actions {
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.g-publish-upload-hint {
+  margin: 0.4rem 0 0;
+}
+
+.g-publish-save-ack {
+  margin: 0;
+  flex: 1 1 12rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: #6ee7a8;
+}
+
+.g-publish-save-hint {
+  margin: 0;
+  flex: 1 1 12rem;
+}
+
+.btn.primary.g-publish-save-done:disabled {
+  opacity: 1;
+  border-color: rgba(72, 187, 120, 0.55);
+  background: rgba(72, 187, 120, 0.22);
+  color: #d1fae5;
+  cursor: default;
 }
 
 .g-publish-status {

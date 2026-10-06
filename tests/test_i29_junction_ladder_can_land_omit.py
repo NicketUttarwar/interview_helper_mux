@@ -791,15 +791,21 @@ def test_i39_floor_topup_restores_prior_authority_line(
     }
     candidate = [_prior_line("seg_004", "fresh a"), _prior_line("seg_047", "fresh b")]
     prior = candidate + [_prior_line("seg_055")]
-    with pytest.raises(RuntimeError, match="peeled"):
-        nl._framing_floor_topup(
-            ctx,
-            candidate_lines=candidate,
-            prior_lines=prior,
-            seen_targets={"seg_004", "seg_047"},
-            need=3,
-            plan=plan,
-        )
+    filled, _notes, plan_out = nl._framing_floor_topup(
+        ctx,
+        candidate_lines=candidate,
+        prior_lines=prior,
+        seen_targets={"seg_004", "seg_047"},
+        need=3,
+        plan=plan,
+    )
+    tids = {
+        str(ln.get("targets_segment_id"))
+        for ln in filled
+        if isinstance(ln, dict) and str(ln.get("text") or "").strip()
+    }
+    assert "seg_055" in tids
+    assert plan_out is not None
 
 
 def test_i39_floor_topup_refuses_dead_or_superseded_targets(
@@ -819,15 +825,21 @@ def test_i39_floor_topup_refuses_dead_or_superseded_targets(
         # explicitly skipped prior line — stays skipped
         {**_prior_line("seg_011"), "skipped_optional": True},
     ]
-    with pytest.raises(RuntimeError, match="peeled"):
-        nl._framing_floor_topup(
-            ctx,
-            candidate_lines=candidate,
-            prior_lines=prior,
-            seen_targets={"seg_004"},
-            need=3,
-            plan={"layups": []},
-        )
+    filled, _notes, _plan = nl._framing_floor_topup(
+        ctx,
+        candidate_lines=candidate,
+        prior_lines=prior,
+        seen_targets={"seg_004"},
+        need=3,
+        plan={"layups": []},
+    )
+    tids = [
+        str(ln.get("targets_segment_id"))
+        for ln in filled
+        if isinstance(ln, dict) and str(ln.get("text") or "").strip()
+    ]
+    assert "seg_073" not in tids  # off-air target stays out
+    assert tids.count("seg_004") == 1  # no double-seat
 
 
 # --- i40: transition synth must not abort on its own stage attribution --------

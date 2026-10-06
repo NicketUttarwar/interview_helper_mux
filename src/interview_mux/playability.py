@@ -21,6 +21,8 @@ UNPLAYABLE_EXCLUDE_REASONS: frozenset[str] = frozenset(
         "selection_cta_exclude",
         "finale_tail_leftover",
         "opening_skipped_duplicate",
+        "opening_slot_overflow",
+        "late_intro_reset",
     }
 )
 

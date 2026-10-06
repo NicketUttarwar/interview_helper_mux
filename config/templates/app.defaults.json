@@ -613,7 +613,7 @@
       "enable": true,
       "fail_open": true,
       "bed_coverage_aim_lo": 0.4,
-      "bed_coverage_aim_hi": 0.85
+      "bed_coverage_aim_hi": 0.99
     },
     "air_order_integrity": {
       "opening_window_ms": 180000,
@@ -633,7 +633,7 @@
       "reverse_jump_margin_max_ms": 600000,
       "count_opening_by_family": true,
       "fragmentation_extra_slots": 2,
-      "block_ranking_on_critical": false,
+      "block_ranking_on_critical": true,
       "block_publish_on_critical": true,
       "invalidate_edl_on_order_change": true,
       "invalidate_transitions_on_order_change": true,

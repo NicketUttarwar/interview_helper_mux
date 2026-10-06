@@ -11,7 +11,7 @@ from interview_mux.seam_glue import CHAPTER_SCALE_GAP_MS, is_chapter_scale_pair
 
 # Spoken clone VO cannot abut its source native. Chapter-scale seams still
 # need audible glue — a hitch (air / planned music) counts when speech cannot.
-HITCH_AIR_KINDS = frozenset({"chapter_hinge", "opening_music"})
+HITCH_AIR_KINDS = frozenset({"chapter_hinge", "opening_music", "chapter_music_bridge"})
 
 
 def hitch_covered_pairs(clips: list[Any]) -> set[tuple[str, str]]:

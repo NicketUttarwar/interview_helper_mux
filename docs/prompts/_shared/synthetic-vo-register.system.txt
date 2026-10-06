@@ -11,12 +11,12 @@ Honor this register for every spoken `text` field in body layups, transitions, b
 - **At most one person-proper-noun per line**; never repeat the same name twice in one segment.
 - Tone: **benign and informative** — color the seam, unlock the next beat; avoid editorializing or "making a point."
 
-### Hinge patterns
+### Attribution patterns
 
 | Avoid | Prefer |
 |-------|--------|
-| "Let's hear **X** explain…" | "Let's hear the explanation for **why ctDNA alone misses…**" |
-| "**Name** explains… **Name** now…" | "The next piece is cell biopsy — CTCs, not fragments alone." |
+| "Let's hear **X** explain…" / naming who speaks next | Topic-first setup: "The next piece is cell biopsy — CTCs, not fragments alone." |
+| "**Name** explains… **Name** now…" | "Cell biopsy changes what blood-only assays can miss." |
 | "The **host** now explains…" | "Next: what limits ctDNA-only analysis." |
 | "He closes with…" | "That closes with…" / "The access goal behind it is…" |
 
@@ -24,9 +24,9 @@ Honor this register for every spoken `text` field in body layups, transitions, b
 
 - **Vary sentence openings** across the episode — no template rhythm ("X explains… X now describes…").
 - Lead with a **concrete grounded hook** (number, contrast, causal pivot) from nuggets or brief.
-- One **forward unlock** into the next native beat — specific to the topic, never a generic "what happened next."
+- Endings are **free-form** — a forward unlock into the next beat is optional. Never require "Let's hear…" / "what happened next" closers.
 - Prefer **active topic verbs** (pivot, hinge, trade-off, bottleneck) over attribution verbs (explains, says, elaborates) tied to a person.
 
 ### Narrow exception
 
-- **`episode_preface` / cold open only:** may briefly orient *what the conversation is about* (thesis, domain, stakes). Even here, prefer topic-first; naming a guest is optional and **once max**, never "the host."
+- **`episode_preface` / cold open only:** orient *who / what / why* (thesis, domain, stakes; guest proper noun **once** when the brief supplies one). End when orientation is complete — no mandatory hinge or quiz. Ban abstract closers (“What does X ask/reveal/mean…?”). Never "the host."

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { V2_PHASES, isV2Enabled, phaseForStage } from "../../utils/v2Phases";
+import { canonicalizeOperatorStageId } from "../../utils/gateFocus";
 import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { StageStepWorkbench } from "./StageStepWorkbench";
 import { NlePanel } from "./NlePanel";
@@ -109,10 +110,11 @@ export function PhaseWorkbench() {
                       setPipelineSubTab("timeline");
                       return;
                     }
-                    const target =
+                    const rawTarget =
                       phase.gate ??
                       phase.stages.find((id) => run.stages.find((s) => s.id === id)) ??
                       phase.stages[0];
+                    const target = canonicalizeOperatorStageId(rawTarget) ?? rawTarget;
                     if (target) void selectStage(target);
                   }}
                 >

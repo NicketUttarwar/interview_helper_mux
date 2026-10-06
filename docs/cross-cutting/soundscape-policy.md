@@ -32,7 +32,7 @@ Make music/SFX **dynamically decided and measurably enforced** for each recordin
     "duck_under_speech_db": 12,
     "stinger_max_per_minute": 2,
     "midrange_policy": "carve_speech",
-    "max_bed_coverage_ratio": 0.85
+    "max_bed_coverage_ratio": 0.99
   },
   "standards": {
     "min_speech_relative_db": 12,
@@ -81,7 +81,7 @@ When `soundscape.strict_slots` is true (default), SDP cues must map to allowed s
 | `min_speech_relative_db` | Policy standards |
 | Intelligibility | Existing mix QC when required |
 
-**Bed coverage `0.40–0.85` and hinge-stinger coverage `0.3–1.0` are Shape-owned
+**Bed coverage `0.40–0.99` and hinge-stinger coverage `0.3–1.0` are Shape-owned
 soft bands (Plan 4), not a remux-theater target.** They live in
 `listenability_guards._DEFAULTS` (`bed_coverage_min_ratio`/`max_ratio`,
 `hinge_stinger_coverage_min_ratio`/`max_ratio`) and describe the range a

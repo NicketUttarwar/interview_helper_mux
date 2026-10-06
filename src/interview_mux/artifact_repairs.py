@@ -2806,7 +2806,6 @@ def repair_gap_report(
             build_prior_native_context,
             cold_open_layup_ok,
             courtesy_seed_text,
-            has_forward_cue,
             is_interruptive_opener,
             last_sentence_restates_target,
             load_ordered_and_segments,
@@ -2871,15 +2870,10 @@ def repair_gap_report(
                 target_text = str(
                     target_row.get("text") or target_row.get("text_excerpt") or ""
                 )
-                # F3: missing forward cue OR cued-but-restating first native
-                # (cold_open_layup_ok overlap) — both need repair_last_sentence_layup.
-                # Prior path only healed missing cues then continue'd, so restatement
-                # blocked pre-flush (exec_13181 vo_preface_seg_004).
-                needs_preface_layup = bool(text_now) and (
-                    not has_forward_cue(text_now)
-                    or not cold_open_layup_ok(
-                        line, target_text=target_text, ordered_ids=ordered
-                    )
+                # Heal only restatement / weak-quiz / generic-origin failures.
+                # Free-form endings without a forward cue are allowed.
+                needs_preface_layup = bool(text_now) and not cold_open_layup_ok(
+                    line, target_text=target_text, ordered_ids=ordered
                 )
                 if needs_preface_layup:
                     prior = build_prior_native_context(
@@ -2891,7 +2885,6 @@ def repair_gap_report(
                     )
                     from interview_mux.gap_framing import word_limit_for_category as _wlim
 
-                    missing_cue = not has_forward_cue(text_now)
                     line["text"] = repair_last_sentence_layup(
                         text_now,
                         prior=prior,
@@ -2902,11 +2895,7 @@ def repair_gap_report(
                     )
                     applied.append(
                         {
-                            "action": (
-                                "preface_forward_cue_heal"
-                                if missing_cue
-                                else "preface_cold_open_layup_heal"
-                            ),
+                            "action": "preface_cold_open_layup_heal",
                             "line_id": line.get("line_id"),
                             "targets_segment_id": tid_now,
                         }
@@ -2969,8 +2958,7 @@ def repair_gap_report(
             target_text = str(target_row.get("text") or target_row.get("text_excerpt") or "")
             overlap_dirty = last_sentence_restates_target(text_now, target_text)
             needs_layup = (not is_authoritative_layup) and text_now and (
-                not has_forward_cue(text_now)
-                or not cold_open_layup_ok(line, target_text=target_text, ordered_ids=ordered)
+                not cold_open_layup_ok(line, target_text=target_text, ordered_ids=ordered)
             )
             if needs_layup or overlap_dirty:
                 cat = str(line.get("line_category") or "framing_question")
@@ -3084,14 +3072,7 @@ def repair_gap_report(
                     limit = max(1, int(word_limit_for_category(cat)))
                     words = re.findall(r"\S+", text)
                     if len(words) > limit:
-                        if has_forward_cue(text):
-                            line["text"] = repair_last_sentence_layup(
-                                text,
-                                category=cat,
-                                max_words=limit,
-                            )
-                        else:
-                            line["text"] = shorten_spoken_text(text, limit)
+                        line["text"] = shorten_spoken_text(text, limit)
                         applied.append(
                             {
                                 "action": "rebudget_after_layup",
@@ -3404,34 +3385,20 @@ def repair_gap_report(
                 or str(row.get("line_id") or "").startswith(("vo_seed_", "vo_fill_"))
             )
             if keep_framing and str(row.get("text") or "").strip():
-                try:
-                    from interview_mux.gap_vo_prior_context import (
-                        has_forward_cue,
-                        repair_last_sentence_layup,
-                    )
-                    from interview_mux.gap_framing import word_limit_for_category
-
-                    text_now = str(row.get("text") or "").strip()
-                    if not has_forward_cue(text_now):
-                        text_now = repair_last_sentence_layup(
-                            text_now,
-                            category=cat or "story_bridge",
-                            max_words=max(1, int(word_limit_for_category(cat or "story_bridge"))),
-                        )
-                    fixed = dict(row)
-                    fixed["text"] = text_now
-                    guarded_lines.append(fixed)
-                    seen_texts.append(text_now)
-                    applied.append(
-                        {
-                            "action": "keep_framing_despite_spoken_omit",
-                            "line_id": row.get("line_id"),
-                            "violations": decision.get("violations"),
-                        }
-                    )
-                    continue
-                except Exception:
-                    pass
+                text_now = str(row.get("text") or "").strip()
+                # Keep free-form endings; do not force a forward-unlock hinge.
+                fixed = dict(row)
+                fixed["text"] = text_now
+                guarded_lines.append(fixed)
+                seen_texts.append(text_now)
+                applied.append(
+                    {
+                        "action": "keep_framing_despite_spoken_omit",
+                        "line_id": row.get("line_id"),
+                        "violations": decision.get("violations"),
+                    }
+                )
+                continue
             applied.append(
                 {
                     "action": "omit_unsafe_optional_vo",
@@ -7142,6 +7109,70 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 podcast["cues"] = cues
       except Exception as exc:
         applied.append({"action": "hinge_resolve_seed_skipped", "error": str(exc)[:160]})
+
+    # Chapter music bridges from air-script opportunities (eligible seams only).
+    try:
+        from interview_mux.chapter_music_bridge import bridge_duration_ms
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.music_lane import asset_id_for_role
+
+        plan = load_plan_raw(ctx) or {}
+        opps = [
+            o
+            for o in (plan.get("sonic_opportunities") or [])
+            if isinstance(o, dict) and str(o.get("kind") or "") == "chapter_music_bridge"
+        ]
+        podcast = ((out.get("flow_plans") or {}).get("podcast") or {}) if isinstance(out.get("flow_plans"), dict) else {}
+        cues = list(podcast.get("cues") or []) if isinstance(podcast.get("cues"), list) else []
+        assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+        bridge_aid = (
+            asset_id_for_role(assets, "theme_transition")
+            or asset_id_for_role(assets, "theme_chapter_resolve")
+            or asset_id_for_role(assets, "theme_emphasis")
+        )
+        if bridge_aid and opps:
+            covered: set[str] = set()
+            for cue in cues:
+                if not isinstance(cue, dict) or cue.get("skip"):
+                    continue
+                if cue.get("chapter_music_bridge") or cue.get("preserve_bridge_ms") is not None:
+                    covered.add(str(cue.get("after_segment_id") or cue.get("segment_id") or ""))
+            bms = bridge_duration_ms()
+            seed_i = 0
+            for opp in opps:
+                after = str(opp.get("after_segment_id") or opp.get("segment_id") or "")
+                if not after or after in covered:
+                    continue
+                seed_i += 1
+                cues.append(
+                    {
+                        "cue_id": f"chapter_music_bridge_seed_{seed_i}",
+                        "asset_id": bridge_aid,
+                        "role": "theme_transition",
+                        "placement": "after_segment",
+                        "after_segment_id": after,
+                        "segment_id": after,
+                        "before_segment_id": str(opp.get("before_segment_id") or ""),
+                        "preserve_bridge_ms": bms,
+                        "carry_into_next": True,
+                        "break_contiguous_bed": True,
+                        "chapter_music_bridge": True,
+                        "level_db": -12,
+                    }
+                )
+                covered.add(after)
+                applied.append(
+                    {
+                        "action": "seed_chapter_music_bridge",
+                        "segment_id": after,
+                        "asset_id": bridge_aid,
+                    }
+                )
+            if seed_i and isinstance(podcast, dict):
+                podcast["cues"] = cues
+                out.setdefault("flow_plans", {})["podcast"] = podcast
+    except Exception as exc:
+        applied.append({"action": "chapter_music_bridge_seed_skipped", "error": str(exc)[:160]})
 
     pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
     seed_ids: list[str] = []

@@ -646,6 +646,16 @@ def enrich_thought_complete_findings(
             remainder = remainder_open_ms(
                 words, keep_end, horizon_ms=horizon, speaker=str(packet.get("speaker_id") or "")
             )
+        # Air-order continuum only — never ghost/excluded segment ids.
+        aired_following = {
+            str(c.get("segment_id") or "")
+            for c in clips[int(idx) + 1 :]
+            if isinstance(c, dict)
+            and str(c.get("type") or "") == "speech"
+            and str(c.get("segment_id") or "")
+            and int(c.get("source_start_ms") or 0) + 40
+            >= int(packet.get("hanging_source_end_ms") or hang_end)
+        }
         consumed: list[str] = []
         for row in packet.get("lookahead") or []:
             if not isinstance(row, dict) or row.get("kind") != "speech":
@@ -653,11 +663,9 @@ def enrich_thought_complete_findings(
             oid = str(row.get("segment_id") or "")
             oss = int(row.get("start_ms") or 0)
             ose = int(row.get("end_ms") or oss)
-            if not oid:
+            if not oid or oid not in aired_following:
                 continue
-            if ose <= keep_end:
-                consumed.append(oid)
-            elif oss < keep_end < ose:
+            if ose <= keep_end or oss < keep_end < ose:
                 consumed.append(oid)
         detail.update(
             {
@@ -723,8 +731,56 @@ def apply_thought_complete_to_clips(
                 remainder_ms = keep_end
     if keep_end <= hang_start + 300:
         return clips, overrides, False
+    # Air-order continuum after the hang (until first tape-reorder break).
+    # Ghost/excluded consume targets (exec_023 seg_025) must not drive the loop.
+    continuum: list[str] = []
+    for j in range(hang_index + 1, len(clips)):
+        other = clips[j]
+        if str(other.get("type") or "") != "speech":
+            continue
+        oid = str(other.get("segment_id") or "")
+        if not oid or oid == sid:
+            continue
+        try:
+            oss = int(other.get("source_start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if oss + 40 < prior_end:
+            break
+        continuum.append(oid)
+    continuum_set = set(continuum)
+    declared = {str(x) for x in (detail.get("consumed_segment_ids") or []) if x}
+    # Honor only declared consumes that are on the air continuum; also cover
+    # any continuum neighbor the keep_end actually swallows.
+    consumed: set[str] = {oid for oid in declared if oid in continuum_set}
+    for oid in continuum:
+        other = next(
+            (
+                c
+                for c in clips
+                if isinstance(c, dict)
+                and str(c.get("type") or "") == "speech"
+                and str(c.get("segment_id") or "") == oid
+            ),
+            None,
+        )
+        if not isinstance(other, dict):
+            continue
+        try:
+            oss = int(other.get("source_start_ms") or 0)
+            ose = int(other.get("source_end_ms") or oss)
+        except (TypeError, ValueError):
+            continue
+        if ose <= keep_end or oss < keep_end < ose:
+            consumed.add(oid)
+
     hanging["source_end_ms"] = keep_end
     hanging["duration_ms"] = keep_end - hang_start
+    # Persist landed bound (capped) + air-order consumes for honesty SSOT.
+    detail = dict(detail)
+    detail["keep_end_ms"] = keep_end
+    detail["consumed_segment_ids"] = [oid for oid in continuum if oid in consumed]
+    finding["detail"] = detail
     ov = dict(overrides.get(sid) or {})
     ov["start_ms"] = hang_start
     ov["end_ms"] = keep_end
@@ -732,7 +788,6 @@ def apply_thought_complete_to_clips(
 
     drop: set[str] = set()
     remainder_shifted = False
-    consumed = {str(x) for x in (detail.get("consumed_segment_ids") or []) if x}
     for j in range(hang_index + 1, len(clips)):
         other = clips[j]
         if str(other.get("type") or "") != "speech":
@@ -747,8 +802,15 @@ def apply_thought_complete_to_clips(
         # extension, and dropping it silently lost the segment (ISSUES 151).
         if oss + 40 < prior_end:
             break
-        if consumed and oid not in consumed and ose <= keep_end:
+        if oid not in continuum_set:
             break
+        if oid not in consumed and ose <= keep_end:
+            # Overlap without intentional consume — refuse material land.
+            hanging["source_end_ms"] = prior_end
+            hanging["duration_ms"] = prior_end - hang_start
+            ov["end_ms"] = prior_end
+            overrides[sid] = ov
+            return clips, overrides, False
         if ose <= keep_end:
             drop.add(oid)
             continue

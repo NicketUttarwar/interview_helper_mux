@@ -9,7 +9,7 @@ Federated contract for **`master/selection.json`** air order: stages keep autono
 ## Constitution (shared invariants)
 
 1. **Tape monotonicity** — adjacent air pairs must not reverse source `start_ms` beyond `reverse_jump_margin_ms`, except pairs declared in `understanding/reorder_bridges.json`.
-2. **Opening sub-rule** — host-intro letter-split families (`seg_001*`) air early together as **one opening family** for slot budgeting; violations key on parent first-air index, not each fragment. Typed-exclude (`opening_skipped_duplicate`) when guest-first open is established — never mid-episode.
+2. **Opening sub-rule** — host-intro letter-split families (`seg_001*`) air early together as **one opening family** for slot budgeting; violations key on parent first-air index, not each fragment. Convergent projection: **Mode A** (default) chronological host-first prefix capped at `opening_air_slots` with typed-exclude surplus (`opening_slot_overflow`); **Mode B** (declared cold open / `native_cold_open_segment_id`) keeps the open head and typed-excludes conflicting earliest-tape intro (`opening_skipped_duplicate`). Sticky constitution excludes must not be restored by hard-keep or incomplete-seam.
 3. **Consumer parity** — EDL speech clip order must match selection when EDL is done (`assert_selection_leads_edl`).
 4. **NLE overlay exception** — when the operator applied NLE timeline edits, intentional non-monotonic tape order is **allowed**. Checkpoints **warn** in `master/air_order_integrity.json`; they do **not** block commit.
 
@@ -51,14 +51,17 @@ when callers use `write_json` / `write_committed_json`.
 
 ---
 
-## Rollout (warn-first)
+## Rollout (warn-first → fail-closed)
 
-Default **`mastering.air_order_integrity.block_ranking_on_critical: false`** during soak.
+Default **`mastering.air_order_integrity.block_ranking_on_critical: true`**.
+
+- Opening projection (Mode A host-first / Mode B cold-open) must clear `late_opening_cluster` before pay-land.
+- Sticky constitution excludes: `opening_skipped_duplicate`, `opening_slot_overflow`, `late_intro_reset` — hard-keep and incomplete-seam must not restore them.
+- `late_opening_cluster` heals at `selection_order_sanitize` (local reproject); do not bounce to ranking.
+
+**Blocking rule:** block only when **critical violations remain after repair**. If repair fixed the order, commit proceeds. Residual `late_opening_cluster` after projection always fails closed (even historically during soak).
 
 - Phase C: lifecycle gaps (B5–B7) — log + invalidate, no new halted runs.
-- After soak: set `block_ranking_on_critical: true` for B1–B4.
-
-**Blocking rule:** block only when **critical violations remain after repair**. If repair fixed the order, commit proceeds.
 
 ---
 
