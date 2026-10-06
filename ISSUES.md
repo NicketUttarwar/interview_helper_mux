@@ -6390,12 +6390,27 @@ an editorial aside is still restored; the injector does not re-admit a typed
 omit but still injects an aside in tape order; the deterministic lint reads
 the proposal.
 
-Not fixed here (upstream regressions, pre-existing on upstream main
-`872361153`, pass on `d55f0c6c1`):
-`tests/test_hr2_off_bus_selection.py::test_asc_b3_pass_a_omits_leave_selection_unchanged`,
-`::test_asc_b3_pass_a_ignores_selection_commit_bus` (pass A omits now empty),
+Fixtures updated for upstream `872361153` (they pass on `d55f0c6c1`, fail
+on upstream main alone):
+`tests/test_hr2_off_bus_selection.py` pass-A omit tests (a 96-second tape
+sat wholly inside the new opening window and the constitution excluded half
+of it on write; one beat a minute now), and
 `tests/test_junction_snip_qa.py::test_jsq_b1_advisory_mode_still_blocks_critical_incomplete`
-(junction commitment remaster refuses before the advisory check).
+(ENDD-2 makes the commitment seat hard; the seat is stubbed).
+
+Not fixed here: 26 suite failures pre-existing on upstream main
+`872361153` (all pass on `d55f0c6c1`), by file:
+test_cross_platform_parity (1), test_delivery_guardrails (2),
+test_g_publish_review (2, `master/transcript.vtt missing`),
+test_hau_assembly_freshness (2), test_hau_footgun_harden (1),
+test_hitch_thought_continuity (1), test_homunculus (1),
+test_hx1_mix_epoch_unsealed (5, `music_incomplete` no longer reported),
+test_i11_mix_mark_done_seats_mtime (1),
+test_i25_junction_recut_before_first_mix (2), test_i4_hollow_hosted_vo_zero
+(1), test_junction_precedes_gate_matrix (2),
+test_layup_selection_commit_ownership (1), test_quality_polish_hardening
+(2), test_r_workflow_residual (1). Mostly the ENDD mix / junction / music
+epoch ordering rework; left for the maintainer unless a run hits them.
 
 ---
 
