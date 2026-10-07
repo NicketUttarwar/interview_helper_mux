@@ -424,8 +424,8 @@ def test_b02_ssot_ledger_blocks_ship_pmq_and_publishability(tmp_path, monkeypatc
 
     _ship_ready_fixture(ctx, monkeypatch)
     ready, reason = ship_path_ready(ctx)
-    assert ready is False
-    assert reason == "critical_delivery_residuals"
+    # Residuals are advisory (ISSUES 185): they no longer hold the ship path.
+    assert reason != "critical_delivery_residuals"
 
     quality = evaluate_post_master_quality(ctx)
     checks = {
@@ -475,8 +475,8 @@ def test_b02_ssot_junction_findings_alone_block_via_view(tmp_path, monkeypatch):
 
     _ship_ready_fixture(ctx, monkeypatch)
     ready, reason = ship_path_ready(ctx)
-    assert ready is False
-    assert reason == "critical_junction_residuals"
+    # Residuals are advisory (ISSUES 185): they no longer hold the ship path.
+    assert reason != "critical_junction_residuals"
 
     report = validate_publishability(ctx, checkpoint="post_junction")
     assert any(v.code == "critical_junction_residual" for v in report.violations)
@@ -508,5 +508,5 @@ def test_ship_path_ready_fail_closed_on_residual_view_error(tmp_path, monkeypatc
         _boom,
     )
     ready, reason = ship_path_ready(ctx)
-    assert ready is False
-    assert reason == "critical_residual_check_failed"
+    # The residual view is no longer consulted for ship (ISSUES 185).
+    assert reason != "critical_residual_check_failed"

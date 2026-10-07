@@ -2371,22 +2371,8 @@ def apply_premature_cap_for_execute(
 
 def safe_mix_resume_stage(ctx: RunContext) -> str:
     """Return mix only when music epoch complete and junction residuals clear."""
-    try:
-        from interview_mux.heal_routing import resume_stage_for_error_class
-
-        view = critical_residual_view(ctx)
-        kinds = {str(k or "").strip() for k in (view.kinds or ())}
-        if view.count > 0 and (
-            "on_a_roll" in kinds
-            or "incomplete_cut" in kinds
-            or "incomplete_cut_unresolved" in kinds
-            or any("junction" in k for k in kinds)
-        ):
-            return resume_stage_for_error_class(
-                "incomplete_cut_unresolved", default="junction_snip_qa"
-            )
-    except Exception:
-        pass
+    # Junction residuals no longer send mix back to junction (ISSUES 185): the
+    # recut budget is spent and the rerun reached the same verdict.
     if music_epoch_complete(ctx):
         # SSOT: leave mix only when fully seated (mtime + commitment).
         try:
@@ -3640,16 +3626,8 @@ def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:
         return False, "junction_qa_missing"
     if not listen_delight_cleared_for_progress(ctx):
         return False, "listen_delight_incomplete"
-    # B-02 Wave 9: one SSOT for ledger + junction findings + stamped ints.
-    # Fail closed on check errors — never fail-open past critical residuals.
-    try:
-        view = critical_residual_view(ctx)
-        if view.count > 0:
-            if "delivery_ledger" in view.sources:
-                return False, "critical_delivery_residuals"
-            return False, "critical_junction_residuals"
-    except Exception:
-        return False, "critical_residual_check_failed"
+    # Critical residuals are a junction judgement and advisory (ISSUES 185):
+    # PMQ and the quality report carry them; they no longer hold the ship path.
     if ctx.artifact_exists("master/post_master_quality.json"):
         # HPUB-1: unreadable envelope fail-closes. e2e_soft may still walk
         # encode/cover/publish when publish_allowed is false (operator 1C).

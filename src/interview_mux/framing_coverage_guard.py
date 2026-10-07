@@ -451,7 +451,14 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
         hardening = (merged_config().get("analysis") or {}).get("flow_hardening") or {}
         strict = bool(hardening.get("strict_critical_stages", True))
         msg = "; ".join(issues[:6])
-        ctx.log(f"framing_coverage_guard: {msg}", level="warning", stage="full_master_ranking")
-        if strict and any("never_exclude_primary_impact" in i or "no surviving segment" in i for i in issues):
-            raise ValueError(f"framing_coverage_guard: {msg}")
+        # Advisory (ISSUES 185): the auto-restore above already re-admitted
+        # every primary-impact segment it could. What remains (an
+        # unenforceable impact, a topic with no surviving segment) is a
+        # coverage note; refusing ranking reached the same order on re-roll.
+        _ = strict
+        ctx.log(
+            f"framing_coverage_guard (advisory): {msg}",
+            level="warning",
+            stage="full_master_ranking",
+        )
     return out

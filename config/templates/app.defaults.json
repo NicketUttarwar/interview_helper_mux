@@ -385,6 +385,9 @@
   },
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists run on mapped stages when enabled",
   "analysis": {
+    "_comment_blockers_advisory": "ISSUES 185: quality judgements never block. These two re-enable old refusals for debugging.",
+    "edl_narrative_audit_blocking": false,
+    "selection_seal_fail_closed": false,
     "max_iterations_per_stage": 3,
     "max_queue_drains_per_stage": 5,
     "max_volley_retries": 2,
@@ -633,8 +636,8 @@
       "reverse_jump_margin_max_ms": 600000,
       "count_opening_by_family": true,
       "fragmentation_extra_slots": 2,
-      "block_ranking_on_critical": true,
-      "block_publish_on_critical": true,
+      "block_ranking_on_critical": false,
+      "block_publish_on_critical": false,
       "invalidate_edl_on_order_change": true,
       "invalidate_transitions_on_order_change": true,
       "invalidate_mix_on_order_change": false

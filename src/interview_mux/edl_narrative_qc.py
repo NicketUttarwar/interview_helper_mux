@@ -1028,7 +1028,12 @@ def validate_flow1_edl_narrative(
         frozen = bool(_order_frozen(ctx))
     except Exception:
         frozen = False
-    editorial: list[str] = [] if frozen else errors
+    # Quality judgements (ordering, framing, coverage, chapter labels, LLM
+    # audit verdict, duplicate copy, one-synthetic-per-seam, VO after an
+    # incomplete thought) are warnings whether or not the order is frozen:
+    # their only remedies are a re-rank or a re-compose that reach the same
+    # result (ISSUES 185). Structural checks stay in ``errors``.
+    editorial: list[str] = []
 
     if ctx.artifact_exists("master/air_order_integrity.json"):
         try:
@@ -1093,12 +1098,18 @@ def validate_flow1_edl_narrative(
         return ["master/edl.json: no speech clips available for narrative validation"]
 
     _validate_selection_parity(selection, speech, errors, edl)
-    _validate_coverage_survives_edl(coverage, speech, errors)
-    _validate_chapter_continuity(selection, speech, errors, edl)
+    _validate_coverage_survives_edl(coverage, speech, editorial)
+    _validate_chapter_continuity(selection, speech, editorial, edl)
     _validate_ordering_constraints(narrative_plan, speech, editorial)
     _validate_transitions(transitions, edl, speech, errors)
-    _validate_vo_after_legal_hinge(ctx, edl, errors)
-    _validate_gap_placements(ctx, edl, speech, errors)
+    _validate_vo_after_legal_hinge(ctx, edl, editorial)
+    placement_findings: list[str] = []
+    _validate_gap_placements(ctx, edl, speech, placement_findings)
+    for finding in placement_findings:
+        if "identical VO text" in finding or "spoken sentence key collision" in finding:
+            editorial.append(finding)
+        else:
+            errors.append(finding)
     # Advisory only (ISSUES 184): the EDL seats every line the gap report airs,
     # so a same-voice seam is a quality note, not a reason to refuse the EDL.
     clone_advisory: list[str] = []
@@ -1117,18 +1128,17 @@ def validate_flow1_edl_narrative(
     _validate_framing_before_impact(ctx, edl, speech, editorial)
     _validate_framing_succinct_exclusions(ctx, selection, speech, editorial)
     _validate_speaker_volley_integrity(ctx, speech, errors)
-    _validate_single_synthetic_between_natives(edl, errors)
+    _validate_single_synthetic_between_natives(edl, editorial)
     _validate_episode_vo_identity(ctx, edl, errors)
-    _validate_audit_artifact(ctx, errors)
-    if frozen and editorial:
+    _validate_audit_artifact(ctx, editorial)
+    if editorial:
         try:
             ctx.log(
-                f"EDL narrative QC: order frozen — {len(editorial)} editorial issue(s) "
-                "recorded as warnings (no re-rank or re-compose can run): "
-                + "; ".join(editorial[:4]),
+                f"EDL narrative QC: {len(editorial)} editorial issue(s) recorded as "
+                "warnings (ISSUES 185): " + "; ".join(editorial[:4]),
                 level="warning",
                 stage="edl_narrative_qc",
-                detail={"frozen_editorial": editorial[:20]},
+                detail={"editorial": editorial[:20], "frozen": frozen},
             )
         except Exception:
             pass

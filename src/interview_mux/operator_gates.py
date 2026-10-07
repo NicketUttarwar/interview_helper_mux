@@ -119,16 +119,11 @@ def should_stamp_needs_operator(
     if not is_unattended_run(meta):
         return True
     low = str(reason or "").lower()
-    # Sanitize refuse is a hard product halt — never auto-continue past it.
-    if "sanitize_refused" in low or "selection_unsanitary" in low:
-        return True
-    if "gap_unsanitary" in low or "air_contract_unsanitary" in low or "layup_unsanitary" in low:
-        return True
-    if "sdp_unsanitary" in low:
-        return True
-    # HV-5: vo_unsanitary is a vo_synthesize ladder pin (HV-2), not a G1
-    # record pause. Fall through to classified / operator-gate checks.
-    if "authority_undo" in low or "same_family_over_budget" in low:
+    # Sanitize refusals (selection / gap / air contract / layup / SDP /
+    # same-family budget) route through remediation on unattended runs: each
+    # has a resume pin in stage_completion. Pausing for a person stopped
+    # unattended runs that the pinned stage would have healed (ISSUES 185).
+    if "authority_undo" in low:
         return True
     if "incomplete-after-conductor" in low or "incomplete_after_conductor" in low:
         return True

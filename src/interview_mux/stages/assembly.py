@@ -480,14 +480,9 @@ def _gap_lines_for_segment(
         # This is deliberately global, not scoped to a target or placement.
         # A repeated spoken sentence is unacceptable even if it was authored
         # for two different native segments — fail closed rather than silent-drop.
-        collision = set(line_sentence_keys) & seen_sentences
-        if collision:
-            sample = next(iter(collision))
-            raise ValueError(
-                "EDL refused duplicate spoken sentence across VO lines "
-                f"(line_id={lid or '?'}, targets={segment_id}, key={sample!r}). "
-                "Regenerate or omit colliding synthetic copy before edl."
-            )
+        # A repeated spoken sentence is a quality note: the line's audio is
+        # already synthesized and dropping it would leave a required line
+        # unseated. EDL narrative QC logs the collision (ISSUES 185).
         if lid:
             seen_ids.add(lid)
         seen_sentences.update(line_sentence_keys)
@@ -1577,6 +1572,27 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
     return selection
 
 
+#: Orientation contract findings that mean the line is missing from air. The
+#: rest (mission labels, wording, position, music-then-body) are quality notes
+#: and are logged (ISSUES 185).
+_STRUCTURAL_ORIENTATION_MARKERS = ("audible_count", "opening_orientation_count")
+
+
+def _blocking_orientation_errors(ctx: RunContext, errors: list[str]) -> list[str]:
+    blocking = [e for e in errors if any(m in str(e) for m in _STRUCTURAL_ORIENTATION_MARKERS)]
+    advisory = [e for e in errors if e not in blocking]
+    if advisory:
+        try:
+            ctx.log(
+                "edl: opening orientation notes (advisory): " + "; ".join(advisory[:4]),
+                level="warning",
+                stage="edl",
+            )
+        except Exception:
+            pass
+    return blocking
+
+
 def run_edl(ctx: RunContext) -> None:
     """Build ``master/edl.json`` from disk selection + seated VO/transitions.
 
@@ -1587,9 +1603,12 @@ def run_edl(ctx: RunContext) -> None:
     from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
 
     if narrative_audit_blocks_edl(ctx):
-        raise SystemExit(
-            "edl_narrative_audit has effective blocking issues — fix them and re-run "
-            "edl_narrative_audit before edl."
+        # The audit is an LLM verdict; its only remedy is a re-roll (ISSUES 185;
+        # 48, 70, 120, 152, 162 were this shape). Logged, never blocking.
+        ctx.log(
+            "edl_narrative_audit has blocking issues (advisory) — building the EDL",
+            level="warning",
+            stage="edl",
         )
     check_narrative_qc(ctx, stage="edl", require_selection=True)
 
@@ -1700,9 +1719,12 @@ def run_edl(ctx: RunContext) -> None:
             forbidden = forbidden_bridge_pairs(ctx, missing)
             missing = [m for m in missing if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
             if missing:
-                raise SystemExit(
-                    "edl: bridge_completeness incomplete — resume transitions "
-                    f"(missing={missing[:6]})"
+                # Advisory (ISSUES 185): build the EDL; the seam plays unglued.
+                ctx.log(
+                    "edl: bridge_completeness incomplete (advisory) "
+                    f"(missing={missing[:6]})",
+                    level="warning",
+                    stage="edl",
                 )
             assert_bridges_complete(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
@@ -1796,6 +1818,7 @@ def run_edl(ctx: RunContext) -> None:
                     gap_report=gap_report if isinstance(gap_report, dict) else None,
                     edl=edl,
                 )
+                opening_errors = _blocking_orientation_errors(ctx, opening_errors)
                 if opening_errors:
                     raise RuntimeError(
                         "edl: opening orientation contract failed: "
@@ -1901,6 +1924,7 @@ def run_edl(ctx: RunContext) -> None:
                         gap_report=gap_report,
                         edl=edl,
                     )
+                    opening_errors = _blocking_orientation_errors(ctx, opening_errors)
                     if opening_errors:
                         raise RuntimeError(
                             "edl: opening orientation contract failed at stage_done: "

@@ -359,11 +359,27 @@ def narrative_audit_blocks_edl(ctx: RunContext) -> bool:
     return bool(effective_narrative_blocking_issues(ctx, audit))
 
 
+def _narrative_audit_blocking_enabled() -> bool:
+    try:
+        from interview_mux.config import merged_config
+
+        return bool((merged_config().get("analysis") or {}).get("edl_narrative_audit_blocking", False))
+    except Exception:
+        return False
+
+
 def effective_narrative_blocking_issues(
     ctx: RunContext,
     audit: dict[str, Any] | None = None,
 ) -> list[Any]:
-    """Return only live audit blockers; stale LLM claims never gate EDL."""
+    """Return only live audit blockers; stale LLM claims never gate EDL.
+
+    The audit is an LLM verdict whose only remedy is a re-roll, so by default it
+    never blocks (ISSUES 185): ``analysis.edl_narrative_audit_blocking`` turns it
+    back on. The issues stay in master/edl_narrative_audit.json for the operator.
+    """
+    if not _narrative_audit_blocking_enabled():
+        return []
     if audit is None:
         if not ctx.artifact_exists("master/edl_narrative_audit.json"):
             return []

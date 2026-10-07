@@ -754,15 +754,7 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
                     "Re-run edl to emit the assembly ledger.",
                 )
             )
-    if ctx.artifact_exists("master/bridge_completeness.json"):
-        bc = ctx.read_json("master/bridge_completeness.json")
-        if isinstance(bc, dict) and not bc.get("complete", True):
-            issues.append(
-                StageInputIssue(
-                    "bridge_completeness incomplete",
-                    "Mint pair-specific transitions for reorder joins, then re-run edl.",
-                )
-            )
+    # bridge_completeness incomplete is advisory (ISSUES 185), not an input issue.
     if not ctx.artifact_exists("master/seam_autopsy.json"):
         issues.append(
             StageInputIssue(

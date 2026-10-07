@@ -235,7 +235,18 @@ def test_narrative_audit_blocks_edl(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
-    assert narrative_audit_blocks_edl(ctx) is True
+    # The LLM audit is advisory by default (ISSUES 185) ...
+    assert narrative_audit_blocks_edl(ctx) is False
+    # ... and blocks again only when the config key turns it on.
+    import interview_mux.edl_narrative_remutate as remutate
+
+    remutate._narrative_audit_blocking_enabled = lambda: True  # type: ignore[assignment]
+    try:
+        assert narrative_audit_blocks_edl(ctx) is True
+    finally:
+        import importlib
+
+        importlib.reload(remutate)
     assert resume_after_narrative_audit_fail("edl") == "edl_narrative_audit"
     assert resume_after_narrative_audit_fail("transitions") == "transitions"
 

@@ -177,6 +177,24 @@ def _good_edl() -> dict:
     }
 
 
+
+def _qc_errors_and_warnings(ctx, edl):
+    """Blocking errors, plus the editorial findings the QC logs as warnings (ISSUES 185)."""
+    warned: list[str] = []
+    real_log = ctx.log
+
+    def _spy(msg, *a, **k):
+        detail = k.get("detail")
+        if isinstance(detail, dict) and isinstance(detail.get("editorial"), list):
+            warned.extend(str(x) for x in detail["editorial"])
+        return real_log(msg, *a, **k)
+
+    ctx.log = _spy
+    try:
+        return validate_flow1_edl_narrative(ctx, edl), warned
+    finally:
+        ctx.log = real_log
+
 def test_validate_flow1_edl_narrative_passes() -> None:
     ctx = RunContext("run_edl_narrative_ok", create=True)
     _write_story_artifacts(ctx)
@@ -189,8 +207,9 @@ def test_validate_flow1_edl_narrative_catches_coverage_loss() -> None:
     edl = _good_edl()
     edl["ordered_segment_ids"] = ["seg_a", "seg_b"]
     edl["clips"] = [c for c in edl["clips"] if c.get("segment_id") != "seg_c"]
-    errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("covered topic" in e and "Breakthrough" in e for e in errors)
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("covered topic" in e and "Breakthrough" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("covered topic" in e and "Breakthrough" in e for e in warned)
 
 
 def test_validate_flow1_edl_narrative_catches_ordering_constraint() -> None:
@@ -201,8 +220,9 @@ def test_validate_flow1_edl_narrative_catches_ordering_constraint() -> None:
     for idx, sid in enumerate(["seg_c", "seg_a", "seg_b"]):
         speech = [c for c in edl["clips"] if c.get("type") == "speech"][idx]
         speech["segment_id"] = sid
-    errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("ordering constraint violated" in e for e in errors)
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("ordering constraint violated" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("ordering constraint violated" in e for e in warned)
 
 
 def test_check_edl_narrative_qc_records_summary(monkeypatch) -> None:
@@ -267,8 +287,9 @@ def test_validate_framing_before_impact_missing_vo() -> None:
     )
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
-    errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("preceding framing VO" in e for e in errors)
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("preceding framing VO" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("preceding framing VO" in e for e in warned)
 
 
 def test_validate_duplicate_line_id_is_blocking() -> None:
@@ -529,8 +550,9 @@ def test_validate_transition_after_incomplete_thought_fails() -> None:
     for clip in edl["clips"]:
         if clip.get("segment_id") == "seg_c":
             clip["source_start_ms"], clip["source_end_ms"] = 9000, 10000
-    errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("incomplete thought" in e for e in errors)
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("incomplete thought" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("incomplete thought" in e for e in warned)
 
 
 def test_incomplete_thought_the_builder_cannot_reach_is_a_warning() -> None:
@@ -626,8 +648,9 @@ def test_validate_rejects_transition_then_layup_before_native() -> None:
         },
     )
     edl["clips"] = clips
-    errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("synthetic inserts adjacent" in e for e in errors)
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("synthetic inserts adjacent" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("synthetic inserts adjacent" in e for e in warned)
 
 
 def test_validate_rejects_mixed_voice_speaker_id() -> None:
@@ -729,7 +752,9 @@ def test_a_block_with_no_framing_on_air_still_fails() -> None:
     _framing_plan(ctx, ["line_001"], ["seg_b"])
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
-    assert any("preceding framing VO" in e for e in validate_flow1_edl_narrative(ctx, edl))
+    errors, warned = _qc_errors_and_warnings(ctx, edl)
+    assert not any("preceding framing VO" in e for e in errors)  # advisory now (ISSUES 185)
+    assert any("preceding framing VO" in e for e in warned)
 
 
 def test_orientation_beside_the_first_segments_vo_is_not_a_stack() -> None:

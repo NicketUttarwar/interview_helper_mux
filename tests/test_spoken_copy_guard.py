@@ -564,11 +564,9 @@ def test_edl_raises_on_duplicate_spoken_sentence(tmp_path) -> None:
         gap, "seg_a", "before", emitted_sentence_keys=seen
     )
     assert len(first) == 1
-    try:
-        _gap_lines_for_segment(gap, "seg_b", "before", emitted_sentence_keys=seen)
-        raise AssertionError("expected duplicate sentence to raise")
-    except ValueError as exc:
-        assert "duplicate spoken sentence" in str(exc)
+    # Seated, not raised (ISSUES 185); EDL narrative QC reports the repeat.
+    second = _gap_lines_for_segment(gap, "seg_b", "before", emitted_sentence_keys=seen)
+    assert len(second) == 1
 
 
 def test_performance_title_case_common_noun_allowed_for_transition() -> None:

@@ -68,10 +68,15 @@ def test_hv5_vo_unsanitary_does_not_stamp_unattended_010() -> None:
         )
         is False
     )
-    assert should_stamp_needs_operator(
-        "sound_design_plan",
-        "sdp_unsanitary — resume sound_design_plan: theme missing",
-        meta=meta,
+    # Unattended: a sanitize refusal routes through its resume pin, not a
+    # human pause (ISSUES 185).
+    assert (
+        should_stamp_needs_operator(
+            "sound_design_plan",
+            "sdp_unsanitary — resume sound_design_plan: theme missing",
+            meta=meta,
+        )
+        is False
     )
 
 

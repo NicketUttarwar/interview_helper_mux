@@ -234,13 +234,50 @@ def synthesize_line(
             evidence.pop("target_excerpt", None)
             evidence.pop("after_excerpt", None)
             evidence.pop("next_clip_text", None)
-        guarded = assert_guarded_spoken_copy(
-            raw_text,
-            evidence=evidence,
-            purpose=f"vo[{lid}]",
-            ctx=ctx,
-            exclude_line_id=lid,
-        )
+        try:
+            guarded = assert_guarded_spoken_copy(
+                raw_text,
+                evidence=evidence,
+                purpose=f"vo[{lid}]",
+                ctx=ctx,
+                exclude_line_id=lid,
+            )
+        except ValueError as exc:
+            # The stage that wrote this line already ran the guard and accepted
+            # the copy; synthesis does not re-judge wording into a stall. Voice
+            # the text as written and record the disagreement (ISSUES 185).
+            # Text that must never be spoken (internal ids, chapter/planner
+            # meta, scaffolding, jargon) still refuses.
+            from interview_mux.spoken_copy_guard import context_hash, script_hash
+            from interview_mux.spoken_meta_lint import is_hard_structure_violation
+
+            codes = [
+                c.strip().split(":", 1)[0]
+                for c in str(exc).split("spoken_copy_guard:", 1)[-1].split(",")
+            ]
+            if any(
+                is_hard_structure_violation(c) and not c.startswith("spoken_repeated_")
+                for c in codes
+            ):
+                raise
+
+            try:
+                ctx.log(
+                    f"vo[{lid}]: synthesis-time guard refused copy the writer accepted; "
+                    f"voicing it as written (advisory): {exc}",
+                    level="warning",
+                    stage="vo_synthesize",
+                )
+            except Exception:
+                pass
+            guarded = {
+                "action": "allow_as_written",
+                "text": raw_text,
+                "violations": [],
+                "script_hash": script_hash(raw_text),
+                "context_hash": context_hash(evidence),
+                "purpose": f"vo[{lid}]",
+            }
         final_text = str(guarded.get("text") or "").strip()
         if not final_text:
             raise ValueError(f"VO script empty after spoken_copy_guard for {lid}")

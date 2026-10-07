@@ -1314,6 +1314,59 @@ def _lint_generic(
     return errors
 
 
+#: Lint messages that mean the artifact is broken, not merely imperfect: empty
+#: or missing required content, ids the manifest does not know, rows a
+#: consumer cannot use. Only these refuse a stage (ISSUES 185). Every other
+#: lint is a quality judgement (word counts, ratios, ordering taste, wording,
+#: provenance, caps) and is logged as a warning. A lint that crashes is the
+#: lint's bug, never the artifact's: it warns too (exec_028 lost ranking to a
+#: TypeError inside the lint).
+STRUCTURAL_LINT_MARKERS: tuple[str, ...] = (
+    "speakers list empty",
+    "thesis empty",
+    "no boundaries",
+    "boundary missing segment_id",
+    "duplicate segment_id",
+    "missing start_ms",
+    "missing end_ms",
+    "zero-length",
+    "not monotonic",
+    "missing speaker_id",
+    "interview spine missing",
+    "no classified segments",
+    "not in manifest",
+    "no gap evaluations",
+    "no palettes",
+    "unknown asset_id",
+    "no crafted prompts",
+    "duplicate crafted prompt asset_id",
+    "missing line_id",
+    "missing voice_speaker_id",
+    "coverage_score missing",
+    "has no segment_ids",
+    "missing from ordered",
+    "must appear in ordered_segment_ids",
+    "invalid verdict",
+    "description_markdown empty",
+)
+
+
+def is_structural_lint(message: str) -> bool:
+    text = str(message or "").lower()
+    if text.startswith("lint internal error"):
+        return False
+    return any(marker in text for marker in STRUCTURAL_LINT_MARKERS)
+
+
+def split_lint_errors(errors: list[str] | None) -> tuple[list[str], list[str]]:
+    """(blocking, advisory): only structural lints block (ISSUES 185)."""
+    blocking: list[str] = []
+    advisory: list[str] = []
+    for err in errors or []:
+        (blocking if is_structural_lint(err) else advisory).append(str(err))
+    return blocking, advisory
+
+
 _LINTERS: dict[str, Any] = {
     "speaker_roles": _lint_speaker_roles,
     "content_context": _lint_content_context,

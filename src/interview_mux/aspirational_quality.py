@@ -18,17 +18,15 @@ from interview_mux.run_context import RunContext
 CANDIDATES_REL = "master/quality_candidates.json"
 ADVISORIES_META_KEY = "quality_advisories"
 
-# PMQ checks that remain hard even when aspirational (thin ship bar — S5).
-# Live critical junction residuals still hard-block via evaluate special-case.
-# Delight ship judge is authoritative listen_delight (not a PMQ duplicate — S2).
+# PMQ checks that remain hard: the master is missing or not the one the EDL
+# describes. Everything else (speakable-copy re-lint, omit-ledger paperwork,
+# duration floor, junction residual judgements) is advisory (ISSUES 185); each
+# has its own producer earlier in the walk and nothing at finalize can heal it.
 STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
     {
         "master_exists_nonempty",
         "seam_commitment",
-        "spoken_vo_speakable",
         "audible_script_hash_agreement",
-        "omit_ledger_air_contract",
-        "selection_duration_floor",
     }
 )
 
@@ -158,6 +156,10 @@ RUBRIC_PMQ_CHECKS: frozenset[str] = frozenset(
         "spoken_native_intro_duplicate",
         "mastering_plan_present_when_complete",
         "render_ledger_exists",
+        # Advisory since ISSUES 185.
+        "spoken_vo_speakable",
+        "omit_ledger_air_contract",
+        "selection_duration_floor",
     }
 )
 

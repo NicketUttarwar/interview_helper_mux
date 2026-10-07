@@ -173,5 +173,5 @@ def test_i28_outer_mix_still_refuses(
             {"kind": "on_a_roll", "severity": "critical", "segment_id": "seg_071"}
         ],
     )
-    with pytest.raises(LoudStageFailure):
-        refuse_mix_if_live_incomplete_cuts(ctx)
+    # Advisory (ISSUES 185): mix renders and logs the residuals.
+    assert refuse_mix_if_live_incomplete_cuts(ctx) is None

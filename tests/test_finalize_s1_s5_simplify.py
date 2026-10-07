@@ -91,14 +91,12 @@ def test_s2_pmq_does_not_rescore_delight_floors(ctx, monkeypatch) -> None:
 
 
 def test_s5_thin_structural_ship_bar() -> None:
+    # Only "the master is missing or not the one the EDL describes" (ISSUES 185).
     assert STRUCTURAL_PMQ_CHECKS == frozenset(
         {
             "master_exists_nonempty",
             "seam_commitment",
-            "spoken_vo_speakable",
             "audible_script_hash_agreement",
-            "omit_ledger_air_contract",
-            "selection_duration_floor",
         }
     )
     assert is_structural_pmq_check("seam_commitment") is True

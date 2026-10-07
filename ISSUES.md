@@ -6554,6 +6554,91 @@ Tests: `tests/test_required_vo_seats_despite_clone_adjacency.py` (7);
 `tests/test_clone_voice_adjacency.py` and `tests/test_edl_narrative_qc.py`
 updated from "suppressed" to "seated + advisory".
 
+## [185] STRUCTURAL: hard blockers become warnings or simple rules (maintainer's request after exec_025)
+
+**Status:** DONE (code + tests); fresh-run verification pending operator go-ahead.
+
+**Why:** the maintainer asked to cut features and simplify: a quality
+judgement must not refuse a stage or the mix. Four read-only audits mapped
+every blocker (publishability/PMQ/guardrails, lints/QC/sanitize, loud
+failures/guards/LLM runner, and which ones fired across ISSUES 1-184 and
+the run logs). Each was classified QUALITY (judgement: becomes a warning) or
+STRUCTURAL (missing/corrupt/empty/unplayable: keeps blocking, with a heal
+whose resume stage can actually produce the missing thing). ISSUES 184 was
+the template.
+
+**Central switches**
+- Lints: stage acceptance failed on *any* lint string, so lints the runner
+  labelled "non-blocking" still blocked through the commit barrier.
+  `deterministic_lint.split_lint_errors`: only `STRUCTURAL_LINT_MARKERS`
+  (empty / missing / not in manifest / unknown asset / missing line_id or
+  voice / bad boundary rows) block; every other lint is logged. A lint that
+  crashes warns (exec_028 lost ranking to a TypeError inside the lint).
+- LLM runner: on the second attempt, valid artifacts are accepted whatever the
+  model labels its needs; the needs are logged (172, 177, 183 shape).
+- Config: `block_ranking_on_critical` and `block_publish_on_critical` false;
+  lay-up `block_on_open_must_keep` / `block_on_open_high_salience` false.
+  New off-by-default switches `analysis.edl_narrative_audit_blocking` and
+  `analysis.selection_seal_fail_closed` re-enable the old refusals.
+- Unattended runs: sanitize refusals route through their resume pins instead
+  of stamping needs_operator (only authority-undo thrash still pauses).
+
+**Now warnings (logged, recorded, never refuse)**
+- Ranking: unresolved air-order criticals after repair (incl. the
+  unconditional late_opening_cluster raise), story_health fail, selection
+  seal findings (hard keep not placed, primary impact), framing coverage
+  guard, sanitizer integrity/lattice codes.
+- EDL narrative QC: coverage lost, chapter continuity, ordering, framing
+  before impact / covered-on-air, VO after an incomplete thought, duplicate
+  copy / sentence collisions, one synthetic per seam, LLM audit verdict.
+  Structural QC (selection parity, transitions adjacency, orphan/duplicate
+  line ids, voice identity, volley split) still blocks.
+- EDL builder: the LLM narrative audit's blocking issues, a repeated spoken
+  sentence (both lines seated), orientation mission labels / thin wording /
+  late position (count and audibility still block), bridge completeness
+  (all five refusal sites).
+- Spoken copy: a transition the guard cannot cure is dropped and the seam
+  plays without spoken glue (transitions persist, seam-glue mint, synthetic
+  framing plan); an uncovered reorder seam is not a plan error; adjudication
+  only stops on empty text or placeholder markup; at synthesis time the
+  writer's accepted copy is voiced as written unless it would speak an
+  internal id, meta or scaffolding.
+- Junction / ship: residual verdicts, residuals after the run budget and an
+  unavailable feel audit (LLM outage) are advisory in junction, mix,
+  publishability, ship-path readiness and the mix resume picker.
+- Publishability: `ADVISORY_ERROR_CLASSES` (incomplete cut, claim inventory
+  paperwork, VO audibility drift, stale staging) never raise; unseated
+  required VO, order drift, zeroed speech and orientation count do.
+- PMQ: structural set is master integrity only (exists, seam commitment,
+  script-hash agreement), each with a heal route (mix, junction_snip_qa,
+  vo_synthesize); speakable re-lint, omit-ledger paperwork, duration floor
+  and junction residuals are advisory.
+- Lay-up / air contract: the hosted-VO count floor is a target at every
+  count; gap-report scaffolding on a required line is an advisory note.
+
+**Now simple rules**
+- Transition synthesis records pairs the guard refused
+  (`mastering/vo_synthesize.json` `unspeakable_pairs`, keyed by script hash);
+  every missing-WAV gate skips them until their text changes, so mix and
+  vo_synthesize stop bouncing.
+- A lay-up row a row-level QC finding names (canned air, thin, ungrounded,
+  CTA wording, restates target) becomes a justified typed skip.
+
+**Kept as is (structural, with working heals):** missing/corrupt artifacts,
+ids not in manifest, unseated required VO, order drift, zeroed speech,
+boundary quality gate, ownership denials, schema/env failures, mix epoch
+ordering, seed-order prerequisites, speaker preflight (ISSUES 103 already
+softened it).
+
+**Not changed, noted for later:** the retry-limit guards (attempt memo,
+identical-failure x3) still amplify a single refusal; with the blockers above
+gone they should rarely see one. The dead `pre_finalize` publishability
+checkpoint is left in place.
+
+Tests: `tests/test_blockers_become_warnings_or_rules.py` (11); about 40
+existing tests updated from "refuses" to "warns", and opt-in paths kept
+tested through the new switches.
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)

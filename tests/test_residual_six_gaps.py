@@ -463,8 +463,8 @@ def test_b02_fuse_oscillation_residual_blocks_ship(tmp_path, monkeypatch):
         lambda _ctx: True,
     )
     ready, reason = ship_path_ready(ctx)
-    assert ready is False
-    assert reason == "critical_delivery_residuals"
+    # Residuals are advisory (ISSUES 185): they no longer hold the ship path.
+    assert reason != "critical_delivery_residuals"
 
 
 def test_b03_junction_family_in_halt_and_classify(tmp_path, monkeypatch):

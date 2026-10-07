@@ -58,7 +58,8 @@ def test_validate_blocks_primary_impact_exclusion(ctx: RunContext) -> None:
     assert any("never_exclude_primary_impact" in i for i in issues)
 
 
-def test_enforce_raises_on_primary_lock(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enforce_warns_on_primary_lock(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Advisory since ISSUES 185: logged, not raised."""
     monkeypatch.setattr(
         "interview_mux.config.merged_config",
         lambda: {"analysis": {"flow_hardening": {"strict_critical_stages": True}}},
@@ -67,8 +68,8 @@ def test_enforce_raises_on_primary_lock(ctx: RunContext, monkeypatch: pytest.Mon
         "ordered_segment_ids": ["seg_003"],
         "excluded_segment_ids": [{"segment_id": "seg_002", "reason": "covered_by_framing_vo"}],
     }
-    with pytest.raises(ValueError, match="framing_coverage_guard"):
-        enforce_framing_ranking(ctx, selection)
+    out = enforce_framing_ranking(ctx, selection)
+    assert out["ordered_segment_ids"]
 
 
 def test_blank_primary_impact_exclude_allowed(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:

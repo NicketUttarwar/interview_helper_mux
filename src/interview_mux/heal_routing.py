@@ -557,6 +557,32 @@ def classify_heal_error(
             detail=detail,
         )
 
+    # The three structural post-master checks (ISSUES 185): each resumes the
+    # stage that can produce the missing thing, instead of escalating with no
+    # playbook at master_finalize.
+    if "post-master quality failed" in low or "post_master_quality_failed" in low:
+        if "audible_script_hash_agreement" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="vo_synthesize",
+                action="resynthesize_rebuild_edl",
+                detail="WAV hash disagrees with its script — re-speak, rebuild EDL and mix",
+            )
+        if "seam_commitment" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="junction_snip_qa",
+                action="recommit_seams",
+                detail="seam autopsy not committed — rerun junction to commit and remaster",
+            )
+        if "master_exists_nonempty" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="mix",
+                action="remix",
+                detail="master missing or empty — re-render mix",
+            )
+
     if (
         "spoken_vo_speakable" in low
         or "spoken_repeated_copy" in low

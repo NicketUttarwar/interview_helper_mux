@@ -88,8 +88,8 @@ def test_i29_outer_mix_still_refuses_live_residuals(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _pin_live(monkeypatch, _LIVE)
-    with pytest.raises(LoudStageFailure):
-        refuse_mix_if_live_incomplete_cuts(ctx)
+    # Advisory (ISSUES 185): mix renders and logs the residuals.
+    assert refuse_mix_if_live_incomplete_cuts(ctx) is None
 
 
 # --- i30: seat freeze must let ship-blocking omits leave air -------------------

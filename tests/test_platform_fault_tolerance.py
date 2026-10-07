@@ -439,6 +439,8 @@ def test_seal_selection_lattice_fail_closed_on_missing_keep(monkeypatch):
         "interview_mux.framing_coverage_guard.validate_framing_ranking",
         lambda ctx, sel: [],
     )
+    # Opt-in since ISSUES 185 (selection_seal_fail_closed).
+    monkeypatch.setattr(selection_constraints, "_seal_refusal_enabled", lambda: True)
     with pytest.raises(ValueError, match="selection_lattice_seal_refused"):
         selection_constraints.seal_selection_lattice(
             _Ctx(),

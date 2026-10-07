@@ -363,24 +363,9 @@ def assert_bridges_complete(
         "stub_count": len(stubs),
         "stub_pairs": stubs,
     }
-    if soft:
-        return doc
-    if missing:
-        sample = ", ".join(
-            f"{m['after_segment_id']}->{m['before_segment_id']}" for m in missing[:6]
-        )
-        raise SystemExit(
-            f"bridge_completeness: {len(missing)} reorder join(s) lack pair-specific "
-            f"gap/transition glue before EDL — fix transitions or gap_report ({sample})"
-        )
-    if stubs:
-        sample = ", ".join(
-            f"{s['after_segment_id']}->{s['before_segment_id']}" for s in stubs[:6]
-        )
-        raise SystemExit(
-            f"bridge_completeness: {len(stubs)} reorder join(s) use canned/repeated "
-            f"stub bridge text — rewrite with pair-specific glue ({sample})"
-        )
+    # Advisory (ISSUES 185): a seam without pair-specific glue still plays;
+    # the doc records it and callers log it. Refusing EDL or transitions
+    # over it stalled runs whose glue could not be grounded (151, 166, 181).
     return doc
 
 

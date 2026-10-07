@@ -117,8 +117,9 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             block.get("demote_synthetic_framing_content", True)
         ),
         "authoritative_gap_report": bool(block.get("authoritative_gap_report", True)),
-        "block_on_open_must_keep": bool(block.get("block_on_open_must_keep", True)),
-        "block_on_open_high_salience": bool(block.get("block_on_open_high_salience", True)),
+        # Open coverage is a goal, not a stop (ISSUES 185): default advisory.
+        "block_on_open_must_keep": bool(block.get("block_on_open_must_keep", False)),
+        "block_on_open_high_salience": bool(block.get("block_on_open_high_salience", False)),
         "honor_information_package_dense_budget": bool(
             block.get("honor_information_package_dense_budget", True)
         ),
@@ -4960,8 +4961,84 @@ def try_pick_best_layup_on_oscillation(ctx: RunContext) -> dict[str, Any]:
     return {"ok": False, "reason": "oscillation_pick_disabled_s4"}
 
 
+#: Row-level lay-up QC findings, written as ``kind[target_segment_id]: ...``.
+#: A row with one becomes a typed skip instead of failing the stage (ISSUES 185).
+_ROW_QC_KINDS = frozenset(
+    {
+        "insufficient_analysis",
+        "canned_air",
+        "never_touch_cta",
+        "spoken_copy",
+        "invented_island_claim",
+        "thin_layup",
+        "restates_target",
+    }
+)
+
+
+def skip_rows_failing_layup_qc(ctx: RunContext, qc: dict[str, Any]) -> int:
+    """Stamp a typed skip on every lay-up row a row-level QC finding names.
+
+    Lay-up air is optional; a row whose copy is canned, thin, ungrounded or
+    reuses CTA wording is dropped from air with a justified reason instead of
+    stopping nugget_layup_compose (144, 157, 135, 171 were this stop).
+    """
+    import re
+
+    targets: dict[str, str] = {}
+    for err in qc.get("errors") or []:
+        m = re.match(r"^([a-z_]+)\[([^\]]+)\]", str(err))
+        if m and m.group(1) in _ROW_QC_KINDS:
+            targets.setdefault(m.group(2), m.group(1))
+    if not targets or not ctx.artifact_exists(PLAN_REL):
+        return 0
+    plan = ctx.read_json(PLAN_REL)
+    if not isinstance(plan, dict):
+        return 0
+    stamped = 0
+    for row in plan.get("layups") or []:
+        if not isinstance(row, dict) or row.get("skip"):
+            continue
+        tid = str(row.get("target_segment_id") or "")
+        kind = targets.get(tid)
+        if not kind:
+            continue
+        stamp_typed_skip(
+            row,
+            reason_code="never_touch_cta" if kind == "never_touch_cta" else "spoken_copy_unhealable",
+            evidence_refs=[f"layup_qc:{kind}"],
+            compensating_path="typed_skip",
+        )
+        stamped += 1
+    if not stamped:
+        return 0
+    try:
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            ctx, PLAN_REL, plan, merge_from_disk=False, stage_key="nugget_layup_compose"
+        )
+    except Exception as exc:
+        ctx.log(
+            f"nugget_layup: could not persist QC typed skips ({exc}); leaving plan as is",
+            level="warning",
+            stage="nugget_layup_compose",
+        )
+        return 0
+    ctx.log(
+        f"nugget_layup: {stamped} lay-up row(s) failing QC skipped with a typed reason "
+        "(advisory): " + ", ".join(f"{k}:{v}" for k, v in list(targets.items())[:8]),
+        level="warning",
+        stage="nugget_layup_compose",
+    )
+    return stamped
+
+
 def assert_layup_qc_or_raise(ctx: RunContext, qc: dict[str, Any]) -> None:
     from interview_mux.artifact_writes import write_validated_artifact
+
+    if not qc.get("ok") and skip_rows_failing_layup_qc(ctx, qc):
+        qc = evaluate_layup_qc(ctx)
 
     # QC artifact may lack a dedicated schema validator — write via ctx.
     try:

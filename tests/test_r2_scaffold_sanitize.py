@@ -69,8 +69,9 @@ def test_required_scaffold_sanitize_refuses_without_rewrite(ctx) -> None:
         "gaps": [],
     }
     result = sanitize_gap_report(ctx, gap)
-    assert not result.ok
-    assert any("scaffolding_active" in e for e in result.errors)
+    # Advisory since ISSUES 185: recorded, not refused, and still never rewritten.
+    assert not any("scaffolding_active" in e for e in result.errors)
+    assert any(a.get("action") == "scaffolding_advisory" for a in result.actions)
     assert not any(a.get("action") == "rewrite_scaffolding" for a in result.actions)
     kept = (result.doc.get("interviewer_lines") or [None])[0]
     assert isinstance(kept, dict)

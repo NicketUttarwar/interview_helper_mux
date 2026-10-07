@@ -83,15 +83,28 @@ def _read_artifact(ctx: RunContext, stage_key: str, *, staged: bool) -> tuple[st
 
 
 def _lint_artifact_doc(stage_key: str, artifact: dict[str, Any], ctx: RunContext) -> list[str]:
-    from interview_mux.deterministic_lint import _LINTERS
+    """Blocking lint errors only. Quality lints are logged as warnings (ISSUES 185)."""
+    from interview_mux.deterministic_lint import _LINTERS, split_lint_errors
 
     fn = _LINTERS.get(stage_key)
     if not fn:
         return []
     try:
-        return list(fn(artifact, ctx) or [])
+        errors = list(fn(artifact, ctx) or [])
     except Exception as exc:  # noqa: BLE001
-        return [f"lint internal error: {exc}"]
+        errors = [f"lint internal error: {exc}"]
+    blocking, advisory = split_lint_errors(errors)
+    if advisory:
+        try:
+            ctx.log(
+                f"Lint warnings (non-blocking): {'; '.join(advisory[:4])}",
+                level="warning",
+                stage=stage_key,
+                detail={"layer": "acceptance_lint", "blocking": False, "advisory": advisory[:16]},
+            )
+        except Exception:
+            pass
+    return blocking
 
 
 def stage_acceptance_ok(

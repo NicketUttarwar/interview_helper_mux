@@ -138,8 +138,9 @@ def test_pair_transition_covers_and_mints(monkeypatch):
 
     with tempfile.TemporaryDirectory() as td:
         ctx = _FakeCtx(Path(td))
-        with pytest.raises(ValueError, match="spoken_copy_guard"):
-            mint_missing_transitions(ctx, missing, transitions={"transitions": []})
+        # A bridge the guard refuses leaves the seam unglued (ISSUES 185).
+        out = mint_missing_transitions(ctx, missing, transitions={"transitions": []})
+        assert not [t for t in (out.get("transitions") or []) if t.get("auto_minted")]
 
 
 def test_edl_inserts_transition_between_jump():

@@ -161,6 +161,16 @@ def critical_lattice_lint_codes(codes: list[str]) -> list[str]:
     ]
 
 
+def _seal_refusal_enabled() -> bool:
+    """``analysis.selection_seal_fail_closed`` (default false, ISSUES 185)."""
+    try:
+        from interview_mux.config import merged_config
+
+        return bool((merged_config().get("analysis") or {}).get("selection_seal_fail_closed", False))
+    except Exception:
+        return False
+
+
 def seal_selection_lattice(
     ctx: RunContext,
     artifacts: dict[str, Any],
@@ -175,10 +185,24 @@ def seal_selection_lattice(
     out = sanitize_selection_lattice(ctx, artifacts)
     codes = lattice_lint_codes(ctx, out)
     critical = critical_lattice_lint_codes(codes)
-    if critical and fail_closed:
+    if critical and fail_closed and _seal_refusal_enabled():
         raise ValueError(
             "selection_lattice_seal_refused: " + "; ".join(critical[:4])
         )
+    if critical:
+        # The restore placed every keep it could; one it could not place (a
+        # typed omit beat it, or the finale rule moved it) is demoted, not a
+        # reason to refuse the whole order (ISSUES 185; 55, 63, 64, 73, 74,
+        # 132, 136, 181 were this refusal).
+        try:
+            ctx.log(
+                "selection_lattice: seal findings demoted (advisory): "
+                + "; ".join(critical[:4]),
+                level="warning",
+                stage="full_master_ranking",
+            )
+        except Exception:
+            pass
     if codes and not critical:
         try:
             ctx.log(

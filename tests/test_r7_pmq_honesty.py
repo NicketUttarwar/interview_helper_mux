@@ -124,7 +124,8 @@ def test_r7_config_floors_not_lowered() -> None:
     assert float((floors or {}).get("clarity") or 0.0) >= _LOCKED_CLARITY_FLOOR
     guards = listenability_guards_cfg()
     assert float(guards.get("host_vo_duration_min_ratio") or 0.0) >= _LOCKED_HOST_VO_MIN
-    assert "omit_ledger_air_contract" in STRUCTURAL_PMQ_CHECKS
+    # Paperwork check is advisory since ISSUES 185; floors above stay locked.
+    assert "omit_ledger_air_contract" not in STRUCTURAL_PMQ_CHECKS
 
 
 def test_r7_unresolved_pack_lowers_clarity_and_floors_fail(
@@ -359,9 +360,9 @@ def test_r7_genuine_gap_line_still_in_edl_is_structural(
     omit_check = next(
         c for c in quality["checks"] if c.get("check_id") == "omit_ledger_air_contract"
     )
+    # Still detected and reported, but advisory (ISSUES 185).
     assert omit_check.get("passed") is False
-    assert "omit_ledger_air_contract" in (quality.get("structural_failed_checks") or [])
-    assert quality.get("publish_allowed") is False
+    assert "omit_ledger_air_contract" not in (quality.get("structural_failed_checks") or [])
 
 
 def test_r7_host_vo_duration_advisory_intentional() -> None:

@@ -61,8 +61,9 @@ def test_empty_ungrounded_seam_fails_closed(
     monkeypatch.setattr("interview_mux.nugget_layup.nugget_layup_enabled", lambda: True)
     ctx = isolated_run_ctx(tmp_path, "f4_fail_closed")
     _plant_ungrounded_pair(ctx)
-    with pytest.raises(LoudStageFailure, match="Reorder seam missing"):
-        mint_missing_transitions(ctx, MISSING, transitions={"transitions": []})
+    # An unbridgeable seam plays unglued instead of stopping edl (ISSUES 185).
+    out = mint_missing_transitions(ctx, MISSING, transitions={"transitions": []})
+    assert not [t for t in (out.get("transitions") or []) if t.get("auto_minted")]
 
 
 def test_hitch_cover_omits_spoken_transition_when_ungrounded(

@@ -147,14 +147,16 @@ def test_edl_never_emits_a_sentence_twice_for_different_targets(tmp_path: Path) 
         ]
     }
 
-    with pytest.raises(ValueError, match="duplicate spoken sentence"):
-        build_flow1_edl(
-            selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
-            segments_by_id=_segments(),
-            gap_report=gap_report,
-            resolve_vo_path=lambda line: vo_files.get(line.get("line_id", "")),
-            vo_duration_ms=lambda _path: 2_000,
-        )
+    # A repeated sentence is a quality note now (ISSUES 185): both lines are
+    # synthesized, so both are seated and EDL narrative QC logs the collision.
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda line: vo_files.get(line.get("line_id", "")),
+        vo_duration_ms=lambda _path: 2_000,
+    )
+    assert len([c for c in edl["clips"] if c.get("type") == "vo_pickup"]) == 2
 
 
 def test_run_edl_applies_nle_to_selection_and_edl(
