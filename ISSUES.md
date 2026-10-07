@@ -6383,6 +6383,18 @@ disk.
   rulings and the tape-tail scrap check read the same document.
 - Every judge above passes the document it is judging.
 
+**Verified on the granola source (macOS exec_028, 2026-10-07):** 72 of 72,
+seg_007 on air, post-master quality pass with no failed checks, listener
+scorecard 0.947, 34.6-minute master from the 47-minute tape, longest clip
+under 3 minutes. The run's two error lines are from a mid-run process
+restart (the orchestrator had the old `hard_keep` module in memory while
+the freshly imported ranking lint passed the new keyword); not a code
+fault. `master/story_health.json` reads `fail` with 8 missing reorder
+bridges because it is a ranking-time snapshot written before the
+transitions stage minted the bridges; `master/bridge_completeness.json`
+(the authority) is complete. Left as is: the snapshot feeds only the GUI
+and listen quality's finale / ordering codes.
+
 Tests: `tests/test_hard_keep_judged_against_proposal.py` (7): first commit
 with a constitution omit seals; first commit whose finalize omits an early
 keep seals; the committed file neither overrides nor excuses the proposal;
