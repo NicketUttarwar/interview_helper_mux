@@ -6639,6 +6639,17 @@ Tests: `tests/test_blockers_become_warnings_or_rules.py` (11); about 40
 existing tests updated from "refuses" to "warns", and opt-in paths kept
 tested through the new switches.
 
+**Verified (macOS exec_033, granola 47-minute source, fresh, 6ef1b4791):**
+72 of 72, zero error lines in the console and zero error rows in the run
+log, post-master quality pass (publish allowed), scorecard 0.951, 37.9-minute
+master, longest clip under 3 minutes, 3 VO pickups and 6 transitions seated.
+Seven advisories were logged instead of blocking, three of which would have
+stopped earlier code: 4 clone-voice adjacency seams (exec_025's stall shape),
+a `spoken_vo_speakable` PMQ miss (would have refused publish), and the music
+palette density miss. The listenability note "bed_coverage 0.000" says the
+episode has no music bed under speech; that is a sound-design question for
+the maintainer, not a failure.
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)
