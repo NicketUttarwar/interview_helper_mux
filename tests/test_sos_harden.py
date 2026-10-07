@@ -37,7 +37,7 @@ def test_hard_keep_deep_fragment_refuses_not_drop(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "interview_mux.artifact_sanitize.selection._hard_keep_ids",
-        lambda _ctx: {deep},
+        lambda _ctx, *_a, **_k: {deep},
     )
     sel = {
         "ordered_segment_ids": [deep, "seg_005"],
@@ -64,7 +64,7 @@ def test_family_budget_prefers_hard_keep_then_drops_others(monkeypatch) -> None:
     keep = ids[0]
     monkeypatch.setattr(
         "interview_mux.artifact_sanitize.selection._hard_keep_ids",
-        lambda _ctx: {keep},
+        lambda _ctx, *_a, **_k: {keep},
     )
     sel = {
         "ordered_segment_ids": ["seg_002"] + ids,
@@ -93,7 +93,7 @@ def test_family_all_hard_keeps_over_budget_refuses(monkeypatch) -> None:
     _boundaries(ctx, rows)
     monkeypatch.setattr(
         "interview_mux.artifact_sanitize.selection._hard_keep_ids",
-        lambda _ctx: set(ids),
+        lambda _ctx, *_a, **_k: set(ids),
     )
     sel = {
         "ordered_segment_ids": list(ids),
@@ -119,7 +119,7 @@ def test_both_hard_keep_span_collision_refuses(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "interview_mux.artifact_sanitize.selection._hard_keep_ids",
-        lambda _ctx: {a, b},
+        lambda _ctx, *_a, **_k: {a, b},
     )
     sel = {
         "ordered_segment_ids": [a, b],
@@ -193,7 +193,7 @@ def test_hard_keep_missing_pins_ranking(monkeypatch) -> None:
     ctx.write_json("master/selection.json", doc, skip_handoff=True)
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda _ctx: {"seg_099"},
+        lambda _ctx, **_k: {"seg_099"},
     )
     errs = selection_sanitary_errors(ctx)
     assert any("hard_keep_missing_from_order" in e for e in errs)

@@ -286,7 +286,13 @@ def inject_ranking_lattice_keeps(
     try:
         from interview_mux.hard_keep import hard_keep_segment_ids
 
-        need.extend(sorted(str(s) for s in hard_keep_segment_ids(ctx) if s))
+        # Judged against the proposal: a keep this selection already excludes
+        # for a typed omit (opening constitution, finale tail, CTA) is not
+        # re-admitted, so the injector cannot hand a sticky exclude back to
+        # the finalize pass that will drop it again (ISSUES 181).
+        need.extend(
+            sorted(str(s) for s in hard_keep_segment_ids(ctx, selection=out) if s)
+        )
     except Exception:
         pass
     try:

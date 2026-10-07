@@ -131,12 +131,17 @@ def lattice_lint_codes(ctx: RunContext, selection: dict[str, Any]) -> list[str]:
     try:
         from interview_mux.hard_keep import hard_keep_segment_ids
 
-        keeps = hard_keep_segment_ids(ctx)
+        # Judged against the selection being linted, never disk: on a first
+        # ranking commit there is no master/selection.json yet, so the
+        # proposal's own typed omits (finale tail, opening constitution) were
+        # invisible here while the restore honoured them, and every commit was
+        # refused (granola exec_024 seg_007, ISSUES 181).
+        keeps = hard_keep_segment_ids(ctx, selection=selection)
     except Exception:
         keeps = set()
     missing = sorted(k for k in keeps if k not in ordered)
     if missing:
-        # Should be empty after lattice — blank/CTA already dropped from keeps.
+        # Should be empty after lattice — blank/CTA/typed omits already dropped.
         codes.append(f"hard_keep_missing_from_order:{','.join(missing[:8])}")
     try:
         from interview_mux.framing_coverage_guard import validate_framing_ranking

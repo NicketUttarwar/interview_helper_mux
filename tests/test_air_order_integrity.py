@@ -485,7 +485,7 @@ def test_hard_keep_does_not_restore_opening_slot_overflow(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(
         "interview_mux.hard_keep.hard_keep_segment_ids",
-        lambda _ctx: {"seg_007", "seg_001", "seg_050"},
+        lambda _ctx, **_k: {"seg_007", "seg_001", "seg_050"},
     )
     selection = {
         "ordered_segment_ids": ["seg_001", "seg_050"],

@@ -59,5 +59,5 @@ def test_framing_coverage_drops_hard_keeps(monkeypatch: pytest.MonkeyPatch, tmp_
             "gaps": [],
         },
     )
-    monkeypatch.setattr("interview_mux.hard_keep.hard_keep_segment_ids", lambda c: {"seg_059"})
+    monkeypatch.setattr("interview_mux.hard_keep.hard_keep_segment_ids", lambda c, **_k: {"seg_059"})
     assert gf.ranking_exclude_segment_ids(ctx) == {"seg_070"}

@@ -6283,6 +6283,232 @@ Tests: `tests/test_edl_never_drops_must_air.py` (7),
 
 ---
 
+## [180] PRODUCT: the undecodable last 5 s of tape aired as the episode's closing line (macOS exec_026, 72/72, 0 errors)
+
+**Stage / area:** `hard_keep.hard_keep_segment_ids`, `media_ip_cta` tail and
+never-touch checks, new `nle_state.segments_by_id_including_excluded`
+**Status:** FIXED
+
+**Seen:** exec_026 finished with 0 errors, but the master's last clip was
+`seg_033` (59:22 to 59:27), whose transcript is an STT hallucination after the
+closing sponsor read: "You most of the time, Michael. You are listening to
+usHS\ufffd bone and cut -edge on depression ... ouribaigilaw .com ...", 86
+words with zero-length timings over 5 s. ISSUES 170 was meant to catch exactly
+this scrap.
+
+**Causes (two, both needed):**
+1. The tail check `_tape_tail_scrap_ids` finds the closing sponsor parent's
+   start in `_segments_by_id`, the live NLE view. That view drops every
+   excluded row, and the sponsor read (`seg_032`, `seg_032a-f`) is excluded by
+   design, so there was no closing start and nothing was ever a tail scrap.
+   170's tests passed because their fixtures kept the parent row.
+2. `low_conf_island_scan` hard-included `seg_033` in its top decile (the most
+   STT-uncertain speech), so `hard_keep_segment_ids` protected it from any
+   omit.
+
+**Family audit (51 live-view call sites):** the same missing-row failure was
+in `never_touch_source_intervals` (excluded CTA children's tape never became
+never-touch, so a speech clip could extend into sponsor tape), the tail
+check's candidate loop, `_closing_outro_tail_ids` (tape end understated
+without excluded closing rows), `_texts_for` and the `never_touch_texts`
+fallback (empty CTA wording), and the latent `_readmit_cta_story_children`
+(an NLE-excluded child read as start 0 and readmitted as the cold open; off by
+config). Sites that rely on "missing row = empty text" stay on the live view.
+
+**Fix:**
+- `nle_state.segments_by_id_including_excluded` (and
+  `apply_segments_with_nle(include_excluded=True)`) returns every row with NLE
+  bounds, NLE-only children included, excluded ones flagged.
+  `media_ip_cta._all_segments_by_id` merges it over the manifest.
+- The tail check, closing-tail tape end, never-touch intervals and CTA texts
+  read excluded rows from it.
+- `hard_keep._drop_tape_tail_scrap_keeps`: no keep source may protect a scrap
+  that starts after the closing sponsor read.
+- The CTA story readmit skips children a later pass excluded.
+
+On exec_026's artifacts: `seg_033` is no longer a keep, the closing-tail check
+returns it, and the sponsor read's children are never-touch intervals.
+
+Tests: `tests/test_tape_tail_scrap_after_excluded_outro.py` (5).
+
+Not fixed here (product decision, logged): 6 of 7 reorder bridges were
+suppressed by the clone-adjacency rule (cloned host voice next to the real
+host), so story_health reports 11 missing reorder bridges; listen_delight
+passes (0.957).
+
+## [181] PRODUCT: the first ranking commit on a new source was refused with hard_keep_missing_from_order:seg_007 (maintainer's exec_024, granola 47-minute source, stalled at 40 of 72)
+
+**Stage / area:** `selection_constraints.lattice_lint_codes`,
+`hard_keep.hard_keep_segment_ids`, `hard_keep.enforce_hard_keeps`,
+`framing_coverage_guard.inject_ranking_lattice_keeps`,
+`deterministic_lint._lint_full_master_ranking`,
+`artifact_sanitize.selection._hard_keep_ids`
+**Status:** FIXED
+
+**Seen:** exec_024 cleared analysis and reached `full_master_ranking`. The
+LLM produced an order; the seal refused it with
+`selection_lattice_seal_refused: hard_keep_missing_from_order:seg_007`, so
+`master/selection.json` never landed. The orchestrator dispatched
+`selection_order_sanitize`, which refused for `missing_hard_input` (the same
+missing file); the second-wind retry hit the identical seal failure; the
+attempt memo refused a third dispatch and delivery stopped incomplete.
+
+**Cause:** two judges of the same proposed selection read different
+documents. `enforce_hard_keeps` reads the proposal: a keep the finalize pass
+excluded with a typed omit (opening constitution `opening_slot_overflow` /
+`opening_skipped_duplicate` / `late_intro_reset`, the finale rule's
+`finale_tail_leftover`, any `cta_*`) is exempt and not restored.
+`lattice_lint_codes` called `hard_keep_segment_ids(ctx)` with no selection,
+and that list drops typed omits by reading `master/selection.json` from disk.
+On a first commit the file does not exist, so the omit was invisible, seg_007
+stayed a demand, and every commit was refused. The same disk read sat under
+`inject_ranking_lattice_keeps` (re-admitting constitution-excluded keeps the
+finalize pass then dropped again), the ranking deterministic lint, and the
+sanitizer's keep list.
+
+**Family (every judge of a proposed selection that read the keep list from
+disk):** the seal lint, the ranking injector, `_lint_full_master_ranking`,
+`artifact_sanitize.selection` (shape and family-cap checks),
+`air_order_integrity.lint_hard_keep_family_errors`, and the undersize
+pull-back in `selection_membership`. Consumers that judge the committed file
+(junction QA, EDL speech list, CTA omit refusal, air script omits) stay on
+disk.
+
+**Fix:**
+- `hard_keep_segment_ids(ctx, selection=...)`: the keep list is judged
+  against the selection in hand (the proposal when given, else disk). One
+  exemption list, `hard_keep.keep_exempt_ids`, serves the restore, the lint
+  and the injector: playability's unplayable and CTA classes, `cta_*`, and
+  the framing VO cover. The CTA-parent transfer, the lattice and editorial
+  rulings and the tape-tail scrap check read the same document.
+- Every judge above passes the document it is judging.
+
+**Verified on the granola source (macOS exec_028, 2026-10-07):** 72 of 72,
+seg_007 on air, post-master quality pass with no failed checks, listener
+scorecard 0.947, 34.6-minute master from the 47-minute tape, longest clip
+under 3 minutes. The run's two error lines are from a mid-run process
+restart (the orchestrator had the old `hard_keep` module in memory while
+the freshly imported ranking lint passed the new keyword); not a code
+fault. `master/story_health.json` reads `fail` with 8 missing reorder
+bridges because it is a ranking-time snapshot written before the
+transitions stage minted the bridges; `master/bridge_completeness.json`
+(the authority) is complete. Left as is: the snapshot feeds only the GUI
+and listen quality's finale / ordering codes.
+
+Tests: `tests/test_hard_keep_judged_against_proposal.py` (7): first commit
+with a constitution omit seals; first commit whose finalize omits an early
+keep seals; the committed file neither overrides nor excuses the proposal;
+an editorial aside is still restored; the injector does not re-admit a typed
+omit but still injects an aside in tape order; the deterministic lint reads
+the proposal.
+
+Fixtures updated for upstream `872361153` (they pass on `d55f0c6c1`, fail
+on upstream main alone):
+`tests/test_hr2_off_bus_selection.py` pass-A omit tests (a 96-second tape
+sat wholly inside the new opening window and the constitution excluded half
+of it on write; one beat a minute now), and
+`tests/test_junction_snip_qa.py::test_jsq_b1_advisory_mode_still_blocks_critical_incomplete`
+(ENDD-2 makes the commitment seat hard; the seat is stubbed).
+
+Not fixed here: 26 suite failures pre-existing on upstream main
+`872361153` (all pass on `d55f0c6c1`), by file:
+test_cross_platform_parity (1), test_delivery_guardrails (2),
+test_g_publish_review (2, `master/transcript.vtt missing`),
+test_hau_assembly_freshness (2), test_hau_footgun_harden (1),
+test_hitch_thought_continuity (1), test_homunculus (1),
+test_hx1_mix_epoch_unsealed (5, `music_incomplete` no longer reported),
+test_i11_mix_mark_done_seats_mtime (1),
+test_i25_junction_recut_before_first_mix (2), test_i4_hollow_hosted_vo_zero
+(1), test_junction_precedes_gate_matrix (2),
+test_layup_selection_commit_ownership (1), test_quality_polish_hardening
+(2), test_r_workflow_residual (1). Mostly the ENDD mix / junction / music
+epoch ordering rework; left for the maintainer unless a run hits them.
+
+## [182] PRODUCT: one name attribution in one transition line failed the transitions stage (granola exec_029, 47-minute source)
+
+**Stage / area:** `spoken_copy_guard.guard_spoken_copy`,
+`spoken_copy_guard._strip_name_attribution_clause`
+**Status:** FIXED
+
+**Seen:** exec_029 (the zero-error confirmation run after ISSUES 181)
+failed at `transitions` with
+`transition_plan[seg_044->seg_045] blocked by spoken_copy_guard:
+spoken_name_attribution, no_grounded_fallback`. The attempt memo refused the
+retry, the walk stopped with "Delivery incomplete", and the conductor's
+direct dispatch happened to get a clean second roll from the model. The
+master shipped, but with two error lines and a paid retry.
+
+**Cause:** the model wrote the bridge as "<Name> explains that ...". The
+guard rightly flags that register (`spoken_name_attribution`, a wording
+fault that sounds like narration about the tape). Its only cure was a
+grounded hinge built from topic evidence; the pair had no topics, so the
+verdict was `block`, and a required transition line blocks the stage. ISSUES
+128 already cures a repeated sentence before blocking, and the lay-up path
+scrubs this exact register (`scrub_spoken_register`, nug_016); the guard's
+own decision never tried the scrub. Every caller of
+`assert_guarded_spoken_copy` (transitions, seam glue, synthetic framing,
+transition VO, speech-to-speech) shared the gap.
+
+**Fix:**
+- `guard_spoken_copy`: when the violations include a register slip (name or
+  role attribution, gendered pronoun), scrub it and keep the model's own
+  grounded copy as the fallback when the remainder is still a line (five
+  words or more) and passes the guard. A line that is nothing but an
+  attribution still blocks.
+- `_strip_name_attribution_clause` now also cures an attribution on a later
+  sentence ("... came first. Sam adds that ..."), a parenthetical one
+  ("..., as Sam explains, ...") and "let's hear Sam on ...", and drops the
+  "that / how / why" connective so the remainder is a statement.
+
+Tests: `tests/test_spoken_copy_guard_register_cure.py` (7).
+
+exec_029 itself finished after the conductor's retry: 72 of 72, post-master
+quality pass, scorecard 0.925, bridge completeness complete, 37.4-minute
+master, longest clip under 3 minutes. exec_030 is the fresh run on this fix.
+
+## [183] PRODUCT: a gap-framing shard failed twice over a rerun need naming a stage that does not exist (granola exec_030, step 32)
+
+**Stage / area:** `llm_simple.is_walk_satisfied_need`, new
+`llm_simple.resolve_need_stage`
+**Status:** FIXED
+
+**Seen:** `LLM stage gap_framing_compose incomplete: status=partial
+needs=[{'type': 'rerun_stage', 'stage': 'segment_ranking', 'reason':
+'seg_045 remains in the ordered sequence despite a high-severity incomplete
+interviewer turn ... Remove or recut it before final assembly.', 'blocking':
+True}]`. Shard 3 of 3 answered the same way on both attempts, was logged as
+failed, and the stage completed on the other shards' lines (4 lines), so the
+run went on with one error line and without that shard's framing.
+
+**Cause:** ISSUES 177 demotes a blocking `rerun_stage` need when the named
+stage comes later in the walk. The model named the stage loosely
+("segment_ranking"); the exact-id lookup found nothing, the need stayed
+blocking, and the shard failed over a request that `full_master_ranking`
+(eight stages later) exists to judge.
+
+**Fix:** `resolve_need_stage` maps a loose name to the stage id (exact id,
+then an alias table, then the one stage whose last token matches). The
+later-stage rule runs on the resolved id. A name that resolves to nothing is
+not a stage the walk can run, so failing the current stage cannot satisfy
+it either; such a need is demoted and logged with its resolution. Upstream
+stages stay blocking.
+
+Tests: `tests/test_walk_satisfied_needs.py` (+4, 8 total).
+
+exec_030 itself finished: 72 of 72, post-master quality pass, scorecard
+0.935, bridge completeness complete, 32.6-minute master, longest clip under
+3 minutes, and that shard failure was its only error line.
+
+**Clean run on 181, 182 and 183 together (macOS exec_031, 2026-10-07):**
+72 of 72, zero error lines in the console and zero error rows in the run
+log, post-master quality pass with no failed checks, scorecard 0.938,
+bridge completeness complete, seg_007 on air, 35.2-minute master from the
+47-minute granola tape, longest clip under 3 minutes. The run was resumed
+once on the same id after the disk filled during the mix (not a code
+fault); the resume re-verified analysis and continued from the mix.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

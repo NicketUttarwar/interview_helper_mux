@@ -469,16 +469,43 @@ def register_only_violations(violations: list[str]) -> bool:
     return bool(violations) and all(is_register_violation(v) for v in violations)
 
 
+_ATTRIBUTION_VERBS = (
+    r"(?:explains?|says?|elaborates?|describes?|notes?|adds?|closes?|traces?|discusses?)"
+)
+# "..., as Sam explains, ..." / "Sam says, ..." set off by commas or dashes.
+_NAME_ATTRIBUTION_ASIDE = re.compile(
+    r"\s*[,—-]?\s*\bas\s+[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+" + _ATTRIBUTION_VERBS + r"\b\s*[,—-]?\s*"
+)
+# A leading "Sam explains that " on any sentence of the line, not only the first.
+_NAME_ATTRIBUTION_LEAD = re.compile(
+    r"(^|[.!?]\s+)[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+"
+    + _ATTRIBUTION_VERBS
+    + r"\s+(?:that\s+|how\s+|why\s+)?"
+)
+_NAME_HEAR_LEAD = re.compile(
+    r"\blet(?:'|')?s\s+hear\s+[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\b\s*(?:on|about|explain|describe)?\s*",
+    re.IGNORECASE,
+)
+
+
 def _strip_name_attribution_clause(text: str) -> str:
-    """Drop leading person-attribution from a setup clause."""
-    stripped = re.sub(
-        r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+"
-        r"(?:explains?|says?|elaborates?|describes?|notes?|adds?|closes?|traces?|discusses?)\s+",
-        "",
-        normalize_script(text),
-        count=1,
-    )
-    return normalize_script(stripped) or normalize_script(text)
+    """Drop person-attribution from a line without changing its claim.
+
+    Leading ("Sam explains that …"), on any sentence, and parenthetical
+    ("…, as Sam explains, …") attributions are removed; "let's hear Sam on …"
+    becomes "let's hear …". The guard's ``spoken_name_attribution`` is a
+    wording fault, not a grounding fault, so the cured line keeps the model's
+    own grounded copy (granola exec_029 transition seg_044->seg_045, ISSUES
+    182).
+    """
+    clean = normalize_script(text)
+    stripped = _NAME_ATTRIBUTION_LEAD.sub(lambda m: m.group(1), clean)
+    stripped = _NAME_ATTRIBUTION_ASIDE.sub(" ", stripped)
+    stripped = _NAME_HEAR_LEAD.sub(lambda m: m.group(0)[: m.group(0).lower().find("hear") + 4] + " ", stripped)
+    stripped = re.sub(r"\s+([,.!?;:])", r"\1", stripped)
+    stripped = re.sub(r"\s{2,}", " ", stripped).strip()
+    stripped = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), stripped)
+    return normalize_script(stripped) or clean
 
 
 def topic_forward_recovery_candidates(setup: str, unlock: str) -> list[str]:
@@ -802,6 +829,22 @@ def guard_spoken_copy(
             and not spoken_copy_violations(stripped, evidence=ev, seen_texts=seen_texts)
         ):
             fallback = stripped
+    if original and any(is_register_violation(v) for v in violations):
+        # Cure before blocking, as ISSUES 128 does for a repeated sentence: a
+        # register slip (a name or role attribution, a gendered pronoun) is a
+        # wording fault, not a grounding fault. Scrub it and keep the model's
+        # own grounded copy when the remainder is still a line and passes the
+        # guard. Without this a required transition with no topic evidence
+        # had no fallback and blocked the stage (granola exec_029
+        # seg_044->seg_045, ISSUES 182).
+        scrubbed = scrub_spoken_register(original)
+        if (
+            scrubbed
+            and scrubbed != original
+            and len(scrubbed.split()) >= 5
+            and not spoken_copy_violations(scrubbed, evidence=ev, seen_texts=seen_texts)
+        ):
+            fallback = scrubbed
     fallback_errors = (
         spoken_copy_violations(fallback, evidence=ev, seen_texts=seen_texts)
         if fallback

@@ -40,7 +40,7 @@ def test_hard_keep_list_drops_union_consumed(tmp_path, monkeypatch) -> None:
         monkeypatch,
         {"seg_060": {"excluded": True, "exclude_reason": "junction_snip_qa:on_a_roll:fuse_x"}},
     )
-    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids: ids)
+    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids, *a, **k: ids)
     monkeypatch.setattr(hk, "_drop_orphan_keeps_not_in_manifest", lambda c, ids: ids)
     monkeypatch.setattr(hk, "_collapse_overlapping_keeps", lambda c, ids: ids)
     monkeypatch.setattr(
@@ -127,7 +127,7 @@ def test_carrier_of_a_retired_keep_inherits_the_keep(tmp_path, monkeypatch) -> N
         ),
     )
     ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_058", "seg_059"]})
-    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids: ids)
+    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids, *a, **k: ids)
     monkeypatch.setattr(hk, "_drop_orphan_keeps_not_in_manifest", lambda c, ids: ids)
     monkeypatch.setattr(hk, "_collapse_overlapping_keeps", lambda c, ids: ids)
     monkeypatch.setattr(

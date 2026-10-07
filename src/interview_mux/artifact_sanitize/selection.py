@@ -202,11 +202,12 @@ def _prefer_keep(a: str, b: str, hard_keeps: set[str]) -> str:
     return a if len(a) <= len(b) else b
 
 
-def _hard_keep_ids(ctx: Any) -> set[str]:
+def _hard_keep_ids(ctx: Any, selection: dict[str, Any] | None = None) -> set[str]:
+    """Keeps judged against the document being sanitized, not disk (ISSUES 181)."""
     try:
         from interview_mux.hard_keep import hard_keep_segment_ids
 
-        return set(hard_keep_segment_ids(ctx) or [])
+        return set(hard_keep_segment_ids(ctx, selection=selection) or [])
     except Exception:
         return set()
 
@@ -287,7 +288,7 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
     before_n = len([s for s in ordered_raw if s])
     chapters_in = out.get("chapters")
     had_chapters = isinstance(chapters_in, list) and bool(chapters_in)
-    hard_keeps = _hard_keep_ids(ctx)
+    hard_keeps = _hard_keep_ids(ctx, out)
     drop_reasons: dict[str, str] = {}
 
     # 1. shape / exact dedupe
@@ -744,7 +745,7 @@ def _shape_sanitary_errs(ctx: Any, ordered: list[str], doc: dict[str, Any]) -> l
     cfg = sanitize_selection_cfg()
     max_family = int(cfg.get("max_same_family_on_air") or 8)
     max_depth = int(cfg.get("max_fragment_depth") or 3)
-    hard_keeps = _hard_keep_ids(ctx)
+    hard_keeps = _hard_keep_ids(ctx, doc)
     errs: list[str] = []
     deep = [str(s) for s in ordered if _fragment_depth(str(s)) > max_depth]
     if deep:

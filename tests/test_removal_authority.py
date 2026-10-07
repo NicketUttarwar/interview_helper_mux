@@ -37,7 +37,7 @@ def _ctx(tmp_path, monkeypatch, nle_overrides):
     _raw(ctx, "segments/nle_edits.json", {"segment_overrides": nle_overrides})
     import interview_mux.hard_keep as hk
 
-    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids: ids)
+    monkeypatch.setattr(hk, "_drop_blank_unusable_keeps", lambda c, ids, *a, **k: ids)
     monkeypatch.setattr(hk, "_drop_orphan_keeps_not_in_manifest", lambda c, ids: ids)
     monkeypatch.setattr(hk, "_collapse_overlapping_keeps", lambda c, ids: ids)
     monkeypatch.setattr(

@@ -95,6 +95,61 @@ _SELF_FOLLOWUP_STAGES: dict[str, frozenset[str]] = {
 }
 
 
+#: Loose names the model uses for a stage, mapped to the stage id.
+_NEED_STAGE_ALIASES: dict[str, str] = {
+    "ranking": "full_master_ranking",
+    "segment_ranking": "full_master_ranking",
+    "segment_ordering": "full_master_ranking",
+    "segment_order": "full_master_ranking",
+    "master_ranking": "full_master_ranking",
+    "selection": "full_master_ranking",
+    "selection_ranking": "full_master_ranking",
+    "classification": "segment_classification",
+    "boundaries": "boundary_detection",
+    "boundary_split": "boundary_detection",
+    "transcription": "transcribe",
+    "narrative_arc": "narrative_arc_plan",
+    "narrative_plan": "narrative_arc_plan",
+    "gap_framing": "gap_framing_compose",
+    "interviewer_script": "gap_framing_compose",
+    "edl_build": "edl",
+    "mix_assembly": "mix",
+}
+
+
+def _walk_order() -> list[str]:
+    try:
+        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+        return list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    except Exception:
+        return []
+
+
+def resolve_need_stage(target: str) -> str | None:
+    """The stage id a ``rerun_stage`` need names, or None when there is none.
+
+    The model writes stage names loosely ("segment_ranking" for
+    full_master_ranking). An exact id wins; then the alias table; then the
+    one stage whose last token matches. A name that resolves to nothing is
+    not a stage the walk can run.
+    """
+    name = str(target or "").strip().strip("`'\"").lower().replace("-", "_").replace(" ", "_")
+    if not name:
+        return None
+    order = _walk_order()
+    if name in order:
+        return name
+    alias = _NEED_STAGE_ALIASES.get(name)
+    if alias and alias in order:
+        return alias
+    last = name.split("_")[-1]
+    hits = [s for s in order if s.split("_")[-1] == last]
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
 def is_walk_satisfied_need(stage_key: str, need: Any) -> bool:
     """A ``rerun_stage`` need the walk satisfies on its own.
 
@@ -103,22 +158,29 @@ def is_walk_satisfied_need(stage_key: str, need: Any) -> bool:
     only repeated the call (exec_024: boundary_topic_resplit answered partial
     with a blocking "rerun content_brief_reanchor", which its own follow-up
     runs; the stage failed and the retry passed; ISSUES 177).
+
+    A need that names no stage the walk can run is unactionable: failing the
+    current stage cannot produce the named stage either, and the walk's own
+    later stages are the only remedy (granola exec_030: gap_framing_compose
+    shard asked to rerun "segment_ranking" to drop seg_045; the shard failed
+    twice and its lines were lost while full_master_ranking, which judges
+    that, had not run yet; ISSUES 183).
     """
     if not isinstance(need, dict) or str(need.get("type") or "").strip() != "rerun_stage":
         return False
-    target = str(need.get("stage") or "").strip()
-    if not target or target == stage_key:
+    raw = str(need.get("stage") or "").strip()
+    if not raw:
+        return False
+    target = resolve_need_stage(raw)
+    if target is None:
+        return True
+    if target == stage_key:
         return False
     if target in _SELF_FOLLOWUP_STAGES.get(stage_key, frozenset()):
         return True
-    try:
-        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
-
-        order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
-        if stage_key in order and target in order:
-            return order.index(target) > order.index(stage_key)
-    except Exception:
-        return False
+    order = _walk_order()
+    if stage_key in order and target in order:
+        return order.index(target) > order.index(stage_key)
     return False
 
 
@@ -453,8 +515,11 @@ def run_llm_stage_simple(
                 envelope = {**envelope, "needs": needs}
                 ctx.log(
                     f"{stage_key}: demoted {len(walk_needs)} rerun need(s) the walk satisfies "
-                    "(own follow-up or a later stage): "
-                    + ", ".join(str(n.get("stage")) for n in walk_needs[:4]),
+                    "(own follow-up, a later stage, or no such stage): "
+                    + ", ".join(
+                        f"{n.get('stage')}->{resolve_need_stage(str(n.get('stage') or '')) or 'none'}"
+                        for n in walk_needs[:4]
+                    ),
                     level="info",
                     stage=stage_key,
                 )

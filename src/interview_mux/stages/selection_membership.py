@@ -143,7 +143,9 @@ def enforce_membership_duration_floor(
     try:
         from interview_mux.hard_keep import hard_keep_segment_ids
 
-        candidates.extend(sorted(hard_keep_segment_ids(ctx)))
+        # Judged against this selection: a keep it excludes for a typed omit
+        # is not pulled back as undersize filler (ISSUES 181).
+        candidates.extend(sorted(hard_keep_segment_ids(ctx, selection=artifacts)))
     except Exception:
         pass
     if ctx.artifact_exists("master/narrative_plan.json"):

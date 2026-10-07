@@ -86,8 +86,34 @@ LATTICE_DROP_REASONS: frozenset[str] = frozenset(
 )
 
 
-def lattice_dropped_ids(ctx: RunContext) -> set[str]:
-    """Ids the committed selection excludes for a lattice reason.
+def _selection_in_hand(
+    ctx: RunContext, selection: dict[str, Any] | None
+) -> dict[str, Any]:
+    """The selection a keep judgement is about: the proposed write, else disk.
+
+    Every judge of a proposed selection (restore, lint, inject) must read the
+    same document. Reading disk while a sibling reads the proposal is the
+    first-commit failure: ``master/selection.json`` does not exist yet, so the
+    proposal's own typed omits (finale tail, opening constitution) were
+    invisible to the keep list, the restore honoured them, the lint did not,
+    and ranking was refused with ``hard_keep_missing_from_order:seg_007``
+    (granola exec_024, ISSUES 181).
+    """
+    if isinstance(selection, dict):
+        return selection
+    if not ctx.artifact_exists("master/selection.json"):
+        return {}
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return {}
+    return sel if isinstance(sel, dict) else {}
+
+
+def lattice_dropped_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
+    """Ids the selection in hand excludes for a lattice reason.
 
     The family cap keeps at most ``max_same_family_on_air`` children of one
     parent on air and prefers hard keeps when it chooses. The transferred
@@ -97,14 +123,9 @@ def lattice_dropped_ids(ctx: RunContext) -> set[str]:
     moved to seg_002i, which the cap had excluded, and every later selection
     commit was refused with ``hard_keep_missing_from_order:seg_002i``.
     """
-    if not ctx.artifact_exists("master/selection.json"):
-        return set()
-    try:
-        sel = ctx.read_json("master/selection.json")
-    except Exception:
-        return set()
+    sel = _selection_in_hand(ctx, selection)
     out: set[str] = set()
-    for row in (sel or {}).get("excluded_segment_ids") or [] if isinstance(sel, dict) else []:
+    for row in sel.get("excluded_segment_ids") or []:
         if not isinstance(row, dict):
             continue
         if str(row.get("reason") or "") in LATTICE_DROP_REASONS:
@@ -114,17 +135,16 @@ def lattice_dropped_ids(ctx: RunContext) -> set[str]:
     return out
 
 
-def editorial_excluded_ids(ctx: RunContext) -> set[str]:
-    """Every id the committed selection excludes for a CTA, outro, blank or fragment reason."""
-    if not ctx.artifact_exists("master/selection.json"):
-        return set()
+def editorial_excluded_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
+    """Every id the selection in hand excludes for a CTA, outro, blank or fragment reason."""
     try:
         from interview_mux.media_ip_cta import is_editorial_exclude_reason
-
-        sel = ctx.read_json("master/selection.json")
     except Exception:
         return set()
-    if not isinstance(sel, dict):
+    sel = _selection_in_hand(ctx, selection)
+    if not sel:
         return set()
     rationales = sel.get("exclude_rationales") if isinstance(sel.get("exclude_rationales"), dict) else {}
     out: set[str] = set()
@@ -140,8 +160,12 @@ def editorial_excluded_ids(ctx: RunContext) -> set[str]:
     return out
 
 
-def editorial_dropped_cta_children(ctx: RunContext, parents: set[str]) -> set[str]:
-    """Children of banned CTA parents the committed selection excludes as CTA scraps.
+def editorial_dropped_cta_children(
+    ctx: RunContext,
+    parents: set[str],
+    selection: dict[str, Any] | None = None,
+) -> set[str]:
+    """Children of banned CTA parents the selection in hand excludes as CTA scraps.
 
     A keep inherited from a CTA parent is a guess that some of the recut is
     story. When the selection has since excluded a child for a CTA, outro or
@@ -150,15 +174,14 @@ def editorial_dropped_cta_children(ctx: RunContext, parents: set[str]) -> set[st
     children g/h/i "empty, heavily degraded transcript after the CTA cut",
     ``hard_keep_missing_from_order:seg_035g,seg_035h,seg_035i``).
     """
-    if not parents or not ctx.artifact_exists("master/selection.json"):
+    if not parents:
         return set()
     try:
         from interview_mux.media_ip_cta import _is_nle_child, is_editorial_exclude_reason
-
-        sel = ctx.read_json("master/selection.json")
     except Exception:
         return set()
-    if not isinstance(sel, dict):
+    sel = _selection_in_hand(ctx, selection)
+    if not sel:
         return set()
     rationales = sel.get("exclude_rationales") if isinstance(sel.get("exclude_rationales"), dict) else {}
     out: set[str] = set()
@@ -176,14 +199,41 @@ def editorial_dropped_cta_children(ctx: RunContext, parents: set[str]) -> set[st
     return out
 
 
-def _blank_excluded_ids(ctx: RunContext) -> set[str]:
+def _blank_excluded_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
     """IDs already dropped as blank/unusable — delegates to playability SSOT."""
     try:
         from interview_mux.playability import blank_excluded_ids
 
-        return blank_excluded_ids(ctx)
+        return blank_excluded_ids(ctx, selection)
     except Exception:
         return set()
+
+
+def keep_exempt_ids(
+    ctx: RunContext, selection: dict[str, Any] | None = None
+) -> set[str]:
+    """Ids the selection in hand excludes for a reason that beats hard keep.
+
+    The one exemption list for every keep judge: the restore skips these, the
+    lint does not demand them, the ranking injector does not re-admit them.
+    Unplayable and CTA classes come from the playability SSOT; a framing VO
+    cover and any ``cta_*`` reason count too, as the restore always held.
+    """
+    sel = _selection_in_hand(ctx, selection)
+    out: set[str] = set()
+    try:
+        from interview_mux.playability import _reason_map, unplayable_segment_ids
+
+        exempt = _hard_keep_exempt_reasons()
+        for sid, reason in _reason_map(sel).items():
+            if reason in exempt or reason.startswith("cta_"):
+                out.add(sid)
+        out |= unplayable_segment_ids(ctx, sel)
+    except Exception:
+        out |= _blank_excluded_ids(ctx, sel)
+    return out
 
 
 def _manifest_segment_ids(ctx: RunContext) -> set[str] | None:
@@ -217,20 +267,19 @@ def _drop_orphan_keeps_not_in_manifest(ctx: RunContext, ids: set[str]) -> set[st
     return {s for s in ids if s in live}
 
 
-def _drop_blank_unusable_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
-    """Unplayable / packaging IDs cannot stay hard-keep (playability SSOT).
+def _drop_blank_unusable_keeps(
+    ctx: RunContext, ids: set[str], selection: dict[str, Any] | None = None
+) -> set[str]:
+    """Unplayable / packaging / typed-omit IDs cannot stay hard-keep.
 
-    Live blank heuristics are intentionally NOT applied here — short-but-valid
-    speech was a footgun for primary-impact/hard-keep drift.
+    Judged against the selection in hand (``keep_exempt_ids``), so a proposed
+    write and the committed file are held to the same list. Live blank
+    heuristics are intentionally NOT applied here — short-but-valid speech
+    was a footgun for primary-impact/hard-keep drift.
     """
     if not ids:
         return ids
-    try:
-        from interview_mux.playability import unplayable_segment_ids
-
-        drop = unplayable_segment_ids(ctx)
-    except Exception:
-        drop = set(_blank_excluded_ids(ctx))
+    drop = keep_exempt_ids(ctx, selection)
     return {s for s in ids if s not in drop}
 
 
@@ -239,9 +288,18 @@ def hard_keep_segment_ids(
     *,
     overrides: dict[str, Any] | None = None,
     on_air: list[str] | None = None,
+    selection: dict[str, Any] | None = None,
 ) -> set[str]:
-    """Ids that must air. ``overrides`` / ``on_air`` judge a proposed write
-    (NLE overrides, air order) before it lands; disk state otherwise."""
+    """Ids that must air. ``overrides`` / ``on_air`` / ``selection`` judge a
+    proposed write (NLE overrides, air order, selection document) before it
+    lands; disk state otherwise.
+
+    Every judge of one proposed selection must pass it as ``selection``: the
+    keep list drops the ids that document excludes for a typed reason that
+    beats hard keep (finale tail, opening constitution, CTA, blank, framing
+    cover). Reading disk instead was the first-commit refusal
+    ``hard_keep_missing_from_order`` (granola exec_024 seg_007, ISSUES 181).
+    """
     ids: set[str] = set()
     try:
         from interview_mux.gap_framing import load_gap_framing_plan
@@ -310,12 +368,12 @@ def hard_keep_segment_ids(
         )
         story = admitted_story_segment_ids(ctx)
         # Parent hard-keep transfers onto on-air NLE children / admitted story.
-        if ctx.artifact_exists("master/selection.json"):
+        sel_in_hand = _selection_in_hand(ctx, selection)
+        if sel_in_hand:
             try:
-                sel = ctx.read_json("master/selection.json")
                 ordered = [
                     str(s)
-                    for s in ((sel or {}).get("ordered_segment_ids") or [])
+                    for s in (sel_in_hand.get("ordered_segment_ids") or [])
                     if s
                 ]
                 for parent in sorted(ids & banned):
@@ -363,7 +421,9 @@ def hard_keep_segment_ids(
             # kept parent's children, so check against every banned parent.
             # Any editorial exclusion is a ruling, whichever family the id
             # belongs to: the transfer offers the whole story set.
-            ruled_out = lattice_dropped_ids(ctx) | editorial_excluded_ids(ctx)
+            ruled_out = lattice_dropped_ids(ctx, selection) | editorial_excluded_ids(
+                ctx, selection
+            )
             # The closing outro tail of a sponsor parent is credits, not story;
             # transferring the parent's keep onto it made removal_authority
             # refuse the CTA omit on every pass (exec_011 seg_032g-k, ISSUES 148).
@@ -377,8 +437,9 @@ def hard_keep_segment_ids(
         ids -= banned
     except Exception:
         pass
-    ids = _drop_blank_unusable_keeps(ctx, {s for s in ids if s})
+    ids = _drop_blank_unusable_keeps(ctx, {s for s in ids if s}, selection)
     ids = _drop_orphan_keeps_not_in_manifest(ctx, ids)
+    ids = _drop_tape_tail_scrap_keeps(ctx, ids, selection)
     # A keep whose tape a fuse union folded into an on-air survivor is kept:
     # its audio airs under the survivor's id. Junction and overlap repair both
     # retire such ids; without this every consumer of the keep list refused the
@@ -398,6 +459,40 @@ def hard_keep_segment_ids(
     except Exception:
         pass
     return _collapse_overlapping_keeps(ctx, ids)
+
+
+def _drop_tape_tail_scrap_keeps(
+    ctx: RunContext, ids: set[str], selection: dict[str, Any] | None = None
+) -> set[str]:
+    """No keep source may protect a scrap after the tape's closing sponsor read.
+
+    exec_026: the low-conf island scan hard-included seg_033, the undecodable
+    last 5 s of tape after the closing sponsor read ("You are listening to
+    usHS\ufffd bone..."), at its top decile. As a keep it was protected from
+    the outro-tail omit and aired as the episode's last line (ISSUES 180).
+    Whatever flagged it, a scrap after the closing CTA is credits, not story.
+    """
+    if not ids:
+        return ids
+    try:
+        from interview_mux.media_ip_cta import (
+            _cta_exclude_parent_ids,
+            _all_segments_by_id,
+            _segments_by_id,
+            _tape_tail_scrap_ids,
+            never_touch_segment_ids,
+        )
+
+        sel = _selection_in_hand(ctx, selection)
+        parents = _cta_exclude_parent_ids(sel) | never_touch_segment_ids(ctx)
+        if not parents:
+            return ids
+        scraps = _tape_tail_scrap_ids(
+            _segments_by_id(ctx), sorted(ids), parents, _all_segments_by_id(ctx)
+        )
+    except Exception:
+        return ids
+    return ids - scraps
 
 
 # Framing VO cover beats hard-keep restore but is not an "unplayable" class.
@@ -428,41 +523,13 @@ def _hard_keep_exempt_reasons() -> frozenset[str]:
 def enforce_hard_keeps(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
     """Restore hard-keeps into ordered even if they vanished from excluded too."""
     out = dict(selection)
-    keeps = hard_keep_segment_ids(ctx)
+    # Judged against the proposed selection: the keep list already drops the
+    # ids this document excludes for a reason that beats hard keep
+    # (``keep_exempt_ids``), the same list the seal lint reads.
+    keeps = hard_keep_segment_ids(ctx, selection=out)
     if not keeps:
         return out
-    # Lattice: blank/CTA/never-touch excludes beat hard-keep; other excludes restore.
-    excl_ids: set[str] = set()
-    excl_reasons: dict[str, str] = {}
-    rationales = (
-        out.get("exclude_rationales")
-        if isinstance(out.get("exclude_rationales"), dict)
-        else {}
-    )
-    for row in out.get("excluded_segment_ids") or []:
-        if isinstance(row, dict):
-            sid = str(row.get("segment_id") or "")
-            reason = str(row.get("reason") or rationales.get(sid) or "").strip()
-        else:
-            sid = str(row or "")
-            reason = str(rationales.get(sid) or "").strip()
-        if not sid:
-            continue
-        excl_reasons[sid] = reason
-        exempt = _hard_keep_exempt_reasons()
-        if reason in exempt or reason.startswith("cta_"):
-            excl_ids.add(sid)
-    # Playability SSOT: unplayable/CTA even without a local exclude row.
-    try:
-        from interview_mux.playability import unplayable_segment_ids
-
-        excl_ids |= unplayable_segment_ids(ctx, out)
-    except Exception:
-        try:
-            excl_ids |= _blank_excluded_ids(ctx)
-        except Exception:
-            pass
-    keeps = {s for s in keeps if s not in excl_ids}
+    keeps = {s for s in keeps if s not in keep_exempt_ids(ctx, out)}
     if not keeps:
         return out
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
