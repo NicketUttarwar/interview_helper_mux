@@ -6497,8 +6497,15 @@ Tests: `tests/test_walk_satisfied_needs.py` (+4, 8 total).
 
 exec_030 itself finished: 72 of 72, post-master quality pass, scorecard
 0.935, bridge completeness complete, 32.6-minute master, longest clip under
-3 minutes, and that shard failure was its only error line. exec_031 is the
-fresh run on 181, 182 and 183 together.
+3 minutes, and that shard failure was its only error line.
+
+**Clean run on 181, 182 and 183 together (macOS exec_031, 2026-10-07):**
+72 of 72, zero error lines in the console and zero error rows in the run
+log, post-master quality pass with no failed checks, scorecard 0.938,
+bridge completeness complete, seg_007 on air, 35.2-minute master from the
+47-minute granola tape, longest clip under 3 minutes. The run was resumed
+once on the same id after the disk filled during the mix (not a code
+fault); the resume re-verified analysis and continued from the mix.
 
 ---
 
