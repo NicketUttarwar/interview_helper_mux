@@ -132,12 +132,12 @@ def test_persist_mints_required_glue_before_mark_done() -> None:
     assert first_mint < persist_call
 
 
-def test_s4_incomplete_glue_raises_systemexit(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_s4_incomplete_glue_is_advisory(ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ISSUES 185: incomplete glue is logged, never a SystemExit."""
     src = inspect.getsource(selection.run_transitions)
-    assert "bridge_completeness incomplete after glue mint" in src
-    assert 'level="warning"' not in src.split("ensure_seam_glue")[-1].split(
-        "stamp_transitions_pair_freeze"
-    )[0]
+    assert "bridge_completeness incomplete after glue mint (advisory)" in src
+    glue_block = src.split("ensure_seam_glue")[-1].split("stamp_transitions_pair_freeze")[0]
+    assert "raise SystemExit" not in glue_block
 
 
 def test_s5_bare_premature_pins_transitions_when_hollow(ctx) -> None:

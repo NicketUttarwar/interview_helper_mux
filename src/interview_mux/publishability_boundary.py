@@ -24,6 +24,21 @@ _MIN_SPEECH_MS = 400
 _PENDING_WRITE_STAGES = frozenset({"edl", "junction_snip_qa", "mix", "master_finalize"})
 
 
+#: Violation classes that are reported but never block (ISSUES 185). Each is a
+#: judgement whose heal rebuilt the same artifact (junction residuals, claim
+#: paperwork, hosted-VO remint, phantom VO), or stale staging that mix ignores.
+#: Required VO, order drift, zeroed speech and orientation count stay blocking.
+ADVISORY_ERROR_CLASSES: frozenset[str] = frozenset(
+    {
+        "quality_advisory",
+        "incomplete_cut_unresolved",
+        "junction_claim_inventory_stale",
+        "vo_audibility_drift",
+        "pending_write_barrier",
+    }
+)
+
+
 @dataclass
 class PublishabilityViolation:
     error_class: str
@@ -354,9 +369,15 @@ def _check_unseated_required_vo(
     compensated: set[str] = set()
     if active_entries is not None and isinstance(ledger, dict):
         try:
+            # Ledger rows key the line as ``subject_id`` (omit_ledger.mint_entry);
+            # reading only ``line_id`` meant no active omit ever compensated
+            # (ISSUES 184).
             for row in active_entries(ledger):
-                if isinstance(row, dict) and row.get("line_id"):
-                    compensated.add(str(row["line_id"]))
+                if not isinstance(row, dict):
+                    continue
+                for key in ("subject_id", "line_id"):
+                    if row.get(key):
+                        compensated.add(str(row[key]))
         except Exception:
             pass
     for line in gap_report.get("interviewer_lines") or []:
@@ -381,7 +402,9 @@ def _check_unseated_required_vo(
             pass
         if line_is_omitted is not None:
             try:
-                if line_is_omitted(line):
+                # Signature is (ledger, line_id); passing the line dict raised a
+                # TypeError that the except swallowed (ISSUES 184).
+                if line_is_omitted(ledger, lid):
                     continue
             except Exception:
                 pass
@@ -1077,29 +1100,24 @@ def commit_or_block(
     write_publishability_report(ctx, report)
     if report.ok:
         return
-    primary = report.violations[0]
+    blocking = [v for v in report.violations if v.error_class not in ADVISORY_ERROR_CLASSES]
+    primary = blocking[0] if blocking else report.violations[0]
     playbook = violation_playbook(primary)
     should_block = publishability_enforce(ctx) if enforce is None else bool(enforce)
-    advisory_only = (
-        report.violations
-        and all(v.error_class == "quality_advisory" for v in report.violations)
-    )
+    advisory_only = not blocking
     soft = advisory_only or not should_block
     write_publishability_repair_plan(ctx, report, playbook=playbook, soft=soft)
     if advisory_only:
         try:
-            from interview_mux.aspirational_quality import is_aspirational_enabled
-
-            if is_aspirational_enabled(ctx):
-                ctx.log(
-                    f"publishability {report.checkpoint}: quality advisory only "
-                    f"({len(report.violations)}) — not blocking",
-                    level="warning",
-                    stage=playbook.resume_stage,
-                )
-                return
+            ctx.log(
+                f"publishability {report.checkpoint}: advisory only "
+                f"({', '.join(sorted({v.error_class for v in report.violations}))}) — not blocking",
+                level="warning",
+                stage=playbook.resume_stage,
+            )
         except Exception:
             pass
+        return
     if not should_block:
         try:
             ctx.log(

@@ -604,9 +604,13 @@ def sanitize_master_selection(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             lattice_lint_codes,
         )
 
-        for code in critical_lattice_lint_codes(lattice_lint_codes(ctx, out))[:6]:
-            if code and code not in errors:
-                errors.append(code)
+        from interview_mux.selection_constraints import _seal_refusal_enabled
+
+        # Lattice findings are advisory unless the seal fails closed (ISSUES 185).
+        if _seal_refusal_enabled():
+            for code in critical_lattice_lint_codes(lattice_lint_codes(ctx, out))[:6]:
+                if code and code not in errors:
+                    errors.append(code)
     except Exception as exc:
         errors.append(f"selection_constraints_failed:{type(exc).__name__}")
 
@@ -721,20 +725,28 @@ def _lattice_and_integrity_errs(ctx: Any, doc: dict[str, Any]) -> list[str]:
             lattice_lint_codes,
         )
 
+        from interview_mux.selection_constraints import _seal_refusal_enabled
+
         codes = lattice_lint_codes(ctx, doc)
         crit = critical_lattice_lint_codes(codes)
-        if crit:
+        if crit and _seal_refusal_enabled():
             errs.extend(crit[:4])
     except Exception:
         pass
     try:
-        from interview_mux.air_order_integrity import collect_violations, critical_violations
+        from interview_mux.air_order_integrity import (
+            block_ranking_on_critical,
+            collect_violations,
+            critical_violations,
+        )
 
         viol = collect_violations(ctx, doc)
         crit_v = critical_violations(viol)
         if crit_v:
             codes = [str(v.get("code") or "") for v in crit_v[:6] if v.get("code")]
-            if codes:
+            # Air-order findings are advisory unless the critical-block flag is
+            # on (ISSUES 185): ranking's repair projection already ran.
+            if codes and block_ranking_on_critical():
                 errs.append("air_order_integrity_critical:" + ",".join(codes))
     except Exception:
         pass

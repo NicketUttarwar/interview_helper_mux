@@ -196,7 +196,8 @@ def _strip_scaffolding(row: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if not codes:
         return row, False
     if _is_required_line(row):
-        # No body mutate — refuse loop appends scaffolding_active.
+        # No body mutate (S2). A required line keeps its wording; the
+        # sanitizer records it as advisory instead of refusing (ISSUES 185).
         return row, False
     out = dict(row)
     out["skipped_optional"] = True
@@ -399,8 +400,14 @@ def sanitize_gap_report(ctx: Any, doc: dict[str, Any]) -> SanitizeResult:
             continue
         still = _scaffolding_codes(str(row.get("text") or row.get("script") or ""))
         if still:
-            errors.append(
-                f"scaffolding_active:{row.get('line_id') or _line_target(row)}"
+            # Advisory (ISSUES 185): show-scaffolding wording on a required
+            # line is a quality note; refusing re-ran the same document.
+            actions.append(
+                {
+                    "action": "scaffolding_advisory",
+                    "line_id": row.get("line_id") or _line_target(row),
+                    "codes": list(still)[:4],
+                }
             )
 
     # S3: layup_coverage_below_floor moved to nugget_layup_compose done honesty

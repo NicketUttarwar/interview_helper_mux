@@ -499,6 +499,21 @@ def test_thin_target_beat_only_layup_is_skipped_and_not_published():
         )
 
 
+
+def _block_open_coverage(monkeypatch) -> None:
+    """Re-enable the open-coverage stop these tests exercise (default off, ISSUES 185)."""
+    import interview_mux.nugget_layup as _nl
+
+    real = _nl.nugget_layup_cfg
+
+    def _cfg(cfg=None):
+        out = dict(real(cfg))
+        out["block_on_open_must_keep"] = True
+        out["block_on_open_high_salience"] = True
+        return out
+
+    monkeypatch.setattr(_nl, "nugget_layup_cfg", _cfg)
+
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True
@@ -508,7 +523,8 @@ def test_cfg_defaults():
     assert cfg["air_coverage_max_attempts"] == 2
     assert cfg["catastrophic_nugget_air_coverage"] == 0.0
     assert cfg["authoritative_gap_report"] is True
-    assert cfg["block_on_open_high_salience"] is True
+    # Open coverage is advisory by default since ISSUES 185.
+    assert cfg["block_on_open_high_salience"] is False
 
 
 def test_evaluate_nugget_air_coverage_body_intro_waived():
@@ -591,8 +607,9 @@ def test_evaluate_nugget_air_coverage_body_intro_waived():
     assert at_floor["ok"] is True
 
 
-def test_evaluate_nugget_air_coverage_hard_in_qc():
+def test_evaluate_nugget_air_coverage_hard_in_qc(monkeypatch):
     """NLC-B2: under aspirational, goal miss is advisory; open high stays hard."""
+    _block_open_coverage(monkeypatch)
     ctx = RunContext("exec_nugget_air_qc_hard", create=True)
     corpus = {
         "nuggets": [
@@ -2011,7 +2028,8 @@ def test_publish_restamps_stale_opening_skip_when_native_self_orients(tmp_path):
     assert layup_entries[0].get("replacement_ref") in (None, "")
 
 
-def test_qc_open_high_salience_fails_and_skip_does_not_discharge():
+def test_qc_open_high_salience_fails_and_skip_does_not_discharge(monkeypatch):
+    _block_open_coverage(monkeypatch)
     ctx = RunContext("exec_nugget_open_high", create=True)
     _seed_air_order(
         ctx,
@@ -2722,6 +2740,7 @@ def test_park_open_high_salience_on_orientation_clears_qc():
 
 def test_orientation_park_credits_nugget_air_coverage_floor(monkeypatch):
     """MUX_FORENSICS=0 cascade: 10 body-aired + 2 orientation-parked → air floor passes."""
+    _block_open_coverage(monkeypatch)
     import os
 
     os.environ["MUX_FORENSICS"] = "0"

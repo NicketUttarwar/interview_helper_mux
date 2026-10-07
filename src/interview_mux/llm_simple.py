@@ -604,18 +604,19 @@ def run_llm_stage_simple(
             # "rerun_stage" need even after producing usable segments.
             if attempt == 2:
                 artifacts = envelope.get("artifacts")
-                soft_needs = [
-                    n
-                    for n in needs
-                    if isinstance(n, dict) and n.get("blocking") is not False
-                ]
-                if isinstance(artifacts, dict) and not soft_needs:
+                # Valid artifacts on the second attempt are accepted whatever the
+                # model labels its needs: a need is the model's opinion, and a
+                # third call reaches the same opinion. The needs are logged for
+                # the operator (ISSUES 185; 172, 177, 183 were this shape).
+                if isinstance(artifacts, dict):
                     schema_errors = validate_stage_artifacts(stage_key, artifacts)
                     if not schema_errors:
                         ctx.log(
-                            f"{msg} — accepting non-blocking partial with valid artifacts",
+                            f"{msg} — accepting partial with valid artifacts; "
+                            "needs recorded as warnings",
                             level="warning",
                             stage=stage_key,
+                            detail={"needs": needs[:8]},
                         )
                         _warn_only_lint(ctx, stage_key, envelope)
                         try:

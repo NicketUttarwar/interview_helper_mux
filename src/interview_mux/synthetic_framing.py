@@ -523,12 +523,10 @@ def normalize_synthetic_plan(
             purpose=f"synthetic_framing[{row.get('line_id') or index_i}]",
             seen_texts=[str(x.get("text") or "") for x in cleaned],
         )
-        if guarded["action"] == "block":
-            raise ValueError(
-                f"required synthetic line blocked: {row.get('line_id')}: "
-                + ", ".join(guarded["violations"])
-            )
-        if guarded["action"] == "omit":
+        if guarded["action"] in {"block", "omit"}:
+            # An uncurable line is dropped; its seam plays without spoken glue
+            # (ISSUES 185). A required one used to fail the plan twice and stop
+            # transitions with synthetic_framing_plan_invalid.
             continue
         row["text"] = guarded["text"]
         row["spoken_copy_guard"] = {
@@ -583,16 +581,17 @@ def normalize_synthetic_plan(
         from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
         if not str(text or "").strip():
-            raise ValueError(
-                f"required reorder seam {a}->{b} lacks grounded contextual bridge text"
+            return  # no grounded bridge text: the seam stays unglued (ISSUES 185)
+        try:
+            guarded = assert_guarded_spoken_copy(
+                text,
+                evidence=bridge_guard_evidence(enriched),
+                purpose=f"synthetic_reorder_seam[{a}->{b}]",
+                seen_texts=[str(x.get("text") or "") for x in cleaned],
+                ctx=ctx,
             )
-        guarded = assert_guarded_spoken_copy(
-            text,
-            evidence=bridge_guard_evidence(enriched),
-            purpose=f"synthetic_reorder_seam[{a}->{b}]",
-            seen_texts=[str(x.get("text") or "") for x in cleaned],
-            ctx=ctx,
-        )
+        except ValueError:
+            return  # uncurable bridge copy: the seam stays unglued (ISSUES 185)
         cleaned.append(
             {
                 "line_id": f"syn_seam_{a}_{b}",
@@ -791,10 +790,9 @@ def validate_synthetic_plan(
             b = str(pair.get("before_segment_id") or "")
             if not a or not b or (a, b) in covered:
                 continue
-            if allow_canned:
-                # seam_glue mints a marked auto_minted bridge for this pair.
-                continue
-            errors.append(f"required reorder seam missing planned line: {a}->{b}")
+            # Advisory (ISSUES 185): an uncovered reorder seam plays without
+            # spoken glue; seam_glue mints a bridge when it can ground one.
+            continue
     except Exception as exc:
         errors.append(f"required_reorder_seams check failed: {exc}")
     return errors

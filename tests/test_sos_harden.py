@@ -195,6 +195,8 @@ def test_hard_keep_missing_pins_ranking(monkeypatch) -> None:
         "interview_mux.hard_keep.hard_keep_segment_ids",
         lambda _ctx, **_k: {"seg_099"},
     )
+    # Opt-in since ISSUES 185 (selection_seal_fail_closed).
+    monkeypatch.setattr("interview_mux.selection_constraints._seal_refusal_enabled", lambda: True)
     errs = selection_sanitary_errors(ctx)
     assert any("hard_keep_missing_from_order" in e for e in errs)
     blob = "; ".join(errs)
@@ -352,6 +354,8 @@ def test_integrity_critical_in_sanitary_errors_pins_ranking(monkeypatch) -> None
         "interview_mux.air_order_integrity.collect_violations",
         _fake_collect,
     )
+    # Opt-in since ISSUES 185 (block_ranking_on_critical).
+    monkeypatch.setattr("interview_mux.air_order_integrity.block_ranking_on_critical", lambda: True)
     errs = selection_sanitary_errors(ctx)
     assert any("air_order_integrity_critical" in e for e in errs)
     assert producer_pin_for_token("; ".join(errs), ctx=ctx) == "full_master_ranking"

@@ -87,8 +87,8 @@ def test_jsq_b2_mix_refuse_and_junction_first_handshake(
         ],
     )
     assert junction_recut_precedes_mix(ctx) is True
-    with pytest.raises(LoudStageFailure, match="incomplete_cut_unresolved"):
-        refuse_mix_if_live_incomplete_cuts(ctx)
+    # Advisory (ISSUES 185): mix renders and logs the residuals.
+    assert refuse_mix_if_live_incomplete_cuts(ctx) is None
     _pin_earliest_incomplete(monkeypatch, "mix")
     assert _seed_prereq_block(ctx, "junction_snip_qa") is None
     monkeypatch.setattr(

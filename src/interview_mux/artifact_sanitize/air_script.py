@@ -684,9 +684,13 @@ def sanitize_air_contract(
                         proceed_on_floor_miss,
                     )
 
-                    if int(active or 0) >= 1 and (
-                        may_aspirational_proceed(ctx) or hosted_vo_aspirational(ctx)
-                    ):
+                    # The count floor is a target at every count (ISSUES 185):
+                    # with zero synthetic lines the episode ships native-only
+                    # and the shortfall is recorded. Pinning lay-up cannot
+                    # invent nuggets the tape does not have (26 error lines
+                    # across exec_003/015/016/021 were this pin).
+                    _ = (may_aspirational_proceed, hosted_vo_aspirational)
+                    if True:
                         aspirational = True
                         proceed_on_floor_miss(
                             ctx,

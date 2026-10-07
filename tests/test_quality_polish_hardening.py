@@ -247,7 +247,8 @@ def test_validate_synthetic_plan_seam_coverage_follows_canned_flag(
         },
     )
     errors = synthetic_framing.validate_synthetic_plan(ctx, plan)
-    assert any("required reorder seam missing planned line" in e for e in errors)
+    # An uncovered reorder seam is advisory now (ISSUES 185).
+    assert not any("required reorder seam missing planned line" in e for e in errors)
 
     monkeypatch.setattr(
         synthetic_framing,

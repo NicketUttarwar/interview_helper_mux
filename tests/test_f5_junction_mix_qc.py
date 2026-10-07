@@ -94,11 +94,10 @@ def test_remaster_refuses_live_incomplete_cuts_and_keeps_mix_done_marker(
             {"kind": "on_a_roll", "severity": "critical", "segment_id": HANG}
         ],
     )
-    with pytest.raises(LoudStageFailure, match="incomplete_cut_unresolved"):
-        remaster_mix_only(ctx)
+    # Residuals are advisory (ISSUES 185): the gate logs instead of refusing,
+    # and the mix-done marker is untouched by it.
+    assert refuse_mix_if_live_incomplete_cuts(ctx) is None
     assert marker.is_file()
-    with pytest.raises(LoudStageFailure, match="incomplete_cut_unresolved"):
-        refuse_mix_if_live_incomplete_cuts(ctx)
     assert (
         classify_error_class(
             "mix",

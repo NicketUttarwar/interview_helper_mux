@@ -357,7 +357,15 @@ def test_sanitize_refuses_primary_impact_not_selected_pins_ranking(
     ctx.write_json("master/selection.json", sel, skip_handoff=True)
     before = validate_framing_ranking(ctx, sel)
     assert any("never_exclude_primary_impact" in e for e in before)
-    result = sanitize_master_selection(ctx, sel)
+    # The lattice refusal is opt-in since ISSUES 185 (selection_seal_fail_closed).
+    import pytest as _pytest
+
+    mp = _pytest.MonkeyPatch()
+    mp.setattr("interview_mux.selection_constraints._seal_refusal_enabled", lambda: True)
+    try:
+        result = sanitize_master_selection(ctx, sel)
+    finally:
+        mp.undo()
     assert not result.ok
     assert any("never_exclude_primary_impact" in e for e in (result.errors or []))
     assert "seg_012" not in (result.doc.get("ordered_segment_ids") or [])

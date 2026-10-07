@@ -846,6 +846,9 @@
   "_comment_disfluency": "Local VAD + Whisper filler detection after G0; optional EDL restore in Flow 1",
   "_comment_analysis": "Volley caps, thresholds, orchestration; specialists.pilot_stages gates post-stage passes when enabled",
   "analysis": {
+    "_comment_blockers_advisory": "ISSUES 185: quality judgements never block. These two re-enable old refusals for debugging.",
+    "edl_narrative_audit_blocking": false,
+    "selection_seal_fail_closed": false,
     "max_iterations_per_stage": 3,
     "max_queue_drains_per_stage": 5,
     "max_volley_retries": 2,
@@ -1298,8 +1301,8 @@
       "authoritative_gap_report": true,
       "compose_orientation_only_when_plan_ready": false,
       "_comment_compose_orientation_only": "When true and layup plan/corpus ready, gap_framing_compose no-ops (layup owns body) — folded into compose_authority_gate; no separate orientation stub.",
-      "block_on_open_must_keep": true,
-      "block_on_open_high_salience": true,
+      "block_on_open_must_keep": false,
+      "block_on_open_high_salience": false,
       "honor_information_package_dense_budget": true,
       "degraded_layup": {
         "enabled": true,
@@ -1598,12 +1601,12 @@
       "reverse_jump_margin_max_ms": 600000,
       "count_opening_by_family": true,
       "fragmentation_extra_slots": 2,
-      "block_ranking_on_critical": true,
-      "block_publish_on_critical": true,
+      "block_ranking_on_critical": false,
+      "block_publish_on_critical": false,
       "invalidate_edl_on_order_change": true,
       "invalidate_transitions_on_order_change": true,
       "invalidate_mix_on_order_change": false,
-      "_comment_block_ranking": "Default false during boundary-bus rollout; set true after soak"
+      "_comment_block_ranking": "false: air-order critical findings are warnings; the repair projection is authoritative (ISSUES 185)"
     },
     "edl": {
       "clone_adjacency_verify": true,

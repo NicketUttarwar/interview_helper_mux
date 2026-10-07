@@ -768,7 +768,8 @@ def test_safe_mix_resume_routes_on_a_roll_residuals_to_junction(
             count=3, kinds=("on_a_roll",), sources=("junction_findings",)
         ),
     )
-    assert safe_mix_resume_stage(ctx) == "junction_snip_qa"
+    # Residuals no longer send mix back to junction (ISSUES 185).
+    assert safe_mix_resume_stage(ctx) != "junction_snip_qa"
 
 
 def test_listen_delight_waiver_unattended(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

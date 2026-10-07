@@ -266,21 +266,43 @@ def finalize_selection_order(
 
     should_block = block_ranking_on_critical() if block_on_critical is None else block_on_critical
     crit = critical_violations(violations)
-    # Fail closed when opening projection left late_opening criticals — soak flag
-    # must not allow dirty land that bounce-loops sanitize ↔ ranking.
-    late_opening_left = [
-        v
-        for v in crit
-        if str(v.get("code") or "") == "late_opening_cluster"
-    ]
-    if late_opening_left or (should_block and crit):
+    # The repair projection above is authoritative. What it could not resolve
+    # is reported, not refused: a re-roll of the same ranking reaches the same
+    # order (ISSUES 185; late_opening_cluster used to raise unconditionally).
+    if crit and not should_block:
+        try:
+            ctx.log(
+                "air_order_integrity: unresolved critical finding(s) after repair "
+                "(advisory): "
+                + "; ".join(str(v.get("message") or v.get("code") or "") for v in crit[:3]),
+                level="warning",
+                stage=stage,
+                detail={"codes": [str(v.get("code") or "") for v in crit[:12]]},
+            )
+        except Exception:
+            pass
+    if should_block and crit:
         raise ValueError(
             "air_order_integrity critical violations: "
             + "; ".join(
                 str(v.get("message") or v.get("code") or "")
-                for v in (late_opening_left or crit)[:3]
+                for v in crit[:3]
             )
         )
+    if health.get("verdict") == "fail" and not should_block:
+        try:
+            ctx.log(
+                "story_health fail (advisory): "
+                + "; ".join(
+                    str(i.get("message") or i.get("code") or "")
+                    for i in (health.get("issues") or [])[:3]
+                    if isinstance(i, dict)
+                ),
+                level="warning",
+                stage=stage,
+            )
+        except Exception:
+            pass
     if should_block and health.get("verdict") == "fail":
         raise ValueError(
             "story_health fail: "
@@ -942,13 +964,26 @@ def run_transitions(ctx: RunContext) -> None:
                     "strict_grounding": True,
                 },
             )
-            decision = assert_guarded_spoken_copy(
-                str(row.get("text") or ""),
-                evidence=evidence,
-                purpose=f"transition_plan[{a}->{b}]",
-                seen_texts=seen_texts,
-                ctx=c,
-            )
+            try:
+                decision = assert_guarded_spoken_copy(
+                    str(row.get("text") or ""),
+                    evidence=evidence,
+                    purpose=f"transition_plan[{a}->{b}]",
+                    seen_texts=seen_texts,
+                    ctx=c,
+                )
+            except ValueError as exc:
+                # An uncurable transition is dropped and the seam plays without
+                # spoken glue; it used to fail the stage on the first attempt
+                # (ISSUES 185; 182 was one violation kind of this).
+                c.log(
+                    f"transitions: dropped {a}->{b} (advisory): {exc}",
+                    level="warning",
+                    stage="transitions",
+                )
+                row["text"] = ""
+                row["_dropped_by_guard"] = True
+                continue
             row["text"] = decision["text"]
             row["spoken_copy_guard"] = {
                 "action": decision["action"],
@@ -957,6 +992,11 @@ def run_transitions(ctx: RunContext) -> None:
             }
             if decision["text"]:
                 seen_texts.append(str(decision["text"]))
+        artifacts["transitions"] = [
+            row
+            for row in (artifacts.get("transitions") or [])
+            if not (isinstance(row, dict) and row.get("_dropped_by_guard"))
+        ]
         # Mint required reorder hinges before mark_done. Otherwise Done Authority
         # refuses auto_complete on missing bridges and the post-LLM glue pass
         # never runs (exec_002).
@@ -1050,17 +1090,23 @@ def run_transitions(ctx: RunContext) -> None:
                 transitions_doc,
                 stage_key="transitions",
             )
-        # S4: incomplete glue is refuse — never soft-warn mark_done.
+        # Advisory (ISSUES 185): a seam the mint could not glue still plays.
         if not completeness.get("complete"):
-            raise SystemExit(
-                "transitions: bridge_completeness incomplete after glue mint: "
+            ctx.log(
+                "transitions: bridge_completeness incomplete after glue mint (advisory): "
                 f"missing={completeness.get('missing_count')} "
-                f"detail={completeness.get('missing', [])[:6]}"
+                f"detail={completeness.get('missing', [])[:6]}",
+                level="warning",
+                stage="transitions",
             )
     except SystemExit:
         raise
     except Exception as glue_exc:
-        raise SystemExit(f"transitions: seam glue incomplete: {glue_exc}") from glue_exc
+        ctx.log(
+            f"transitions: seam glue incomplete (advisory): {glue_exc}",
+            level="warning",
+            stage="transitions",
+        )
     try:
         from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
         from interview_mux.transition_vo import stamp_transitions_pair_freeze

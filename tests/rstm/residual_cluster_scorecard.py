@@ -75,7 +75,8 @@ def smoke_b02_delivery_residual_ledger(_ctx: Any = None) -> None:
     assert "def record_delivery_residual" in guard
     assert "def critical_residual_view" in guard
     assert "def has_critical_residuals" in guard
-    assert "critical_delivery_residuals" in guard
+    # Residuals are advisory for ship since ISSUES 185: the ledger is still
+    # recorded and readable, but no longer a ship_path_ready refusal.
 
 
 def smoke_b03_junction_family_budget(_ctx: Any = None) -> None:

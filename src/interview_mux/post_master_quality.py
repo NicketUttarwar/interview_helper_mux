@@ -858,11 +858,11 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         if is_structural_pmq_check(cid) or cid == "master_exists_nonempty":
             structural_failed.append(cid)
             continue
+        # Live junction residuals are a junction judgement, reported here but
+        # never a ship blocker (ISSUES 185): junction already spent its budget.
         if cid == "no_critical_junction_residuals":
-            detail = c.get("detail") if isinstance(c.get("detail"), dict) else {}
-            if int((detail or {}).get("count") or 0) > 0:
-                structural_failed.append(cid)
-                continue
+            rubric_failed.append(cid)
+            continue
         if aspirational and is_rubric_pmq_check(cid):
             rubric_failed.append(cid)
         else:

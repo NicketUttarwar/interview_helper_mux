@@ -123,10 +123,11 @@ def test_rerank_only_issues_are_warnings_when_the_order_is_frozen(ctx, monkeypat
     assert qc.validate_flow1_edl_narrative(ctx, dict(EDL)) == []
 
 
-def test_rerank_only_issues_still_block_before_the_freeze(ctx, monkeypatch) -> None:
+def test_rerank_only_issues_are_warnings_before_the_freeze_too(ctx, monkeypatch) -> None:
+    """Their only remedy is a re-rank that reaches the same order (ISSUES 185)."""
     _stub_validators(monkeypatch)
     monkeypatch.setattr("interview_mux.artifact_repairs._order_frozen", lambda c: False)
-    assert len(qc.validate_flow1_edl_narrative(ctx, dict(EDL))) == 3
+    assert qc.validate_flow1_edl_narrative(ctx, dict(EDL)) == []
 
 
 def test_builder_skipped_line_is_not_phantom_vo(ctx, monkeypatch) -> None:

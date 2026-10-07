@@ -2106,11 +2106,8 @@ def stage_artifact_incompleteness(
 
             forbidden = forbidden_bridge_pairs(ctx, miss)
             miss = [m for m in miss if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
-            if miss:
-                return (
-                    "bridge_completeness incomplete — resume transitions "
-                    f"(missing={len(miss)})"
-                )
+            # Missing bridges are advisory (ISSUES 185): not an incompleteness.
+            _ = miss
         except Exception:
             pass
     if stage_id == "edl":

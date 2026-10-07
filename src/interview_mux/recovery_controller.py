@@ -1920,6 +1920,14 @@ def handle_stage_failure(
             artifacts = playbook_host_cta_omit(ctx)
             recovered = True
             resume_stage = "nugget_layup_compose"
+        elif error_class == "omit_collateral_vo_strip":
+            # The EDL seats every required line with a WAV (ISSUES 184); an
+            # unseated one is missing its WAV. Re-speak and rebuild from
+            # vo_synthesize. Unhandled before, so unattended recovery retried
+            # mix until max_mix_cycles (Nicket's exec_025).
+            playbook_id = "resynthesize_rebuild_edl"
+            recovered = True
+            resume_stage = "vo_synthesize"
         elif error_class == "selection_edl_order_drift":
             playbook_id = "selection_edl_order_drift"
             artifacts = playbook_selection_edl_order_drift(ctx)

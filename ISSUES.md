@@ -6509,6 +6509,149 @@ fault); the resume re-verified analysis and continued from the mix.
 
 ---
 
+## [184] PRODUCT: a required VO with a WAV was dropped from the EDL for clone-voice adjacency and the mix refused forever (maintainer's exec_025, ~60 of 72)
+
+**Stage / area:** `stages/assembly.build_flow1_edl`,
+`edl_narrative_qc._validate_clone_voice_adjacency`,
+`listenability_guards` re-seat, `publishability_boundary._check_unseated_required_vo`,
+`heal_routing.PLAYBOOK_REGISTRY`, `recovery_controller`
+**Status:** FIXED
+
+**Seen (maintainer's report):** `PublishabilityBlocked` at pre_mix:
+`omit_collateral_vo_strip / unseated_required_vo` for `vo_question_seg_027`.
+Three mix attempts, `max_mix_cycles`, no `master/assembly.wav`, "Delivery
+incomplete ... resume=mix". The gap report kept the line as a required
+synthesize question, adjudication said air, the WAV existed, and the lay-up's
+earlier clone-adjacency omit had been deactivated by
+`restore_nugget_layup_line`.
+
+**Cause:** the EDL builder asked the clone-adjacency verifier whether the
+cloned host voice would sit next to the same native speaker; the verifier said
+yes and the builder dropped the line (and several transitions), recording it
+only under `edl.warnings.suppressed_clone_adjacency`. Publishability then
+found a required line with no seat and no active omit. The heal route named
+`exempt_rebuild_edl`, an action no code implements, so resuming `edl` reached
+the same suppress every time; recovery had no branch for the class
+(`unhandled_class`) and unattended escalation retried mix. Two paperwork bugs
+in the checker: it read `line_id` from ledger rows keyed by `subject_id`, and
+called `line_is_omitted(line)` instead of `line_is_omitted(ledger, line_id)`
+(a swallowed TypeError), so even an active omit could not compensate.
+
+**Fix (the maintainer's minimal reliability stack):**
+1. EDL: a line the gap report airs, with a WAV, is seated. Clone adjacency is
+   advisory everywhere after planning: the builder records the seam in
+   `edl.warnings.clone_adjacency_advisory` (VO and transitions), EDL narrative
+   QC logs it as a warning instead of a blocking error, and the listenability
+   re-seat path seats at the planned target instead of skipping.
+   Planning-time preferences stay: the lay-up and gap framing may still
+   retarget or typed-skip a line, with an omit-ledger row.
+2. Publishability keeps `unseated_required_vo` as the guardrail; it now reads
+   `subject_id` and calls `line_is_omitted(ledger, line_id)`.
+3. Heal: `omit_collateral_vo_strip` resumes `vo_synthesize` (a missing WAV is
+   now the only way to be unseated) and recovery has an explicit branch for it.
+
+Tests: `tests/test_required_vo_seats_despite_clone_adjacency.py` (7);
+`tests/test_clone_voice_adjacency.py` and `tests/test_edl_narrative_qc.py`
+updated from "suppressed" to "seated + advisory".
+
+## [185] STRUCTURAL: hard blockers become warnings or simple rules (maintainer's request after exec_025)
+
+**Status:** DONE (code + tests); fresh-run verification pending operator go-ahead.
+
+**Why:** the maintainer asked to cut features and simplify: a quality
+judgement must not refuse a stage or the mix. Four read-only audits mapped
+every blocker (publishability/PMQ/guardrails, lints/QC/sanitize, loud
+failures/guards/LLM runner, and which ones fired across ISSUES 1-184 and
+the run logs). Each was classified QUALITY (judgement: becomes a warning) or
+STRUCTURAL (missing/corrupt/empty/unplayable: keeps blocking, with a heal
+whose resume stage can actually produce the missing thing). ISSUES 184 was
+the template.
+
+**Central switches**
+- Lints: stage acceptance failed on *any* lint string, so lints the runner
+  labelled "non-blocking" still blocked through the commit barrier.
+  `deterministic_lint.split_lint_errors`: only `STRUCTURAL_LINT_MARKERS`
+  (empty / missing / not in manifest / unknown asset / missing line_id or
+  voice / bad boundary rows) block; every other lint is logged. A lint that
+  crashes warns (exec_028 lost ranking to a TypeError inside the lint).
+- LLM runner: on the second attempt, valid artifacts are accepted whatever the
+  model labels its needs; the needs are logged (172, 177, 183 shape).
+- Config: `block_ranking_on_critical` and `block_publish_on_critical` false;
+  lay-up `block_on_open_must_keep` / `block_on_open_high_salience` false.
+  New off-by-default switches `analysis.edl_narrative_audit_blocking` and
+  `analysis.selection_seal_fail_closed` re-enable the old refusals.
+- Unattended runs: sanitize refusals route through their resume pins instead
+  of stamping needs_operator (only authority-undo thrash still pauses).
+
+**Now warnings (logged, recorded, never refuse)**
+- Ranking: unresolved air-order criticals after repair (incl. the
+  unconditional late_opening_cluster raise), story_health fail, selection
+  seal findings (hard keep not placed, primary impact), framing coverage
+  guard, sanitizer integrity/lattice codes.
+- EDL narrative QC: coverage lost, chapter continuity, ordering, framing
+  before impact / covered-on-air, VO after an incomplete thought, duplicate
+  copy / sentence collisions, one synthetic per seam, LLM audit verdict.
+  Structural QC (selection parity, transitions adjacency, orphan/duplicate
+  line ids, voice identity, volley split) still blocks.
+- EDL builder: the LLM narrative audit's blocking issues, a repeated spoken
+  sentence (both lines seated), orientation mission labels / thin wording /
+  late position (count and audibility still block), bridge completeness
+  (all five refusal sites).
+- Spoken copy: a transition the guard cannot cure is dropped and the seam
+  plays without spoken glue (transitions persist, seam-glue mint, synthetic
+  framing plan); an uncovered reorder seam is not a plan error; adjudication
+  only stops on empty text or placeholder markup; at synthesis time the
+  writer's accepted copy is voiced as written unless it would speak an
+  internal id, meta or scaffolding.
+- Junction / ship: residual verdicts, residuals after the run budget and an
+  unavailable feel audit (LLM outage) are advisory in junction, mix,
+  publishability, ship-path readiness and the mix resume picker.
+- Publishability: `ADVISORY_ERROR_CLASSES` (incomplete cut, claim inventory
+  paperwork, VO audibility drift, stale staging) never raise; unseated
+  required VO, order drift, zeroed speech and orientation count do.
+- PMQ: structural set is master integrity only (exists, seam commitment,
+  script-hash agreement), each with a heal route (mix, junction_snip_qa,
+  vo_synthesize); speakable re-lint, omit-ledger paperwork, duration floor
+  and junction residuals are advisory.
+- Lay-up / air contract: the hosted-VO count floor is a target at every
+  count; gap-report scaffolding on a required line is an advisory note.
+
+**Now simple rules**
+- Transition synthesis records pairs the guard refused
+  (`mastering/vo_synthesize.json` `unspeakable_pairs`, keyed by script hash);
+  every missing-WAV gate skips them until their text changes, so mix and
+  vo_synthesize stop bouncing.
+- A lay-up row a row-level QC finding names (canned air, thin, ungrounded,
+  CTA wording, restates target) becomes a justified typed skip.
+
+**Kept as is (structural, with working heals):** missing/corrupt artifacts,
+ids not in manifest, unseated required VO, order drift, zeroed speech,
+boundary quality gate, ownership denials, schema/env failures, mix epoch
+ordering, seed-order prerequisites, speaker preflight (ISSUES 103 already
+softened it).
+
+**Not changed, noted for later:** the retry-limit guards (attempt memo,
+identical-failure x3) still amplify a single refusal; with the blockers above
+gone they should rarely see one. The dead `pre_finalize` publishability
+checkpoint is left in place.
+
+Tests: `tests/test_blockers_become_warnings_or_rules.py` (11); about 40
+existing tests updated from "refuses" to "warns", and opt-in paths kept
+tested through the new switches.
+
+**Verified (macOS exec_033, granola 47-minute source, fresh, 6ef1b4791):**
+72 of 72, zero error lines in the console and zero error rows in the run
+log, post-master quality pass (publish allowed), scorecard 0.951, 37.9-minute
+master, longest clip under 3 minutes, 3 VO pickups and 6 transitions seated.
+Seven advisories were logged instead of blocking, three of which would have
+stopped earlier code: 4 clone-voice adjacency seams (exec_025's stall shape),
+a `spoken_vo_speakable` PMQ miss (would have refused publish), and the music
+palette density miss. The listenability note "bed_coverage 0.000" says the
+episode has no music bed under speech; that is a sound-design question for
+the maintainer, not a failure.
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

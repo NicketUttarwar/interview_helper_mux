@@ -624,16 +624,9 @@ def mint_missing_transitions(
                     ):
                         existing.add((a, b))
                         continue
-                    from interview_mux.loud_fail import raise_loud_failure
-
-                    raise_loud_failure(
-                        ctx,
-                        "Reorder seam missing grounded contextual bridge text: "
-                        f"{a}->{b}",
-                        stage="edl",
-                        reason="canned_air_under_layup_authority",
-                        detail={"after_segment_id": a, "before_segment_id": b},
-                    )
+                    _log_unglued_seam(ctx, a, b, "no grounded bridge text")
+                    existing.add((a, b))
+                    continue
                 # fall through to append using text below — skip canned raise
                 planned = {"text": text, "_minted_seam": True}
             # Prefer pair-aware default glue over aborting remaster. The canned
@@ -652,23 +645,21 @@ def mint_missing_transitions(
                 ):
                     existing.add((a, b))
                     continue
-                from interview_mux.loud_fail import raise_loud_failure
-
-                raise_loud_failure(
-                    ctx,
-                    "Reorder seam missing grounded contextual bridge text: "
-                    f"{a}->{b} (no topic/person/place evidence for speakable VO)",
-                    stage="edl",
-                    reason="ungrounded_seam_bridge",
-                    detail={"after_segment_id": a, "before_segment_id": b},
+                _log_unglued_seam(ctx, a, b, "no topic/person/place evidence for speakable VO")
+                existing.add((a, b))
+                continue
+            try:
+                decision = assert_guarded_spoken_copy(
+                    text,
+                    evidence=bridge_guard_evidence(pair),
+                    purpose=f"transition[{a}->{b}]",
+                    seen_texts=sorted(used_bridge_texts),
+                    ctx=ctx,
                 )
-            decision = assert_guarded_spoken_copy(
-                text,
-                evidence=bridge_guard_evidence(pair),
-                purpose=f"transition[{a}->{b}]",
-                seen_texts=sorted(used_bridge_texts),
-                ctx=ctx,
-            )
+            except ValueError as exc:
+                _log_unglued_seam(ctx, a, b, str(exc))
+                existing.add((a, b))
+                continue
             text = str(decision["text"])
             if not text.strip():
                 # Guard omitted duplicate/stock — do not append empty self-echo.
@@ -705,13 +696,18 @@ def mint_missing_transitions(
         seen_for_planned = sorted(
             t for t in used_bridge_texts if t.casefold() != text.casefold()
         )
-        decision = assert_guarded_spoken_copy(
-            text,
-            evidence=bridge_guard_evidence(pair),
-            purpose=f"transition[{a}->{b}]",
-            seen_texts=seen_for_planned,
-            ctx=ctx,
-        )
+        try:
+            decision = assert_guarded_spoken_copy(
+                text,
+                evidence=bridge_guard_evidence(pair),
+                purpose=f"transition[{a}->{b}]",
+                seen_texts=seen_for_planned,
+                ctx=ctx,
+            )
+        except ValueError as exc:
+            _log_unglued_seam(ctx, a, b, str(exc))
+            existing.add((a, b))
+            continue
         text = str(decision["text"])
         if not text.strip():
             existing.add((a, b))
@@ -851,3 +847,21 @@ def ensure_seam_glue(
     )
     ctx.write_json("master/bridge_completeness.json", completeness)
     return bridges, transitions_doc, completeness
+
+
+
+def _log_unglued_seam(ctx: Any, a: str, b: str, why: str) -> None:
+    """A seam with no speakable grounded bridge plays without spoken glue.
+
+    It used to raise a loud failure (canned_air_under_layup_authority /
+    ungrounded_seam_bridge) or a guard ValueError; the evidence is fixed, so
+    every retry refused the same seam (ISSUES 185; 151, 182).
+    """
+    try:
+        ctx.log(
+            f"seam glue: {a}->{b} left without spoken glue (advisory): {why[:200]}",
+            level="warning",
+            stage="transitions",
+        )
+    except Exception:
+        pass

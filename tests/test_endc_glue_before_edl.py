@@ -46,8 +46,8 @@ def test_endc_deferred_text_only_not_complete() -> None:
     }
     assert not deferred_pair_is_durable(deferred["deferred_transition_pairs"][0])
     assert len(missing_reorder_bridges(bridges, transitions=deferred)) == 1
-    with pytest.raises(SystemExit, match="bridge_completeness"):
-        assert_bridges_complete(bridges, transitions=deferred, soft=False)
+    # Advisory (ISSUES 185): incomplete glue is reported, never raised.
+    assert assert_bridges_complete(bridges, transitions=deferred, soft=False)["complete"] is False
 
 
 def test_endc_beyond_freeze_deferred_is_durable() -> None:

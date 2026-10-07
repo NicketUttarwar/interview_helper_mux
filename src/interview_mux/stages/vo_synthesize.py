@@ -25,11 +25,42 @@ def _render_required_vo_wavs(ctx: RunContext) -> tuple[list[str], list[str]]:
 
     attempted: list[str] = []
     if ctx.artifact_exists("master/transitions.json"):
+        synth_rows: list = []
         try:
-            synthesize_spoken_transitions(ctx)
+            synth_rows = synthesize_spoken_transitions(ctx) or []
         except Exception as exc:
             ctx.log(
                 f"vo_synthesize: transition synth failed open: {exc}",
+                level="warning",
+                stage=STAGE_ID,
+            )
+        # Pairs the guard refused to voice are recorded with their script hash:
+        # the EDL plays them as a straight cut, and the missing-WAV gates skip
+        # them until their text changes (ISSUES 185).
+        unspeakable = sorted(
+            {
+                f"{r.get('after_segment_id')}->{r.get('before_segment_id')}:{r.get('script_hash')}"
+                for r in synth_rows
+                if isinstance(r, dict) and r.get("status") == "blocked_ungrounded" and r.get("script_hash")
+            }
+        )
+        try:
+            from interview_mux.transition_vo import persist_vo_pair_gap as _persist_gap
+
+            _persist_gap(
+                ctx,
+                [],
+                source="vo_synthesize",
+                extra={"unspeakable_pairs": unspeakable},
+                skip_handoff=False,
+                stage_key=STAGE_ID,
+            )
+        except Exception:
+            pass
+        if unspeakable:
+            ctx.log(
+                "vo_synthesize: transition(s) the spoken-copy guard refused play as a "
+                "straight cut (advisory): " + ", ".join(u.split(":", 1)[0] for u in unspeakable[:8]),
                 level="warning",
                 stage=STAGE_ID,
             )

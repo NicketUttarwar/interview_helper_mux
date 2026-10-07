@@ -179,6 +179,13 @@ def test_edl_narrative_audit_fail_verdict_is_incomplete(tmp_path, monkeypatch) -
         ),
         encoding="utf-8",
     )
+    # Advisory by default (ISSUES 185): a fail verdict does not make the stage
+    # incomplete unless analysis.edl_narrative_audit_blocking is on.
+    advisory_reason = stage_artifact_incompleteness(ctx, "edl_narrative_audit") or ""
+    assert "blocking issues" not in advisory_reason
+    monkeypatch.setattr(
+        "interview_mux.edl_narrative_remutate._narrative_audit_blocking_enabled", lambda: True
+    )
     reason = stage_artifact_incompleteness(ctx, "edl_narrative_audit")
     assert reason
     assert "verdict=fail" in reason or "blocking" in reason

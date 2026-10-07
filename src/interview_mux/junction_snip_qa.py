@@ -1674,21 +1674,20 @@ def refuse_mix_if_live_incomplete_cuts(ctx: RunContext) -> None:
             stage=STAGE_ID,
         )
         return
-    from interview_mux.loud_fail import raise_loud_failure
-
     kinds = sorted({str(f.get("kind") or "") for f in live if f.get("kind")})
     sids = [
         str(f.get("segment_id") or "")
         for f in live
         if str(f.get("segment_id") or "").strip()
     ]
-    raise_loud_failure(
-        ctx,
-        "incomplete_cut_unresolved: Mix refused: live incomplete-cut residuals "
-        + ",".join(kinds[:4] or ["incomplete_cut"])
-        + " — recut/fuse/omit at junction_snip_qa first",
+    # Advisory (ISSUES 185): a hanging-clause verdict is a junction judgement;
+    # junction already spent its recut budget, and refusing mix reran the same
+    # detector until max_mix_cycles (61, 72, 75, 100, 131, 168).
+    ctx.log(
+        "mix: rendering with live incomplete-cut residual(s) (advisory): "
+        + ",".join(kinds[:4] or ["incomplete_cut"]),
+        level="warning",
         stage="mix",
-        reason="incomplete_cut_unresolved",
         detail={"count": len(live), "kinds": kinds[:6], "segment_ids": sids[:8]},
     )
 
@@ -3881,10 +3880,11 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     enforce_block = mode == "authoritative"
     if "critical_incomplete_cut_residuals" in blocking_reasons:
         enforce_block = True
+    # Residual judgements (incomplete cuts, residuals after the run budget) and
+    # an unavailable feel audit (an LLM outage) are advisory (ISSUES 185): the
+    # junction ladder already spent its budget and a rerun reaches the same
+    # verdict. Only the structural seat stays hard.
     critical_blocking = {
-        "critical_incomplete_cut_residuals",
-        "critical_junction_residuals_after_two_runs",
-        "junction_feel_audit_unavailable",
         # ENDD-6: commitment / remaster / assembly seat stay hard under aspirational.
         "junction_commitment_diverged",
         "junction_commitment_remaster_refused",

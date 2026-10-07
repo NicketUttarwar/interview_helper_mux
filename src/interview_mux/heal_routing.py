@@ -64,8 +64,12 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     "opening_orientation_inaudible": PlaybookSpec(
         resume_stage="edl", action="retarget_rebuild_edl"
     ),
+    # The EDL seats every required line that has a WAV (ISSUES 184), so an
+    # unseated required line means its WAV is missing: re-speak it and let the
+    # walk rebuild the EDL. The old "exempt_rebuild_edl" action was a label no
+    # code implemented; resuming edl reached the same suppress every time.
     "omit_collateral_vo_strip": PlaybookSpec(
-        resume_stage="edl", action="exempt_rebuild_edl"
+        resume_stage="vo_synthesize", action="resynthesize_rebuild_edl"
     ),
     "selection_edl_order_drift": PlaybookSpec(
         resume_stage="edl", action="rebuild_edl"
@@ -552,6 +556,32 @@ def classify_heal_error(
             action="synthesize_g1",
             detail=detail,
         )
+
+    # The three structural post-master checks (ISSUES 185): each resumes the
+    # stage that can produce the missing thing, instead of escalating with no
+    # playbook at master_finalize.
+    if "post-master quality failed" in low or "post_master_quality_failed" in low:
+        if "audible_script_hash_agreement" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="vo_synthesize",
+                action="resynthesize_rebuild_edl",
+                detail="WAV hash disagrees with its script — re-speak, rebuild EDL and mix",
+            )
+        if "seam_commitment" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="junction_snip_qa",
+                action="recommit_seams",
+                detail="seam autopsy not committed — rerun junction to commit and remaster",
+            )
+        if "master_exists_nonempty" in low:
+            return HealRoute(
+                family="pmq_structural",
+                from_stage="mix",
+                action="remix",
+                detail="master missing or empty — re-render mix",
+            )
 
     if (
         "spoken_vo_speakable" in low

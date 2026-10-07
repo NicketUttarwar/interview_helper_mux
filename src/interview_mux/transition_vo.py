@@ -543,11 +543,14 @@ def synthesize_spoken_transitions(
                 # One ungrounded row (often a pair whose ids a fuse or hitch
                 # retired) used to raise out of the loop and leave every later
                 # pair unsynthesized, which mix then refused (ISSUES 151).
+                from interview_mux.spoken_copy_guard import script_hash as _sh
+
                 results.append(
                     {
                         "after_segment_id": after_id,
                         "before_segment_id": before_id,
                         "status": "blocked_ungrounded",
+                        "script_hash": _sh(text),
                     }
                 )
                 try:
@@ -1017,12 +1020,48 @@ def current_transition_pairs_missing(ctx: RunContext) -> list[str]:
                 adjacent = set(zip(order, order[1:]))
     except Exception:
         adjacent = None
+    unspeakable = unspeakable_transition_keys(ctx)
+    texts = _transition_texts(ctx) if unspeakable else {}
     for after_id, before_id in spoken_transition_pairs(ctx):
         if adjacent is not None and (after_id, before_id) not in adjacent:
             continue
+        if unspeakable:
+            from interview_mux.spoken_copy_guard import script_hash
+
+            key = f"{after_id}->{before_id}:{script_hash(texts.get((after_id, before_id), ''))}"
+            if key in unspeakable:
+                # Synthesis refused this exact text as ungrounded; the EDL plays
+                # the seam as a straight cut. Not missing audio, so mix and the
+                # walk stop asking vo_synthesize for it (ISSUES 185).
+                continue
         if resolve_transition_wav(ctx, after_id, before_id) is None:
             missing.append(f"{after_id}->{before_id}")
     return missing
+
+
+def _transition_texts(ctx: RunContext) -> dict[tuple[str, str], str]:
+    try:
+        doc = ctx.read_json("master/transitions.json")
+    except Exception:
+        return {}
+    out: dict[tuple[str, str], str] = {}
+    for item in (doc or {}).get("transitions") or [] if isinstance(doc, dict) else []:
+        if isinstance(item, dict):
+            key = (str(item.get("after_segment_id") or ""), str(item.get("before_segment_id") or ""))
+            out.setdefault(key, str(item.get("text") or "").strip())
+    return out
+
+
+def unspeakable_transition_keys(ctx: RunContext) -> set[str]:
+    """``after->before:script_hash`` keys synthesis refused (mastering/vo_synthesize.json)."""
+    rel = "mastering/vo_synthesize.json"
+    if not ctx.artifact_exists(rel):
+        return set()
+    try:
+        doc = ctx.read_json(rel)
+    except Exception:
+        return set()
+    return {str(x) for x in ((doc or {}).get("unspeakable_pairs") or []) if x} if isinstance(doc, dict) else set()
 
 
 PAIR_FREEZE_REL = "master/transitions_pair_freeze.json"

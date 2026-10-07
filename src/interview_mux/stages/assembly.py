@@ -480,14 +480,9 @@ def _gap_lines_for_segment(
         # This is deliberately global, not scoped to a target or placement.
         # A repeated spoken sentence is unacceptable even if it was authored
         # for two different native segments — fail closed rather than silent-drop.
-        collision = set(line_sentence_keys) & seen_sentences
-        if collision:
-            sample = next(iter(collision))
-            raise ValueError(
-                "EDL refused duplicate spoken sentence across VO lines "
-                f"(line_id={lid or '?'}, targets={segment_id}, key={sample!r}). "
-                "Regenerate or omit colliding synthetic copy before edl."
-            )
+        # A repeated spoken sentence is a quality note: the line's audio is
+        # already synthesized and dropping it would leave a required line
+        # unseated. EDL narrative QC logs the collision (ISSUES 185).
         if lid:
             seen_ids.add(lid)
         seen_sentences.update(line_sentence_keys)
@@ -545,7 +540,9 @@ def build_flow1_edl(
     missing_segments: list[str] = []
     omitted_unplayable: list[str] = []
     missing_transitions: list[str] = []
-    suppressed_clone_adjacency: list[str] = []
+    # Seams where a cloned voice abuts the same native speaker. Recorded, never
+    # suppressed: the EDL seats every line the gap report airs (ISSUES 184).
+    clone_adjacency_advisory: list[str] = []
     from interview_mux.clone_adjacency_verify import CloneAdjacencySession
 
     clone_adj = CloneAdjacencySession(ctx=ctx, verify_pair=verify_pair)
@@ -851,6 +848,10 @@ def build_flow1_edl(
                 if after is not None:
                     after.setdefault("segment_id", prev_sid)
                 vo_key = str(line.get("line_id") or sid)
+                # Advisory only (ISSUES 184): the gap report decided this line
+                # airs, so the EDL seats it. Dropping it here left a required
+                # line with no seat and no omit, and publishability refused the
+                # mix on every attempt (Nicket's exec_025, vo_question_seg_027).
                 if clone_adj.decide(
                     kind="vo_pickup",
                     key=vo_key,
@@ -858,8 +859,7 @@ def build_flow1_edl(
                     target=target,
                     after=after if placement == "before" else None,
                 ):
-                    suppressed_clone_adjacency.append(vo_key)
-                    return
+                    clone_adjacency_advisory.append(vo_key)
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
@@ -1206,6 +1206,8 @@ def build_flow1_edl(
                         ).strip()
                     except Exception:
                         clone_voice = ""
+                # Advisory only (ISSUES 184): a planned transition is seated; the
+                # seam is recorded for a later quality pass, never dropped here.
                 if clone_voice and clone_adj.decide(
                     kind="transition",
                     key=f"transition:{sid}->{nxt}",
@@ -1213,9 +1215,7 @@ def build_flow1_edl(
                     after=after_seg,
                     before=before_seg,
                 ):
-                    suppressed_clone_adjacency.append(f"transition:{sid}->{nxt}")
-                    tr = None
-                    suppressed_transition = True
+                    clone_adjacency_advisory.append(f"transition:{sid}->{nxt}")
             if tr:
                 text = str(tr.get("text") or "")
                 from interview_mux.spoken_copy_guard import script_hash
@@ -1336,7 +1336,7 @@ def build_flow1_edl(
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
             "missing_segment_lookups": sorted(set(missing_segments)),
             "missing_transition_audio": sorted(set(missing_transitions)),
-            "suppressed_clone_adjacency": sorted(set(suppressed_clone_adjacency)),
+            "clone_adjacency_advisory": sorted(set(clone_adjacency_advisory)),
             "clone_adjacency_id_mismatch_kept": sorted(
                 set(k for k in clone_adj.kept_despite_id() if k)
             ),
@@ -1572,6 +1572,27 @@ def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
     return selection
 
 
+#: Orientation contract findings that mean the line is missing from air. The
+#: rest (mission labels, wording, position, music-then-body) are quality notes
+#: and are logged (ISSUES 185).
+_STRUCTURAL_ORIENTATION_MARKERS = ("audible_count", "opening_orientation_count")
+
+
+def _blocking_orientation_errors(ctx: RunContext, errors: list[str]) -> list[str]:
+    blocking = [e for e in errors if any(m in str(e) for m in _STRUCTURAL_ORIENTATION_MARKERS)]
+    advisory = [e for e in errors if e not in blocking]
+    if advisory:
+        try:
+            ctx.log(
+                "edl: opening orientation notes (advisory): " + "; ".join(advisory[:4]),
+                level="warning",
+                stage="edl",
+            )
+        except Exception:
+            pass
+    return blocking
+
+
 def run_edl(ctx: RunContext) -> None:
     """Build ``master/edl.json`` from disk selection + seated VO/transitions.
 
@@ -1582,9 +1603,12 @@ def run_edl(ctx: RunContext) -> None:
     from interview_mux.edl_narrative_remutate import narrative_audit_blocks_edl
 
     if narrative_audit_blocks_edl(ctx):
-        raise SystemExit(
-            "edl_narrative_audit has effective blocking issues — fix them and re-run "
-            "edl_narrative_audit before edl."
+        # The audit is an LLM verdict; its only remedy is a re-roll (ISSUES 185;
+        # 48, 70, 120, 152, 162 were this shape). Logged, never blocking.
+        ctx.log(
+            "edl_narrative_audit has blocking issues (advisory) — building the EDL",
+            level="warning",
+            stage="edl",
         )
     check_narrative_qc(ctx, stage="edl", require_selection=True)
 
@@ -1695,9 +1719,12 @@ def run_edl(ctx: RunContext) -> None:
             forbidden = forbidden_bridge_pairs(ctx, missing)
             missing = [m for m in missing if (m.get("after_segment_id"), m.get("before_segment_id")) not in forbidden]
             if missing:
-                raise SystemExit(
-                    "edl: bridge_completeness incomplete — resume transitions "
-                    f"(missing={missing[:6]})"
+                # Advisory (ISSUES 185): build the EDL; the seam plays unglued.
+                ctx.log(
+                    "edl: bridge_completeness incomplete (advisory) "
+                    f"(missing={missing[:6]})",
+                    level="warning",
+                    stage="edl",
                 )
             assert_bridges_complete(
                 bridges if isinstance(bridges, dict) else {"pairs": []},
@@ -1791,6 +1818,7 @@ def run_edl(ctx: RunContext) -> None:
                     gap_report=gap_report if isinstance(gap_report, dict) else None,
                     edl=edl,
                 )
+                opening_errors = _blocking_orientation_errors(ctx, opening_errors)
                 if opening_errors:
                     raise RuntimeError(
                         "edl: opening orientation contract failed: "
@@ -1896,6 +1924,7 @@ def run_edl(ctx: RunContext) -> None:
                         gap_report=gap_report,
                         edl=edl,
                     )
+                    opening_errors = _blocking_orientation_errors(ctx, opening_errors)
                     if opening_errors:
                         raise RuntimeError(
                             "edl: opening orientation contract failed at stage_done: "

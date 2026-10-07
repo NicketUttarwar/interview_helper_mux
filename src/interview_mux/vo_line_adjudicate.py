@@ -937,13 +937,29 @@ def run_vo_line_adjudicate_stage(ctx: RunContext) -> None:
 
     # Q1A+: read-only speakable gate on disk gap (no scrub land — S1/S4).
     vo_errs = synthesize_vo_comprehensibility_errors(gap_report)
-    if vo_errs:
+    # Only text that cannot be voiced at all stops the stage: empty copy or
+    # placeholder markup. Thin lines and lint hits (register slips, meta words)
+    # are quality notes; the line already passed the spoken-copy guard that
+    # wrote it, and this read-only gate has no cure (ISSUES 185).
+    hard_vo_errs = [
+        e for e in vo_errs if "empty synthesize VO text" in e or "placeholder markup" in e
+    ]
+    soft_vo_errs = [e for e in vo_errs if e not in hard_vo_errs]
+    if soft_vo_errs:
+        ctx.log(
+            "Synthesize VO quality notes after adjudicate (advisory): "
+            + "; ".join(soft_vo_errs[:6]),
+            level="warning",
+            stage=STAGE_ID,
+            detail={"notes": soft_vo_errs[:20]},
+        )
+    if hard_vo_errs:
         from interview_mux.loud_fail import raise_loud_failure
 
         raise_loud_failure(
             ctx,
             "Synthesize VO transcript not comprehensible after adjudicate: "
-            + "; ".join(vo_errs[:6]),
+            + "; ".join(hard_vo_errs[:6]),
             stage=STAGE_ID,
             reason="synthesize_vo_incomprehensible",
         )

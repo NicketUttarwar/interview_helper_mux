@@ -389,8 +389,8 @@ def test_bridge_completeness_hard_gate():
     }
     missing = missing_reorder_bridges(bridges, gap_report=None, transitions=None)
     assert len(missing) == 1
-    with pytest.raises(SystemExit):
-        assert_bridges_complete(bridges, soft=False)
+    # Advisory (ISSUES 185): incomplete glue is reported, never raised.
+    assert assert_bridges_complete(bridges, soft=False)["complete"] is False
     transitions = {
         "transitions": [
             {
@@ -431,8 +431,8 @@ def test_deferred_spoken_pair_covers_reorder_bridge():
         ],
     }
     assert len(missing_reorder_bridges(bridges, transitions=deferred_text_only)) == 1
-    with pytest.raises(SystemExit, match="bridge_completeness"):
-        assert_bridges_complete(bridges, transitions=deferred_text_only, soft=False)
+    # Advisory (ISSUES 185): incomplete glue is reported, never raised.
+    assert assert_bridges_complete(bridges, transitions=deferred_text_only, soft=False)["complete"] is False
     deferred_durable = {
         "transitions": [],
         "deferred_transition_pairs": [
@@ -465,8 +465,8 @@ def test_bridge_completeness_blocks_stock_stub():
             },
         ]
     }
-    with pytest.raises(SystemExit, match="stub bridge"):
-        assert_bridges_complete(bridges, transitions=transitions, soft=False)
+    # Advisory (ISSUES 185): incomplete glue is reported, never raised.
+    assert assert_bridges_complete(bridges, transitions=transitions, soft=False)["complete"] is False
     soft = assert_bridges_complete(bridges, transitions=transitions, soft=True)
     assert soft["complete"] is False
     assert soft["stub_count"] >= 1

@@ -542,8 +542,8 @@ def test_late_opening_heal_pins_sanitize_not_ranking():
     assert producer_pin_for_token("late_opening_cluster") == "selection_order_sanitize"
 
 
-def test_finalize_fails_closed_on_residual_late_opening(monkeypatch, tmp_path):
-    """Even with block_ranking_on_critical false, residual late_opening raises."""
+def test_finalize_reports_residual_late_opening_without_refusing(monkeypatch, tmp_path):
+    """With block_ranking_on_critical false, a residual late_opening is a warning (ISSUES 185)."""
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     from interview_mux.run_context import RunContext
     from interview_mux.stages.selection import finalize_selection_order
@@ -586,12 +586,16 @@ def test_finalize_fails_closed_on_residual_late_opening(monkeypatch, tmp_path):
         "ordered_segment_ids": ["seg_003", "seg_050", "seg_001"],
         "excluded_segment_ids": [],
     }
-    try:
-        finalize_selection_order(
-            ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
-        )
-        raised = False
-    except ValueError as exc:
-        raised = True
-        assert "late_opening" in str(exc).lower() or "air_order_integrity" in str(exc)
-    assert raised
+    logged: list[str] = []
+    real_log = ctx.log
+
+    def _spy(msg, *a, **k):
+        logged.append(str(msg))
+        return real_log(msg, *a, **k)
+
+    monkeypatch.setattr(ctx, "log", _spy)
+    out = finalize_selection_order(
+        ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
+    )
+    assert out["ordered_segment_ids"]
+    assert any("late_opening" in m.lower() or "unresolved critical" in m for m in logged)
