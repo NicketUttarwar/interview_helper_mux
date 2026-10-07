@@ -6424,6 +6424,44 @@ test_layup_selection_commit_ownership (1), test_quality_polish_hardening
 (2), test_r_workflow_residual (1). Mostly the ENDD mix / junction / music
 epoch ordering rework; left for the maintainer unless a run hits them.
 
+## [182] PRODUCT: one name attribution in one transition line failed the transitions stage (granola exec_029, 47-minute source)
+
+**Stage / area:** `spoken_copy_guard.guard_spoken_copy`,
+`spoken_copy_guard._strip_name_attribution_clause`
+**Status:** FIXED
+
+**Seen:** exec_029 (the zero-error confirmation run after ISSUES 181)
+failed at `transitions` with
+`transition_plan[seg_044->seg_045] blocked by spoken_copy_guard:
+spoken_name_attribution, no_grounded_fallback`. The attempt memo refused the
+retry, the walk stopped with "Delivery incomplete", and the conductor's
+direct dispatch happened to get a clean second roll from the model. The
+master shipped, but with two error lines and a paid retry.
+
+**Cause:** the model wrote the bridge as "<Name> explains that ...". The
+guard rightly flags that register (`spoken_name_attribution`, a wording
+fault that sounds like narration about the tape). Its only cure was a
+grounded hinge built from topic evidence; the pair had no topics, so the
+verdict was `block`, and a required transition line blocks the stage. ISSUES
+128 already cures a repeated sentence before blocking, and the lay-up path
+scrubs this exact register (`scrub_spoken_register`, nug_016); the guard's
+own decision never tried the scrub. Every caller of
+`assert_guarded_spoken_copy` (transitions, seam glue, synthetic framing,
+transition VO, speech-to-speech) shared the gap.
+
+**Fix:**
+- `guard_spoken_copy`: when the violations include a register slip (name or
+  role attribution, gendered pronoun), scrub it and keep the model's own
+  grounded copy as the fallback when the remainder is still a line (five
+  words or more) and passes the guard. A line that is nothing but an
+  attribution still blocks.
+- `_strip_name_attribution_clause` now also cures an attribution on a later
+  sentence ("... came first. Sam adds that ..."), a parenthetical one
+  ("..., as Sam explains, ...") and "let's hear Sam on ...", and drops the
+  "that / how / why" connective so the remainder is a statement.
+
+Tests: `tests/test_spoken_copy_guard_register_cure.py` (7).
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)
