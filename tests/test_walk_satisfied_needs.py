@@ -32,3 +32,30 @@ def test_upstream_rerun_stays_blocking() -> None:
 def test_other_need_types_and_self_are_untouched() -> None:
     assert not is_walk_satisfied_need("gap_framing_compose", {"type": "transcript_excerpt", "stage": "episode_structure_compose"})
     assert not is_walk_satisfied_need("gap_framing_compose", _need("gap_framing_compose"))
+
+
+# ISSUES 183: the model names stages loosely, and a name that is no stage at
+# all cannot be satisfied by failing the current stage (granola exec_030:
+# gap_framing_compose asked to rerun "segment_ranking" to drop seg_045).
+def test_a_loose_stage_name_resolves_to_the_real_stage() -> None:
+    from interview_mux.llm_simple import resolve_need_stage
+
+    assert resolve_need_stage("segment_ranking") == "full_master_ranking"
+    assert resolve_need_stage("Segment Ranking") == "full_master_ranking"
+    assert resolve_need_stage("full_master_ranking") == "full_master_ranking"
+    assert resolve_need_stage("edl_narrative_audit") == "edl_narrative_audit"
+    assert resolve_need_stage("mix") == "mix"
+    assert resolve_need_stage("no_such_thing") is None
+    assert resolve_need_stage("") is None
+
+
+def test_a_loose_name_for_a_later_stage_is_satisfied_by_the_walk() -> None:
+    assert is_walk_satisfied_need("gap_framing_compose", _need("segment_ranking"))
+
+
+def test_a_loose_name_for_an_upstream_stage_stays_blocking() -> None:
+    assert not is_walk_satisfied_need("gap_framing_compose", _need("classification"))
+
+
+def test_a_need_naming_no_stage_does_not_block() -> None:
+    assert is_walk_satisfied_need("gap_framing_compose", _need("no_such_stage"))

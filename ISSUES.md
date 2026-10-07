@@ -6466,6 +6466,35 @@ exec_029 itself finished after the conductor's retry: 72 of 72, post-master
 quality pass, scorecard 0.925, bridge completeness complete, 37.4-minute
 master, longest clip under 3 minutes. exec_030 is the fresh run on this fix.
 
+## [183] PRODUCT: a gap-framing shard failed twice over a rerun need naming a stage that does not exist (granola exec_030, step 32)
+
+**Stage / area:** `llm_simple.is_walk_satisfied_need`, new
+`llm_simple.resolve_need_stage`
+**Status:** FIXED
+
+**Seen:** `LLM stage gap_framing_compose incomplete: status=partial
+needs=[{'type': 'rerun_stage', 'stage': 'segment_ranking', 'reason':
+'seg_045 remains in the ordered sequence despite a high-severity incomplete
+interviewer turn ... Remove or recut it before final assembly.', 'blocking':
+True}]`. Shard 3 of 3 answered the same way on both attempts, was logged as
+failed, and the stage completed on the other shards' lines (4 lines), so the
+run went on with one error line and without that shard's framing.
+
+**Cause:** ISSUES 177 demotes a blocking `rerun_stage` need when the named
+stage comes later in the walk. The model named the stage loosely
+("segment_ranking"); the exact-id lookup found nothing, the need stayed
+blocking, and the shard failed over a request that `full_master_ranking`
+(eight stages later) exists to judge.
+
+**Fix:** `resolve_need_stage` maps a loose name to the stage id (exact id,
+then an alias table, then the one stage whose last token matches). The
+later-stage rule runs on the resolved id. A name that resolves to nothing is
+not a stage the walk can run, so failing the current stage cannot satisfy
+it either; such a need is demoted and logged with its resolution. Upstream
+stages stay blocking.
+
+Tests: `tests/test_walk_satisfied_needs.py` (+4, 8 total).
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)
