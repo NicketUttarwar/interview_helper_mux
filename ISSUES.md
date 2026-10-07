@@ -6495,6 +6495,11 @@ stages stay blocking.
 
 Tests: `tests/test_walk_satisfied_needs.py` (+4, 8 total).
 
+exec_030 itself finished: 72 of 72, post-master quality pass, scorecard
+0.935, bridge completeness complete, 32.6-minute master, longest clip under
+3 minutes, and that shard failure was its only error line. exec_031 is the
+fresh run on 181, 182 and 183 together.
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)
