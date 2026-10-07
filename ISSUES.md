@@ -6462,6 +6462,10 @@ transition VO, speech-to-speech) shared the gap.
 
 Tests: `tests/test_spoken_copy_guard_register_cure.py` (7).
 
+exec_029 itself finished after the conductor's retry: 72 of 72, post-master
+quality pass, scorecard 0.925, bridge completeness complete, 37.4-minute
+master, longest clip under 3 minutes. exec_030 is the fresh run on this fix.
+
 ---
 
 # Planned: prune the job-API driver (phase 2 of entry 79)
