@@ -307,8 +307,14 @@ def test_validate_clone_voice_adjacency_allows_only_cut_recovery() -> None:
     edl = _good_edl()
     edl["clips"][1]["voice_speaker_id"] = "spk_host"
 
+    # Advisory only (ISSUES 184): a same-voice seam no longer refuses the EDL.
     errors = validate_flow1_edl_narrative(ctx, edl)
-    assert any("cloned voice" in error for error in errors)
+    assert not any("cloned voice" in error for error in errors)
+    from interview_mux.edl_narrative_qc import _validate_clone_voice_adjacency
+
+    advisory: list[str] = []
+    _validate_clone_voice_adjacency(ctx, edl, ctx.read_json("master/selection.json"), advisory)
+    assert any("cloned voice" in note for note in advisory)
 
     report["interviewer_lines"][0]["nugget_ids"] = ["cut_fact"]
     write_fixture_json(

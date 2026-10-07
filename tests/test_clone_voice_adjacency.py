@@ -76,8 +76,8 @@ def test_edl_suppresses_clone_adjacent_to_previous_native(tmp_path: Path) -> Non
         vo_duration_ms=lambda _path: 1000,
     )
 
-    assert not [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == ["vo_1"]
+    assert [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]  # seated (ISSUES 184)
+    assert edl["warnings"]["clone_adjacency_advisory"] == ["vo_1"]
 
 
 def test_generic_clone_adjacent_vo_drops_when_next_guest_still_abuts_host() -> None:
@@ -175,7 +175,7 @@ def test_edl_keeps_episode_orientation_despite_clone_adjacency(tmp_path: Path) -
     )
     vo = [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
     assert [clip.get("line_id") for clip in vo] == ["vo_preface_opening"]
-    assert "vo_preface_opening" not in edl["warnings"]["suppressed_clone_adjacency"]
+    assert "vo_preface_opening" not in edl["warnings"]["clone_adjacency_advisory"]
 
 
 def test_orientation_clone_adjacency_is_exempt() -> None:
@@ -211,8 +211,8 @@ def test_edl_suppresses_unmarked_clone_adjacent_vo(tmp_path: Path) -> None:
         vo_duration_ms=lambda _path: 1000,
     )
 
-    assert not [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == ["vo_1"]
+    assert [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]  # seated (ISSUES 184)
+    assert edl["warnings"]["clone_adjacency_advisory"] == ["vo_1"]
 
 
 def test_id_matches_clone_requires_both_ids() -> None:
@@ -302,8 +302,8 @@ def test_edl_suppresses_clone_adjacent_auto_minted_transition() -> None:
         },
         verify_pair=lambda _a, _b: None,
     )
-    assert not [c for c in edl["clips"] if c.get("type") == "transition"]
-    assert "transition:seg_023->seg_024" in edl["warnings"]["suppressed_clone_adjacency"]
+    assert [c for c in edl["clips"] if c.get("type") == "transition"]  # seated (ISSUES 184)
+    assert "transition:seg_023->seg_024" in edl["warnings"]["clone_adjacency_advisory"]
 
 
 def test_edl_verify_yes_still_suppresses_clone_adjacent_vo(tmp_path: Path) -> None:
@@ -324,8 +324,8 @@ def test_edl_verify_yes_still_suppresses_clone_adjacent_vo(tmp_path: Path) -> No
         verify_pair=verify_pair,
     )
 
-    assert not [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == ["vo_1"]
+    assert [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]  # seated (ISSUES 184)
+    assert edl["warnings"]["clone_adjacency_advisory"] == ["vo_1"]
     assert calls == [("spk_host", "host_a")]
 
 
@@ -344,7 +344,7 @@ def test_edl_verify_no_keeps_clone_adjacent_vo(tmp_path: Path) -> None:
 
     vo = [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
     assert [clip.get("line_id") for clip in vo] == ["vo_1"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == []
+    assert edl["warnings"]["clone_adjacency_advisory"] == []
     assert edl["warnings"]["clone_adjacency_id_mismatch_kept"] == ["vo_1"]
 
 
@@ -361,8 +361,8 @@ def test_edl_verify_none_still_suppresses(tmp_path: Path) -> None:
         verify_pair=lambda _a, _b: None,
     )
 
-    assert not [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == ["vo_1"]
+    assert [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]  # seated (ISSUES 184)
+    assert edl["warnings"]["clone_adjacency_advisory"] == ["vo_1"]
 
 
 def test_edl_suppresses_unvoiced_transition_after_clone_source() -> None:
@@ -384,12 +384,10 @@ def test_edl_suppresses_unvoiced_transition_after_clone_source() -> None:
         ctx=ctx,
     )
 
-    assert not [c for c in edl["clips"] if c.get("type") == "transition"]
-    assert "transition:host_a->guest" in edl["warnings"]["suppressed_clone_adjacency"]
-    hitch = [c for c in edl["clips"] if c.get("clone_adjacency_hitch")]
-    assert hitch
-    assert hitch[0].get("air_kind") == "chapter_hinge"
-    assert int(hitch[0].get("duration_ms") or 0) > 0
+    assert [c for c in edl["clips"] if c.get("type") == "transition"]  # seated (ISSUES 184)
+    assert "transition:host_a->guest" in edl["warnings"]["clone_adjacency_advisory"]
+    # The transition airs, so no music hitch replaces it (ISSUES 184).
+    assert not [c for c in edl["clips"] if c.get("clone_adjacency_hitch")]
 
 
 def test_edl_chapter_jump_without_transition_gets_hitch() -> None:
@@ -461,7 +459,7 @@ def test_edl_guest_guest_transition_does_not_call_verify() -> None:
 
     assert [c.get("type") for c in edl["clips"] if c.get("type") == "transition"]
     assert calls == []
-    assert edl["warnings"]["suppressed_clone_adjacency"] == []
+    assert edl["warnings"]["clone_adjacency_advisory"] == []
 
 
 def test_edl_verify_no_keeps_id_matching_transition() -> None:
@@ -488,7 +486,7 @@ def test_edl_verify_no_keeps_id_matching_transition() -> None:
     )
 
     assert any(c.get("type") == "transition" for c in edl["clips"])
-    assert edl["warnings"]["suppressed_clone_adjacency"] == []
+    assert edl["warnings"]["clone_adjacency_advisory"] == []
     assert edl["warnings"]["clone_adjacency_id_mismatch_kept"] == [
         "transition:guest->host_b"
     ]
@@ -517,8 +515,8 @@ def test_edl_verify_yes_suppresses_id_matching_transition() -> None:
         verify_pair=lambda _a, _b: "YES",
     )
 
-    assert not [c for c in edl["clips"] if c.get("type") == "transition"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == [
+    assert [c for c in edl["clips"] if c.get("type") == "transition"]  # seated (ISSUES 184)
+    assert edl["warnings"]["clone_adjacency_advisory"] == [
         "transition:guest->host_b"
     ]
 
@@ -563,7 +561,7 @@ def test_edl_verify_caches_shared_segment() -> None:
     )
 
     assert calls == ["host_mid"]
-    assert edl["warnings"]["suppressed_clone_adjacency"] == []
+    assert edl["warnings"]["clone_adjacency_advisory"] == []
     assert set(edl["warnings"]["clone_adjacency_id_mismatch_kept"]) == {
         "transition:guest_a->host_mid",
         "transition:host_mid->guest_b",

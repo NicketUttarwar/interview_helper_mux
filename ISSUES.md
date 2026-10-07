@@ -6509,6 +6509,53 @@ fault); the resume re-verified analysis and continued from the mix.
 
 ---
 
+## [184] PRODUCT: a required VO with a WAV was dropped from the EDL for clone-voice adjacency and the mix refused forever (maintainer's exec_025, ~60 of 72)
+
+**Stage / area:** `stages/assembly.build_flow1_edl`,
+`edl_narrative_qc._validate_clone_voice_adjacency`,
+`listenability_guards` re-seat, `publishability_boundary._check_unseated_required_vo`,
+`heal_routing.PLAYBOOK_REGISTRY`, `recovery_controller`
+**Status:** FIXED
+
+**Seen (maintainer's report):** `PublishabilityBlocked` at pre_mix:
+`omit_collateral_vo_strip / unseated_required_vo` for `vo_question_seg_027`.
+Three mix attempts, `max_mix_cycles`, no `master/assembly.wav`, "Delivery
+incomplete ... resume=mix". The gap report kept the line as a required
+synthesize question, adjudication said air, the WAV existed, and the lay-up's
+earlier clone-adjacency omit had been deactivated by
+`restore_nugget_layup_line`.
+
+**Cause:** the EDL builder asked the clone-adjacency verifier whether the
+cloned host voice would sit next to the same native speaker; the verifier said
+yes and the builder dropped the line (and several transitions), recording it
+only under `edl.warnings.suppressed_clone_adjacency`. Publishability then
+found a required line with no seat and no active omit. The heal route named
+`exempt_rebuild_edl`, an action no code implements, so resuming `edl` reached
+the same suppress every time; recovery had no branch for the class
+(`unhandled_class`) and unattended escalation retried mix. Two paperwork bugs
+in the checker: it read `line_id` from ledger rows keyed by `subject_id`, and
+called `line_is_omitted(line)` instead of `line_is_omitted(ledger, line_id)`
+(a swallowed TypeError), so even an active omit could not compensate.
+
+**Fix (the maintainer's minimal reliability stack):**
+1. EDL: a line the gap report airs, with a WAV, is seated. Clone adjacency is
+   advisory everywhere after planning: the builder records the seam in
+   `edl.warnings.clone_adjacency_advisory` (VO and transitions), EDL narrative
+   QC logs it as a warning instead of a blocking error, and the listenability
+   re-seat path seats at the planned target instead of skipping.
+   Planning-time preferences stay: the lay-up and gap framing may still
+   retarget or typed-skip a line, with an omit-ledger row.
+2. Publishability keeps `unseated_required_vo` as the guardrail; it now reads
+   `subject_id` and calls `line_is_omitted(ledger, line_id)`.
+3. Heal: `omit_collateral_vo_strip` resumes `vo_synthesize` (a missing WAV is
+   now the only way to be unseated) and recovery has an explicit branch for it.
+
+Tests: `tests/test_required_vo_seats_despite_clone_adjacency.py` (7);
+`tests/test_clone_voice_adjacency.py` and `tests/test_edl_narrative_qc.py`
+updated from "suppressed" to "seated + advisory".
+
+---
+
 # Planned: prune the job-API driver (phase 2 of entry 79)
 
 Sized on 2026-09-30 after the engine proofs (exec_062 full-auto, exec_064

@@ -545,7 +545,9 @@ def build_flow1_edl(
     missing_segments: list[str] = []
     omitted_unplayable: list[str] = []
     missing_transitions: list[str] = []
-    suppressed_clone_adjacency: list[str] = []
+    # Seams where a cloned voice abuts the same native speaker. Recorded, never
+    # suppressed: the EDL seats every line the gap report airs (ISSUES 184).
+    clone_adjacency_advisory: list[str] = []
     from interview_mux.clone_adjacency_verify import CloneAdjacencySession
 
     clone_adj = CloneAdjacencySession(ctx=ctx, verify_pair=verify_pair)
@@ -851,6 +853,10 @@ def build_flow1_edl(
                 if after is not None:
                     after.setdefault("segment_id", prev_sid)
                 vo_key = str(line.get("line_id") or sid)
+                # Advisory only (ISSUES 184): the gap report decided this line
+                # airs, so the EDL seats it. Dropping it here left a required
+                # line with no seat and no omit, and publishability refused the
+                # mix on every attempt (Nicket's exec_025, vo_question_seg_027).
                 if clone_adj.decide(
                     kind="vo_pickup",
                     key=vo_key,
@@ -858,8 +864,7 @@ def build_flow1_edl(
                     target=target,
                     after=after if placement == "before" else None,
                 ):
-                    suppressed_clone_adjacency.append(vo_key)
-                    return
+                    clone_adjacency_advisory.append(vo_key)
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
@@ -1206,6 +1211,8 @@ def build_flow1_edl(
                         ).strip()
                     except Exception:
                         clone_voice = ""
+                # Advisory only (ISSUES 184): a planned transition is seated; the
+                # seam is recorded for a later quality pass, never dropped here.
                 if clone_voice and clone_adj.decide(
                     kind="transition",
                     key=f"transition:{sid}->{nxt}",
@@ -1213,9 +1220,7 @@ def build_flow1_edl(
                     after=after_seg,
                     before=before_seg,
                 ):
-                    suppressed_clone_adjacency.append(f"transition:{sid}->{nxt}")
-                    tr = None
-                    suppressed_transition = True
+                    clone_adjacency_advisory.append(f"transition:{sid}->{nxt}")
             if tr:
                 text = str(tr.get("text") or "")
                 from interview_mux.spoken_copy_guard import script_hash
@@ -1336,7 +1341,7 @@ def build_flow1_edl(
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
             "missing_segment_lookups": sorted(set(missing_segments)),
             "missing_transition_audio": sorted(set(missing_transitions)),
-            "suppressed_clone_adjacency": sorted(set(suppressed_clone_adjacency)),
+            "clone_adjacency_advisory": sorted(set(clone_adjacency_advisory)),
             "clone_adjacency_id_mismatch_kept": sorted(
                 set(k for k in clone_adj.kept_despite_id() if k)
             ),

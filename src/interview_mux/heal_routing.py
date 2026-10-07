@@ -64,8 +64,12 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     "opening_orientation_inaudible": PlaybookSpec(
         resume_stage="edl", action="retarget_rebuild_edl"
     ),
+    # The EDL seats every required line that has a WAV (ISSUES 184), so an
+    # unseated required line means its WAV is missing: re-speak it and let the
+    # walk rebuild the EDL. The old "exempt_rebuild_edl" action was a label no
+    # code implemented; resuming edl reached the same suppress every time.
     "omit_collateral_vo_strip": PlaybookSpec(
-        resume_stage="edl", action="exempt_rebuild_edl"
+        resume_stage="vo_synthesize", action="resynthesize_rebuild_edl"
     ),
     "selection_edl_order_drift": PlaybookSpec(
         resume_stage="edl", action="rebuild_edl"

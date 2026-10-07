@@ -354,9 +354,15 @@ def _check_unseated_required_vo(
     compensated: set[str] = set()
     if active_entries is not None and isinstance(ledger, dict):
         try:
+            # Ledger rows key the line as ``subject_id`` (omit_ledger.mint_entry);
+            # reading only ``line_id`` meant no active omit ever compensated
+            # (ISSUES 184).
             for row in active_entries(ledger):
-                if isinstance(row, dict) and row.get("line_id"):
-                    compensated.add(str(row["line_id"]))
+                if not isinstance(row, dict):
+                    continue
+                for key in ("subject_id", "line_id"):
+                    if row.get(key):
+                        compensated.add(str(row[key]))
         except Exception:
             pass
     for line in gap_report.get("interviewer_lines") or []:
@@ -381,7 +387,9 @@ def _check_unseated_required_vo(
             pass
         if line_is_omitted is not None:
             try:
-                if line_is_omitted(line):
+                # Signature is (ledger, line_id); passing the line dict raised a
+                # TypeError that the except swallowed (ISSUES 184).
+                if line_is_omitted(ledger, lid):
                     continue
             except Exception:
                 pass

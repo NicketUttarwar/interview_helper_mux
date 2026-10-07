@@ -1099,7 +1099,21 @@ def validate_flow1_edl_narrative(
     _validate_transitions(transitions, edl, speech, errors)
     _validate_vo_after_legal_hinge(ctx, edl, errors)
     _validate_gap_placements(ctx, edl, speech, errors)
-    _validate_clone_voice_adjacency(ctx, edl, selection, errors)
+    # Advisory only (ISSUES 184): the EDL seats every line the gap report airs,
+    # so a same-voice seam is a quality note, not a reason to refuse the EDL.
+    clone_advisory: list[str] = []
+    _validate_clone_voice_adjacency(ctx, edl, selection, clone_advisory)
+    if clone_advisory:
+        try:
+            ctx.log(
+                f"EDL narrative QC: {len(clone_advisory)} clone-voice adjacency seam(s) "
+                "(advisory): " + "; ".join(clone_advisory[:3]),
+                level="warning",
+                stage="edl_narrative_qc",
+                detail={"clone_adjacency_advisory": clone_advisory[:20]},
+            )
+        except Exception:
+            pass
     _validate_framing_before_impact(ctx, edl, speech, editorial)
     _validate_framing_succinct_exclusions(ctx, selection, speech, editorial)
     _validate_speaker_volley_integrity(ctx, speech, errors)

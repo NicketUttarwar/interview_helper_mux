@@ -837,8 +837,9 @@ def _seat_unused_host_vo(ctx: RunContext, edl: dict[str, Any], *, min_ratio: flo
                 notes.append(f"retarget_host_vo:{line_id}:{target}->{alt}")
                 _insert(line_id, wav_path, target=alt, voice=voice, exempt=False)
                 continue
-            notes.append(f"skip_clone_adjacent:{line_id}->{target}")
-            continue
+            # Advisory only (ISSUES 184): seat at the planned target rather
+            # than leave a required line with no seat.
+            notes.append(f"clone_adjacent_seated:{line_id}->{target}")
         _insert(line_id, wav_path, target=target, voice=voice, exempt=False)
     return notes
 
