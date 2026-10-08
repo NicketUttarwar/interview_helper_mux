@@ -568,7 +568,7 @@
     "enabled": true,
     "cover_image": {
       "provider": "openai",
-      "model": "gpt-image-1",
+      "model": "gpt-image-2",
       "size": "1024x1024",
       "quality": "high",
       "candidate_count": 3,

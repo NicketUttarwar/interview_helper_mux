@@ -18,7 +18,7 @@ Authoritative theme: [`config/podcast/cover_theme.json`](../../config/podcast/co
 
 1. **Flagship chat** — `episode_meta_build` (title/description).
 2. **Flagship chat** — `episode_cover_prompt_craft` draft → finalize (max 2 attempts). Harvest motifs from post-master artifacts; rich prompt anatomy; **objects/symbols only (never person likeness)**; asterisks-only depicted text; without-clauses (no Images `negative_prompt`).
-3. **gpt-image ×3** — same finalized prompt, `quality=high` (Context7 pin: `gpt-image-1`, size `1024x1024`, upscale to **3000px JPEG**). Optional `images.edit` style ref with `input_fidelity=low`.
+3. **gpt-image ×3** — same finalized prompt, `quality=high` (Context7 pin: `gpt-image-2`, size `1024x1024`, upscale to **3000px JPEG**). Optional `images.edit` style ref; `input_fidelity` is omitted (inputs are always high fidelity).
 4. **Flagship vision** — rank three candidates; **brilliance is the primary pick criterion**; hard-disqualify readable letters/words and person likeness. Winner → `publish/cover.jpg`.
 5. At most **one** re-batch of three if all hard-fail; else show-art fail-open (also converted to 3000² JPEG).
 

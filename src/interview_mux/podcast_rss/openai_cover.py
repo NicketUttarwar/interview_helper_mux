@@ -15,14 +15,15 @@ from interview_mux.podcast_rss.settings import show_artwork_source_rel
 
 logger = logging.getLogger(__name__)
 
-# Context7 pin (developers.openai.com Images API):
-# - Generations models: gpt-image-1, gpt-image-1.5, gpt-image-1-mini
+# Context7 pin (developers.openai.com Images API, GPT Image 2):
+# - model: gpt-image-2
 # - quality: low | medium | high | auto — we lock high
 # - size: square 1024x1024 then LANCZOS upscale to min_output_px (Apple max preferred: 3000)
+# - images.edit: omit input_fidelity; image inputs are always high fidelity
 # - output: JPEG for Apple/Spotify feed objects
 DEFAULT_COVER_IMAGE = {
     "provider": "openai",
-    "model": "gpt-image-1",
+    "model": "gpt-image-2",
     "size": "1024x1024",
     "quality": "high",
     "candidate_count": 3,
@@ -128,6 +129,12 @@ def require_cover_min_size(path: Path, *, min_px: int = APPLE_MIN_COVER_PX) -> N
         )
 
 
+def _omits_input_fidelity(model: str) -> bool:
+    """GPT Image 2 always processes image inputs at high fidelity."""
+    mid = model.strip()
+    return mid == "gpt-image-2" or mid.startswith("gpt-image-2-")
+
+
 def _style_ref_path(settings: dict[str, Any]) -> Path | None:
     ref = settings.get("style_reference") if isinstance(settings.get("style_reference"), dict) else {}
     if not ref.get("enabled", True):
@@ -169,11 +176,14 @@ def _generate_one(
                 "Do not copy emblems, lettering, or logos from the reference."
             ),
         }
-        fidelity = str(ref.get("input_fidelity") or "low")
+        # gpt-image-2 always processes image inputs at high fidelity.
+        if not _omits_input_fidelity(model):
+            kwargs["input_fidelity"] = str(ref.get("input_fidelity") or "low")
         try:
-            kwargs["input_fidelity"] = fidelity
             result = client.images.edit(**kwargs)
         except TypeError:
+            if "input_fidelity" not in kwargs:
+                raise
             kwargs.pop("input_fidelity", None)
             result = client.images.edit(**kwargs)
         finally:

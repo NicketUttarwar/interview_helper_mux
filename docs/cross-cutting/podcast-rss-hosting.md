@@ -181,7 +181,7 @@ Each RSS `<item>` includes `<podcast:transcript url="…/transcript.vtt" type="t
 
 See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summary:
 
-- OpenAI `gpt-image-1` ×3 at `quality=high`, upscale to **3000×3000 JPEG**
+- OpenAI `gpt-image-2` ×3 at `quality=high`, upscale to **3000×3000 JPEG**
 - Vision pick for brilliance; show-art fail-open
 - Apple accepts 1400–3000; we target the preferred maximum (3000)
 
@@ -192,7 +192,7 @@ See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summ
 | `episode_meta_build` | flagship chat |
 | `episode_cover_prompt_craft` | flagship chat (draft→finalize) |
 | `episode_cover_vision_pick` | flagship vision (among 3 candidates) |
-| Images API | `podcast.cover_image.model` (pinned `gpt-image-1`) |
+| Images API | `podcast.cover_image.model` (pinned `gpt-image-2`) |
 
 ## Clean surface
 

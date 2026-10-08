@@ -69,7 +69,7 @@ Full matrix: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md).
 | `episode_cover_prompt_craft` | flagship | medium |
 | `episode_cover_vision_pick` | flagship | medium |
 
-Episode covers also call OpenAI **Images** (`podcast.cover_image.model`, pinned `gpt-image-1`, `quality=high`, 3 candidates) — not chat tier routing. See [podcast-cover-theme.md](./podcast-cover-theme.md).
+Episode covers also call OpenAI **Images** (`podcast.cover_image.model`, pinned `gpt-image-2`, `quality=high`, 3 candidates) — not chat tier routing. See [podcast-cover-theme.md](./podcast-cover-theme.md).
 
 
 Sound-design stage details: [sound-design.md](./sound-design.md).

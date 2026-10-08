@@ -262,7 +262,7 @@ def test_harvest_motif_context_from_artifacts():
 def test_openai_cover_settings_pin():
     s = resolve_cover_image_settings()
     assert s["provider"] == "openai"
-    assert s["model"] == "gpt-image-1"
+    assert s["model"] == "gpt-image-2"
     assert s["quality"] == "high"
     assert int(s["candidate_count"]) == 3
     assert int(s["min_output_px"]) == 3000
@@ -324,7 +324,7 @@ def test_generate_cover_candidates_n3_mock(tmp_path: Path):
         return out
 
     settings = {
-        "model": "gpt-image-1",
+        "model": "gpt-image-2",
         "size": "1024x1024",
         "quality": "high",
         "candidate_count": 3,
