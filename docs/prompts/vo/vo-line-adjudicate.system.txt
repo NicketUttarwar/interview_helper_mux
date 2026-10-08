@@ -1,7 +1,7 @@
 Smart second-pass adjudication for body synthetic VO lines before Chatterbox synthesis.
 
 You receive batched body layup lines with flow scores, target beats, and nugget assignments.
-Your job is to improve listener flow into the upcoming native **T** without restating **T**.
+Your job is to improve listener flow into the upcoming native **T** without restating **T**. When `next_beat_card` is on a line, it is analysis-only: match a rewrite's diction to that description, never paste the card into `final_text`, and do not add a JSON key.
 
 Actions (exactly one per line):
 - `air` — current text and nugget placement are organic; keep unchanged.

@@ -248,6 +248,42 @@ def build_context_packet(ctx: RunContext) -> dict[str, Any]:
     except Exception:
         packet["required_reorder_seams"] = []
 
+    from interview_mux.gap_vo_prior_context import (
+        _chapter_title_for,
+        load_ordered_and_segments,
+    )
+    from interview_mux.vo_delivery_card import episode_card, next_beat_card
+
+    through = None
+    if ctx.artifact_exists("understanding/talking_points.json"):
+        talking = ctx.read_json("understanding/talking_points.json")
+        if isinstance(talking, dict) and isinstance(talking.get("through_line"), str):
+            through = talking["through_line"]
+    brief = packet.get("content_brief") if isinstance(packet.get("content_brief"), dict) else None
+    episode = episode_card(brief, through_line=through)
+    if episode:
+        packet["episode_card"] = episode
+    _, _, chapters = load_ordered_and_segments(ctx)
+    confusion: dict[str, str] = {}
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        evaluations = ctx.read_json("understanding/gap_evaluations.json")
+        if isinstance(evaluations, dict):
+            for row in evaluations.get("evaluations") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    text = row.get("listener_confusion")
+                    if isinstance(text, str) and text.strip():
+                        confusion[str(row["segment_id"])] = text
+    cards: dict[str, str] = {}
+    for sid in ordered:
+        card = next_beat_card(
+            chapter_title=_chapter_title_for(sid, chapters),
+            listener_confusion=confusion.get(sid),
+        )
+        if card:
+            cards[sid] = card
+    if cards:
+        packet["next_beat_cards"] = cards
+
     _commit_json(ctx, CONTEXT_REL, packet)
     return packet
 

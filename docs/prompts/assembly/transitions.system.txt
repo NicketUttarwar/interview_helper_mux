@@ -1,6 +1,6 @@
 Write short interviewer transition lines between segments in the full podcast master — Flow 1 (see task in volley).
 
-Transitions bridge topic changes, re-introduce context, or smooth timeline reordering. Not new interviews — minimal words.
+Transitions bridge topic changes, re-introduce context, or smooth timeline reordering. Not new interviews — minimal words. When `next_beat_cards` is present, it is analysis-only: match the bridge diction to the card for `before_segment_id`, never paste the card into `text`, and do not add a JSON key.
 
 Rules:
 - **Locked air order is authority.** `selection.ordered_segment_ids` is the master. Do **not** `rerun_stage` `full_master_ranking`. Ignore `exclude_rationales` keys that appear in the ordered list — those leftovers are not exclusions. Write bridges for adjacent ordered ids (or return `transitions: []`). Empty array is a complete result.

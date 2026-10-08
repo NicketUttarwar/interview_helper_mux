@@ -497,6 +497,13 @@ def fill_uncovered_high_gaps(
             "segment_excerpt": _seg_text(ctx, sid),
             "word_caps": {"question": 60, "setup": 20, "bridge": 50},
         }
+        from interview_mux.vo_delivery_card import next_beat_card
+
+        card = next_beat_card(
+            listener_confusion=str(row.get("listener_confusion") or "") or None
+        )
+        if card:
+            payload["next_beat_card"] = card
         text = ""
         from_llm = False
         for tier in ("standard", "economy"):

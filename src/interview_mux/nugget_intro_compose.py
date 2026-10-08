@@ -98,7 +98,14 @@ def run_nugget_intro_compose(
             else {}
         )
         coverage, aired, eligible = nugget_air_coverage(c, gap_report, corpus=corpus if isinstance(corpus, dict) else None)
-        return {
+        through = None
+        if c.artifact_exists("understanding/talking_points.json"):
+            talking = c.read_json("understanding/talking_points.json")
+            if isinstance(talking, dict) and isinstance(talking.get("through_line"), str):
+                through = talking["through_line"]
+        from interview_mux.vo_delivery_card import episode_card
+
+        packet = {
             "nugget_ids": want,
             "nuggets": nuggets,
             "content_brief": brief,
@@ -107,6 +114,10 @@ def run_nugget_intro_compose(
             "aired_nugget_count": len(aired),
             "word_budget": 90,
         }
+        card = episode_card(brief if isinstance(brief, dict) else None, through_line=through)
+        if card:
+            packet["episode_card"] = card
+        return packet
 
     def persist_intro(c: RunContext, artifacts: dict[str, Any]) -> None:
         from interview_mux.spoken_meta_lint import scrub_spoken_edit_structure

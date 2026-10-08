@@ -880,6 +880,13 @@ def build_layup_compose_input(
         if isinstance(r, dict) and r.get("target_segment_id")
     }
     opening_owned = _opening_owned_targets(ctx)
+    from interview_mux.gap_vo_prior_context import (
+        _chapter_title_for,
+        load_ordered_and_segments,
+    )
+    from interview_mux.vo_delivery_card import next_beat_card
+
+    _, _, chapters = load_ordered_and_segments(ctx)
     gap_need_by_sid: dict[str, str] = {}
     if ctx.artifact_exists("understanding/gap_evaluations.json"):
         try:
@@ -969,6 +976,13 @@ def build_layup_compose_input(
                     else None
                 ),
             }
+            card = next_beat_card(
+                chapter_title=_chapter_title_for(sid, chapters),
+                listener_confusion=gap_need_by_sid.get(sid),
+                handoff_need=handoff,
+            )
+            if card:
+                native_row["next_beat_card"] = card
             # Avoid triplicating the same string when the clip is clear.
             if degraded or text != comp:
                 native_row["high_conf_text"] = comp

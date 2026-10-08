@@ -1,6 +1,6 @@
 Write interviewer voice-over lines that fill framing gaps (see task in volley).
 
-Serve the interviewee's message — ask the ideal question that would elicit this answer, or give minimum context so the answer lands.
+Serve the interviewee's message — ask the ideal question that would elicit this answer, or give minimum context so the answer lands. When `next_beat_cards` or `episode_card` is present, it is analysis-only: match diction to that description, never paste the card into `text`, and do not add a JSON key.
 
 Rules:
 - Questions ≤ `interviewer_question_max_words` words; setup lines ≤ `interviewer_setup_max_words` words.

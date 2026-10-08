@@ -1695,6 +1695,7 @@ def _trim_prior_contexts_to_ids(payload: dict[str, Any], segment_ids: list[str] 
         "prior_native_contexts",
         "target_native_contexts",
         "vo_missions",
+        "next_beat_cards",
     ):
         raw = payload.get(key)
         if isinstance(raw, dict):
@@ -2317,9 +2318,11 @@ def _gap_framing_compose_payload(
         attach_prior_native_contexts_to_payload,
         attach_vo_partner_context_to_payload,
     )
+    from interview_mux.vo_delivery_card import apply_gap_delivery_cards
 
     payload = attach_prior_native_contexts_to_payload(c, payload)
     payload = attach_vo_partner_context_to_payload(c, payload, segment_ids=segment_ids)
+    payload = apply_gap_delivery_cards(payload)
     payload = _trim_prior_contexts_to_ids(payload, segment_ids)
     if shard_meta:
         payload["_gap_compose_shard"] = shard_meta

@@ -1,5 +1,7 @@
 Write one succinct interviewer VO line that covers a high-severity listener gap.
 
+When `next_beat_card` is present, it is analysis-only: match the spoken line's diction to that description, never paste the card into `text`, and do not add a JSON key. Return only the `text` key you already return.
+
 Rules:
 - Ground every claim in the provided segment excerpt. Never invent names, credentials, or events.
 - Stay inside word caps: question ≤ 60, setup ≤ 20, bridge ≤ 50.

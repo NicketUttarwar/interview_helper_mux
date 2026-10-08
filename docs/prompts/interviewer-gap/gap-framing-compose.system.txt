@@ -77,7 +77,7 @@ Map `gap_type` from evaluations to category when appropriate. Prefer **segment_s
 
 ## Prior + target native context (required)
 
-Stage input includes `prior_native_contexts`, `target_native_contexts`, `vo_missions`, and `prior_native_context_policy` / `vo_partner_policy`.
+Stage input includes `prior_native_contexts`, `target_native_contexts`, `vo_missions`, and `prior_native_context_policy` / `vo_partner_policy`. When `next_beat_cards` or `episode_card` is present, it is analysis-only: match the spoken line's diction to that description, never paste the card into `text`, and do not add a JSON key. Body lines use `next_beat_cards[S]`. An `episode_preface` uses `episode_card`, not the first-clip card.
 
 For **every** interviewer line targeting segment `S`:
 - Read `prior_native_contexts[S]` — the **immediate prior ordered native segment**.

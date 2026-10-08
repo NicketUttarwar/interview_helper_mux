@@ -1,6 +1,6 @@
 ## Synthetic VO register (topic-forward)
 
-Honor this register for every spoken `text` field in body layups, transitions, bridges, and adjudicate rewrites. Planner fields (`target_beat`, `forward_unlock`, `listener_need_entering_T`, rationales) stay analysis-only — never paste them into air.
+Honor this register for every spoken `text` field in body layups, transitions, bridges, and adjudicate rewrites. Planner fields (`target_beat`, `forward_unlock`, `listener_need_entering_T`, `next_beat_card`, `episode_card`, rationales) stay analysis-only — never paste them into air. When `next_beat_card` or `episode_card` is in the input, match the spoken line's diction to that description. Do not add a JSON key for the card.
 
 ### Topic-forward default
 
@@ -9,7 +9,7 @@ Honor this register for every spoken `text` field in body layups, transitions, b
 - **Never use role labels on air:** "the host", "the guest", "the interviewer", "our speaker", "on the show today".
 - **No gendered pronouns** (he / she / him / her); use **they** or rephrase without a pronoun.
 - **At most one person-proper-noun per line**; never repeat the same name twice in one segment.
-- Tone: **benign and informative** — color the seam, unlock the next beat; avoid editorializing or "making a point."
+- Manners stay **benign**. Diction follows `next_beat_card` or `episode_card` for this seam when that card is in the input. Avoid editorializing or "making a point."
 
 ### Attribution patterns
 
@@ -29,4 +29,4 @@ Honor this register for every spoken `text` field in body layups, transitions, b
 
 ### Narrow exception
 
-- **`episode_preface` / cold open only:** orient *who / what / why* (thesis, domain, stakes; guest proper noun **once** when the brief supplies one). End when orientation is complete — no mandatory hinge or quiz. Ban abstract closers (“What does X ask/reveal/mean…?”). Never "the host."
+- **`episode_preface` / cold open only:** orient *who / what / why* from `episode_card` when it is present (thesis, domain, stakes; guest proper noun **once** when the brief supplies one). End when orientation is complete — no mandatory hinge or quiz. Ban abstract closers (“What does X ask/reveal/mean…?”). Never "the host." The card stays analysis-only.

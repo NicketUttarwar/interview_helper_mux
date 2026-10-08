@@ -855,6 +855,36 @@ def run_transitions(ctx: RunContext) -> None:
             pass
         from interview_mux.source_topology import attach_adaptation_to_payload
         from interview_mux.delivery_brief import attach_delivery_brief_to_payload
+        from interview_mux.gap_vo_prior_context import (
+            _chapter_title_for,
+            load_ordered_and_segments,
+        )
+        from interview_mux.vo_delivery_card import next_beat_card
+
+        ordered: list[str] = []
+        selection = payload.get("selection")
+        if isinstance(selection, dict):
+            ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
+        _, _, chapters = load_ordered_and_segments(c)
+        confusion: dict[str, str] = {}
+        if c.artifact_exists("understanding/gap_evaluations.json"):
+            evaluations = c.read_json("understanding/gap_evaluations.json")
+            if isinstance(evaluations, dict):
+                for row in evaluations.get("evaluations") or []:
+                    if isinstance(row, dict) and row.get("segment_id"):
+                        text = row.get("listener_confusion")
+                        if isinstance(text, str) and text.strip():
+                            confusion[str(row["segment_id"])] = text
+        cards: dict[str, str] = {}
+        for sid in ordered:
+            card = next_beat_card(
+                chapter_title=_chapter_title_for(sid, chapters),
+                listener_confusion=confusion.get(sid),
+            )
+            if card:
+                cards[sid] = card
+        if cards:
+            payload["next_beat_cards"] = cards
 
         return attach_disfluency_context(
             attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload)),

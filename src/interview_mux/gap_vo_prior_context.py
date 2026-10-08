@@ -2560,7 +2560,9 @@ def build_prior_context_volley_turns(stage_input: dict[str, Any]) -> list[dict[s
         "Understood. I will condition every interviewer line on prior_native_contexts for its "
         "targets_segment_id. After prior_impact_beat or a complete strong close I will use courteous "
         "acknowledge / soft-bridge / follow-from-what-was-said wording only, never interruptive openers, "
-        "and I will not aim framing questions at micro backchannels like 'Okay.'"
+        "and I will not aim framing questions at micro backchannels like 'Okay.' "
+        "I will match diction to next_beat_cards and episode_card in the next user message, "
+        "and I will not add a JSON key."
     )
     user2 = (
         "Now write the gap framing interviewer_lines (and optional gap_framing_plan) for the full "

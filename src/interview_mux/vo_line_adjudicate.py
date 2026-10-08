@@ -591,6 +591,8 @@ def run_adjudicate_batches(
     batch_state: dict[str, list[str]] = {"ids": []}
 
     def build_input(c: RunContext) -> dict[str, Any]:
+        from interview_mux.vo_delivery_card import next_beat_card
+
         batch = batch_state["ids"]
         lines_packet: list[dict[str, Any]] = []
         for lid in batch:
@@ -599,24 +601,31 @@ def run_adjudicate_batches(
                 continue
             layup_row = _layup_row_for_line(plan, lid) or {}
             target_id = str(line.get("targets_segment_id") or "")
-            lines_packet.append(
-                {
-                    "line_id": lid,
-                    "text": line.get("text"),
-                    "targets_segment_id": target_id,
-                    "nugget_ids": line.get("nugget_ids") or [],
-                    "forward_unlock": layup_row.get("forward_unlock"),
-                    "target_beat": layup_row.get("target_beat"),
-                    "listener_need_entering_T": layup_row.get("listener_need_entering_T"),
-                    "flow_score": score_layup_flow_fit(
-                        line,
-                        _target_text(c, target_id),
-                        masks,
-                        layup_row=layup_row,
-                    ),
-                    "input_hash": line_adjudication_input_hash(line, layup_row),
-                }
+            need = layup_row.get("listener_need_entering_T")
+            beat = layup_row.get("target_beat")
+            card = next_beat_card(
+                listener_confusion=need if isinstance(need, str) else None,
+                handoff_need=beat if isinstance(beat, str) else None,
             )
+            row = {
+                "line_id": lid,
+                "text": line.get("text"),
+                "targets_segment_id": target_id,
+                "nugget_ids": line.get("nugget_ids") or [],
+                "forward_unlock": layup_row.get("forward_unlock"),
+                "target_beat": layup_row.get("target_beat"),
+                "listener_need_entering_T": layup_row.get("listener_need_entering_T"),
+                "flow_score": score_layup_flow_fit(
+                    line,
+                    _target_text(c, target_id),
+                    masks,
+                    layup_row=layup_row,
+                ),
+                "input_hash": line_adjudication_input_hash(line, layup_row),
+            }
+            if card:
+                row["next_beat_card"] = card
+            lines_packet.append(row)
         content_brief = (
             c.read_json("understanding/content_brief.json")
             if c.artifact_exists("understanding/content_brief.json")

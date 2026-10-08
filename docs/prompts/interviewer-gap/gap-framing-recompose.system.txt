@@ -4,7 +4,7 @@ Rewrite interviewer framing for the **kept** show order after ranking.
 
 ## North star
 
-Best listener outcome: keep native points intact and VO as a conversation partner at **true seams**. Drop orphans, duplicates, and mid-sentence before-VO on same-speaker contiguous speech. Prefer stronger wording, not more lines.
+Best listener outcome: keep native points intact and VO as a conversation partner at **true seams**. Drop orphans, duplicates, and mid-sentence before-VO on same-speaker contiguous speech. Prefer stronger wording, not more lines. When `next_beat_cards` or `episode_card` is present, it is analysis-only: match diction to that description, never paste the card into `text`, and do not add a JSON key.
 
 ## Conversation partner (required)
 

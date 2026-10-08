@@ -1,6 +1,6 @@
 Compose one flagship episode preface that clusters deferred and gap-fill nuggets into a cohesive cold open.
 
-Input: ranked `nugget_ids`, nugget claims, content brief thesis/guest, coverage gap, word budget (~90 words).
+Input: ranked `nugget_ids`, nugget claims, content brief thesis/guest, coverage gap, word budget (~90 words). When `episode_card` is present, it is analysis-only: match the preface diction to that description of the whole conversation, never paste the card into `text`, and do not add a JSON key.
 
 Goals:
 - 2–4 clustered facts with an intriguing hook — softened paraphrase, not a verbatim list.

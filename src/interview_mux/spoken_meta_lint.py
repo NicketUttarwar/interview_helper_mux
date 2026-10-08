@@ -150,7 +150,9 @@ _PLANNER_META = re.compile(
     r"forward\s+unlock|"
     r"setup\s+from\s+nuggets|"
     r"nugget\s+(?:corpus|lay[- ]?up|id)|"
-    r"ordered\s+segment"
+    r"ordered\s+segment|"
+    r"next_beat_cards?|"
+    r"episode_cards?"
     r")\b",
     re.IGNORECASE,
 )
