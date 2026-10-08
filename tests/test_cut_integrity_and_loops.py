@@ -372,10 +372,10 @@ def test_hanging_setup_that_is_the_time_is_illegal() -> None:
 def test_conceptual_hinge_without_period_is_legal() -> None:
     from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
 
-    # Run-on: idea 1 closes, then a new idea opens. No period is required.
+    # Run-on: idea 1 closes mid-chain, then a new idea opens with "so".
     text = "we put everything back into the company"
     toks = (
-        "we put everything back into the company Next we raised a new round"
+        "we put everything back into the company so then we raised a new round"
     ).split()
     words = []
     t = 0
@@ -456,9 +456,9 @@ def test_overlong_keeper_uses_ideal_window_air_bounds() -> None:
         segment_id="seg_long",
         max_keep_ms=40_000,
     )
-    # The ideal window is the seed. The concept may open up to 30s earlier.
-    assert start >= 12_000 - 30_000
-    assert end <= 40_000 + 30_000
+    assert start >= 12_000
+    assert end <= 40_000
+    assert end - start <= 40_000
     assert end - start >= 2_500
 
     edl = build_flow1_edl(
@@ -478,8 +478,8 @@ def test_overlong_keeper_uses_ideal_window_air_bounds() -> None:
     )
     speech = [c for c in edl["clips"] if c.get("type") == "speech"]
     assert len(speech) == 1
-    assert int(speech[0]["source_start_ms"]) >= 12_000 - 30_000
-    assert int(speech[0]["source_end_ms"]) <= 40_000 + 30_000
+    assert int(speech[0]["source_start_ms"]) >= 12_000
+    assert int(speech[0]["source_end_ms"]) <= 40_000
     assert int(speech[0]["duration_ms"]) == (
         int(speech[0]["source_end_ms"]) - int(speech[0]["source_start_ms"])
     )

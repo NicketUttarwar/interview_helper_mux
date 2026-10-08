@@ -58,7 +58,7 @@ def _end_text_for_clip(
             for w in words
             if isinstance(w, dict)
             and int(w.get("end_ms") or 0) <= end_ms_i + 20
-            and int(w.get("end_ms") or 0) >= end_ms_i - 30_000
+            and int(w.get("end_ms") or 0) >= end_ms_i - 12_000
         ]
         text = " ".join(t for t in toks[-24:] if t)
     if not text and sid and isinstance(segments.get(sid), dict):
@@ -67,13 +67,13 @@ def _end_text_for_clip(
 
 
 def qc_text_before(words: list[dict[str, Any]], end_ms: int) -> str:
-    """The closing text QC judges at ``end_ms`` (last 24 words in 30 s)."""
+    """The closing text QC judges at ``end_ms`` (last 24 words in 12 s)."""
     toks = [
         str(w.get("text") or "").strip()
         for w in words
         if isinstance(w, dict)
         and int(w.get("end_ms") or 0) <= end_ms + 20
-        and int(w.get("end_ms") or 0) >= end_ms - 30_000
+        and int(w.get("end_ms") or 0) >= end_ms - 12_000
     ]
     return " ".join(t for t in toks[-24:] if t)
 
@@ -100,7 +100,7 @@ def first_qc_hinge_between(
 
 
 # How far a hanging close may look for a complete thought, either direction.
-HINGE_SEARCH_MS = 30_000
+HINGE_SEARCH_MS = 12_000
 
 
 def _validate_vo_after_legal_hinge(

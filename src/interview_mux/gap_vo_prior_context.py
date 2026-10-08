@@ -323,8 +323,6 @@ _SUBORDINATE_CLAUSE_OPEN_RE = re.compile(
 
 # Same-clause continuation / flip-detection ceiling. Do not retarget spine PAUSE_SPLIT_MS.
 CLAUSE_CONTINUE_MAX_GAP_MS = 4000
-# How far a cut may look, forward or back, to finish the sentence it landed in.
-CONCEPT_EDGE_MS = 30_000
 CROSS_SPEAKER_COMPLETION_GAP_MS = CLAUSE_CONTINUE_MAX_GAP_MS
 # STT often abuts the next word at exactly end_ms (clinical|trials). Inclusive
 # lookahead must still see that token; a few ms of overlap is the same event.
@@ -435,9 +433,10 @@ def ends_hanging_setup(text: str) -> bool:
     if stripped.endswith("...") or stripped.endswith("…"):
         return True
     # STT often puts a period on a fragment ("if I could do through cell biopsy.").
-    # A period is not evidence the sentence finished.
     if last_clause_is_subordinate_fragment(stripped):
         return True
+    if stripped[-1] in ".!?":
+        return False
     # Trailing comma without terminal close is an unfinished clause.
     if stripped.endswith(","):
         return True
@@ -461,8 +460,8 @@ def ends_unfinished_nominal(text: str) -> bool:
     Catches *a very novel* / *a novel*. Does not mark bare evaluative closes
     (*that's novel*, *really powerful*).
     """
-    stripped = re.sub(r"[.!?…]+$", "", (text or "").strip()).strip()
-    if not stripped:
+    stripped = (text or "").strip()
+    if not stripped or stripped[-1:] in ".!?":
         return False
     toks = [t.lower() for t in re.findall(r"[A-Za-z0-9']+", stripped)]
     if len(toks) < 2:
@@ -509,391 +508,7 @@ _APPOSITIVE_COMPLEMENT_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 # Tight gap for high-confidence appositive completion (exec_019 ~1s breath).
-# Kept as a ranking hint. It does not forbid a text continuation.
 SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS = 1500
-
-_REPORTING_VERBS = frozenset(
-    {
-        "say",
-        "said",
-        "says",
-        "saying",
-        "tell",
-        "told",
-        "ask",
-        "asked",
-        "thought",
-        "mean",
-        "meant",
-    }
-)
-_COMPLEMENT_OPENERS = frozenset(
-    {"what", "that", "how", "why", "when", "where", "who", "to"}
-)
-_QUESTION_OPENERS = frozenset({"what", "how", "why", "when", "where", "who"})
-_CLAUSE_OPENERS = _QUESTION_OPENERS | {
-    "i",
-    "you",
-    "we",
-    "they",
-    "he",
-    "she",
-    "it",
-    "well",
-    "okay",
-    "ok",
-    "next",
-    "then",
-    "anyway",
-    "however",
-    "meanwhile",
-}
-_CONCEPT_ELABORATION_RE = re.compile(
-    r"^(?:also|plus|another|like|meaning|including|similarly|likewise|"
-    r"which means|that means|for example|for instance|along with|in other words|"
-    r"we also|the same)\b",
-    re.IGNORECASE,
-)
-_CONNECTORS = frozenset({"and", "or", "but", "which", "who", "so"})
-
-
-def _bare_tokens(text: str) -> list[str]:
-    """Letters and numbers only. Punctuation and case are not cut evidence."""
-    return [t.lower() for t in re.findall(r"[A-Za-z0-9']+", text or "")]
-
-
-def _first_bare(text: str) -> str:
-    toks = _bare_tokens(text)
-    return toks[0] if toks else ""
-
-
-def reporting_complement_pending(prev_text: str, later_head: str | None) -> bool:
-    """True when a reporting verb is still waiting on what was said."""
-    if _last_token(prev_text) not in _REPORTING_VERBS:
-        return False
-    if later_head is None:
-        return True
-    return _first_bare(later_head) in _COMPLEMENT_OPENERS
-
-
-_FINITE_VERB_TOKENS = frozenset(
-    {
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "am",
-        "has",
-        "have",
-        "had",
-        "do",
-        "does",
-        "did",
-        "start",
-        "starts",
-        "started",
-        "go",
-        "goes",
-        "went",
-        "going",
-        "say",
-        "says",
-        "said",
-        "make",
-        "makes",
-        "made",
-        "come",
-        "comes",
-        "came",
-        "get",
-        "gets",
-        "got",
-        "look",
-        "looks",
-        "looked",
-        "seem",
-        "seems",
-        "seemed",
-        "happen",
-        "happens",
-        "happened",
-        "mean",
-        "means",
-        "meant",
-    }
-)
-
-
-def _later_has_finite_verb(text: str) -> bool:
-    return any(tok in _FINITE_VERB_TOKENS for tok in _bare_tokens(text)[:8])
-
-
-_ASK_PREFIXES = (
-    "tell me",
-    "tell us",
-    "can you",
-    "could you",
-    "would you",
-    "do you",
-    "did you",
-    "will you",
-    "lets",
-    "let's",
-    "walk me",
-    "walk us",
-    "talk me",
-    "talk us",
-    "help me",
-    "help us",
-    "show me",
-    "show us",
-    "explain",
-)
-
-
-def _opens_as_ask(later_head: str) -> bool:
-    """A new question, including ones that do not start with what/how/why."""
-    if _opens_new_question(later_head):
-        return True
-    bare = " ".join(_bare_tokens(later_head)[:4])
-    return any(bare.startswith(prefix) for prefix in _ASK_PREFIXES)
-
-
-def _opens_new_question(later_head: str) -> bool:
-    toks = _bare_tokens(later_head)
-    if not toks:
-        return False
-    if toks[0] in _QUESTION_OPENERS:
-        return True
-    return len(toks) >= 2 and toks[0] in {"and", "so", "but"} and toks[1] in _QUESTION_OPENERS
-
-
-def _ends_as_question(prev_text: str) -> bool:
-    toks = _bare_tokens(prev_text)
-    if len(toks) < 2:
-        return False
-    window = toks[-8:]
-    return window[0] in _QUESTION_OPENERS or (
-        len(window) >= 2 and window[0] in {"and", "so", "but"} and window[1] in _QUESTION_OPENERS
-    )
-
-
-def _parallel_concept_frame(prev_text: str, later_head: str) -> bool:
-    """Same opening frame ('we have' / 'we have') keeps one explanation together."""
-    prev = _bare_tokens(prev_text)
-    later = _bare_tokens(later_head)
-    if len(prev) < 2 or len(later) < 2:
-        return False
-    tail = prev[-8:]
-    for i in range(len(tail) - 1):
-        if tail[i] == later[0] and tail[i + 1] == later[1]:
-            return True
-    return False
-
-
-def sentence_still_flowing(prev_text: str, later_head: str | None = None) -> bool:
-    """True when the sentence is still being formed. Punctuation is ignored."""
-    raw = (prev_text or "").strip()
-    if not raw:
-        return False
-    if raw.endswith("...") or raw.endswith("…"):
-        return True
-    if (
-        later_head
-        and _opens_as_ask(later_head)
-        and not reporting_complement_pending(raw, later_head)
-    ):
-        return False
-    if raw.rstrip().endswith(","):
-        # A comma is not a cut. An acknowledgment after it is also not this sentence.
-        if not (
-            later_head
-            and _first_bare(later_head) in {"okay", "ok", "well", "yeah", "right"}
-        ):
-            return True
-    if last_clause_is_subordinate_fragment(raw):
-        # A finished "if we shipped the release" can end when the next beat
-        # opens on its own. A fragment followed by "okay" still hangs.
-        first = _first_bare(later_head or "")
-        if first in {"then", "well", "next", "anyway", "however", "meanwhile"} and not is_backchannel_only_text(
-            later_head or ""
-        ):
-            return False
-        return True
-    ack_after = bool(
-        later_head and _first_bare(later_head) in {"okay", "ok", "well", "yeah", "right"}
-    )
-    if (ends_hanging_setup(raw) or ends_unfinished_nominal(raw)) and not (
-        raw.rstrip().endswith(",") and ack_after
-    ):
-        return True
-    if reporting_complement_pending(raw, later_head):
-        return True
-    bare = _bare_tokens(raw)
-    if later_head and len(bare) < 4 and later_opens_nominal_complement(later_head):
-        if (
-            _first_bare(later_head) not in _NEW_UNIT_OPENERS
-            and _first_bare(later_head) not in _CLAUSE_OPENERS
-            and not _opens_new_question(later_head)
-        ):
-            return True
-    # "the talking | point" is still one noun phrase.
-    if (
-        later_head
-        and len(bare) >= 2
-        and bare[-2] in _DETERMINERS
-        and _first_bare(later_head) not in _CLAUSE_OPENERS
-        and not _opens_new_question(later_head)
-    ):
-        return True
-    if _last_token(raw) in _INCOMPLETE_TAIL_TOKENS:
-        if later_head and _first_bare(later_head) in {"okay", "ok", "well", "yeah", "right"}:
-            return False
-        return True
-    # "diagnosis guide personalized treatments" has no new clause. A later line
-    # with its own verb ("Brand new topic starts") can be a new concept.
-    if (
-        later_head
-        and _first_bare(later_head)
-        and _first_bare(later_head) not in _CLAUSE_OPENERS
-        and not _opens_new_question(later_head)
-        and not _later_has_finite_verb(later_head)
-    ):
-        return True
-    return False
-
-
-def _connector_opens_new_thought(prev_text: str, rest: str) -> bool:
-    """True when words after and/so/but are their own complete thought.
-
-    Continuing with "and we…" stays one explanation. "and then…", "and next…",
-    or a real question after the connector can open a new segment.
-    """
-    if not rest or sentence_still_flowing(prev_text, rest):
-        return False
-    if _CONCEPT_ELABORATION_RE.match(rest) or _parallel_concept_frame(prev_text, rest):
-        return False
-    first = _first_bare(rest)
-    if first in {"then", "well", "next", "anyway", "however", "meanwhile"}:
-        return _later_has_finite_verb(rest) and concept_cut_allowed(prev_text, rest)
-    if _opens_as_ask(rest) and not reporting_complement_pending(prev_text, rest):
-        return True
-    return False
-
-
-def same_concept_continues(prev_text: str, later_head: str) -> bool:
-    """True when later words keep explaining the same concept.
-
-    A finished sentence is not a segment cut while the explanation continues.
-    """
-    prev = (prev_text or "").strip()
-    later = (later_head or "").strip()
-    if not prev or not later:
-        return False
-    if sentence_still_flowing(prev, later):
-        return True
-    if _CONCEPT_ELABORATION_RE.match(later):
-        return True
-    if _parallel_concept_frame(prev, later):
-        return True
-    if _ends_as_question(prev) and not _opens_new_question(later):
-        return True
-    if _opens_as_ask(later) and not reporting_complement_pending(prev, later):
-        return False
-    # "well / okay / next / then" open a different beat.
-    if _first_bare(later) in {"well", "okay", "ok", "next", "anyway", "however", "meanwhile", "then"}:
-        return False
-    # "and / so" usually keep explaining. They open a segment only when the
-    # words after them are a new complete thought.
-    if _first_bare(later) in _CONNECTORS:
-        rest = " ".join(_bare_tokens(later)[1:])
-        if _connector_opens_new_thought(prev, rest):
-            return False
-        return True
-    return False
-
-
-def concept_continues_across(words: list[dict[str, Any]], boundary_ms: int) -> bool:
-    """True when the words on either side of ``boundary_ms`` are one concept."""
-    if not words:
-        return False
-    prev = _text_ending_at(words, max(0, int(boundary_ms)))
-    ahead = words_after_end(words, max(0, int(boundary_ms) - 1))
-    later = " ".join(_word_token(w) for w in ahead[:16]) if ahead else ""
-    if not later:
-        return False
-    return same_concept_continues(prev, later) or not concept_cut_allowed(prev, later)
-
-
-def concept_cut_allowed(prev_text: str, later_head: str | None) -> bool:
-    """True when the sentence is finished and the next text is a new concept.
-
-    Gap size and speaker id are not inputs.
-    """
-    prev = (prev_text or "").strip()
-    if not prev or sentence_still_flowing(prev, later_head):
-        return False
-    if later_head and same_concept_continues(prev, later_head):
-        return False
-    bare = _bare_tokens(prev)
-    if len(bare) < 2 and not (
-        later_head and _first_bare(later_head) in _CLAUSE_OPENERS
-    ):
-        return False
-    if _last_token(prev) in _REPORTING_VERBS:
-        return False
-    if _last_token(prev) in _INCOMPLETE_TAIL_TOKENS and not (
-        later_head and _first_bare(later_head) in {"okay", "ok", "well", "yeah", "right"}
-    ):
-        return False
-    return True
-
-
-def word_density_per_sec(
-    words: list[dict[str, Any]],
-    around_ms: int,
-    *,
-    window_ms: int = 3000,
-) -> float:
-    """Words per second in a window around ``around_ms``. A ranking hint only."""
-    if not words or window_ms <= 0:
-        return 0.0
-    lo = int(around_ms) - int(window_ms)
-    hi = int(around_ms) + int(window_ms)
-    n = 0
-    for w in words:
-        if not isinstance(w, dict) or not _word_token(w):
-            continue
-        try:
-            start = int(w.get("start_ms") or 0)
-        except (TypeError, ValueError):
-            continue
-        if lo <= start <= hi:
-            n += 1
-    return n / (2 * int(window_ms) / 1000.0)
-
-
-def concept_boundary_rank(
-    *,
-    gap_ms: int | None,
-    density_before: float,
-    density_after: float,
-) -> float:
-    """Higher means a better cut among boundaries the text already allows.
-
-    A pause and a drop in word rate only rank. They cannot create or forbid a cut.
-    """
-    try:
-        gap = max(0, int(gap_ms or 0))
-    except (TypeError, ValueError):
-        gap = 0
-    gap_hint = min(1.0, gap / 2000.0)
-    drop = 0.0
-    if density_before > 0:
-        drop = max(0.0, min(1.0, (density_before - density_after) / density_before))
-    return round(0.5 * gap_hint + 0.5 * drop, 3)
 
 
 def _later_opens_appositive_complement(later_head: str) -> bool:
@@ -954,28 +569,40 @@ def source_adjacent_completes(
         gap = max(0, int(gap_ms))
     except (TypeError, ValueError):
         return False
+    if gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS:
+        return False
     prev = (prev_text or "").strip()
     later = (later_head or "").strip()
     if not prev or not later:
         return False
-    # Speaker id, capitals, and a measured pause do not decide this.
-    if sentence_still_flowing(prev, later):
-        return True
-    if _opens_new_question(later):
+    if _prior_strong_new_unit_close(prev):
+        # Finished sentence + capitalized new sentence after even a short pause → no.
+        if gap >= DEFAULT_PAUSE_SPLIT_MS and _later_looks_capitalized_new_sentence(later):
+            return False
+        if gap >= DEFAULT_PAUSE_SPLIT_MS:
+            return False
+    if not same_speaker and gap > CROSS_SPEAKER_COMPLETION_GAP_MS:
         return False
-    if gap > CLAUSE_CONTINUE_MAX_GAP_MS:
+    # Cross-speaker appositive still needs the tight appositive gap, not the
+    # wider clause-continue ceiling.
+    if not same_speaker and gap > SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS:
         return False
 
     if _later_opens_appositive_complement(later):
-        return True
-
-    # "and / so" keep one explanation going unless the words after them are a
-    # new complete thought. "because / of / to" do not glue a finished sentence.
-    if _first_bare(later) in _CONNECTORS:
-        rest = " ".join(_bare_tokens(later)[1:])
-        if _connector_opens_new_thought(prev, rest):
+        # "That's my provision." / long pause / "Called him…" rejected above.
+        # Soft hang or no terminal punct → appositive completes the NP.
+        if _prior_strong_new_unit_close(prev) and _later_looks_capitalized_new_sentence(
+            later
+        ):
             return False
         return True
+
+    # Classic continuers (and/but/which/…) — tight gap, no strong close.
+    if opens_with_clause_continuer(later):
+        if ends_hanging_setup(prev) or ends_unfinished_nominal(prev):
+            return True
+        if prev[-1:] not in ".!?" and gap < DEFAULT_PAUSE_SPLIT_MS:
+            return True
 
     # later_opens_nominal_complement is broad (any content noun open). Only
     # trust it when the prior is already an unfinished NP / hanging setup.
@@ -1004,10 +631,14 @@ def source_adjacent_completes_at(
         return False
     first_start = int(ahead[0].get("start_ms") or 0)
     gap = max(0, first_start - int(end_ms))
-    del max_gap_ms
+    if gap > int(max_gap_ms):
+        return False
     prev = _text_ending_at(words, end_ms)
     later = " ".join(_word_token(w) for w in ahead[:12])
-    return source_adjacent_completes(prev, later, gap, same_speaker=True)
+    prev_spk = speaker_at_ms(words, end_ms)
+    later_spk = str(ahead[0].get("speaker_id") or ahead[0].get("speaker") or "").strip()
+    same = (not prev_spk or not later_spk) or prev_spk == later_spk
+    return source_adjacent_completes(prev, later, gap, same_speaker=same)
 
 
 def ends_complete_thought(
@@ -1018,30 +649,36 @@ def ends_complete_thought(
     later_head: str | None = None,
     same_speaker: bool = True,
 ) -> bool:
-    """True when the bare words can stand as a finished sentence.
+    """True when text ends on terminal punctuation, or on a non-hanging word
+    followed by a pause long enough to read as a finished thought.
 
-    A period, a capital letter, and a pause are not evidence. A reporting verb
-    with its complement still coming is not finished. ``pause_split_ms`` and
-    ``same_speaker`` are accepted for callers and do not decide.
+    Word choice alone (e.g. any noun/verb close) is no longer sufficient —
+    without terminal punctuation we require actual pause evidence
+    (``next_pause_ms >= pause_split_ms``) so mid-sentence commas/breaths
+    aren't mistaken for a complete thought. Hanging multi-word setups are
+    never complete even with a long pause.
+
+    When ``later_head`` is supplied, source-adjacent completion (e.g.
+    ``provision`` → ``called LDT``) overrides pause-based completeness.
     """
-    del pause_split_ms, same_speaker
     stripped = (text or "").strip()
     if not stripped:
         return False
+    # Ellipsis is never a complete thought, even if listed among unicode dots.
     if stripped.endswith("...") or stripped.endswith("…"):
         return False
-    if sentence_still_flowing(stripped, later_head):
+    if ends_hanging_setup(stripped):
         return False
-    if later_head and same_concept_continues(stripped, later_head):
+    if later_head is not None and source_adjacent_completes(
+        stripped,
+        later_head,
+        int(next_pause_ms if next_pause_ms is not None else 0),
+        same_speaker=same_speaker,
+    ):
         return False
-    bare = _bare_tokens(stripped)
-    if len(bare) < 2:
-        return False
-    if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
-        return False
-    if _last_token(stripped) in _REPORTING_VERBS:
-        return False
-    return True
+    if stripped[-1] in ".!?":
+        return True
+    return next_pause_ms is not None and next_pause_ms >= pause_split_ms
 
 
 # Backward-compatible private alias
@@ -1092,7 +729,7 @@ def _text_ending_at(words: list[dict[str, Any]], end_ms: int) -> str:
         for w in words
         if isinstance(w, dict)
         and int(w.get("end_ms") or 0) <= end_ms + WORD_ABUT_TOL_MS
-        and int(w.get("end_ms") or 0) >= end_ms - CONCEPT_EDGE_MS
+        and int(w.get("end_ms") or 0) >= end_ms - 12_000
         and _word_token(w)
     ]
     return " ".join(_word_token(w) for w in before[-24:]) if before else ""
@@ -1172,6 +809,9 @@ def same_answer_continues(
             # Right clip starts later than the immediate continuation — still
             # allow when the first continuing word is inside the gap window.
             pass
+    gap = max(0, first_start - int(left_end_ms))
+    if gap > int(max_gap_ms):
+        return False
     if clause_continues_after(
         words, left_end_ms, max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS)
     ):
@@ -1232,19 +872,21 @@ def same_speaker_continuous_keep(
         return False
     if right_start < left_end:
         return False
-    word_list = words if isinstance(words, list) else []
-    if not word_list:
+    gap = right_start - left_end
+    if gap > int(max_gap_ms):
         return False
-    prev = _text_ending_at(word_list, left_end)
-    ahead = words_after_end(
-        word_list,
-        left_end,
-        max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS),
-    )
-    later = " ".join(_word_token(w) for w in ahead[:16]) if ahead else ""
-    if later and (sentence_still_flowing(prev, later) or same_concept_continues(prev, later)):
+    left_spk = str(left.get("speaker_id") or left.get("speaker") or "").strip()
+    right_spk = str(right.get("speaker_id") or right.get("speaker") or "").strip()
+    word_list = words if isinstance(words, list) else []
+    if not left_spk and word_list:
+        left_spk = speaker_at_ms(word_list, left_end)
+    if not right_spk and word_list:
+        right_spk = speaker_at_ms(word_list, right_start)
+    if not left_spk or not right_spk or left_spk != right_spk:
+        return False
+    if word_list and same_answer_continues(word_list, left_end, right_start, max_gap_ms=max_gap_ms):
         return True
-    return False
+    return True
 
 
 def clause_continues_after(
@@ -1254,11 +896,11 @@ def clause_continues_after(
     max_lookahead_ms: int = CLAUSE_CONTINUE_MAX_GAP_MS,
     pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
 ) -> bool:
-    """True when later words keep this sentence or this concept going.
+    """True when G0 words after ``end_ms`` continue the same unfinished clause/setup.
 
-    A pause and a period do not end the section. ``pause_split_ms`` is unused.
+    A new conceptual unit (fresh opener after a real pause, or new sentence) does
+    **not** count as continuation — that hinge is legal even without ``.!?``.
     """
-    del pause_split_ms
     if not words or end_ms < 0:
         return False
     ahead = words_after_end(
@@ -1266,18 +908,64 @@ def clause_continues_after(
     )
     if not ahead:
         return False
+    first = ahead[0]
+    gap = max(0, int(first.get("start_ms") or 0) - int(end_ms))
+    first_tok = _word_token(first).lower().strip(".,!?;:\"'")
     end_text = _text_ending_at(words, end_ms)
-    later_head = " ".join(_word_token(w) for w in ahead[:16])
-    if sentence_still_flowing(end_text, later_head) or same_concept_continues(end_text, later_head):
-        return True
+    hanging_close = bool(end_text) and ends_hanging_setup(end_text)
+    unfinished_np = bool(end_text) and ends_unfinished_nominal(end_text)
+    later_head = " ".join(_word_token(w) for w in ahead[:12])
+    last = _last_token(end_text)
+    adjective_tail = bool(last) and bool(_NOMINAL_ADJECTIVE_RE.match(last))
+    # Incomplete seam: "provision" → "called LDT" even when prior is not
+    # lexically hanging and the breath ≈ pause_split.
     if source_adjacent_completes_at(
         words,
         end_ms,
-        max_gap_ms=max(int(max_lookahead_ms), SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS),
+        max_gap_ms=min(int(max_lookahead_ms), SOURCE_ADJACENT_COMPLETES_MAX_GAP_MS),
         max_lookahead_ms=max_lookahead_ms,
     ):
         return True
-    return False
+    if hanging_close and gap <= CLAUSE_CONTINUE_MAX_GAP_MS:
+        if opens_with_backchannel_completion(later_head) or first_tok in _CONTINUER_OPEN_TOKENS:
+            return True
+        if unfinished_np and later_opens_nominal_complement(later_head):
+            return True
+    if (
+        adjective_tail
+        and later_opens_nominal_complement(later_head)
+        and gap <= CLAUSE_CONTINUE_MAX_GAP_MS
+        and (not end_text or end_text[-1:] not in ".!?")
+    ):
+        return True
+    if gap >= pause_split_ms and not hanging_close:
+        # Real pause then new unit — not same-clause continuation.
+        return False
+    if hanging_close and gap < pause_split_ms:
+        return True
+    if end_text:
+        last_tok = end_text.split()[-1] if end_text.split() else ""
+        if last_tok[-1:] in ".!?…" and not hanging_close:
+            return False
+        if unfinished_np:
+            return False
+        if ends_hanging_setup(end_text):
+            return True
+        if last in _INCOMPLETE_TAIL_TOKENS:
+            return True
+    # Tight gap + content continuation of the same clause.
+    if first_tok in _NEW_UNIT_OPENERS and gap >= 350 and not hanging_close:
+        return False
+    # Look at a few upcoming tokens — lowercase continuers are same-clause.
+    cont = " ".join(_word_token(w) for w in ahead[:8]).lower()
+    if re.match(
+        r"^(you|we|i|they|he|she|it|to|that|which|who|how|what|when|where|"
+        r"and|or|but|because|if|of|for|with|into|onto|from)\b",
+        cont,
+    ):
+        return True
+    # No terminal punct behind and tight gap → treat as unfinished.
+    return gap < 450
 
 
 def is_legal_conceptual_hinge(
@@ -1288,59 +976,43 @@ def is_legal_conceptual_hinge(
     next_pause_ms: int | None = None,
     pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
 ) -> bool:
-    """True when the sentence is finished and the next text is a new concept.
+    """Shared predicate: word-aligned listen-complete idea boundary (not hang).
 
-    Punctuation, speaker id, and pause length do not decide. ``pause_split_ms``
-    and ``next_pause_ms`` are accepted for callers and do not authorize a cut.
+    Full grammatical sentences are one legal hinge type — not the only one.
+    When ``words`` + ``end_ms`` are provided, also rejects cuts where the next
+    transcript words continue the same unfinished setup.
     """
-    del pause_split_ms, next_pause_ms
-    stripped = (text or "").strip()
-    later = ""
+    complete = ends_complete_thought(
+        text, next_pause_ms=next_pause_ms, pause_split_ms=pause_split_ms
+    )
+    if not complete:
+        # Conceptual hinge without terminal punct / measured pause: allow when
+        # lookahead shows a *new* unit (not same-clause continue) and text is
+        # not a hanging setup.
+        stripped = (text or "").strip()
+        if not stripped or ends_hanging_setup(stripped):
+            return False
+        if words is not None and end_ms is not None:
+            if clause_continues_after(
+                words, end_ms, pause_split_ms=pause_split_ms
+            ):
+                return False
+            ahead = words_after_end(words, end_ms)
+            if ahead:
+                pause = next_pause_ms
+                if pause is None:
+                    pause = max(
+                        0, int(ahead[0].get("start_ms") or 0) - int(end_ms)
+                    )
+                # Abutting / mid-breath next token without a new unit is not a hinge.
+                if pause < ZERO_GAP_HINGE_MS:
+                    return False
+            # Non-hanging content word with no same-clause continue = legal hinge.
+            return True
+        return False
     if words is not None and end_ms is not None:
-        ahead = words_after_end(words, end_ms)
-        if ahead:
-            later = " ".join(_word_token(w) for w in ahead[:16])
-        if not stripped:
-            stripped = _text_ending_at(words, end_ms)
-    if not stripped:
-        return False
-    if words is not None and end_ms is not None and later:
-        ahead_start = words_after_end(words, end_ms)
-        if ahead_start:
-            try:
-                gap = int(ahead_start[0].get("start_ms") or 0) - int(end_ms)
-            except (TypeError, ValueError):
-                gap = 0
-            first = _first_bare(later)
-            # Abutting words are still one sentence when the next verb is
-            # finishing this clause ("think was"). Two clauses that each
-            # already have a verb can still change concept.
-            if (
-                gap < 200
-                and _last_token(stripped) in {
-                    "understanding",
-                    "understand",
-                    "know",
-                    "knew",
-                    "see",
-                    "saw",
-                    "hear",
-                    "heard",
-                }
-                and first in _COMPLEMENT_OPENERS
-            ):
-                return False
-            if (
-                gap < 200
-                and first
-                and first not in _CLAUSE_OPENERS
-                and not _opens_new_question(later)
-            ):
-                return False
-    if not concept_cut_allowed(stripped, later or None):
-        return False
-    if words is not None and end_ms is not None and clause_continues_after(words, end_ms):
-        return False
+        if clause_continues_after(words, end_ms, pause_split_ms=pause_split_ms):
+            return False
     return True
 
 
@@ -1393,18 +1065,20 @@ def clause_continues_before(
     last = before[-1]
     last_tok_raw = _word_token(last)
     last_tok = _normalize_tok(last_tok_raw)
-    prev_text = " ".join(_word_token(w) for w in before[-16:])
-    later_text = " ".join(_word_token(w) for w in ahead[:8])
-    if sentence_still_flowing(prev_text, later_text) or same_concept_continues(prev_text, later_text):
-        return True
     gap = int(start_ms) - int(last.get("end_ms") or 0)
+    if gap >= pause_split_ms:
+        return False
+    if last_tok_raw[-1:] in ".!?…":
+        return False
+    prev_text = " ".join(_word_token(w) for w in before[-16:])
     if ends_hanging_setup(prev_text) or last_tok in _INCOMPLETE_TAIL_TOKENS:
         return True
     if last_tok_raw.rstrip().endswith(","):
         return True
-    if first_tok in _CONTINUER_OPEN_TOKENS:
+    if first_tok in _CONTINUER_OPEN_TOKENS and gap < pause_split_ms:
         return True
-    return False
+    # Tight gap after a non-terminal word → likely mid-phrase open.
+    return gap < 450 and last_tok not in _NEW_UNIT_OPENERS
 
 
 def is_legal_conceptual_open(
@@ -1419,7 +1093,9 @@ def is_legal_conceptual_open(
     stripped = (text or "").strip()
     first = _normalize_tok(stripped.split()[0]) if stripped else ""
     if first in _CONTINUER_OPEN_TOKENS:
-        # A continuer is mid-sentence. A pause does not make it a new segment.
+        # Continuer opens are legal only after a real pause (new unit).
+        if prev_pause_ms is not None and prev_pause_ms >= pause_split_ms:
+            return True
         if words is not None and start_ms is not None:
             return not clause_continues_before(
                 words, start_ms, pause_split_ms=pause_split_ms
@@ -1428,7 +1104,8 @@ def is_legal_conceptual_open(
     if words is not None and start_ms is not None:
         if clause_continues_before(words, start_ms, pause_split_ms=pause_split_ms):
             return False
-    del prev_pause_ms
+    if prev_pause_ms is not None and prev_pause_ms >= pause_split_ms:
+        return True
     return True
 
 

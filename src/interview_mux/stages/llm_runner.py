@@ -60,6 +60,7 @@ def _prompt_thresholds_block() -> str:
     th = (merged_config().get("analysis") or {}).get("prompt_thresholds") or {}
     return (
         "## Pipeline thresholds (authoritative)\n"
+        f"- Pause-based split: ≥ {th.get('pause_split_ms', 1000)} ms between words\n"
         f"- Short interviewer question (keep with answer): ≤ {th.get('short_question_max_words', 12)} words\n"
         f"- VO question max words: {th.get('interviewer_question_max_words', 60)}\n"
         f"- VO setup max words: {th.get('interviewer_setup_max_words', 20)}\n"

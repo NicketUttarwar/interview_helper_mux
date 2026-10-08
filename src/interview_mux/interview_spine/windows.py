@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from interview_mux.interview_spine.constants import PAUSE_SPLIT_MS
 
 
 def _words_in_span(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> list[dict[str, Any]]:
@@ -30,7 +31,7 @@ def build_windows(
     pace_class: str = "conversational",
     cfg: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Word-aligned windows. A new window opens when the concept changes."""
+    """Word-aligned sliding windows; split on speaker change and long pauses."""
     from interview_mux.interview_spine.config import spine_cfg
 
     resolved = cfg if cfg is not None else spine_cfg()
@@ -40,7 +41,9 @@ def build_windows(
     window_ms = int(_pace_window_sec(pace_class, resolved) * 1000)
     hop_ms = int(float(resolved.get("hop_sec", 5)) * 1000)
     sorted_words = sorted(words, key=lambda w: float(w.get("start_ms", 0)))
-    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+    from interview_mux.diarization_suspicion import absorbable_micro_word_indexes
+
+    micro_idxs = absorbable_micro_word_indexes(sorted_words)
 
     raw_spans: list[tuple[int, int, list[dict[str, Any]]]] = []
     bucket: list[dict[str, Any]] = []
@@ -49,22 +52,16 @@ def build_windows(
 
     for i, w in enumerate(sorted_words):
         bucket.append(w)
-        concept_cut = False
+        pause_after = False
+        speaker_change = False
         if i + 1 < len(sorted_words):
-            prev_text = " ".join(
-                str(x.get("text") or "") for x in bucket[-16:] if x.get("text")
-            )
-            gap = int(sorted_words[i + 1]["start_ms"]) - int(w["end_ms"])
-            concept_cut = bool(
-                is_legal_conceptual_hinge(
-                    prev_text,
-                    words=sorted_words,
-                    end_ms=int(w["end_ms"]),
-                    next_pause_ms=gap,
-                )
-            )
+            nxt = sorted_words[i + 1]
+            pause_after = int(nxt["start_ms"]) - int(w["end_ms"]) >= PAUSE_SPLIT_MS
+            speaker_change = nxt.get("speaker_id") != w.get("speaker_id")
+            if speaker_change and (i in micro_idxs or (i + 1) in micro_idxs):
+                speaker_change = False
         duration = int(w["end_ms"]) - bucket_start
-        if concept_cut or duration >= window_ms or i == len(sorted_words) - 1:
+        if pause_after or speaker_change or duration >= window_ms or i == len(sorted_words) - 1:
             raw_spans.append((bucket_start, int(w["end_ms"]), list(bucket)))
             bucket = []
             if i + 1 < len(sorted_words):

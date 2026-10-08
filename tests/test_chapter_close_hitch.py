@@ -192,8 +192,9 @@ def test_recut_extends_hanging_list_into_next_keeper_not_cta() -> None:
         next_keeper_eps_ms=80,
         min_keep_ms=2500,
     )
-    assert windows[0]["end_ms"] <= 96_160
-    assert windows[1]["start_ms"] == 96_160
+    assert windows[0]["end_ms"] == 97_920
+    assert windows[0]["hanging_extended"] is True
+    assert windows[1]["start_ms"] == 97_920
     assert windows[1]["end_ms"] == 121_660
 
 

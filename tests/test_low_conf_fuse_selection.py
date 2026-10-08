@@ -818,4 +818,4 @@ def test_finished_cross_speaker_turn_stays_independent(tmp_path: Path, monkeypat
     assert packets[0]["deterministic_hints"].get("hanging_setup_end") is False
     verdicts = adjudicate_seams(ctx, packets)
     assert verdicts[0]["decision"] == "stay_independent"
-    assert verdicts[0]["reason_code"] == "concept_change"
+    assert verdicts[0]["reason_code"] == "speaker_change"

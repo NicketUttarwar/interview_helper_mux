@@ -101,22 +101,6 @@ def test_cross_speaker_island_fuse_never_swallows_the_host_question(ctx: RunCont
     assert "seg_002" in ids
 
 
-def test_concept_text_fuse_never_swallows_the_host_question(ctx: RunContext) -> None:
-    from interview_mux.segment_fuse import apply_connector_fuses
-
-    ctx.write_json("segments/manifest.json", {"segments": _host_rows()})
-    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(r, proposed_split_reason="turn") for r in _host_rows()]})
-    ctx.write_json("transcript/full.json", {"words": []})
-    v = _verdict("seg_001", "seg_002")
-    v["forced_by"] = "concept_text"
-    v["reason_code"] = "mid_sentence_continue"
-    out = apply_connector_fuses(ctx, [v], pass_id="p:concept")
-    assert out.get("applied") == 0, out
-    assert any(sk.get("reason") == "host_frame_protected" for sk in out.get("skipped") or []), out
-    ids = [s["segment_id"] for s in ctx.read_json("segments/manifest.json")["segments"]]
-    assert "seg_002" in ids
-
-
 def test_same_speaker_island_fuse_still_applies(ctx: RunContext) -> None:
     from interview_mux.segment_fuse import apply_connector_fuses
 

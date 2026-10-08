@@ -14,18 +14,19 @@ def _sample_words() -> list[dict]:
     return [
         {"text": "hello", "start_ms": 0, "end_ms": 200, "speaker_id": "spk_0"},
         {"text": "world", "start_ms": 250, "end_ms": 500, "speaker_id": "spk_0"},
-        {"text": "what", "start_ms": 8000, "end_ms": 8300, "speaker_id": "spk_1"},
+        {"text": "pause", "start_ms": 1500, "end_ms": 1700, "speaker_id": "spk_1"},
+        {"text": "here", "start_ms": 1750, "end_ms": 1950, "speaker_id": "spk_1"},
     ]
 
 
-def test_build_windows_splits_on_concept_change():
+def test_build_windows_splits_on_long_pause():
     windows = build_windows(_sample_words(), pace_class="dense", cfg={"window_sec_dense": 6, "hop_sec": 5})
     assert len(windows) >= 2
     assert windows[0]["window_id"] == "win_0001"
     assert windows[0]["text_span"]
 
 
-def test_build_boundary_events_includes_topic_shift_on_concept_change():
+def test_build_boundary_events_includes_topic_shift_on_speaker_pause():
     from interview_mux.interview_spine.boundaries import _topic_shift_hint_events
 
     words = _sample_words()

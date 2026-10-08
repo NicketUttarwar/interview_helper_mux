@@ -647,35 +647,6 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 live_landmarks["opening_music_window"] = (t_start, t_end)
             elif (
                 ctype == "silence"
-                and str(clip.get("air_kind") or "") == "kept_source_gap"
-                and bool(clip.get("music_bed_preferred"))
-            ):
-                # Stretch the outgoing bed across the kept pause and the
-                # voiceover that sits on it.
-                cover_end = t_end
-                cursor = t_end
-                for nxt in clips[idx + 1 :]:
-                    ntype = str(nxt.get("type") or "")
-                    if ntype == "vo_pickup" and str(nxt.get("placement") or "before") == "before":
-                        cursor += int(nxt.get("duration_ms") or 0)
-                        cover_end = cursor
-                        continue
-                    if ntype == "silence" and str(nxt.get("air_kind") or "") in {
-                        "after_vo",
-                        "before_answer",
-                    }:
-                        cursor += int(nxt.get("duration_ms") or 0)
-                        cover_end = cursor
-                        continue
-                    break
-                for prev in reversed(clips[:idx]):
-                    prev_sid = str(prev.get("segment_id") or "")
-                    if str(prev.get("type") or "") == "speech" and prev_sid in segment_timing:
-                        p0, _p1 = segment_timing[prev_sid]
-                        segment_timing[prev_sid] = (p0, max(_p1, cover_end))
-                        break
-            elif (
-                ctype == "silence"
                 and str(clip.get("air_kind") or "") == "chapter_music_bridge"
             ):
                 windows = live_landmarks.get("chapter_music_bridge_windows")

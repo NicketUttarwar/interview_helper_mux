@@ -85,41 +85,36 @@ def test_split_backchannel_turns_skips_nested_um():
     assert len(out) == 1
 
 
-def test_enforce_max_segment_duration_leaves_a_long_span_whole():
-    # Length never places a cut, even when the words change concept inside the span.
-    concepts = [
-        "the company shipped the snack bar in june",
-        "what happened after that launch in stores",
-        "then we started a second company in austin",
-        "well the portfolio moved into a new market",
-        "next the team built the plant protein line",
-    ]
+def test_enforce_max_segment_duration_splits_long_span():
+    # Long pauses after complete sentences so splits stay sentence-safe.
     words = []
     t = 0
-    for phrase in concepts:
-        for tok in phrase.split():
-            words.append(
-                {
-                    "text": tok,
-                    "speaker_id": "spk_1",
-                    "start_ms": t,
-                    "end_ms": t + 400,
-                }
-            )
-            t += 500
-        t += 20_000
+    i = 0
+    while t < 120_000:
+        words.append(
+            {
+                "text": f"word{i}.",
+                "speaker_id": "spk_1",
+                "start_ms": t,
+                "end_ms": t + 400,
+            }
+        )
+        t += 400
+        # ≥1s pause between sentences → complete-thought hinge
+        t += 1200
+        i += 1
     transcript = {"words": words}
     rows = [{"start_ms": 0, "end_ms": 120_000, "speaker_id": "spk_1"}]
     cfg = {"max_segment_duration_ms": 30_000, "min_segment_duration_ms": 4000}
     out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
-    assert len(out) == 1
-    assert int(out[0]["end_ms"]) - int(out[0]["start_ms"]) == 120_000
-    assert out[0].get("airable") is not False
-    assert actions == []
+    assert len(out) >= 3
+    assert all(int(r["end_ms"]) - int(r["start_ms"]) <= 30_000 for r in out)
+    assert any(a.get("action") == "enforce_max_duration" for a in actions)
+    assert not any(a.get("action") == "force_split_midpoint" for a in actions)
 
 
-def test_enforce_max_does_not_cut_continuous_speech():
-    # No concept change and no breath. Leave the explanation whole.
+def test_enforce_max_skips_midpoint_when_no_complete_hinge():
+    # Continuous speech with sub-pause gaps — must not invent a midpoint cut.
     transcript = {
         "words": [
             {
@@ -135,10 +130,9 @@ def test_enforce_max_does_not_cut_continuous_speech():
     cfg = {"max_segment_duration_ms": 20_000, "min_segment_duration_ms": 4000}
     out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
     assert len(out) == 1
-    assert int(out[0]["end_ms"]) - int(out[0]["start_ms"]) == 80_000
-    assert out[0].get("airable") is not False
-    assert out[0].get("overlong_unsplit") is not True
-    assert actions == []
+    assert out[0].get("airable") is False
+    assert out[0].get("overlong_unsplit") is True
+    assert any(a.get("action") == "skip_midpoint_split" for a in actions)
 
 
 def test_detect_overloaded_segment_ids_by_duration_and_topics():

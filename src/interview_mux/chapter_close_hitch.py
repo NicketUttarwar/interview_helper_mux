@@ -59,10 +59,9 @@ def hitch_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = ((cfg or merged_config()).get("mastering") or {}).get("chapter_close_hitch") or {}
     defaults: dict[str, Any] = {
         "enabled": True,
-        # Kept for callers. Chapter length is not capped by this clock.
-        "max_cut_ms": None,
+        "max_cut_ms": 180_000,
         "next_keeper_eps_ms": 80,
-        "extend_hanging_horizon_ms": 30_000,
+        "extend_hanging_horizon_ms": 8_000,
     }
     return {**defaults, **(raw if isinstance(raw, dict) else {})}
 
@@ -273,7 +272,6 @@ def last_listen_complete_end_ms(
     start_ms: int,
     bound_end_ms: int,
     min_keep_ms: int = 2500,
-    prefer_latest: bool = False,
 ) -> int | None:
     """Last listen-complete hinge in ``(start_ms, bound_end_ms]``, not the first pause.
 
@@ -338,11 +336,7 @@ def last_listen_complete_end_ms(
         # Soft hang: period on a setup whose payoff is the next speech.
         if same_answer_continues(words, cand_end):
             continue
-        # Extending stops at the first concept change. A hard-hang retreat
-        # keeps the latest finished concept so the keeper's own speech stays.
         best = cand_end
-        if not prefer_latest:
-            return cand_end
     return best
 
 
@@ -544,7 +538,7 @@ def compute_recut_windows(
     words: list[dict[str, Any]],
     brief: dict[str, Any] | None = None,
     talking_points: dict[str, Any] | None = None,
-    max_cut_ms: int | None = None,
+    max_cut_ms: int = 180_000,
     min_keep_ms: int = 2500,
     next_keeper_eps_ms: int = 80,
     extend_hanging_horizon_ms: int | None = None,
@@ -565,10 +559,8 @@ def compute_recut_windows(
     horizon = (
         int(extend_hanging_horizon_ms)
         if extend_hanging_horizon_ms is not None
-        else int(hitch_cfg().get("extend_hanging_horizon_ms") or 30_000)
+        else int(hitch_cfg().get("extend_hanging_horizon_ms") or 8_000)
     )
-    # Accepted so callers can still pass it. It does not close a chapter.
-    del max_cut_ms
     rows = [dict(r) for r in keepers if isinstance(r, dict)]
     out: list[dict[str, Any]] = []
     for i, row in enumerate(rows):
@@ -596,53 +588,60 @@ def compute_recut_windows(
         leftover_after_extend = start > orig_start
         extended = False
         keep_merge = False
-        nxt_ch = (
-            _next_chapter_start_ms(plan, rows, cid, after_ms=start)
-            if is_last and cid
-            else None
-        )
-        content_caps: list[int] = []
-        if nxt_ch is not None:
-            content_caps.append(int(nxt_ch) - int(next_keeper_eps_ms))
-        if next_start is not None:
-            content_caps.append(int(next_start))
-        if topic_end is not None and int(topic_end) > start:
-            content_caps.append(int(topic_end))
-        usable_caps = [cap for cap in content_caps if cap > start]
-        content_bound = min(usable_caps) if usable_caps else end
+        bound = start + int(max_cut_ms)
         if leftover_after_extend:
             # Prior keeper already claimed the hanging close; leave the CTA/leftover slab.
             new_end = end
             bound = end
         elif hanging or continuous_keep:
-            # Finish the hanging line up to the next keeper. Do not run through
-            # that keeper or shrink it. Same-thought joins belong to fuse.
-            ext_horizon = end + horizon
-            if next_start is not None:
-                ext_horizon = min(ext_horizon, int(next_start))
-            if topic_end is not None and topic_end > start:
+            ext_horizon = min(end + horizon, start + int(max_cut_ms))
+            if i + 1 < len(rows):
+                ext_horizon = min(
+                    ext_horizon, int(rows[i + 1].get("end_ms") or ext_horizon)
+                )
+            if continuous_keep and next_row is not None:
+                payoff = int(next_row.get("end_ms") or next_start or end)
+                ext_horizon = max(ext_horizon, payoff)
+                ext_horizon = min(ext_horizon, start + int(max_cut_ms))
+                keep_merge = True
+            if topic_end is not None and topic_end > start and not continuous_keep:
                 ext_horizon = min(ext_horizon, topic_end)
-            if usable_caps:
-                ext_horizon = min(ext_horizon, content_bound)
             ext_horizon = max(ext_horizon, end)
             bound = ext_horizon
             snapped = _extend_hanging_end_ms(
                 words, from_ms=end, horizon_ms=ext_horizon
             )
             new_end = int(snapped) if snapped is not None else end
+            if keep_merge:
+                listen = last_listen_complete_end_ms(
+                    words,
+                    start_ms=start,
+                    bound_end_ms=bound,
+                    min_keep_ms=min_keep_ms,
+                )
+                if listen is not None and int(listen) > new_end:
+                    new_end = int(listen)
+                if next_row is not None and new_end < int(next_row.get("start_ms") or 0):
+                    new_end = min(int(next_row.get("end_ms") or new_end), bound)
             extended = new_end > end
         else:
-            bound = max(content_bound, start + min_keep_ms)
+            if is_last and cid:
+                nxt_ch = _next_chapter_start_ms(plan, rows, cid, after_ms=start)
+                if nxt_ch is not None:
+                    bound = min(bound, nxt_ch - int(next_keeper_eps_ms))
+                elif next_start is not None:
+                    bound = min(bound, next_start - int(next_keeper_eps_ms))
+            elif next_start is not None:
+                bound = min(bound, next_start - int(next_keeper_eps_ms))
+            if topic_end is not None and topic_end > start:
+                bound = min(bound, topic_end)
+            bound = max(bound, start + min_keep_ms)
             snapped = last_listen_complete_end_ms(
                 words, start_ms=start, bound_end_ms=bound, min_keep_ms=min_keep_ms
             )
-            # A placed keeper keeps its own end. A listen point only moves
-            # that end forward, and never past the next keeper.
-            new_end = end
-            if snapped is not None and int(snapped) > end:
-                new_end = int(snapped)
+            new_end = int(snapped) if snapped is not None else end
             if next_start is not None:
-                new_end = min(new_end, int(next_start))
+                new_end = min(new_end, next_start - int(next_keeper_eps_ms))
         if new_end < start + min_keep_ms:
             new_end = end
             extended = False
@@ -662,10 +661,15 @@ def compute_recut_windows(
                 proposed_end_ms=soft,
             )
             if used and lifted > new_end:
-                new_end = min(lifted, int(next_start))
-            # Same-answer words may finish this keeper. They stop at the next one.
+                new_end = lifted
+                if new_end > next_start and i + 1 < len(rows):
+                    _shrink_next_keeper_start(
+                        words, keep_end_ms=new_end, next_row=rows[i + 1]
+                    )
+            # Phase 2: same-answer continuity — prefer one keeper through payoff.
             if same_answer_continues(words, new_end, next_start) and i + 1 < len(rows):
-                ext_bound = min(int(bound), int(next_start))
+                next_end = int(rows[i + 1].get("end_ms") or next_start)
+                ext_bound = min(int(bound), next_end, start + int(max_cut_ms))
                 snapped = last_listen_complete_end_ms(
                     words,
                     start_ms=start,
@@ -675,53 +679,50 @@ def compute_recut_windows(
                 if snapped is not None and snapped > new_end:
                     new_end = int(snapped)
                     extended = True
-            # Phase 1: never ship a hard hang. Retreat only the unfinished
-            # tail. Speech already inside this keeper stays through the latest
-            # finished concept, and the next keeper is not entered.
+                    if new_end > next_start:
+                        _shrink_next_keeper_start(
+                            words, keep_end_ms=new_end, next_row=rows[i + 1]
+                        )
+            # Phase 1: never ship a hard hang after lift / extend.
             if end_is_hard_hang(words, new_end):
-                owned = end
-                if new_end > owned and not end_is_hard_hang(words, owned):
-                    new_end = owned
+                snapped = last_listen_complete_end_ms(
+                    words,
+                    start_ms=start,
+                    bound_end_ms=min(int(bound), start + int(max_cut_ms)),
+                    min_keep_ms=min_keep_ms,
+                )
+                if snapped is not None and not end_is_hard_hang(words, int(snapped)):
+                    new_end = int(snapped)
                 else:
-                    limit = new_end
-                    if next_start is not None:
-                        limit = min(limit, int(next_start))
-                    snapped = last_listen_complete_end_ms(
-                        words,
-                        start_ms=start,
-                        bound_end_ms=int(limit),
-                        min_keep_ms=min_keep_ms,
-                        prefer_latest=True,
+                    from interview_mux.thought_complete_recut import (
+                        complete_thought_candidates,
                     )
-                    if (
-                        snapped is not None
-                        and int(snapped) > start + min_keep_ms
-                        and not end_is_hard_hang(words, int(snapped))
-                    ):
-                        new_end = int(snapped)
-                    else:
-                        from interview_mux.thought_complete_recut import (
-                            complete_thought_candidates,
-                        )
 
-                        cands = complete_thought_candidates(
-                            words,
-                            max(start, new_end - 500),
-                            horizon_ms=min(int(bound), int(limit)),
-                            speaker="",
-                        )
-                        chosen: int | None = None
-                        for cut in cands:
-                            cut_i = int(cut)
-                            if (
-                                start + min_keep_ms < cut_i <= int(limit)
-                                and not end_is_hard_hang(words, cut_i)
-                            ):
-                                chosen = cut_i
-                        if chosen is not None:
-                            new_end = chosen
-        if next_start is not None and int(next_start) > start:
-            new_end = min(new_end, int(next_start))
+                    cands = complete_thought_candidates(
+                        words,
+                        max(start, new_end - 500),
+                        horizon_ms=min(
+                            int(bound),
+                            (next_start or new_end) + horizon,
+                            start + int(max_cut_ms),
+                        ),
+                        speaker="",
+                    )
+                    for cut in cands:
+                        if int(cut) > start + min_keep_ms and not end_is_hard_hang(
+                            words, int(cut)
+                        ):
+                            new_end = int(cut)
+                            break
+        if (
+            extended
+            and next_start is not None
+            and new_end > next_start - int(next_keeper_eps_ms)
+            and i + 1 < len(rows)
+        ):
+            _shrink_next_keeper_start(
+                words, keep_end_ms=new_end, next_row=rows[i + 1]
+            )
         updated = dict(row)
         updated["end_ms"] = new_end
         updated["end_changed"] = new_end != int(keepers[i].get("end_ms") or end)
@@ -804,8 +805,6 @@ def apply_acoustic_refine(
                 prior_end = int(row.get("end_ms") or e2)
                 if prior_end > e2:
                     e2 = prior_end
-        if next_start is not None and int(e2) > int(next_start) > int(s2):
-            e2 = int(next_start)
         updated = dict(row)
         updated["start_ms"] = int(s2)
         updated["end_ms"] = int(e2)
@@ -818,27 +817,25 @@ def reapply_same_speaker_keep_merge(
     windows: list[dict[str, Any]],
     words: list[dict[str, Any]],
     *,
-    max_cut_ms: int | None = None,
+    max_cut_ms: int = 180_000,
 ) -> list[dict[str, Any]]:
-    """Keep each keeper at or before the next keeper's start.
+    """Restore keep-merge after acoustic refine snaps an end back to a period."""
+    from interview_mux.gap_vo_prior_context import same_speaker_continuous_keep
 
-    Acoustic refine must not pull this keeper through the next one. Joining
-    the same thought is the fuse step.
-    """
-    del max_cut_ms, words
     out = [dict(r) for r in windows if isinstance(r, dict)]
     for i in range(len(out) - 1):
         left = out[i]
         right = out[i + 1]
-        try:
-            cap = int(right.get("start_ms") or 0)
-            start = int(left.get("start_ms") or 0)
-            end = int(left.get("end_ms") or 0)
-        except (TypeError, ValueError):
+        if not same_speaker_continuous_keep(left, right, words):
             continue
-        if cap > start and end > cap:
-            left["end_ms"] = cap
-        left["keep_merge"] = False
+        start = int(left.get("start_ms") or 0)
+        payoff = int(right.get("end_ms") or left.get("end_ms") or 0)
+        desired = min(payoff, start + int(max_cut_ms))
+        if desired <= int(left.get("end_ms") or 0):
+            continue
+        left["end_ms"] = desired
+        left["keep_merge"] = True
+        _shrink_next_keeper_start(words, keep_end_ms=desired, next_row=right)
     return out
 
 
@@ -1669,9 +1666,10 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             words=words,
             brief=brief if isinstance(brief, dict) else None,
             talking_points=tps if isinstance(tps, dict) else None,
+            max_cut_ms=int(conf.get("max_cut_ms") or 180_000),
             next_keeper_eps_ms=int(conf.get("next_keeper_eps_ms") or 80),
             extend_hanging_horizon_ms=int(
-                conf.get("extend_hanging_horizon_ms") or 30_000
+                conf.get("extend_hanging_horizon_ms") or 8_000
             ),
         )
         wav = None
@@ -1680,7 +1678,11 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         except Exception:
             wav = None
         windows = apply_acoustic_refine(windows, words, wav)
-        windows = reapply_same_speaker_keep_merge(windows, words)
+        windows = reapply_same_speaker_keep_merge(
+            windows,
+            words,
+            max_cut_ms=int(conf.get("max_cut_ms") or 180_000),
+        )
 
         any_change = any(bool(w.get("end_changed")) for w in windows)
         boundaries, _snapped = _publish_boundaries_from_windows(ctx, windows)

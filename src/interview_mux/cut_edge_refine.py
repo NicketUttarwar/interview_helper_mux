@@ -149,9 +149,9 @@ def lift_end_for_outgoing_last_word(
     try:
         from interview_mux.thought_complete_recut import complete_thought_candidates
 
-        horizon = int(hang_from) + 30_000
+        horizon = int(hang_from) + 8_000
         if next_keeper_start_ms is not None:
-            horizon = max(horizon, int(next_keeper_start_ms) + 30_000)
+            horizon = max(horizon, int(next_keeper_start_ms) + 8_000)
         cands = complete_thought_candidates(
             words, int(hang_from), horizon_ms=horizon, speaker=""
         )

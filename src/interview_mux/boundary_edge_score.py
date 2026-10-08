@@ -295,7 +295,7 @@ def score_edge(
     end = int(row.get("end_ms") or start)
     legal_score = 0.5
     if edge == "end":
-        text = _span_text(words, max(start, end - 30_000), end)
+        text = _span_text(words, max(start, end - 12_000), end)
         legal = is_legal_conceptual_hinge(
             text, words=words, end_ms=t_ms, next_pause_ms=pause
         )
@@ -313,7 +313,7 @@ def score_edge(
             reasons.extend(pair_reasons)
             legal_score = max(0.0, legal_score - pair_pen)
     else:
-        text = _span_text(words, start, min(end, start + 30_000))
+        text = _span_text(words, start, min(end, start + 12_000))
         legal = is_legal_conceptual_open(
             text, words=words, start_ms=t_ms, prev_pause_ms=pause
         )
@@ -330,9 +330,17 @@ def score_edge(
         legal_score = 1.0 if legal else 0.25
     signals["legal_hinge"] = round(legal_score, 3)
 
-    # Speaker id does not raise or lower a cut. Pause is ranked only after the
-    # text predicate says the concept has changed.
+    # Speaker turn bonus when neighbor changes speaker near this edge.
     turn_score = 0.55
+    if neighbor is not None:
+        a = str(row.get("speaker_id") or "")
+        b = str(neighbor.get("speaker_id") or "")
+        if a and b and a != b:
+            turn_score = 0.9
+            reasons.append("speaker_change")
+        elif a and b and a == b and pause is not None and pause < 80:
+            turn_score = 0.35
+            reasons.append("same_speaker_hard_cut")
     signals["turn"] = turn_score
 
     overall = (
@@ -350,22 +358,6 @@ def score_edge(
         overall = min(overall, 0.35)
     if mid:
         overall = min(overall, 0.5)
-    if legal_score < 0.95:
-        # A breath cannot promote a mid-sentence or same-concept edge.
-        overall = min(overall, 0.4)
-    else:
-        from interview_mux.gap_vo_prior_context import (
-            concept_boundary_rank,
-            word_density_per_sec,
-        )
-
-        before = word_density_per_sec(words, t_ms - 1) if words else 0.0
-        after = word_density_per_sec(words, t_ms + 1) if words else 0.0
-        rank = concept_boundary_rank(
-            gap_ms=pause, density_before=before, density_after=after
-        )
-        signals["concept_rank"] = rank
-        overall = min(1.0, overall + 0.05 * rank)
     overall = max(0.0, min(1.0, overall))
     grade = grade_from_score(overall, cfg)
     # Silence-only + high legal still cannot be "high" when multi-source required.
@@ -451,6 +443,7 @@ def _candidate_hinge_times(
     edge: str,
 ) -> list[int]:
     from interview_mux.gap_vo_prior_context import (
+        ends_complete_thought,
         is_legal_conceptual_hinge,
         is_legal_conceptual_open,
     )
@@ -462,6 +455,8 @@ def _candidate_hinge_times(
         prev = words[i]
         nxt = words[i + 1]
         gap = int(nxt["start_ms"]) - int(prev["end_ms"])
+        if gap < 200:
+            continue
         if edge == "end":
             t = int(prev["end_ms"])
             if not (lo <= t <= hi):
@@ -469,7 +464,7 @@ def _candidate_hinge_times(
             text = " ".join(_tok(w) for w in words[max(0, i - 20) : i + 1])
             if not is_legal_conceptual_hinge(
                 text, words=words, end_ms=t, next_pause_ms=gap
-            ):
+            ) and not ends_complete_thought(text, next_pause_ms=gap):
                 continue
             cands.append(t)
         else:
