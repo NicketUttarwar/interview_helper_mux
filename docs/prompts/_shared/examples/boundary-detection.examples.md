@@ -1,8 +1,8 @@
 # boundary-detection examples (reference)
 
-**Good — question + answer in one segment (short Q, no backchannel between)**
+**Good — a question is its own segment**
 
-- Single boundary `seg_005`: interviewer asks a 6-word question, then interviewee answers for 90s with no intervening host turn; one `segment_id`, `proposed_split_reason: question_answer_pair`.
+- Interviewer asks a 6-word question, then the guest answers for 90s. Two boundaries: the question, then the answer. `proposed_split_reason: question_answer_pair` marks the seam between them. The question is never folded into the answer.
 
 **Good — long answer split by topic**
 
@@ -10,7 +10,7 @@
 
 **Good — backchannel isolated**
 
-- Guest answers; host says "yeah" (2 words, diarization flip); guest continues. Three segments: answer block A → `interviewer_reaction` → answer block B (`speaker_change` on the backchannel).
+- Guest answers; someone says "yeah" (the word itself, not a diarization flip); guest continues the same concept. Peel the acknowledgment with `proposed_split_reason: backchannel`. The answer before and after stays one concept.
 
 **Good — topic shift**
 
@@ -18,7 +18,7 @@
 
 **Good — panel guest handoff**
 
-- Host: "Let's hear from Maria" → guest answers. Split at handoff with `proposed_split_reason: speaker_change`; preserve guest alternation in chronological order.
+- Host: "Let's hear from Maria" → guest starts a different concept. Split at that concept change with `proposed_split_reason: topic_shift`.
 
 **Bad — single giant segment**
 
@@ -26,7 +26,7 @@
 
 **Bad — backchannel swallowed**
 
-- Host "right", "interesting", "sure" kept inside one 4-minute answer — split each brief turn when diarization shows speaker change.
+- Treating a diarization flip, a period, or a one-second breath as a segment cut while the same concept is still being explained.
 
 **Bad — word-level micro-segments**
 

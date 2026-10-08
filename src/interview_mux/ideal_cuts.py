@@ -27,11 +27,12 @@ def ideal_cuts_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         # off | seed_ranking | boundaries | both
         "bind_mode": "both",
         "min_cut_ms": 2500,
-        "max_cut_ms": 180_000,
+        # Not a ceiling. A cut is as long as the concept it proves.
+        "max_cut_ms": None,
         # Tight word snap only — large free shifts steal list items / leave hangs.
         "word_snap_margin_ms": 0,
         "word_snap_max_shift_ms": 150,
-        "semantic_edge_buffer_ms": 5_000,
+        "semantic_edge_buffer_ms": 30_000,
         "acoustic_edge_refine": True,
         "acoustic_search_ms": 120,
         # When a keep ends on a word and the next word is later, cut at mid-pause.
@@ -97,9 +98,16 @@ def _word_window_around(
     *,
     want_ms: int,
     min_cut_ms: int,
-    max_cut_ms: int,
+    max_cut_ms: int | None = None,
 ) -> tuple[int, int, int, int] | None:
-    """Nearest listen-complete word span around ``center_ms``."""
+    """Concept around ``center_ms``.
+
+    The window runs to the concept change on each side. A clock does not size
+    it and does not reject it. ``want_ms`` and ``max_cut_ms`` are ignored.
+    """
+    del want_ms, max_cut_ms
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
     indexed: list[tuple[int, int, int]] = []
     for i, word in enumerate(words):
         try:
@@ -112,27 +120,36 @@ def _word_window_around(
     if not indexed:
         return None
     nearest = min(indexed, key=lambda row: abs(row[1] - center_ms))
-    lo = hi = nearest[0]
     by_i = {i: (s, e) for i, s, e in indexed}
-    start_ms, end_ms = by_i[lo]
-    while (end_ms - start_ms) < want_ms:
-        grew = False
-        if (lo - 1) in by_i:
-            lo -= 1
-            start_ms = by_i[lo][0]
-            grew = True
-        if (end_ms - start_ms) >= want_ms:
-            break
-        if (hi + 1) in by_i:
-            hi += 1
-            end_ms = by_i[hi][1]
-            grew = True
-        if not grew:
-            break
-    dur = end_ms - start_ms
-    if dur < min_cut_ms or dur > max_cut_ms:
+    order = [i for i, _s, _e in indexed]
+    pos = order.index(nearest[0])
+
+    def _hinge_at(end_index: int) -> bool:
+        lo_i = max(0, end_index - 16)
+        hi_i = min(len(order), end_index + 17)
+        text = " ".join(
+            str(words[order[j]].get("text") or words[order[j]].get("word") or "")
+            for j in range(lo_i, end_index + 1)
+        ).strip()
+        local = [words[order[j]] for j in range(lo_i, hi_i)]
+        end_ms = by_i[order[end_index]][1]
+        nxt = by_i[order[end_index + 1]][0] if end_index + 1 < len(order) else None
+        pause = None if nxt is None else max(0, nxt - end_ms)
+        return bool(
+            is_legal_conceptual_hinge(text, words=local, end_ms=end_ms, next_pause_ms=pause)
+        )
+
+    lo_pos = pos
+    while lo_pos > 0 and not _hinge_at(lo_pos - 1):
+        lo_pos -= 1
+    hi_pos = pos
+    while hi_pos < len(order) - 1 and not _hinge_at(hi_pos):
+        hi_pos += 1
+    start_ms = by_i[order[lo_pos]][0]
+    end_ms = by_i[order[hi_pos]][1]
+    if end_ms - start_ms < min_cut_ms:
         return None
-    return start_ms, end_ms, lo, hi
+    return start_ms, end_ms, order[lo_pos], order[hi_pos]
 
 
 def spread_talking_point_time_hints(
@@ -191,8 +208,9 @@ def redistribute_clustered_cuts(
         return out
     cfg = ideal_cuts_cfg()
     min_cut_ms = int(cfg.get("min_cut_ms") or 2500)
-    max_cut_ms = int(cfg.get("max_cut_ms") or 180_000)
-    want_ms = max(min_cut_ms, min(16_000, max_cut_ms, duration_ms // 80 or min_cut_ms))
+    raw_max = cfg.get("max_cut_ms")
+    max_cut_ms = int(raw_max) if raw_max else None
+    want_ms = min_cut_ms
     tps = [
         t
         for t in ((talking_points or {}).get("talking_points") or [])
@@ -233,15 +251,26 @@ def redistribute_clustered_cuts(
             max_cut_ms=max_cut_ms,
         )
         if window is None:
-            start_ms = max(0, center - want_ms // 2)
-            end_ms = min(duration_ms, start_ms + want_ms)
-            if end_ms - start_ms < min_cut_ms:
-                continue
-            si = ei = 0
-        else:
-            start_ms, end_ms, si, ei = window
-        if _overlaps(start_ms, end_ms):
             continue
+        start_ms, end_ms, si, ei = window
+        if _overlaps(start_ms, end_ms):
+            # Keep the part of the concept that sits in the open gap around center.
+            gap_lo = 0
+            gap_hi = duration_ms
+            for cut in cuts:
+                try:
+                    s = int(cut.get("start_ms") or 0)
+                    e = int(cut.get("end_ms") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if e <= center:
+                    gap_lo = max(gap_lo, e)
+                elif s >= center:
+                    gap_hi = min(gap_hi, s)
+            start_ms = max(start_ms, gap_lo)
+            end_ms = min(end_ms, gap_hi)
+            if end_ms - start_ms < min_cut_ms or _overlaps(start_ms, end_ms):
+                continue
         cid = f"cut_span_{i + 1}"
         if cid in existing_ids:
             cid = f"cut_span_{i + 1}_{start_ms}"
@@ -590,10 +619,9 @@ def snap_ideal_cuts(
     conf = ideal_cuts_cfg(cfg)
     words = _word_list(transcript)
     min_ms = int(conf.get("min_cut_ms") or 2500)
-    max_ms = int(conf.get("max_cut_ms") or 180_000)
     margin = int(conf.get("word_snap_margin_ms") or 0)
     max_shift = int(conf.get("word_snap_max_shift_ms") or 150)
-    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 5_000)
+    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 30_000)
     acoustic_on = bool(conf.get("acoustic_edge_refine", True))
     acoustic_search = int(conf.get("acoustic_search_ms") or 120)
     anchor_max_delta = int(conf.get("anchor_max_delta_ms") or 8_000)
@@ -676,9 +704,6 @@ def snap_ideal_cuts(
         if dur < min_ms:
             end = start + min_ms
             warnings.append(f"cut[{index}] padded to min_cut_ms")
-        elif dur > max_ms:
-            end = start + max_ms
-            warnings.append(f"cut[{index}] clamped to max_cut_ms")
         from interview_mux.gap_vo_prior_context import (
             clause_continues_after,
             clause_continues_before,
@@ -687,7 +712,7 @@ def snap_ideal_cuts(
         )
 
         # Start-side: walk back when the open drops mid-list / mid-clause.
-        start_text = _span_text(words, start, min(end, start + 8_000), max_chars=400)
+        start_text = _span_text(words, start, min(end, start + 30_000), max_chars=400)
         if not is_legal_conceptual_open(
             start_text, words=words, start_ms=start, prev_pause_ms=None
         ) or clause_continues_before(words, start):
@@ -708,7 +733,7 @@ def snap_ideal_cuts(
                 )
 
         # Hard-reject / auto-fix hanging-setup ends after snap.
-        end_text = _span_text(words, max(start, end - 8_000), end, max_chars=400)
+        end_text = _span_text(words, max(start, end - 30_000), end, max_chars=400)
         legal = is_legal_conceptual_hinge(
             end_text, words=words, end_ms=end, next_pause_ms=None
         )
@@ -718,7 +743,7 @@ def snap_ideal_cuts(
             )
             if fixed is None:
                 fixed = next_legal_hinge_end_ms(
-                    words, from_ms=end, max_extend_ms=max(edge_buf, 12_000)
+                    words, from_ms=end, max_extend_ms=max(edge_buf, 30_000)
                 )
             if fixed is not None and fixed - start >= min_ms:
                 end = fixed
@@ -1468,10 +1493,11 @@ def resolve_keeper_air_bounds(
     segment_id: str | None = None,
     max_keep_ms: int | None = None,
     min_keep_ms: int = 2500,
-    max_extend_ms: int = 12_000,
+    max_extend_ms: int = 30_000,
     next_keeper_start_ms: int | None = None,
     prev_keeper_end_ms: int | None = None,
     never_touch_cap_ms: int | None = None,
+    same_story: bool = False,
     meta_out: dict[str, Any] | None = None,
     wav_path: Any | None = None,
 ) -> tuple[int, int]:
@@ -1483,7 +1509,9 @@ def resolve_keeper_air_bounds(
     except to finish an outgoing last word that the turn-cap would snap back.
     ``never_touch_cap_ms`` hard-stops extends before media-IP CTA / never-touch
     tape even when the next keeper sits after that hole.
+    ``max_keep_ms`` is accepted and ignored: segment length does not place the cut.
     """
+    del max_keep_ms
     from pathlib import Path
 
     from interview_mux.gap_vo_prior_context import (
@@ -1496,7 +1524,7 @@ def resolve_keeper_air_bounds(
     )
 
     conf = ideal_cuts_cfg()
-    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 5_000)
+    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 30_000)
     acoustic_on = bool(conf.get("acoustic_edge_refine", True))
     acoustic_search = int(conf.get("acoustic_search_ms") or 120)
 
@@ -1557,6 +1585,13 @@ def resolve_keeper_air_bounds(
     hard_cap = None
     if next_keeper_start_ms is not None:
         hard_cap = int(next_keeper_start_ms) - 80
+        if words and same_story:
+            from interview_mux.gap_vo_prior_context import concept_continues_across
+
+            # Same chapter or talking point, and the same thought: one span
+            # tells the story better. Otherwise the next segment stays apart.
+            if concept_continues_across(words, int(next_keeper_start_ms)):
+                hard_cap = None
     if never_touch_cap_ms is not None:
         nt_cap = int(never_touch_cap_ms)
         hard_cap = nt_cap if hard_cap is None else min(hard_cap, nt_cap)
@@ -1564,12 +1599,9 @@ def resolve_keeper_air_bounds(
     if prev_keeper_end_ms is not None:
         prev_floor = int(prev_keeper_end_ms) + 80
 
-    # After ideal-window clamp, do not walk the open earlier than the clamped start.
-    open_floor = (
-        start
-        if meta.get("air_bound_reason") == "ideal_window_clamp"
-        else max(0, start - edge_buf)
-    )
+    # The ideal window is the seed. The open may still walk back 30s when the
+    # concept starts earlier than that window.
+    open_floor = max(0, start - edge_buf)
     if prev_floor is not None:
         open_floor = max(open_floor, prev_floor)
         if start < prev_floor:
@@ -1582,7 +1614,7 @@ def resolve_keeper_air_bounds(
             str(w.get("text") or w.get("word") or "").strip()
             for w in words
             if isinstance(w, dict)
-            and start <= int(w.get("start_ms") or 0) <= min(end, start + 8_000)
+            and start <= int(w.get("start_ms") or 0) <= min(end, start + 30_000)
             and str(w.get("text") or w.get("word") or "").strip()
         ]
         start_text = " ".join(start_toks[:16]) if start_toks else ""
@@ -1636,9 +1668,7 @@ def resolve_keeper_air_bounds(
                 words,
                 from_ms=end,
                 max_extend_ms=max(int(max_extend_ms), edge_buf),
-                hard_cap_ms=hard_cap if hard_cap is not None else (
-                    start + int(max_keep_ms) if max_keep_ms else None
-                ),
+                hard_cap_ms=hard_cap,
             )
             if extended is not None and extended - start >= min_keep_ms:
                 end = extended
@@ -1661,30 +1691,6 @@ def resolve_keeper_air_bounds(
                     if not _hang(words, retreated):
                         end = retreated
                         meta["air_bound_reason"] = "retreat_to_legal_hinge"
-
-    span = end - start
-    budget = int(max_keep_ms) if max_keep_ms is not None else None
-    if budget is not None and span > budget and words:
-        target_end = start + budget
-        snapped = last_complete_thought_end_ms(
-            words,
-            start_ms=start,
-            end_ms=min(end, target_end + 2_000),
-            max_lookback_ms=max(budget, 12_000),
-        )
-        if snapped is not None and snapped - start >= min_keep_ms:
-            if snapped <= start + budget:
-                end = snapped
-            else:
-                earlier = last_complete_thought_end_ms(
-                    words, start_ms=start, end_ms=start + budget
-                )
-                if earlier is not None and earlier - start >= min_keep_ms:
-                    end = earlier
-            meta["air_bound_reason"] = "budget_hinge_trim"
-        elif snapped is not None and snapped - start >= min_keep_ms:
-            end = snapped
-            meta["air_bound_reason"] = "budget_hinge_trim"
 
     owned_end: int | None = None
     last_word_cross_ms = 800

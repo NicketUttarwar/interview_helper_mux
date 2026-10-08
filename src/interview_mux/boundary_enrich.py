@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from interview_mux.config import merged_config
@@ -224,6 +225,29 @@ def _word_count(span: list[dict[str, Any]]) -> int:
     return sum(1 for w in span if str(w.get("text") or "").strip())
 
 
+_ACK_TOKENS = frozenset(
+    {
+        "okay",
+        "ok",
+        "yeah",
+        "yep",
+        "yes",
+        "right",
+        "sure",
+        "exactly",
+        "mm",
+        "mhm",
+        "mmhmm",
+        "uhhuh",
+    }
+)
+
+
+def _ack_token(text: str) -> bool:
+    bare = re.findall(r"[A-Za-z0-9']+", text or "")
+    return bool(bare) and all(tok.lower() in _ACK_TOKENS for tok in bare)
+
+
 def _split_points_from_backchannels(
     words: list[dict[str, Any]],
     *,
@@ -232,6 +256,7 @@ def _split_points_from_backchannels(
     roles: dict[str, str],
     backchannel_max_words: int,
 ) -> list[int]:
+    del roles
     span_words = _words_in_span(words, start_ms, end_ms)
     if len(span_words) < 2:
         return []
@@ -240,13 +265,11 @@ def _split_points_from_backchannels(
     i = 0
     while i < len(span_words):
         w = span_words[i]
-        sid = str(w.get("speaker_id") or "")
-        role = roles.get(sid, "unknown")
-        if role != "interviewer":
+        if not _ack_token(str(w.get("text") or "")):
             i += 1
             continue
         turn_start = i
-        while i < len(span_words) and str(span_words[i].get("speaker_id") or "") == sid:
+        while i < len(span_words) and _ack_token(str(span_words[i].get("text") or "")):
             i += 1
         turn_words = span_words[turn_start:i]
         if _word_count(turn_words) <= backchannel_max_words:
@@ -261,36 +284,6 @@ def _split_points_from_backchannels(
             if start_ms + 500 < split_end < end_ms - 500:
                 splits.append(split_end)
     return sorted(set(splits))
-
-
-def _best_pause_split(
-    words: list[dict[str, Any]],
-    *,
-    start_ms: int,
-    end_ms: int,
-    pause_split_ms: int,
-    target_ms: int | None = None,
-) -> int | None:
-    span_words = _words_in_span(words, start_ms, end_ms)
-    if len(span_words) < 2:
-        return None
-
-    best: tuple[int, int] | None = None
-    for i in range(1, len(span_words)):
-        prev = span_words[i - 1]
-        cur = span_words[i]
-        gap = int(cur["start_ms"]) - int(prev["end_ms"])
-        if gap < pause_split_ms:
-            continue
-        split_at = int(cur["start_ms"])
-        if split_at <= start_ms + 500 or split_at >= end_ms - 500:
-            continue
-        score = gap
-        if target_ms is not None:
-            score -= abs(split_at - target_ms) // 10
-        if best is None or score > best[0]:
-            best = (score, split_at)
-    return best[1] if best else None
 
 
 def _split_row_at_points(
@@ -365,7 +358,7 @@ def split_backchannel_turns(
         if not splits:
             result.append(dict(row))
             continue
-        pieces = _split_row_at_points(row, splits, reason="speaker_change")
+        pieces = _split_row_at_points(row, splits, reason="backchannel")
         applied.append({"action": "split_backchannel", "segment_id": row.get("segment_id"), "splits": len(pieces) - 1})
         result.extend(pieces)
     return result, applied
@@ -380,19 +373,22 @@ def _best_complete_thought_split(
     target_ms: int | None = None,
     min_ms: int = 4000,
 ) -> int | None:
-    """Split at a complete-thought hinge near ``target_ms`` (never a raw midpoint)."""
-    from interview_mux.gap_vo_prior_context import ends_complete_thought
+    """Split at a concept change near ``target_ms`` (never a raw midpoint)."""
+    from interview_mux.gap_vo_prior_context import (
+        concept_boundary_rank,
+        is_legal_conceptual_hinge,
+        word_density_per_sec,
+    )
 
+    del pause_split_ms
     span_words = _words_in_span(words, start_ms, end_ms)
     if len(span_words) < 2:
         return None
-    best: tuple[int, int] | None = None
+    best: tuple[float, int] | None = None
     for i in range(len(span_words) - 1):
         prev = span_words[i]
         nxt = span_words[i + 1]
         gap = int(nxt["start_ms"]) - int(prev["end_ms"])
-        if gap < pause_split_ms:
-            continue
         split_at = int(nxt["start_ms"])
         if split_at <= start_ms + min_ms or split_at >= end_ms - min_ms:
             continue
@@ -404,18 +400,16 @@ def _best_complete_thought_split(
         text = " ".join(toks)
         if not text:
             continue
-        if not ends_complete_thought(text, next_pause_ms=gap):
-            continue
-        # Prefer legal conceptual hinges (hanging setups never qualify).
-        from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
-
+        end_ms_word = int(prev["end_ms"])
         if not is_legal_conceptual_hinge(
-            text, words=span_words, end_ms=int(prev["end_ms"]), next_pause_ms=gap
+            text, words=span_words, end_ms=end_ms_word, next_pause_ms=gap
         ):
             continue
-        score = gap
+        before = word_density_per_sec(span_words, end_ms_word - 1)
+        after = word_density_per_sec(span_words, split_at)
+        score = concept_boundary_rank(gap_ms=gap, density_before=before, density_after=after)
         if target_ms is not None:
-            score -= abs(split_at - target_ms) // 10
+            score -= abs(split_at - target_ms) / 100_000.0
         if best is None or score > best[0]:
             best = (score, split_at)
     return best[1] if best else None
@@ -429,12 +423,10 @@ def _all_complete_thought_split_points(
     pause_split_ms: int,
     min_ms: int,
 ) -> list[int]:
-    """Every legal complete-thought hinge in-span (not midpoints)."""
-    from interview_mux.gap_vo_prior_context import (
-        ends_complete_thought,
-        is_legal_conceptual_hinge,
-    )
+    """Every concept change in-span (not midpoints, pauses, or finished sentences)."""
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
 
+    del pause_split_ms
     span_words = _words_in_span(words, start_ms, end_ms)
     if len(span_words) < 2:
         return []
@@ -443,8 +435,6 @@ def _all_complete_thought_split_points(
         prev = span_words[i]
         nxt = span_words[i + 1]
         gap = int(nxt["start_ms"]) - int(prev["end_ms"])
-        if gap < pause_split_ms:
-            continue
         split_at = int(nxt["start_ms"])
         if split_at <= start_ms + min_ms or split_at >= end_ms - min_ms:
             continue
@@ -455,8 +445,6 @@ def _all_complete_thought_split_points(
         ]
         text = " ".join(toks)
         if not text:
-            continue
-        if not ends_complete_thought(text, next_pause_ms=gap):
             continue
         if not is_legal_conceptual_hinge(
             text, words=span_words, end_ms=int(prev["end_ms"]), next_pause_ms=gap
@@ -547,75 +535,15 @@ def enforce_max_segment_duration(
     cfg: dict[str, Any] | None = None,
     topic_split_times: list[int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    sc = _seg_cfg(cfg)
-    max_ms = sc.get("max_segment_duration_ms")
-    if max_ms is None:
-        return rows, []
-    max_ms = int(max_ms)
-    min_ms = int(sc.get("min_segment_duration_ms") or 4000)
-    pause_ms = int((merged_config().get("analysis") or {}).get("prompt_thresholds", {}).get("pause_split_ms") or 1000)
-    words = _words_from_transcript(transcript)
-    topic_times = sorted(topic_split_times or [])
+    """Length never places a cut.
 
-    applied: list[dict[str, Any]] = []
-    queue = [dict(r) for r in rows if r.get("start_ms") is not None and r.get("end_ms") is not None]
-    result: list[dict[str, Any]] = []
-
-    while queue:
-        row = queue.pop(0)
-        start = int(row["start_ms"])
-        end = int(row["end_ms"])
-        span = end - start
-        if span <= max_ms:
-            result.append(row)
-            continue
-
-        target = start + span // 2
-        topic_candidates = [t for t in topic_times if start + min_ms < t < end - min_ms]
-        split_at: int | None = topic_candidates[len(topic_candidates) // 2] if topic_candidates else None
-        reason = "topic_shift"
-        if split_at is None:
-            split_at = _best_complete_thought_split(
-                words,
-                start_ms=start,
-                end_ms=end,
-                pause_split_ms=pause_ms,
-                target_ms=target,
-                min_ms=min_ms,
-            )
-            reason = "complete_thought"
-        if split_at is None:
-            split_at = _best_pause_split(
-                words, start_ms=start, end_ms=end, pause_split_ms=pause_ms, target_ms=target
-            )
-            reason = "pause"
-        if split_at is None:
-            # Do not midpoint-force-split airable speech — leave overlong and mark
-            # non-airable until a complete-thought re-cut is available.
-            flagged = {
-                **row,
-                "overlong_unsplit": True,
-                "airable": False,
-                "proposed_split_reason": "skip_midpoint",
-            }
-            result.append(flagged)
-            applied.append(
-                {
-                    "action": "skip_midpoint_split",
-                    "start_ms": start,
-                    "end_ms": end,
-                    "span_ms": span,
-                }
-            )
-            continue
-
-        left = {**row, "start_ms": start, "end_ms": split_at, "proposed_split_reason": reason}
-        right = {**row, "start_ms": split_at, "end_ms": end, "proposed_split_reason": reason}
-        applied.append({"action": "enforce_max_duration", "split_ms": split_at, "span_ms": span})
-        queue.insert(0, right)
-        queue.insert(0, left)
-
-    return result, applied
+    A span stays whole until the words change concept. The duration cap does not
+    split it, does not cut on a breath or a word near the middle, and does not
+    mark it unairable.
+    """
+    del transcript, cfg, topic_split_times
+    kept = [dict(r) for r in rows if isinstance(r, dict)]
+    return kept, []
 
 
 def topic_split_times_from_brief(

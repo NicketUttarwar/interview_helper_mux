@@ -57,7 +57,7 @@ def incomplete_trim_ends(ctx: RunContext, data: dict[str, Any]) -> list[str]:
     if not overrides or not ctx.artifact_exists("transcript/full.json"):
         return []
     try:
-        from interview_mux.gap_vo_prior_context import ends_complete_thought
+        from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
 
         transcript = ctx.read_json("transcript/full.json")
     except Exception:
@@ -74,7 +74,7 @@ def incomplete_trim_ends(ctx: RunContext, data: dict[str, Any]) -> list[str]:
         except (TypeError, ValueError):
             continue
         text = _words_text_before_ms(words, end_ms)
-        if text and not ends_complete_thought(text):
+        if text and not is_legal_conceptual_hinge(text, words=words, end_ms=end_ms):
             flagged.append(str(seg_id))
     return sorted(flagged)
 

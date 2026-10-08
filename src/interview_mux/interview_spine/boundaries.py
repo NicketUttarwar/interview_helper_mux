@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 
 from interview_mux.audio_energy import energy_windows_from_path
-from interview_mux.interview_spine.constants import PAUSE_LADDER_MS, PAUSE_SPLIT_MS
+from interview_mux.interview_spine.constants import PAUSE_LADDER_MS
 
 
 def build_boundary_events(
@@ -149,24 +149,42 @@ def _prosody_shift_events(windows: list[dict[str, Any]]) -> list[dict[str, Any]]
 def _topic_shift_hint_events(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(words) < 2:
         return []
+    from interview_mux.gap_vo_prior_context import (
+        concept_boundary_rank,
+        is_legal_conceptual_hinge,
+        word_density_per_sec,
+    )
+
     out: list[dict[str, Any]] = []
     sorted_words = sorted(words, key=lambda w: float(w.get("start_ms", 0)))
     for i in range(1, len(sorted_words)):
         prev = sorted_words[i - 1]
         cur = sorted_words[i]
-        if prev.get("speaker_id") == cur.get("speaker_id"):
-            continue
+        end_ms = int(float(prev.get("end_ms") or 0))
+        prev_text = " ".join(
+            str(w.get("text") or "")
+            for w in sorted_words[max(0, i - 16) : i]
+            if w.get("text")
+        )
         gap = float(cur["start_ms"]) - float(prev["end_ms"])
-        if gap >= PAUSE_SPLIT_MS:
-            out.append(
-                {
-                    "time_ms": int(cur["start_ms"]),
-                    "type": "topic_shift_hint",
-                    "confidence": round(min(1.0, gap / 1200.0), 3),
-                    "sources": ["speaker_turn_pause"],
-                    "window_ids": [],
-                }
-            )
+        if not is_legal_conceptual_hinge(
+            prev_text, words=sorted_words, end_ms=end_ms, next_pause_ms=int(gap)
+        ):
+            continue
+        before = word_density_per_sec(sorted_words, end_ms - 1)
+        after = word_density_per_sec(sorted_words, int(cur["start_ms"]))
+        rank = concept_boundary_rank(gap_ms=int(gap), density_before=before, density_after=after)
+        if after >= before and before > 0:
+            continue
+        out.append(
+            {
+                "time_ms": int(cur["start_ms"]),
+                "type": "topic_shift_hint",
+                "confidence": round(min(1.0, 0.4 + rank), 3),
+                "sources": ["concept_change"],
+                "window_ids": [],
+            }
+        )
     return out
 
 

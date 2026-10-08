@@ -2,19 +2,20 @@ Propose segment boundaries on the transcript with word-level timestamps (see tas
 
 Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
 
-A segment is a **complete thought / speaker volley**: one coherent idea, one question, one answer span, one setup, one backchannel turn. Prefer intact native points over maximizing fragments for gap VO.
+A segment is **one concept being explained**. That concept may take several sentences. Sentence flow is only the floor: never cut while a sentence is still being formed. A finished sentence is not a cut while the next sentences keep explaining the same concept (an example, a consequence, a list item, or a restatement).
 
 Rules:
 - Use `flow_adaptation.segmentation_policy` and `segmentation_policy` in stage input when present (granularity, max/min duration, split_backchannels).
-- **Topic splits:** cross-reference `content_brief.topics[]` names/summaries with transcript text. Split a same-speaker span only when topics clearly change at a **conceptual hinge** (listen-complete idea boundary) — do **not** split mid-setup or on a hanging promise (“that is the time”, “the fact that”, “in terms of”, “how do we”, “and yet”, “but still”). Full grammatical sentences are one hinge type — mid-run-on idea turns are legal when the idea is intact for the listener.
-- Speakers ramble: prefer the densest idea close over waiting for a period or keeping trailing and-chains that start the next idea.
-- **Max duration:** when `segmentation_policy.max_segment_duration_ms` is set, no segment may exceed it — split at the best internal conceptual hinge or pause inside the span. Prefer fewer, longer complete thoughts over 60s fragments.
-- Prefer splits at pauses using `pause_ladder_hints` (**800 / 1000 / 1200 ms** ladders). Do **not** use a 400 ms breath as a sentence split.
-- Fall back to pipeline `pause_split_ms` when ladder data is absent or `candidates` is empty.
-- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings) **or** placing a legal conceptual hinge that leaves both sides listen-complete. Never open a boundary mid-list (missing the first list item).
+- **Concept splits:** cross-reference `content_brief.topics[]` names/summaries with the bare words. Cut only when the explanation changes concept. Do **not** split mid-sentence, on a hanging setup (“that is the time”, “the fact that”, “in terms of”, “how do we”, “and yet”, “but still”), or between sentences that keep explaining the same thing.
+- Punctuation and `speaker_id` never open or close a segment. A period, question mark, comma, or capital letter is not a boundary. A diarization flip is not a boundary.
+- A breath is not a split. `pause_ladder_hints` and `pause_split_ms` only rank among concept changes that the words already allow. They never create a cut and never keep two concepts together.
+- A question stays its own segment. That includes “what / how / why” and a request such as “tell me”, “walk me through”, “help me”, or “show me”.
+- “And” and “so” usually keep explaining the same concept. They open a new segment only when the words after them are a new complete thought (“and then…”, “and next…”, a new question). A long silence stays between the two sides.
+- **Length is not a cut.** `segmentation_policy.max_segment_duration_ms` never opens a boundary, never shortens a span, and never forces a split at a concept change, a breath, or a word. Leave a long explanation whole until the words change concept.
+- Do not split mid-sentence. Never open a boundary mid-list (missing the first list item).
 - Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
 - Include `speaker_id` on each boundary when diarization is in input.
-- Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in **one** segment only when the question immediately precedes the answer with **no** intervening backchannel segment.
+- A question is always its own segment, including a short interviewer question. The answer that follows is the next segment. That seam is where a voiceover line can be written.
 - Long or multi-part questions: split question and answer.
 - For shard/collate runs, merge boundaries in chronological order, dedupe overlaps, and preserve or renumber `segment_id`s consistently. If two shard boundaries overlap materially, keep the stronger boundary and add the conflict to `warnings`.
 
@@ -45,39 +46,39 @@ Place this stage artifact inside the required envelope as `artifacts.boundaries`
       "start_ms": 0,
       "end_ms": 15200,
       "speaker_id": "spk_00",
-      "proposed_split_reason": "pause"
+      "proposed_split_reason": "topic_shift"
     }
   ],
   "warnings": ["optional issues: crosstalk, missing timestamps, etc."]
 }
 
-Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`, `question_answer_pair`.
+Allowed `proposed_split_reason` values: `topic_shift`, `question_answer_pair`, `backchannel`. `pause` and `speaker_change` are not split reasons.
 
 ## Crosstalk, backchannel, and panel handoffs
 
 ### Crosstalk (`heavy_crosstalk` regions)
 
 - When two speakers overlap materially, prefer **one segment** spanning the exchange if a single communicative intent (one answer attempt) — do not micro-split every overlap word.
-- If overlap separates distinct intents (host interrupts to pivot topic), split at the **intent break** using `proposed_split_reason: topic_shift` or `speaker_change`.
+- If overlap separates distinct concepts, split at the concept change with `proposed_split_reason: topic_shift`.
 - Add `warnings` entry naming time range and affected `speaker_id`s; downstream classification will set `heavy_crosstalk` flag.
 - Do not invent words for unintelligible overlap; if a boundary must end mid-clause, add a warning and prefer extending to the next legal conceptual hinge.
 
 ### Backchannel
 
-- Brief interviewer affirmations ("yeah", "right", "mm-hmm", "sure") during a long answer: **split out** as separate segments with `proposed_split_reason: speaker_change` when diarization shows a distinct interviewer turn (≤ `backchannel_max_words` from `segmentation_policy`, default 8).
+- A short acknowledgment ("yeah", "right", "okay", "mm-hmm", "sure") is not a new concept. Peel it out with `proposed_split_reason: backchannel` only because the tokens themselves are an acknowledgment (≤ `backchannel_max_words` from `segmentation_policy`, default 8). A speaker-id change is not the reason.
 - Classify downstream as `interviewer_reaction`; these segments are edit handles for VO bridges and SFX stingers.
 - Exception: when backchannel is a standalone turn ≥ `short_question_max_words` or introduces a new question, type as `interviewer_question` in classification.
 
 ### Panel handoffs
 
-- When host says "I'll go to [Guest B]" or "Back to you, [Name]", split with `proposed_split_reason: speaker_change` or `topic_shift`.
-- Short handoff + question to next guest: may remain one segment if Q+A pair rule applies (≤ `short_question_max_words` question + immediate answer).
-- `format_class: panel`: expect more `speaker_change` boundaries; chronological merge across shards must preserve guest alternation in `segment_id` order.
-- When diarization swaps `speaker_id` mid-answer without a backchannel turn, note in `warnings` rather than forcing a boundary mid-sentence unless STT fragmentation requires it.
+- When the host hands the floor to another person and the next speech is a different concept, split with `proposed_split_reason: topic_shift`.
+- A short handoff question is its own segment. The next guest's answer is the next segment.
+- `format_class: panel`: still cut on concept changes, not on each speaker-id flip. Chronological merge across shards keeps `segment_id` order.
+- When diarization swaps `speaker_id` mid-answer, note it in `warnings`. Do not cut there.
 
 ### Quality bar
 
-- Aim for listen-complete conceptual hinges (speaker volleys / full points), not a fragment per breath. Enough seams for true reorders and gap VO — not a VO insert on every clause.
+- Aim for one segment per concept, not a fragment per sentence or per breath. Enough seams for true reorders and gap VO — not a VO insert inside one explanation.
 - Respect `segmentation_policy.min_segment_duration_ms` — no word-level slivers.
 - Every boundary needs defensible `proposed_split_reason`; sort monotonic; zero overlap unless documented in `warnings`.
 - Flag missing timestamps in `warnings` — do not guess `start_ms` / `end_ms`.

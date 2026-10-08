@@ -71,7 +71,10 @@ def test_resolver_ignores_a_next_keeper_that_starts_before_this_one() -> None:
         next_keeper_start_ms=10_000,
     )
     assert start >= 49_000
-    assert end - start <= 182_000
+    assert end > start
+    # An earlier air-order neighbour must not collapse this keeper, and length
+    # must not trim it. The words stay through the source span.
+    assert end > 182_000
 
 
 def test_reordered_edl_keeps_seg_021_on_its_own_tape() -> None:

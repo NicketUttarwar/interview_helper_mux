@@ -15,8 +15,6 @@ from typing import Any
 from interview_mux.audio_timeline import snap_cut_to_word_boundary
 from interview_mux.gap_vo_prior_context import (
     DEFAULT_PAUSE_SPLIT_MS,
-    ends_complete_thought,
-    ends_hanging_setup,
     is_backchannel_only_text,
     is_legal_conceptual_hinge,
     opens_with_backchannel_completion,
@@ -233,14 +231,7 @@ def complete_thought_candidates(
         for w in words
         if from_ms < int(w.get("end_ms") or 0) <= horizon_ms and _word_text(w)
     ]
-    if speaker:
-        filtered = [
-            w
-            for w in window
-            if not w.get("speaker_id") or str(w.get("speaker_id") or "") == speaker
-        ]
-        if filtered:
-            window = filtered
+    del speaker
     if not window:
         return []
     candidates: list[int] = []
@@ -252,22 +243,12 @@ def complete_thought_candidates(
         candidate = " ".join(accumulated)
         pause = _pause_after(window, i)
         end_ms = int(w.get("end_ms") or 0)
-        rest = " ".join(
-            _word_text(window[j]) for j in range(i + 1, min(i + 5, len(window)))
+        complete = is_legal_conceptual_hinge(
+            candidate,
+            words=words,
+            end_ms=end_ms,
+            next_pause_ms=pause,
         )
-        complete = ends_complete_thought(candidate, next_pause_ms=pause)
-        if not complete:
-            # Trailing commas / subordinate tails still count as done when the
-            # next native beat is a backchannel or discourse opener ("okay").
-            if rest and _next_opens_new_beat(rest):
-                complete = True
-            elif not ends_hanging_setup(candidate) and is_legal_conceptual_hinge(
-                candidate,
-                words=window,
-                end_ms=end_ms,
-                next_pause_ms=pause,
-            ):
-                complete = True
         if not complete:
             continue
         if is_backchannel_only_text(candidate):
@@ -295,14 +276,7 @@ def remainder_open_ms(
         for w in words
         if keep_end_ms <= int(w.get("start_ms") or 0) <= horizon_ms and _word_text(w)
     ]
-    if speaker:
-        filtered = [
-            w
-            for w in window
-            if not w.get("speaker_id") or str(w.get("speaker_id") or "") == speaker
-        ]
-        if filtered:
-            window = filtered
+    del speaker
     if not window:
         return None
     leftover = " ".join(_word_text(w) for w in window)
@@ -537,7 +511,7 @@ def enrich_thought_complete_findings(
     words = _transcript_words(ctx)
     segs = _segments_by_id(ctx)
     max_segments = max(1, int(conf.get("thought_complete_max_segments") or 4))
-    max_ms = max(500, int(conf.get("thought_complete_max_ms") or conf.get("phrase_extend_max_ms") or 24000))
+    max_ms = max(500, int(conf.get("thought_complete_max_ms") or conf.get("phrase_extend_max_ms") or 30_000))
 
     pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
     packets: list[dict[str, Any]] = []

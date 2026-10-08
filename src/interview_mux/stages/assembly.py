@@ -50,7 +50,7 @@ def _commit_edl_gap_report(ctx: RunContext, gap_report: dict) -> None:
 
 
 # How far past a segment's end the EDL may reach to finish a hanging thought.
-HANGING_END_EXTEND_MAX_MS = 12_000
+HANGING_END_EXTEND_MAX_MS = 30_000
 
 
 def extend_hanging_end_to_thought(
@@ -654,6 +654,11 @@ def build_flow1_edl(
 
         if not chapter_music_bridge_cfg().get("chapter_music_bridge_enable", True):
             return
+        # The kept tape pause and a chapter bridge are one seam. The bridge
+        # wins, including when the voiceover file is longer than its estimate.
+        if clips and str(clips[-1].get("air_kind") or "") == "kept_source_gap":
+            dropped = clips.pop()
+            timeline_ms = max(0, timeline_ms - int(dropped.get("duration_ms") or 0))
         # One bridge per seam — skip if we just placed one.
         if clips and str(clips[-1].get("air_kind") or "") == CHAPTER_MUSIC_BRIDGE_AIR_KIND:
             return
@@ -723,6 +728,66 @@ def build_flow1_edl(
             if o != sid and (s0 := _raw_start(o)) is not None and s0 > start
         ]
         return min(later) if later else None
+
+    chapter_of: dict[str, str] = {}
+
+    def _note_chapters(chapters: object) -> None:
+        if not isinstance(chapters, list):
+            return
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            cid = str(ch.get("chapter_id") or ch.get("id") or "").strip()
+            if not cid:
+                continue
+            for raw_sid in ch.get("segment_ids") or []:
+                key = str(raw_sid).strip()
+                if key and key not in chapter_of:
+                    chapter_of[key] = cid
+
+    _note_chapters(selection.get("chapters"))
+    if ctx is not None:
+        try:
+            from interview_mux.mastering_plan_loader import load_plan_raw
+
+            plan = load_plan_raw(ctx) or {}
+            _note_chapters(plan.get("chapters") if isinstance(plan, dict) else None)
+        except Exception:
+            pass
+
+    def _chapter_id_of(row: dict | None) -> str:
+        if not isinstance(row, dict):
+            return ""
+        own = str(row.get("chapter_id") or "").strip()
+        if own:
+            return own
+        return chapter_of.get(str(row.get("segment_id") or "").strip(), "")
+
+    def _same_story(earlier: dict | None, later: dict | None) -> bool:
+        """Same chapter or the same talking point. A topic tag is too broad."""
+        if not isinstance(earlier, dict) or not isinstance(later, dict):
+            return False
+        chapter_a = _chapter_id_of(earlier)
+        chapter_b = _chapter_id_of(later)
+        if chapter_a and chapter_a == chapter_b:
+            return True
+        point_a = str(earlier.get("talking_point_id") or "")
+        point_b = str(later.get("talking_point_id") or "")
+        return bool(point_a and point_a == point_b)
+
+    def _keeps_neighbor_wall(later: dict | None) -> bool:
+        """A question stays apart so the voiceover seam is not walked into."""
+        if not isinstance(later, dict):
+            return False
+        if str(later.get("type") or "") in {
+            "interviewer_question",
+            "interviewer_prompt",
+            "host_turn",
+        }:
+            return True
+        from interview_mux.gap_vo_prior_context import _opens_as_ask
+
+        return _opens_as_ask(str(later.get("text") or ""))
 
     def _last_non_silence_type() -> str:
         for clip in reversed(clips):
@@ -926,7 +991,12 @@ def build_flow1_edl(
                 "line_category": line.get("line_category"),
                 "episode_orientation": bool(line.get("episode_orientation")),
                 "opening_sequence": line.get("opening_sequence"),
-                "allow_music_bed_overlap": bool(line.get("allow_music_bed_overlap")),
+                "allow_music_bed_overlap": bool(line.get("allow_music_bed_overlap"))
+                or (
+                    placement == "before"
+                    and bool(clips)
+                    and str(clips[-1].get("air_kind") or "") == "kept_source_gap"
+                ),
                 **_copy_hashes(line),
                 "source_path": rel,
                 "duration_ms": dur,
@@ -949,6 +1019,88 @@ def build_flow1_edl(
             elif dur > 0:
                 _append_air("after_vo", dur)
 
+        def _before_vo_earns_chapter_bridge() -> bool:
+            if not before_lines:
+                return False
+            try:
+                from interview_mux.chapter_music_bridge import (
+                    montage_move_for_segment,
+                    vo_line_earns_bridge,
+                )
+                from interview_mux.mastering_plan_loader import load_plan_raw
+
+                plan = load_plan_raw(ctx) if ctx is not None else {}
+                if not isinstance(plan, dict):
+                    plan = {}
+                move = montage_move_for_segment(plan, sid)
+                first_after = False
+                spine = plan.get("story_spine") if isinstance(plan.get("story_spine"), dict) else {}
+                scenes = [s for s in (spine.get("scenes") or []) if isinstance(s, dict)]
+                for si, scene in enumerate(scenes):
+                    if si <= 0:
+                        continue
+                    segs = [str(x) for x in (scene.get("segment_ids") or [])]
+                    if segs and segs[0] == sid:
+                        first_after = True
+                        break
+                for line in before_lines:
+                    if _is_orientation(line):
+                        continue
+                    measured: int | None = None
+                    if resolve_vo_path is not None:
+                        vo_path = resolve_vo_path(line)
+                        if vo_path is not None and vo_path.is_file():
+                            measured = duration_fn(vo_path)
+                    if vo_line_earns_bridge(
+                        line,
+                        montage_move=move,
+                        first_after_chapter_hinge=first_after,
+                        measured_duration_ms=measured,
+                    ):
+                        return True
+            except Exception:
+                return False
+            return False
+
+        def _insert_kept_source_gap() -> None:
+            nonlocal timeline_ms
+            if not isinstance(prev_seg, dict) or _same_story(prev_seg, seg):
+                return
+            if clips and str(clips[-1].get("air_kind") or "") == "chapter_music_bridge":
+                return
+            if _before_vo_earns_chapter_bridge():
+                return
+            try:
+                source_gap = int(seg.get("start_ms") or 0) - int(prev_seg.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                source_gap = 0
+            if source_gap < 8_000:
+                return
+            prev_end = int(prev_seg.get("end_ms") or 0)
+            this_start = int(seg.get("start_ms") or 0)
+            for other_id, other in segments_by_id.items():
+                if other_id in {sid, prev_sid} or not isinstance(other, dict):
+                    continue
+                try:
+                    other_start = int(other.get("start_ms") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if prev_end < other_start < this_start:
+                    return
+            kept = min(source_gap, 30_000)
+            clips.append(
+                {
+                    "type": "silence",
+                    "air_kind": "kept_source_gap",
+                    "duration_ms": kept,
+                    "timeline_start_ms": timeline_ms,
+                    "preserve_planned_music": True,
+                    "music_bed_preferred": True,
+                }
+            )
+            timeline_ms += kept
+
+        _insert_kept_source_gap()
         for line in before_lines:
             _emit_vo_line(line, placement="before")
 
@@ -976,6 +1128,17 @@ def build_flow1_edl(
         air_meta: dict = {}
         next_keeper_start = _tape_next_start(str(sid), speech_start)
         prev_speech_end_ms = _tape_prev_end(str(sid), speech_start)
+        next_tape = None
+        if next_keeper_start is not None:
+            for other_id, other in segments_by_id.items():
+                if other_id == sid or not isinstance(other, dict):
+                    continue
+                try:
+                    if int(other.get("start_ms") or 0) == int(next_keeper_start):
+                        next_tape = other
+                        break
+                except (TypeError, ValueError):
+                    continue
         if ideal_cuts is not None or words:
             from interview_mux.media_ip_cta import never_touch_end_cap_ms
 
@@ -990,6 +1153,7 @@ def build_flow1_edl(
                 next_keeper_start_ms=next_keeper_start,
                 prev_keeper_end_ms=prev_speech_end_ms,
                 never_touch_cap_ms=nt_cap,
+                same_story=_same_story(seg, next_tape) and not _keeps_neighbor_wall(next_tape),
                 meta_out=air_meta,
                 wav_path=normalized_wav,
             )

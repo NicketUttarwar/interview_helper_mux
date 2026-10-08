@@ -11,12 +11,11 @@ from interview_mux.ideal_cuts import (
 
 
 def _words() -> list[dict]:
-    # Two listen-complete spans with a pause between them.
+    # Two concepts with a pause between them. The second opens a new question.
+    first = "the company shipped snack june".split()
+    second = "what happened after that launch in the market today".split()
     out = []
-    for i in range(10):
-        tok = f"a{i}"
-        if i == 4:
-            tok = f"a{i}."
+    for i, tok in enumerate(first):
         out.append(
             {
                 "word": tok,
@@ -25,12 +24,8 @@ def _words() -> list[dict]:
                 "speaker_id": "spk_0",
             }
         )
-    # 1.2s pause then second span
     base = 3700
-    for i in range(10):
-        tok = f"b{i}"
-        if i == 9:
-            tok = f"b{i}."
+    for i, tok in enumerate(second):
         out.append(
             {
                 "word": tok,

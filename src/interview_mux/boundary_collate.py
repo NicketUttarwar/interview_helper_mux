@@ -233,10 +233,10 @@ def _merge_micro_boundaries(
     same_speaker_pause_ms: int = 2500,
     max_segment_duration_ms: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    del max_segment_duration_ms
     applied: list[dict[str, Any]] = []
     if not rows:
         return [], applied
-    max_ms = int(max_segment_duration_ms) if max_segment_duration_ms else None
     merged: list[dict[str, Any]] = [dict(rows[0])]
     for row in rows[1:]:
         span = _row_span(row)
@@ -256,31 +256,10 @@ def _merge_micro_boundaries(
             and prev_spk == row_spk
             and 0 <= pause_ms <= same_speaker_pause_ms
         )
-        # Never merge into a bed that would exceed the max-duration policy —
-        # otherwise enforce_max_segment_duration splits get immediately undone.
-        if same_speaker_small_pause and max_ms and prev is not None:
-            try:
-                combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
-                    prev.get("start_ms") or 0
-                )
-            except (TypeError, ValueError):
-                combined = 0
-            if combined > max_ms:
-                same_speaker_small_pause = False
         if granularity == "fine" and span >= min_segment_duration_ms and not same_speaker_small_pause:
             merged.append(dict(row))
             continue
         if merged and (span < merge_threshold_ms or same_speaker_small_pause):
-            if max_ms and prev is not None:
-                try:
-                    combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
-                        prev.get("start_ms") or 0
-                    )
-                except (TypeError, ValueError):
-                    combined = 0
-                if combined > max_ms:
-                    merged.append(dict(row))
-                    continue
             prev = merged[-1]
             prev["end_ms"] = max(int(prev.get("end_ms", 0)), int(row.get("end_ms", 0)))
             applied.append(

@@ -825,6 +825,45 @@ def adjudicate_seams_llm(
                 }
             )
             continue
+        prev_txt = str(packet.get("earlier_close_text") or packet.get("earlier_end_excerpt") or "")
+        later_txt = str(packet.get("later_start_excerpt") or "")
+        if prev_txt and later_txt:
+            from interview_mux.gap_vo_prior_context import (
+                concept_cut_allowed,
+                same_concept_continues,
+            )
+
+            if same_concept_continues(prev_txt, later_txt) or not concept_cut_allowed(
+                prev_txt, later_txt
+            ):
+                verdicts.append(
+                    {
+                        "pair_id": pid,
+                        "decision": "fuse",
+                        "fuse_direction": "into_earlier",
+                        "reason_code": "mid_sentence_continue",
+                        "rationale": "Bare text is still one sentence or one concept.",
+                        "confidence": 1.0,
+                        "forced_by": "concept_text",
+                        "seam_hash": packet.get("seam_hash"),
+                        "deterministic_hints": packet.get("deterministic_hints") or {},
+                    }
+                )
+                continue
+            verdicts.append(
+                {
+                    "pair_id": pid,
+                    "decision": "stay_independent",
+                    "fuse_direction": None,
+                    "reason_code": "concept_change",
+                    "rationale": "Bare text starts a different concept.",
+                    "confidence": 1.0,
+                    "forced_by": "concept_text",
+                    "seam_hash": packet.get("seam_hash"),
+                    "deterministic_hints": packet.get("deterministic_hints") or {},
+                }
+            )
+            continue
         if not allow_cross and not packet.get("same_speaker"):
             hints = packet.get("deterministic_hints") or {}
             gap_ms = int(packet.get("source_gap_ms") or 0)
@@ -1031,6 +1070,11 @@ def apply_connector_fuses(
         max_gap = int(conf.get("max_seam_gap_ms") or 8000)
         hints = verdict.get("deterministic_hints") or {}
         forced = str(verdict.get("forced_by") or "")
+        # A host question stays its own segment. Merging it into the answer
+        # removes the only place a voiceover line can be written.
+        if _is_host_frame_row(target) or _is_host_frame_row(later):
+            skipped.append({"pair_id": verdict.get("pair_id"), "reason": "host_frame_protected"})
+            continue
         if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(target) != _speaker_of(later):
             # A broken sentence may be fused across speakers, but never by
             # swallowing the host's framing. On a 6-minute source three
@@ -1040,14 +1084,10 @@ def apply_connector_fuses(
             # delivery cascaded. diarization_yes_same is the one exception: it
             # asserts the two labels are the same person, so there is no host
             # row to protect.
-            if forced != "diarization_yes_same" and (
-                _is_host_frame_row(target) or _is_host_frame_row(later)
-            ):
-                skipped.append({"pair_id": verdict.get("pair_id"), "reason": "host_frame_protected"})
-                continue
             if not incomplete_thought_hints(hints) and forced not in {
                 "diarization_yes_same",
                 "micro_other_absorb",
+                "concept_text",
             }:
                 skipped.append({"pair_id": verdict.get("pair_id"), "reason": "cross_speaker"})
                 continue
@@ -1056,8 +1096,12 @@ def apply_connector_fuses(
             "high_value_speech_island",
             "diarization_yes_same",
             "micro_other_absorb",
+            "concept_text",
         }
-        if gap_ms > max_gap and not hints.get("island_straddle") and not force_bypass:
+        # A long silence stays, even when the words are one concept. concept_text
+        # does not close it. A music bed may cover the kept gap later.
+        gap_bypass = force_bypass and forced != "concept_text"
+        if gap_ms > max_gap and not hints.get("island_straddle") and not gap_bypass:
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "seam_gap_cap"})
             continue
         topic_floor = float(conf.get("same_topic_score_floor") or 0.15)
@@ -2380,10 +2424,27 @@ def encompass_straddling_islands(
         earlier, later = by_id.get(earlier_id), by_id.get(later_id)
         if earlier is None or later is None:
             continue
+        if _is_host_frame_row(earlier) or _is_host_frame_row(later):
+            continue
         if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(earlier) != _speaker_of(
             later
         ):
-            continue
+            from interview_mux.gap_vo_prior_context import (
+                concept_cut_allowed,
+                same_concept_continues,
+            )
+
+            prev_txt = str(earlier.get("text") or "")
+            later_txt = str(later.get("text") or "")
+            if not (
+                prev_txt
+                and later_txt
+                and (
+                    same_concept_continues(prev_txt, later_txt)
+                    or not concept_cut_allowed(prev_txt, later_txt)
+                )
+            ):
+                continue
         a_end, b_start = _ms(earlier, "end_ms"), _ms(later, "start_ms")
         straddle, _ = _island_hints(islands, earlier_end_ms=a_end, later_start_ms=b_start)
         if not straddle:

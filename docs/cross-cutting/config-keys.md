@@ -551,7 +551,7 @@ Talking-points-first cut authority — `ideal_cuts.py`, stages `talking_points_c
 |-----|---------|---------|
 | `enable` | `true` | Run the holistic talking-points / ideal-cuts path |
 | `bind_mode` | `both` | `off` (artifacts only) · `seed_ranking` · `boundaries` · `both` |
-| `min_cut_ms` / `max_cut_ms` | `2500` / `180000` | Clamp snapped native windows |
+| `min_cut_ms` / `max_cut_ms` | `2500` / unset | Minimum native window. `max_cut_ms` is not a ceiling; the concept sizes the window |
 | `word_snap_margin_ms` / `word_snap_max_shift_ms` | `0` / `150` | Tight snap of LLM times to transcript word edges (no large free shift) |
 | `semantic_edge_buffer_ms` | `5000` | Lookback/lookahead budget when auto-fixing illegal opens/ends |
 | `acoustic_edge_refine` | `true` | After word pins, micro-nudge into silence valleys on `ingest/normalized.wav` |
@@ -1052,7 +1052,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.quality_hardening.polish.audio_grounded` | `true` | Audit scores rendered audio, not plan text | `false` reverts to the weaker text-only audit |
 | `mastering.quality_hardening.polish.max_remux_rounds` | `2` | Bounded remux budget | `0` disables repair; high values loop on marginal issues |
 | `mastering.chapter_close_hitch.enabled` | `true` | One-shot `chapter_close_hitch` after the first `narrative_arc_plan` | `false` writes a committed skip latch and leaves first-pass cuts |
-| `mastering.chapter_close_hitch.max_cut_ms` | `180000` | Ceiling on last-listen-complete search from a keeper open | Too small chops chapter/TP closes; too large can wander |
+| `mastering.chapter_close_hitch.max_cut_ms` | unset | Not a ceiling. Chapter length follows the next chapter, the next keeper, or the topic | A clock here cuts a chapter off before the content is done |
 | `mastering.chapter_close_hitch.next_keeper_eps_ms` | `80` | Interior keepers stop this far before the next keeper start | `0` can swallow the next keeper |
 | `mastering.junction_snip_qa.mode` | `advisory` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | **Dual meaning (JSQ-B1):** default label is `advisory`, but critical incomplete-cut residuals (`on_a_roll` / `incomplete_clause` / `chapter_bleed_incomplete`) always hard-block regardless of mode (EM8). `authoritative` additionally blocks other residual families; `off` skips the stage |
 | `mastering.junction_snip_qa.micro_nudge_ms` | `2500` | Energy/word micro search window (scaled by pace) | Too small misses valleys; too large over-trims |
