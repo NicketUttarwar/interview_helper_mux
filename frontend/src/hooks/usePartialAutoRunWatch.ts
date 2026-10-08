@@ -101,7 +101,9 @@ export function usePartialAutoRunWatch(opts: {
     setJobRunning,
     gPublish?.pending,
     gPublish?.package_ready,
+    gPublish?.package_complete,
     gPublish?.has_master,
+    gPublish?.cleared,
     gPublish?.skipped,
   ]);
 }

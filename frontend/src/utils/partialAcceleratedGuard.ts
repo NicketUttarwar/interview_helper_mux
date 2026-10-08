@@ -49,33 +49,10 @@ export interface PartialAutoGPublishState {
   already_uploaded_count?: number;
 }
 
-/** True when the run snapshot already proves a master exists (no /g-publish poll needed). */
-export function runHasCommittedMaster(run: RunData | null | undefined): boolean {
-  if (!run?.stages?.length) return false;
-  for (const stage of run.stages) {
-    if (stage.id === "master_finalize" && stage.status === "done") return true;
-    if (stage.id !== "podcast_publish" && stage.id !== "podcast_encode_mp3") continue;
-    const arts = [
-      ...(stage.artifacts_present ?? []),
-      ...(stage.artifacts_committed ?? []),
-      ...(stage.artifacts ?? []),
-    ];
-    if (
-      arts.some((a) => {
-        const s = String(a);
-        return s.includes("master.wav") || s.includes("audio.mp3");
-      })
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /**
- * Operator can open G-Publish review (title/cover) once master exists; package_ready
- * comes after Prepare. Prefer the /g-publish poll, but fall back to the run snapshot
- * so a slow/failed poll cannot leave the accelerated cover stuck at Ship.
+ * True only when GPublishPanel will paint the ship review.
+ * A master on disk or a pending gate is not enough: the /g-publish poll must
+ * already carry the fields the panel renders. Until then the accelerated cover stays up.
  */
 export function isGPublishReviewCheckpoint(
   gPublish: PartialAutoGPublishState | null | undefined,
@@ -86,22 +63,19 @@ export function isGPublishReviewCheckpoint(
   }
   const uploaded = Number(gPublish?.already_uploaded_count || 0) >= 1;
   if (uploaded) return false;
+  if (!gPublish) return false;
 
   if (
-    gPublish?.pending &&
+    gPublish.pending &&
     (gPublish.package_ready || gPublish.package_complete || gPublish.has_master)
   ) {
     return true;
   }
   // Prepare/Continue clears the gate before S3 — keep Ship UI mounted through packaging/upload.
   if (
-    (gPublish?.cleared || run?.meta?.g_publish_cleared) &&
-    (gPublish?.has_master || runHasCommittedMaster(run))
+    gPublish.cleared &&
+    (gPublish.has_master || gPublish.package_ready || gPublish.package_complete)
   ) {
-    return true;
-  }
-  // Poll missing/stale: gate is already waiting and master is on disk per stages.
-  if (run && isGPublishGatePending(run) && runHasCommittedMaster(run)) {
     return true;
   }
   return false;

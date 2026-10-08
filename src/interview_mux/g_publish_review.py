@@ -36,39 +36,100 @@ def _cover_rel(ctx: RunContext) -> str:
     return f"publish/{files.get('cover') or 'cover.jpg'}"
 
 
+_COVER_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _cover_image_files(directory: Path) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    return [
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in _COVER_IMAGE_SUFFIXES
+    ]
+
+
+def _candidate_index(path: Path) -> int | None:
+    stem = path.stem
+    if stem.isdigit():
+        return int(stem)
+    return None
+
+
+def _prefer_cover_file(paths: list[Path]) -> Path:
+    """One file per candidate. The finalized JPEG wins over the raw PNG copy."""
+
+    def rank(path: Path) -> tuple[int, str]:
+        order = {".jpg": 0, ".jpeg": 0, ".webp": 1, ".png": 2}
+        return (order.get(path.suffix.lower(), 9), path.name)
+
+    return sorted(paths, key=rank)[0]
+
+
+def _winner_index(ctx: RunContext) -> int | None:
+    for rel in ("publish/cover_meta.json", "publish/cover_pick.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict) or doc.get("winner_index") is None:
+            continue
+        try:
+            return int(doc["winner_index"])
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _list_cover_candidates(ctx: RunContext, *, selected_rel: str) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    selected = selected_rel.replace("\\", "/")
-    if selected:
-        out.append(
-            {
-                "path": selected,
-                "label": "Current cover",
-                "selected": True,
-            }
-        )
+    """The three generated covers, once each.
+
+    Generation stores a JPEG and a PNG per candidate, plus a flat copy of the
+    JPEG. The review grid uses the flat JPEGs (or the latest batch if those
+    copies are missing) and does not add the chosen ``publish/cover.jpg`` again.
+    """
     root = ctx.run_dir / _COVER_CANDIDATE_ROOT
-    if not root.is_dir():
-        return out
-    idx = 0
-    seen = {selected} if selected else set()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
+    grouped: dict[int, list[Path]] = {}
+    flat = _cover_image_files(root)
+    if flat:
+        sources = flat
+    else:
+        batches = sorted(
+            path
+            for path in root.iterdir()
+            if path.is_dir() and path.name.startswith("batch_")
+        ) if root.is_dir() else []
+        sources = _cover_image_files(batches[-1]) if batches else []
+    for path in sources:
+        index = _candidate_index(path)
+        if index is None:
             continue
-        if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
-            continue
-        rel = path.relative_to(ctx.run_dir).as_posix()
-        if rel in seen:
-            continue
-        seen.add(rel)
-        idx += 1
+        grouped.setdefault(index, []).append(path)
+    if not grouped:
+        return []
+
+    winner = _winner_index(ctx)
+    chosen = _resolve_publish_file(ctx, selected_rel) if selected_rel else None
+    out: list[dict[str, Any]] = []
+    for index in sorted(grouped):
+        path = _prefer_cover_file(grouped[index])
+        selected = winner == index
+        if winner is None and chosen is not None and chosen.is_file():
+            try:
+                selected = path.stat().st_size == chosen.stat().st_size and path.read_bytes() == chosen.read_bytes()
+            except OSError:
+                selected = False
         out.append(
             {
-                "path": rel,
-                "label": f"Candidate {idx}",
-                "selected": False,
+                "path": path.relative_to(ctx.run_dir).as_posix(),
+                "label": f"Candidate {len(out) + 1}",
+                "selected": selected,
             }
         )
+    if out and not any(row["selected"] for row in out):
+        out[0]["selected"] = True
     return out
 
 

@@ -162,7 +162,16 @@ export function GPublishPanel() {
     return () => window.clearInterval(t);
   }, [runId, payload?.sync_job?.status, payload?.sync_job?.execution_id, reload, applySyncTerminal]);
 
-  if (!runId || !payload || payload.enabled === false) return null;
+  if (!runId || payload?.enabled === false) return null;
+  if (!payload) {
+    return (
+      <div data-partial-auto-checkpoint="g_publish" data-testid="g-publish-loading">
+        <GatePanelShell complete={false} title="G-Publish">
+          <p className="hint">Loading publish review…</p>
+        </GatePanelShell>
+      </div>
+    );
+  }
   if (!payload.pending && !payload.has_master && !payload.package_ready && !payload.cleared) {
     return null;
   }

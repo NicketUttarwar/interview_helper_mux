@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deliveryOrderViolation,
+  isGPublishReviewCheckpoint,
   isPartialAutoCheckpoint,
   isPartialAcceleratedRun,
   isTranscriptReviewCheckpoint,
@@ -212,7 +213,7 @@ describe("partialAcceleratedGuard", () => {
     ).toBe("none");
   });
 
-  it("lifts overlay at g_publish from run snapshot when /g-publish poll is null", () => {
+  it("keeps accelerated overlay at g_publish until the review payload can paint", () => {
     const r = run({
       meta: { ...accelerated, g_publish_pending: true },
       job: {
@@ -230,9 +231,10 @@ describe("partialAcceleratedGuard", () => {
       },
       stages: [{ id: "master_finalize", status: "done" }],
     });
-    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
-    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
-    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(false);
+    expect(isGPublishReviewCheckpoint(null, r)).toBe(false);
+    expect(isPartialAutoCheckpoint(r, null)).toBe(false);
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
+    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(true);
   });
 
   it("keeps Ship checkpoint after Prepare clears the gate (until upload)", () => {

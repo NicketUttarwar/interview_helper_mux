@@ -61,6 +61,28 @@ def review_ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     return ctx
 
 
+def test_cover_candidates_are_three_unique_images(review_ctx: RunContext) -> None:
+    root = review_ctx.run_dir / "publish" / "cover_candidates"
+    batch = root / "batch_0"
+    batch.mkdir(parents=True)
+    for index, payload in enumerate((b"cover-a", b"cover-b", b"cover-c")):
+        (batch / f"{index}.png").write_bytes(payload + b"-png")
+        (batch / f"{index}.jpg").write_bytes(payload)
+        (root / f"{index}.jpg").write_bytes(payload)
+    (review_ctx.run_dir / "publish" / "cover.jpg").write_bytes(b"cover-b")
+    review_ctx.write_json("publish/cover_meta.json", {"winner_index": 1, "cover_source": "openai_generated"})
+
+    review = load_g_publish_review(review_ctx)
+    candidates = review["cover"]["candidates"]
+    assert [row["label"] for row in candidates] == ["Candidate 1", "Candidate 2", "Candidate 3"]
+    assert [row["path"] for row in candidates] == [
+        "publish/cover_candidates/0.jpg",
+        "publish/cover_candidates/1.jpg",
+        "publish/cover_candidates/2.jpg",
+    ]
+    assert [row["selected"] for row in candidates] == [False, True, False]
+
+
 def test_load_g_publish_review_paths(review_ctx: RunContext) -> None:
     review = load_g_publish_review(review_ctx)
     assert review["title"] == "Old Title"
