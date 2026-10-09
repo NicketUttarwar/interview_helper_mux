@@ -446,7 +446,7 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
                 dest,
                 reason="harvest_prompt_invalid:" + ",".join(herr[:4]),
             )
-            ctx.mark_done("episode_cover_generate")
+            _finish_episode_cover_generate(ctx)
             return
         _write_cover_prompt_doc(
             ctx,
@@ -518,7 +518,7 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
         assert pick is not None
         if _all_hard_failed(pick, len(paths)) and vp.get("on_final_fail") == "show_fallback":
             _copy_show_fallback(ctx, dest, reason="all_candidates_hard_failed")
-            ctx.mark_done("episode_cover_generate")
+            _finish_episode_cover_generate(ctx)
             return
 
         winner_i = int(pick["winner_index"])
@@ -559,6 +559,84 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
     except Exception as exc:
         ctx.log(f"Cover generate failed-open: {exc}", level="warning", stage="episode_cover_generate")
         _copy_show_fallback(ctx, dest, reason=str(exc))
+    _finish_episode_cover_generate(ctx)
+
+
+def write_publish_package_files(ctx: RunContext) -> None:
+    """Write chapters, Apple transcript, episode.json, and description.txt.
+
+    These exist before G-Publish. ``podcast_publish`` only stamps readiness;
+    the S3 button only uploads.
+    """
+    from datetime import datetime, timezone
+
+    from interview_mux.asset_transcripts import require_packagable_master_transcript
+    from interview_mux.podcast_rss.chapters import build_timed_chapters
+
+    layout = s3_layout(_podcast_cfg(ctx))
+    files = layout["episode_files"]
+    if not ctx.artifact_exists("master/transcript.vtt"):
+        raise FileNotFoundError(
+            "master/transcript.vtt missing — resume master_transcript_build "
+            "(episode package sidecars do not nested-build the master VTT)"
+        )
+    master_vtt = ctx.read_path("master/transcript.vtt")
+    if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
+        raise FileNotFoundError("master/transcript.vtt missing — cannot package Apple transcript")
+    require_packagable_master_transcript(ctx)
+
+    ctx.write_json(
+        f"publish/{files['chapters']}",
+        build_timed_chapters(ctx),
+        stage_key="episode_cover_generate",
+    )
+
+    transcript_name = str(files.get("transcript") or "transcript.vtt")
+    transcript_dest = ctx.path(f"publish/{transcript_name}")
+    transcript_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(master_vtt, transcript_dest)
+
+    meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
+    run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    source_hash = str((run_meta or {}).get("source_audio_hash") or "")
+    execution_id = str((run_meta or {}).get("execution_id") or ctx.run_id)
+    season = int(_podcast_cfg(ctx).get("season") or 1)
+    title = str((meta or {}).get("title") or "Untitled Episode").strip() or "Untitled Episode"
+    description = str((meta or {}).get("description") or title).strip() or title
+    prepared_at = datetime.now(timezone.utc).isoformat()
+    cover_meta = (
+        ctx.read_json("publish/cover_meta.json") if ctx.artifact_exists("publish/cover_meta.json") else {}
+    )
+    ctx.write_json(
+        f"publish/{files['meta']}",
+        {
+            "season": season,
+            "title": title,
+            "description": description,
+            "guid": execution_id,
+            "execution_id": execution_id,
+            "podcast_id": podcast_id_from_ctx(ctx),
+            "source_audio_hash": source_hash,
+            "prepared_at": prepared_at,
+            "package_status": "ready_local",
+            "cover_source": (
+                (cover_meta or {}).get("cover_source") if isinstance(cover_meta, dict) else "unknown"
+            ),
+        },
+        stage_key="episode_cover_generate",
+    )
+    description_name = str(files["description"])
+    description_path = ctx.path(f"publish/{description_name}")
+    description_path.parent.mkdir(parents=True, exist_ok=True)
+    description_path.write_text(description + "\n", encoding="utf-8")
+    ctx.log(
+        f"Local package sidecars written for {execution_id}",
+        stage="episode_cover_generate",
+    )
+
+
+def _finish_episode_cover_generate(ctx: RunContext) -> None:
+    write_publish_package_files(ctx)
     ctx.mark_done("episode_cover_generate")
 
 
@@ -596,20 +674,21 @@ def require_partial_signoff_before_publish(ctx: RunContext) -> None:
 
 
 def run_podcast_publish(ctx: RunContext) -> None:
-    """Finalize a local episode package under publish/ — no S3 upload.
+    """Stamp the local package ready. No sidecar assembly and no S3 upload.
 
-    Upload is a separate sync for this execution only (GUI G-Publish sync or
+    Chapters, transcript, episode.json, and description.txt are written by
+    ``episode_cover_generate``. Upload is the G-Publish sync (or
     ``scripts/sync_podcast_episodes.py --execution-id``).
 
-    Refuse→assemble→stamp only: missing cover / master VTT / PMQ refuse
-    upstream — this stage does not nested-build transcript, show-fallback
-    cover, or soft-heal PMQ. ``require_g_publish_clear`` stays dead (clinic
-    B4 / HPUB); Partial G-Publish is GUI wait, not a stage body gate.
+    Refuse→stamp only: missing cover / master VTT / package sidecars / PMQ
+    refuse upstream. This stage does not nested-build transcript, assemble
+    chapters, show-fallback cover, or soft-heal PMQ. ``require_g_publish_clear``
+    stays dead (clinic B4 / HPUB); Partial G-Publish is GUI wait, not a stage
+    body gate.
     """
     from datetime import datetime, timezone
 
     from interview_mux.post_master_quality import require_publishable
-    from interview_mux.podcast_rss.chapters import build_timed_chapters
     from interview_mux.podcast_rss.openai_cover import require_cover_min_size
 
     require_partial_signoff_before_publish(ctx)
@@ -652,13 +731,6 @@ def run_podcast_publish(ctx: RunContext) -> None:
                     "(podcast_publish does not invent show-fallback art)"
                 )
 
-    chapters_doc = build_timed_chapters(ctx)
-    ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
-
-    transcript_name = str(files.get("transcript") or "transcript.vtt")
-    transcript_rel = f"publish/{transcript_name}"
-    transcript_dest = ctx.path(transcript_rel)
-    transcript_dest.parent.mkdir(parents=True, exist_ok=True)
     if not ctx.artifact_exists("master/transcript.vtt"):
         raise FileNotFoundError(
             "master/transcript.vtt missing — resume master_transcript_build "
@@ -667,10 +739,27 @@ def run_podcast_publish(ctx: RunContext) -> None:
     master_vtt = ctx.read_path("master/transcript.vtt")
     if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
         raise FileNotFoundError("master/transcript.vtt missing — cannot package Apple transcript")
-    from interview_mux.asset_transcripts import require_packagable_master_transcript
 
-    require_packagable_master_transcript(ctx)
-    shutil.copy2(master_vtt, transcript_dest)
+    package_names = [
+        str(files["chapters"]),
+        str(files.get("transcript") or "transcript.vtt"),
+        str(files["meta"]),
+        str(files["description"]),
+    ]
+    missing_pkg = [
+        name
+        for name in package_names
+        if not _existing_publish(f"publish/{name}").is_file()
+        or _existing_publish(f"publish/{name}").stat().st_size < 1
+    ]
+    if missing_pkg:
+        raise FileNotFoundError(
+            "publish package files missing ("
+            + ", ".join(missing_pkg)
+            + ") — resume episode_cover_generate "
+            "(podcast_publish does not assemble chapters, transcript, episode.json, or description)"
+        )
+
     master_pub = ctx.path(f"publish/{files['master']}")
     if not master_pub.is_file():
         # Prefer encode's publish/master.wav copy; else master/master.wav.
@@ -698,31 +787,10 @@ def run_podcast_publish(ctx: RunContext) -> None:
 
     meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    source_hash = str((run_meta or {}).get("source_audio_hash") or "")
     execution_id = str((run_meta or {}).get("execution_id") or ctx.run_id)
-    season = int(_podcast_cfg(ctx).get("season") or 1)
     title = str((meta or {}).get("title") or "Untitled Episode").strip() or "Untitled Episode"
-    description = str((meta or {}).get("description") or title).strip() or title
     prepared_at = datetime.now(timezone.utc).isoformat()
 
-    episode_draft = {
-        "season": season,
-        "title": title,
-        "description": description,
-        "guid": execution_id,
-        "execution_id": execution_id,
-        "podcast_id": podcast_id_from_ctx(ctx),
-        "source_audio_hash": source_hash,
-        "prepared_at": prepared_at,
-        "package_status": "ready_local",
-        "cover_source": (
-            (ctx.read_json("publish/cover_meta.json") or {}).get("cover_source")
-            if ctx.artifact_exists("publish/cover_meta.json")
-            else "unknown"
-        ),
-    }
-    ctx.write_json(f"publish/{files['meta']}", episode_draft)
-    ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
     ctx.write_json(
         "publish/package_ready.json",
         {

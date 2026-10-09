@@ -1193,10 +1193,36 @@ _CATALOG_SEED: tuple[ArtifactRow, ...] = (
     # The local episode package written by podcast_publish (`s3_layout.episode_files`).
     # These were never cataloged, so packaging died on
     # `authority_denied:persist:publish/chapters.json … (unknown_path)` (exec_11871).
-    _row("publish/chapters.json", "podcast_publish", mode="operational", end="ops"),
-    _row("publish/episode.json", "podcast_publish", mode="operational", end="ops"),
-    _row("publish/description.txt", "podcast_publish", mode="operational", end="ops"),
-    _row("publish/transcript.vtt", "podcast_publish", mode="operational", end="ops"),
+    # Written at the end of episode_cover_generate, before the G-Publish gate.
+    # podcast_publish remains the authoritative owner and may restamp on ship.
+    _row(
+        "publish/chapters.json",
+        "episode_cover_generate",
+        "podcast_publish",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "publish/episode.json",
+        "episode_cover_generate",
+        "podcast_publish",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "publish/description.txt",
+        "episode_cover_generate",
+        "podcast_publish",
+        mode="operational",
+        end="ops",
+    ),
+    _row(
+        "publish/transcript.vtt",
+        "episode_cover_generate",
+        "podcast_publish",
+        mode="operational",
+        end="ops",
+    ),
     _row(
         "publish/master.wav",
         "podcast_encode_mp3",

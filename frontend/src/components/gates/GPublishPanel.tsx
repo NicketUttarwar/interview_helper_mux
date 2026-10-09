@@ -293,8 +293,7 @@ export function GPublishPanel() {
         setReviewDirty(false);
       }
 
-      // One click starts upload. The server finishes a missing local package
-      // in the same background job — the button does not wait on that.
+      // The package sidecars already exist. This click only uploads.
       flushSync(() => {
         setPublishPhase("uploading");
         setStatusMessage("Starting S3 upload…");
@@ -383,7 +382,7 @@ export function GPublishPanel() {
         ? "Skipped — local package kept; nothing uploaded."
         : thisRunReady
           ? "Listen to the master, edit title/cover if needed, then publish."
-          : "Listen to the master, edit title/cover if needed, then publish (prepares the package automatically).");
+          : "Listen to the master, edit title/cover if needed, then publish. The package files are already on disk; this uploads them.");
 
   const primaryLabel = thisRunUploaded
     ? "Published"
@@ -489,8 +488,8 @@ export function GPublishPanel() {
               thisRunUploaded
                 ? "Already published"
                 : reviewDirty
-                  ? "Saves edits, prepares package if needed, then uploads"
-                  : "Prepares package if needed, then uploads this run to S3"
+                  ? "Saves edits, then uploads this run to S3"
+                  : "Uploads this run's package to S3"
             }
             onClick={() => void publishToS3()}
           >

@@ -102,6 +102,12 @@ def test_rejected_prompt_still_tries_generate(tmp_path, monkeypatch) -> None:
         "interview_mux.stages.podcast_publish._copy_show_fallback",
         lambda _ctx, dest, *, reason: show_calls.append(reason) or dest,
     )
+    # This test is the prompt retry. Package sidecars are a later step and
+    # need the master transcript, which this fixture does not build.
+    monkeypatch.setattr(
+        "interview_mux.stages.podcast_publish.write_publish_package_files",
+        lambda _ctx: None,
+    )
     run_episode_cover_generate(ctx)
     assert generated, "expected harvest backup to still call OpenAI generate"
     assert not show_calls

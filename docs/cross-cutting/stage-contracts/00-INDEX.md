@@ -86,7 +86,7 @@ records what has to be defused before switching them on.
 | `edl` | process | master/edl.json, master/transitions/ |
 | `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
 | `edl_narrative_refine` | meta | — |
-| `episode_cover_generate` | llm_full | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json, publish/cover_candidates/ |
+| `episode_cover_generate` | llm_full | publish/cover.jpg, publish/cover_pick.json, publish/cover_meta.json, publish/cover_candidates/, publish/chapters.json, publish/transcript.vtt, publish/episode.json, publish/description.txt |
 | `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |
 | `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | understanding/episode_structure.json, understanding/episode_structure_compact.txt |

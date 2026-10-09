@@ -18,6 +18,14 @@ outputs:
   staging: true
 - path: publish/cover_candidates/
   staging: true
+- path: publish/chapters.json
+  staging: true
+- path: publish/transcript.vtt
+  staging: true
+- path: publish/episode.json
+  staging: true
+- path: publish/description.txt
+  staging: true
 inputs:
   hard:
   - path: publish/cover_prompt.json

@@ -104,36 +104,22 @@ def test_save_g_publish_review_updates_package(review_ctx: RunContext) -> None:
     assert ready["title"] == "New Episode Title"
 
 
-def test_upload_click_packages_when_files_are_missing_then_returns_ready(review_ctx: RunContext, monkeypatch) -> None:
-    """One Upload click must not wait on a second prepare button."""
+def test_upload_click_does_not_assemble_missing_package_files(review_ctx: RunContext, monkeypatch) -> None:
+    """Upload reports missing sidecars. It does not run podcast_publish to create them."""
     called: list[str] = []
-
-    def _publish(ctx: RunContext) -> None:
-        called.append(ctx.run_id)
-        publish = ctx.run_dir / "publish"
-        for name in (
-            "audio.mp3",
-            "master.wav",
-            "cover.jpg",
-            "chapters.json",
-            "transcript.vtt",
-            "episode.json",
-            "description.txt",
-        ):
-            target = publish / name
-            if not target.is_file():
-                target.write_bytes(b"x")
-
-    monkeypatch.setattr("interview_mux.stages.podcast_publish.run_podcast_publish", _publish)
+    monkeypatch.setattr(
+        "interview_mux.stages.podcast_publish.run_podcast_publish",
+        lambda ctx: called.append(ctx.run_id),
+    )
     publish = review_ctx.run_dir / "publish"
     (publish / "chapters.json").unlink(missing_ok=True)
     (publish / "transcript.vtt").unlink(missing_ok=True)
 
     missing = ensure_local_package_for_upload(review_ctx)
 
-    assert called == [review_ctx.run_id]
-    assert missing == []
-    assert review_ctx.read_json("run_meta.json").get("g_publish_cleared") is True
+    assert called == []
+    assert "chapters.json" in missing
+    assert "transcript.vtt" in missing
 
 
 def test_upload_click_skips_repackage_when_the_package_is_already_complete(
@@ -152,6 +138,85 @@ def test_upload_click_skips_repackage_when_the_package_is_already_complete(
 
     assert called == []
     assert missing == []
+
+
+def test_cover_stage_writes_package_sidecars_before_publish(review_ctx: RunContext, monkeypatch) -> None:
+    """chapters, transcript, episode.json, and description exist before podcast_publish."""
+    from interview_mux.stages.podcast_publish import write_publish_package_files
+
+    monkeypatch.setattr(
+        "interview_mux.asset_transcripts.require_packagable_master_transcript",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.podcast_rss.chapters.build_timed_chapters",
+        lambda _ctx: {"version": "1.2.0", "chapters": [{"title": "Open"}]},
+    )
+    publish = review_ctx.run_dir / "publish"
+    (publish / "chapters.json").unlink(missing_ok=True)
+    (publish / "transcript.vtt").unlink(missing_ok=True)
+
+    write_publish_package_files(review_ctx)
+
+    chapters = json.loads((publish / "chapters.json").read_text(encoding="utf-8"))
+    assert chapters["chapters"][0]["title"] == "Open"
+    assert (publish / "transcript.vtt").read_text(encoding="utf-8").startswith("WEBVTT")
+    episode = json.loads((publish / "episode.json").read_text(encoding="utf-8"))
+    assert episode["title"] == "Old Title"
+    assert (publish / "description.txt").read_text(encoding="utf-8").startswith("Old description")
+
+
+def test_cover_stage_flush_commits_package_sidecars_before_publish(
+    review_ctx: RunContext, monkeypatch
+) -> None:
+    """Sidecars are staged under the cover stage and land in publish/ on flush.
+
+    The G-Publish pause happens in the next stage, so the files have to be on
+    the committed tree before that pause or the upload click finds them missing.
+    """
+    from interview_mux.g_publish_review import missing_publish_package_files
+    from interview_mux.stages.podcast_publish import write_publish_package_files
+    from interview_mux.write_staging import (
+        enter_stage_staging,
+        exit_stage_staging,
+        flush_stage_writes,
+    )
+
+    monkeypatch.setattr(
+        "interview_mux.asset_transcripts.require_packagable_master_transcript",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.podcast_rss.chapters.build_timed_chapters",
+        lambda _ctx: {"chapters": [{"title": "Open"}]},
+    )
+    publish = review_ctx.run_dir / "publish"
+    (publish / "chapters.json").unlink(missing_ok=True)
+    (publish / "transcript.vtt").unlink(missing_ok=True)
+
+    enter_stage_staging("episode_cover_generate")
+    try:
+        write_publish_package_files(review_ctx)
+        staged = (
+            review_ctx.run_dir
+            / ".pending_writes"
+            / "episode_cover_generate"
+            / "publish"
+            / "chapters.json"
+        )
+        assert staged.is_file()
+        assert not (publish / "chapters.json").is_file()
+    finally:
+        exit_stage_staging()
+
+    flushed = flush_stage_writes(review_ctx, "episode_cover_generate")
+    assert "publish/chapters.json" in flushed
+    assert "publish/transcript.vtt" in flushed
+    assert "publish/episode.json" in flushed
+    assert "publish/description.txt" in flushed
+
+    assert missing_publish_package_files(review_ctx) == []
+    assert json.loads((publish / "episode.json").read_text(encoding="utf-8"))["title"] == "Old Title"
 
 
 def test_refresh_local_package_meta_writes_episode_json(review_ctx: RunContext) -> None:

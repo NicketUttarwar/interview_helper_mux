@@ -797,7 +797,9 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "episode_cover_generate",
         "Episode cover",
-        "OpenAI gpt-image ×3 + flagship vision picks most brilliant (fail-open to show art).",
+        "OpenAI gpt-image ×3 + flagship vision picks most brilliant (fail-open to show art). "
+        "Then write the local package sidecars (chapters, transcript, episode.json, description) "
+        "so G-Publish only uploads.",
         "delivery",
         (
             "publish/cover.jpg",
@@ -805,6 +807,12 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
             "publish/cover_meta.json",
             # ECG-B1: candidate batches must flush with the stage (G-Publish lists them).
             "publish/cover_candidates/",
+            # Package sidecars land here, before the G-Publish gate. Undeclared
+            # staged paths are dropped on flush.
+            "publish/chapters.json",
+            "publish/transcript.vtt",
+            "publish/episode.json",
+            "publish/description.txt",
         ),
         (),
         ("publish/cover.jpg",),
@@ -812,7 +820,8 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "podcast_publish",
         "Package episode",
-        "Finalize local publish/ package (meta, chapters, markers). S3 upload is a separate this-run sync.",
+        "Stamp the local package ready. Chapters, transcript, episode.json, and description "
+        "are already written. S3 upload is the G-Publish button.",
         "delivery",
         (
             # The whole local episode package — `operator_visible_staging_path`

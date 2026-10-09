@@ -2244,8 +2244,8 @@ def create_app() -> FastAPI:
                     level="action",
                     stage="podcast_publish",
                 )
-            # One click is consent to package and upload. Do not leave the
-            # sign-off pending so the background upload can finish the package.
+            # One click is consent to upload. Package sidecars already exist;
+            # do not leave the sign-off pending so the background upload can run.
             from interview_mux.gates import clear_g_publish
 
             clear_g_publish(ctx, skipped=False)

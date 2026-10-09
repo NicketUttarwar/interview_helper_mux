@@ -308,19 +308,12 @@ def ensure_publish_package_sidecars(ctx: RunContext) -> list[str]:
 
 
 def ensure_local_package_for_upload(ctx: RunContext) -> list[str]:
-    """Operator Upload: finish the local package, then the caller syncs to S3.
+    """Operator Upload: report missing package files. Do not assemble them.
 
-    Clears the sign-off so packaging is not waiting on another GUI click.
-    Returns filenames still missing after the attempt (empty when sync can start).
+    Chapters, transcript, episode.json, and description.txt are written when
+    the cover stage finishes. The S3 button only uploads a complete package.
+    Returns filenames still missing (empty when sync can start).
     """
-    from interview_mux.gates import clear_g_publish
-
-    clear_g_publish(ctx, skipped=False)
-    if not missing_publish_package_files(ctx):
-        return []
-    from interview_mux.stages.podcast_publish import run_podcast_publish
-
-    run_podcast_publish(ctx)
     return missing_publish_package_files(ctx)
 
 
