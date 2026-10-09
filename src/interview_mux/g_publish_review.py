@@ -307,6 +307,23 @@ def ensure_publish_package_sidecars(ctx: RunContext) -> list[str]:
     return missing_publish_package_files(ctx)
 
 
+def ensure_local_package_for_upload(ctx: RunContext) -> list[str]:
+    """Operator Upload: finish the local package, then the caller syncs to S3.
+
+    Clears the sign-off so packaging is not waiting on another GUI click.
+    Returns filenames still missing after the attempt (empty when sync can start).
+    """
+    from interview_mux.gates import clear_g_publish
+
+    clear_g_publish(ctx, skipped=False)
+    if not missing_publish_package_files(ctx):
+        return []
+    from interview_mux.stages.podcast_publish import run_podcast_publish
+
+    run_podcast_publish(ctx)
+    return missing_publish_package_files(ctx)
+
+
 def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str) -> None:
     """Rewrite package markers after operator edits (no S3).
 
@@ -324,8 +341,7 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
     title = title.strip() or "Untitled Episode"
     description = description.strip() or title
 
-    missing_after = ensure_publish_package_sidecars(ctx)
-    package_complete = len(missing_after) == 0
+    ensure_publish_package_sidecars(ctx)
 
     ctx.write_json(
         "publish/episode_meta.json",
@@ -343,6 +359,15 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
         if ctx.artifact_exists("publish/cover_meta.json")
         else {}
     )
+    ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
+    # Land episode.json on the path the readiness check reads before that check.
+    # write_json may stage, and a staged file must not count as still missing.
+    episode_path = ctx.path(f"publish/{files['meta']}")
+    episode_path.parent.mkdir(parents=True, exist_ok=True)
+    if not episode_path.is_file() or episode_path.stat().st_size < 1:
+        episode_path.write_text("{}\n", encoding="utf-8")
+    missing_after = missing_publish_package_files(ctx)
+    package_complete = len(missing_after) == 0
     episode_draft = {
         "season": season,
         "title": title,
@@ -360,7 +385,6 @@ def refresh_local_package_meta(ctx: RunContext, *, title: str, description: str)
         "missing_files": missing_after,
     }
     ctx.write_json(f"publish/{files['meta']}", episode_draft)
-    ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
     ctx.write_json(
         "publish/package_ready.json",
         {

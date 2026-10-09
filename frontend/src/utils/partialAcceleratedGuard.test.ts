@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryOrderViolation,
   isGPublishReviewCheckpoint,
+  isGPublishScreenDue,
   isPartialAutoCheckpoint,
   isPartialAcceleratedRun,
   isTranscriptReviewCheckpoint,
@@ -182,7 +183,7 @@ describe("partialAcceleratedGuard", () => {
     expect(shouldShowAcceleratedRunOverlay(r, gPublish)).toBe(false);
   });
 
-  it("keeps accelerated overlay at g_publish gate until review payload is ready", () => {
+  it("shows the G-Publish screen as soon as the sign-off is waiting", () => {
     const r = run({
       meta: { ...accelerated, g_publish_pending: true },
       job: {
@@ -199,21 +200,17 @@ describe("partialAcceleratedGuard", () => {
         },
       },
     });
-    expect(isPartialAutoCheckpoint(r, null)).toBe(false);
+    expect(isGPublishScreenDue(r)).toBe(true);
+    expect(isGPublishReviewCheckpoint(null, r)).toBe(true);
+    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
     expect(isPartialAutoCheckpoint(r, { pending: true, package_ready: false, has_master: false })).toBe(
-      false,
+      true,
     );
-    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
-    expect(
-      resolveOperatorCover(
-        r,
-        { pending: true, package_ready: false, has_master: true, skipped: false },
-        { jobRunning: true },
-      ),
-    ).toBe("none");
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
+    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(false);
   });
 
-  it("keeps accelerated overlay at g_publish until the review payload can paint", () => {
+  it("does not wait for the review poll before opening G-Publish", () => {
     const r = run({
       meta: { ...accelerated, g_publish_pending: true },
       job: {
@@ -231,10 +228,10 @@ describe("partialAcceleratedGuard", () => {
       },
       stages: [{ id: "master_finalize", status: "done" }],
     });
-    expect(isGPublishReviewCheckpoint(null, r)).toBe(false);
-    expect(isPartialAutoCheckpoint(r, null)).toBe(false);
-    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("accelerated");
-    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(true);
+    expect(isGPublishReviewCheckpoint(null, r)).toBe(true);
+    expect(isPartialAutoCheckpoint(r, null)).toBe(true);
+    expect(resolveOperatorCover(r, null, { jobRunning: true })).toBe("none");
+    expect(shouldShowAcceleratedRunOverlay(r, null, { jobRunning: true })).toBe(false);
   });
 
   it("keeps Ship checkpoint after Prepare clears the gate (until upload)", () => {

@@ -2244,6 +2244,11 @@ def create_app() -> FastAPI:
                     level="action",
                     stage="podcast_publish",
                 )
+            # One click is consent to package and upload. Do not leave the
+            # sign-off pending so the background upload can finish the package.
+            from interview_mux.gates import clear_g_publish
+
+            clear_g_publish(ctx, skipped=False)
             body = body or {}
             dry_run = bool(body.get("dry_run"))
             force_files = bool(body.get("force_files"))
@@ -4793,9 +4798,17 @@ def _start_podcast_sync_job(
     _write_podcast_sync_job(job)
 
     def _worker() -> None:
+        from interview_mux.g_publish_review import ensure_local_package_for_upload
         from interview_mux.podcast_rss.sync_assets import sync_ready_packages
+        from interview_mux.run_context import RunContext
 
         try:
+            pkg_ctx = RunContext(execution_id, create=False)
+            still_missing = ensure_local_package_for_upload(pkg_ctx)
+            if still_missing:
+                raise RuntimeError(
+                    "Local package still missing: " + ", ".join(still_missing)
+                )
             result = sync_ready_packages(
                 dry_run=dry_run,
                 force_files=force_files,

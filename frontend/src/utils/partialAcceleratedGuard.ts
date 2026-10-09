@@ -50,9 +50,26 @@ export interface PartialAutoGPublishState {
 }
 
 /**
- * True only when GPublishPanel will paint the ship review.
- * A master on disk or a pending gate is not enough: the /g-publish poll must
- * already carry the fields the panel renders. Until then the accelerated cover stays up.
+ * The run is sitting on the G-Publish sign-off. The screen should open from the
+ * job itself — it must not wait for a second /g-publish poll to succeed.
+ */
+export function isGPublishScreenDue(run: RunData | null | undefined): boolean {
+  if (!run || run.meta?.g_publish_skipped) return false;
+  if (run.meta?.g_publish_pending && !run.meta?.g_publish_cleared) return true;
+  const status = String(run.job?.status || "");
+  if (status !== "gate" && status !== "needs_operator") return false;
+  const stage = String(run.job?.stage || run.job?.current_stage || "");
+  const blocking = run.journey?.blocking ?? run.blocking;
+  const reason = String(blocking?.reason || "");
+  const blockStage = String(blocking?.stage_id || "");
+  const msg = `${run.job?.message || ""} ${blocking?.message || ""}`.toLowerCase();
+  if (stage === "g_publish" || blockStage === "g_publish" || reason === "g_publish") return true;
+  return msg.includes("final sign-off") || msg.includes("g-publish");
+}
+
+/**
+ * True when GPublishPanel should be on screen.
+ * The sign-off itself is enough. A later poll fills title and cover.
  */
 export function isGPublishReviewCheckpoint(
   gPublish: PartialAutoGPublishState | null | undefined,
@@ -63,6 +80,7 @@ export function isGPublishReviewCheckpoint(
   }
   const uploaded = Number(gPublish?.already_uploaded_count || 0) >= 1;
   if (uploaded) return false;
+  if (isGPublishScreenDue(run)) return true;
   if (!gPublish) return false;
 
   if (

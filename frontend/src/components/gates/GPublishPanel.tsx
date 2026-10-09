@@ -15,8 +15,6 @@ import {
 } from "./GPublishReviewSection";
 
 const SYNC_REQUEST_TIMEOUT_MS = 25_000;
-const PREPARE_POLL_MS = 2000;
-const PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface GPublishPayload {
   pending: boolean;
@@ -224,21 +222,7 @@ export function GPublishPanel() {
     Boolean((payload.publish_result as { uploaded?: boolean } | undefined)?.uploaded) ||
     (Boolean(payload.cleared && !payload.skipped) &&
       Number(payload.already_uploaded_count || 0) >= 1);
-  const showReview = Boolean(payload.package_ready || payload.has_master || thisRunReady);
-
-  const waitForPackageReady = async (): Promise<GPublishPayload | null> => {
-    const started = Date.now();
-    while (Date.now() - started < PREPARE_TIMEOUT_MS) {
-      const latest = await reload();
-      if (latest && isPackageReady(latest)) return latest;
-      const missing = latest?.missing_files?.length
-        ? ` (waiting on ${latest.missing_files.join(", ")})`
-        : "";
-      setStatusMessage(`Preparing local episode package…${missing}`);
-      await sleep(PREPARE_POLL_MS);
-    }
-    return null;
-  };
+  const showReview = Boolean(payload.package_ready || payload.has_master || thisRunReady || payload.pending);
 
   const startS3Upload = async (): Promise<void> => {
     flushSync(() => {
@@ -309,46 +293,12 @@ export function GPublishPanel() {
         setReviewDirty(false);
       }
 
-      let latest = await reload();
-      if (!isPackageReady(latest)) {
-        flushSync(() => {
-          setPublishPhase("preparing");
-          setStatusMessage("Preparing local episode package…");
-        });
-        let res: { ok?: boolean; started?: boolean; deferred?: boolean } | null = null;
-        try {
-          res = await api<{ ok?: boolean; started?: boolean; deferred?: boolean }>(
-            `/api/runs/${runId}/g-publish/continue`,
-            { method: "POST", signal: AbortSignal.timeout(20_000) },
-          );
-        } catch {
-          // The server often finishes packaging and the browser never sees the
-          // response. Keep polling disk instead of sitting on Preparing forever.
-          res = null;
-        }
-        appendClientLog(
-          "G-Publish — preparing local episode package (no S3)",
-          "action",
-          "podcast_publish",
-          "gui.g_publish.prepare",
-        );
-        await refreshRun();
-        setStatusMessage(
-          res?.deferred
-            ? "Preparing package (orchestrator)…"
-            : "Preparing local episode package…",
-        );
-        latest = await waitForPackageReady();
-        if (!latest || !isPackageReady(latest)) {
-          setPublishPhase("error");
-          setStatusMessage(
-            "Package did not finish preparing in time. Watch Activity/Logs, then try Publish again.",
-          );
-          setBusy(false);
-          return;
-        }
-      }
-
+      // One click starts upload. The server finishes a missing local package
+      // in the same background job — the button does not wait on that.
+      flushSync(() => {
+        setPublishPhase("uploading");
+        setStatusMessage("Starting S3 upload…");
+      });
       await startS3Upload();
     } catch (err) {
       const msg = String(err);
