@@ -2087,11 +2087,20 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("publish/package_ready.json")
             else {}
         )
-        from interview_mux.g_publish_review import missing_publish_package_files
+        from interview_mux.g_publish_review import (
+            load_g_publish_review,
+            missing_publish_package_files,
+        )
 
         missing_files = missing_publish_package_files(ctx)
         package_complete = len(missing_files) == 0
         marker_ready = bool(isinstance(package_ready, dict) and package_ready.get("ready"))
+        # Same snapshot the review panel renders, so the Ship UI can paint from
+        # this response when a follow-up /g-publish/review fetch never returns.
+        try:
+            review_snapshot = load_g_publish_review(ctx)
+        except Exception:
+            review_snapshot = None
         base = str(targets.get("feed_base_url") or "").rstrip("/")
         feed_url = feed_url_from_base(base, cfg=show) or None
         # Counts + sync are scoped to this run only — never sibling executions.
@@ -2120,6 +2129,7 @@ def create_app() -> FastAPI:
             "package_complete": package_complete,
             "missing_files": missing_files,
             "has_master": committed_master_wav(ctx),
+            "review": review_snapshot,
             "publish_result": result if isinstance(result, dict) else {},
             "ready_package_count": int(sync_summary.get("ready_package_count") or 0),
             "already_uploaded_count": int(sync_summary.get("already_uploaded_count") or 0),

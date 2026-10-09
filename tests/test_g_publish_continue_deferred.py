@@ -39,6 +39,35 @@ def test_continue_under_the_engine_clears_the_gate_and_starts_no_job(tmp_path, m
     assert ctx.read_json("run_meta.json").get("g_publish_cleared") is True
 
 
+def test_g_publish_payload_includes_review_snapshot(tmp_path, monkeypatch) -> None:
+    """Ship UI paints title and cover from this payload, without a second review fetch."""
+    ctx = _run(tmp_path, monkeypatch, "exec_gpub_review_20260101T001000Z")
+    publish = ctx.run_dir / "publish"
+    publish.mkdir(parents=True, exist_ok=True)
+    (publish / "episode_meta.json").write_text(
+        '{"title": "Village Barn", "description": "From the town hall."}',
+        encoding="utf-8",
+    )
+    (publish / "cover.jpg").write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        "interview_mux.podcast_rss.sync_assets.sync_status_summary",
+        lambda **_k: {
+            "ready_package_count": 0,
+            "already_uploaded_count": 0,
+            "incomplete_count": 0,
+            "last_sync": {},
+        },
+    )
+
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    res = client.get(f"/api/runs/{ctx.run_id}/g-publish")
+
+    assert res.status_code == 200, res.text
+    review = res.json().get("review") or {}
+    assert review.get("title") == "Village Barn"
+    assert "town hall" in review.get("description", "")
+
+
 def test_continue_without_an_engine_still_starts_the_packaging_job(tmp_path, monkeypatch) -> None:
     ctx = _run(tmp_path, monkeypatch, "exec_gpub_job_20260101T001000Z")
     monkeypatch.setattr("interview_mux.orchestrator.orchestrator_owns_run", lambda c: None)

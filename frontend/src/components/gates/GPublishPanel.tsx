@@ -8,7 +8,11 @@ import {
   applePodcastsPassthroughUrl,
   normalizePublicFeedUrl,
 } from "../../utils/applePodcastsPassthrough";
-import { GPublishReviewSection, type GPublishSaveFn } from "./GPublishReviewSection";
+import {
+  GPublishReviewSection,
+  type GPublishReviewState,
+  type GPublishSaveFn,
+} from "./GPublishReviewSection";
 
 const SYNC_REQUEST_TIMEOUT_MS = 25_000;
 const PREPARE_POLL_MS = 2000;
@@ -35,6 +39,8 @@ interface GPublishPayload {
   publish_result?: Record<string, unknown>;
   last_sync?: Record<string, unknown>;
   sync_job?: Record<string, unknown>;
+  /** Title, cover, and master — present so the review form can paint without a second fetch. */
+  review?: GPublishReviewState | null;
 }
 
 type PublishPhase =
@@ -76,21 +82,48 @@ export function GPublishPanel() {
     saveReviewRef.current = fn;
   }, []);
 
+  const gateLoadRef = useRef<Promise<GPublishPayload | null> | null>(null);
   const reload = useCallback(async (): Promise<GPublishPayload | null> => {
     if (!runId) return null;
-    try {
-      const data = await api<GPublishPayload>(`/api/runs/${runId}/g-publish`);
-      setPayload(data);
-      return data;
-    } catch {
-      // Keep last good snapshot — transient failures must not blank the Ship UI.
+    // Share one in-flight load. A second caller used to get null and the
+    // prepare loop treated that as "package not ready" forever.
+    if (gateLoadRef.current) return gateLoadRef.current;
+    const task = (async (): Promise<GPublishPayload | null> => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const data = await api<GPublishPayload>(`/api/runs/${runId}/g-publish`, {
+            signal: AbortSignal.timeout(8_000),
+          });
+          setPayload(data);
+          return data;
+        } catch {
+          // Keep last good snapshot — a dropped fetch must not blank the Ship UI.
+          if (attempt < 2) await sleep(400 * (attempt + 1));
+        }
+      }
       return null;
+    })();
+    gateLoadRef.current = task;
+    try {
+      return await task;
+    } finally {
+      if (gateLoadRef.current === task) gateLoadRef.current = null;
     }
   }, [runId]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (payload?.review || payload?.has_master) return;
+    let cancelled = false;
+    const tick = () => {
+      if (!cancelled) void reload();
+    };
+    tick();
+    const t = window.setInterval(tick, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [reload, payload?.review, payload?.has_master]);
 
   const applySyncTerminal = useCallback(
     (data: GPublishPayload) => {
@@ -140,7 +173,11 @@ export function GPublishPanel() {
     if (!payload || !runId) return;
     const sj = payload.sync_job || {};
     if (String(sj.execution_id || "") !== runId) return;
-    if (sj.status === "error" || sj.status === "done") {
+    if (sj.status === "running") {
+      watchingSyncRef.current = true;
+      setBusy(true);
+    }
+    if (sj.status === "running" || sj.status === "error" || sj.status === "done") {
       applySyncTerminal(payload);
     }
   }, [payload, runId, applySyncTerminal]);
@@ -278,10 +315,17 @@ export function GPublishPanel() {
           setPublishPhase("preparing");
           setStatusMessage("Preparing local episode package…");
         });
-        const res = await api<{ ok?: boolean; started?: boolean; deferred?: boolean }>(
-          `/api/runs/${runId}/g-publish/continue`,
-          { method: "POST" },
-        );
+        let res: { ok?: boolean; started?: boolean; deferred?: boolean } | null = null;
+        try {
+          res = await api<{ ok?: boolean; started?: boolean; deferred?: boolean }>(
+            `/api/runs/${runId}/g-publish/continue`,
+            { method: "POST", signal: AbortSignal.timeout(20_000) },
+          );
+        } catch {
+          // The server often finishes packaging and the browser never sees the
+          // response. Keep polling disk instead of sitting on Preparing forever.
+          res = null;
+        }
         appendClientLog(
           "G-Publish — preparing local episode package (no S3)",
           "action",
@@ -292,9 +336,7 @@ export function GPublishPanel() {
         setStatusMessage(
           res?.deferred
             ? "Preparing package (orchestrator)…"
-            : res?.started
-              ? "Preparing local episode package…"
-              : "Preparing local episode package…",
+            : "Preparing local episode package…",
         );
         latest = await waitForPackageReady();
         if (!latest || !isPackageReady(latest)) {
@@ -309,16 +351,24 @@ export function GPublishPanel() {
 
       await startS3Upload();
     } catch (err) {
+      const msg = String(err);
+      if (msg.toLowerCase().includes("already running")) {
+        watchingSyncRef.current = true;
+        setPublishPhase("uploading");
+        setBusy(true);
+        setStatusMessage("Upload already in progress for this run…");
+        return;
+      }
       watchingSyncRef.current = false;
       const aborted =
         (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError");
-      const msg = aborted
+      const shown = aborted
         ? "Publish request timed out — the server was too busy. Hard-refresh and try again."
-        : String(err);
+        : msg;
       setPublishPhase("error");
-      setStatusMessage(msg);
-      showToast(msg, "error");
+      setStatusMessage(shown);
+      showToast(shown, "error");
       setBusy(false);
     }
   };
@@ -433,6 +483,7 @@ export function GPublishPanel() {
         {showReview ? (
           <GPublishReviewSection
             enabled
+            initialReview={payload.review}
             onDirtyChange={setReviewDirty}
             onRegisterSave={registerSave}
             onSaved={() => {

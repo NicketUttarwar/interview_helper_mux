@@ -31,10 +31,23 @@ export type GPublishSaveFn = () => Promise<boolean>;
 
 interface Props {
   enabled: boolean;
+  /** Gate payload snapshot. Paints the form even when /g-publish/review never returns. */
+  initialReview?: GPublishReviewState | null;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   /** Parent (Upload) can flush unsaved edits before S3 sync. */
   onRegisterSave?: (save: GPublishSaveFn | null) => void;
+}
+
+const REVIEW_LOAD_ATTEMPTS = 3;
+const REVIEW_LOAD_TIMEOUT_MS = 8_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function coverPathFrom(data: GPublishReviewState): string | null {
+  return data.cover?.candidates?.find((c) => c.selected)?.path || data.cover?.path || null;
 }
 
 function mediaUrl(runId: string, rel: string): string {
@@ -43,16 +56,20 @@ function mediaUrl(runId: string, rel: string): string {
 
 export function GPublishReviewSection({
   enabled,
+  initialReview,
   onSaved,
   onDirtyChange,
   onRegisterSave,
 }: Props) {
   const { runId, showToast, appendClientLog } = useApp();
-  const [review, setReview] = useState<GPublishReviewState | null>(null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [selectedCover, setSelectedCover] = useState<string | null>(null);
+  const [review, setReview] = useState<GPublishReviewState | null>(initialReview ?? null);
+  const [title, setTitle] = useState(initialReview?.title || "");
+  const [description, setDescription] = useState(initialReview?.description || "");
+  const [selectedCover, setSelectedCover] = useState<string | null>(
+    initialReview ? coverPathFrom(initialReview) : null,
+  );
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -76,31 +93,46 @@ export function GPublishReviewSection({
     if (next) setSaveAck(null);
   };
 
+  const applyReview = useCallback((data: GPublishReviewState) => {
+    setReview(data);
+    setLoadError(null);
+    if (!dirtyRef.current) {
+      setTitle(data.title || "");
+      setDescription(data.description || "");
+      setSelectedCover(coverPathFrom(data));
+      // Hard refresh: surface prior successful save without wiping a fresher ack.
+      if (data.package_ready) {
+        setSaveAck((prev) => prev ?? "Changes saved — title, description, and cover are on disk.");
+      }
+    }
+  }, []);
+
   const reload = useCallback(async () => {
     if (!runId || !enabled) return;
-    setLoading(true);
-    try {
-      const data = await api<GPublishReviewState>(`/api/runs/${runId}/g-publish/review`);
-      setReview(data);
-      if (!dirtyRef.current) {
-        setTitle(data.title || "");
-        setDescription(data.description || "");
-        const current =
-          data.cover?.candidates?.find((c) => c.selected)?.path || data.cover?.path || null;
-        setSelectedCover(current);
-        // Hard refresh: surface prior successful save without wiping a fresher ack.
-        if (data.package_ready) {
-          setSaveAck(
-            (prev) => prev ?? "Changes saved — title, description, and cover are on disk.",
-          );
-        }
+    if (!reviewRef.current) setLoading(true);
+    let lastError = "Could not load the publish package.";
+    for (let attempt = 0; attempt < REVIEW_LOAD_ATTEMPTS; attempt += 1) {
+      try {
+        const data = await api<GPublishReviewState>(`/api/runs/${runId}/g-publish/review`, {
+          signal: AbortSignal.timeout(REVIEW_LOAD_TIMEOUT_MS),
+        });
+        applyReview(data);
+        setLoading(false);
+        return;
+      } catch (err) {
+        const aborted = err instanceof Error && err.name === "AbortError";
+        lastError = aborted
+          ? "The publish package is taking too long to load."
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        if (attempt + 1 < REVIEW_LOAD_ATTEMPTS) await sleep(400 * (attempt + 1));
       }
-    } catch {
-      setReview(null);
-    } finally {
-      setLoading(false);
     }
-  }, [runId, enabled]);
+    setLoading(false);
+    // Keep a snapshot already on screen. A dropped fetch must not blank the form.
+    if (!reviewRef.current) setLoadError(lastError);
+  }, [runId, enabled, applyReview]);
 
   const save = useCallback(async (): Promise<boolean> => {
     if (!runId) return false;
@@ -149,6 +181,11 @@ export function GPublishReviewSection({
       setSaving(false);
     }
   }, [runId, showToast, appendClientLog, onDirtyChange, onSaved]);
+
+  useEffect(() => {
+    if (!initialReview || dirtyRef.current) return;
+    applyReview(initialReview);
+  }, [initialReview, applyReview]);
 
   useEffect(() => {
     dirtyRef.current = false;
@@ -223,6 +260,15 @@ export function GPublishReviewSection({
       {loading && !review ? (
         <p className="hint gate-loading">
           <span className="spinner-inline" aria-hidden /> Loading publish package…
+        </p>
+      ) : null}
+
+      {!review && loadError ? (
+        <p className="hint gate-loading" role="status" data-testid="g-publish-review-error">
+          {loadError}{" "}
+          <button type="button" className="btn sm ghost" onClick={() => void reload()}>
+            Retry
+          </button>
         </p>
       ) : null}
 
