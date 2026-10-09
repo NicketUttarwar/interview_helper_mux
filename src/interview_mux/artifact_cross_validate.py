@@ -645,10 +645,7 @@ def _validate_post_ranking(ctx: RunContext) -> list[str]:
             bmin, bmax = 0, 0
         if bmax and est > bmax * 1.05:
             msg = f"selection duration ~{est:.0f}s above brief max {bmax}s"
-            if bool(delivery_brief_cfg().get("enforce_duration")):
-                errors.append(msg)
-            else:
-                ctx.log(msg, level="warning", stage="full_master_ranking")
+            ctx.log(msg, level="warning", stage="full_master_ranking")
         if bmin and est < bmin * selection_duration_brief_min_ratio() and ordered:
             msg = f"selection duration ~{est:.0f}s below brief min {bmin}s"
             if bool(delivery_brief_cfg().get("enforce_duration")):

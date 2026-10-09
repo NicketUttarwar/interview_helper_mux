@@ -408,7 +408,13 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             rows = [dict(r) for r in (doc.get("boundaries") or []) if isinstance(r, dict)]
             fixed, applied = enforce_max_segment_duration(rows, transcript)
             if applied:
-                normalized, _notes = normalize_boundary_timeline(fixed)
+                raw_words = transcript.get("words") if isinstance(transcript, dict) else None
+                timeline_words = (
+                    [w for w in raw_words if isinstance(w, dict)]
+                    if isinstance(raw_words, list)
+                    else None
+                )
+                normalized, _notes = normalize_boundary_timeline(fixed, words=timeline_words)
                 out = dict(doc)
                 out["boundaries"] = normalized
                 out = publish_boundary_contract(out, publisher_stage="boundary_detection")
@@ -665,7 +671,11 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             content_brief=brief if isinstance(brief, dict) else None,
             manifest=manifest if isinstance(manifest, dict) else None,
         )
-        normalized, _ = normalize_boundary_timeline(enriched)
+        raw_words = transcript.get("words") if isinstance(transcript, dict) else None
+        timeline_words = (
+            [w for w in raw_words if isinstance(w, dict)] if isinstance(raw_words, list) else None
+        )
+        normalized, _ = normalize_boundary_timeline(enriched, words=timeline_words)
         out = dict(boundaries)
         out["boundaries"] = normalized
         publish_boundary_contract(out)

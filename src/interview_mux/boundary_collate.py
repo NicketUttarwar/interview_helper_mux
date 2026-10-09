@@ -175,10 +175,49 @@ def _drop_coarse_dominated_rows(
     return kept, applied
 
 
+def _phrase_in_span(words: list[dict[str, Any]] | None, start_ms: int, end_ms: int) -> str:
+    toks: list[str] = []
+    for word in words or []:
+        if not isinstance(word, dict):
+            continue
+        try:
+            at = int(float(word.get("start_ms") or 0))
+        except (TypeError, ValueError):
+            continue
+        if at < start_ms or at >= end_ms:
+            continue
+        tok = str(word.get("text") or word.get("word") or "").strip()
+        if tok:
+            toks.append(tok)
+    return " ".join(toks[-16:])
+
+
+def _finished_sentence_gap(
+    words: list[dict[str, Any]] | None,
+    prev_end_ms: int,
+    next_start_ms: int,
+) -> bool:
+    """True when the gap is a finished sentence, so the 80 ms split stays.
+
+    An unfinished line may still be folded into the next segment. With no
+    words on hand, the older fold rules stay in place.
+    """
+    if not words or next_start_ms <= prev_end_ms:
+        return False
+    prev = _phrase_in_span(words, max(0, prev_end_ms - 30_000), prev_end_ms + 1)
+    nxt = _phrase_in_span(words, next_start_ms, next_start_ms + 30_000)
+    if not prev or not nxt:
+        return False
+    from interview_mux.gap_vo_prior_context import concept_cut_allowed
+
+    return concept_cut_allowed(prev, nxt)
+
+
 def _snap_monotonic_timeline(
     rows: list[dict[str, Any]],
     *,
     snap_tolerance_ms: int,
+    words: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     applied: list[dict[str, Any]] = []
     result: list[dict[str, Any]] = []
@@ -193,16 +232,19 @@ def _snap_monotonic_timeline(
             continue
         if result:
             if abs(start - prev_end) <= snap_tolerance_ms:
-                if start != prev_end:
-                    applied.append(
-                        {
-                            "action": "snap_start_to_prev_end",
-                            "segment_id": row.get("segment_id"),
-                            "from_ms": start,
-                            "to_ms": prev_end,
-                        }
-                    )
-                start = prev_end
+                if _finished_sentence_gap(words, prev_end, start):
+                    pass
+                else:
+                    if start != prev_end:
+                        applied.append(
+                            {
+                                "action": "snap_start_to_prev_end",
+                                "segment_id": row.get("segment_id"),
+                                "from_ms": start,
+                                "to_ms": prev_end,
+                            }
+                        )
+                    start = prev_end
             elif start < prev_end:
                 applied.append(
                     {
@@ -232,11 +274,12 @@ def _merge_micro_boundaries(
     granularity: str = "fine",
     same_speaker_pause_ms: int = 2500,
     max_segment_duration_ms: int | None = None,
+    words: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    del max_segment_duration_ms
     applied: list[dict[str, Any]] = []
     if not rows:
         return [], applied
-    max_ms = int(max_segment_duration_ms) if max_segment_duration_ms else None
     merged: list[dict[str, Any]] = [dict(rows[0])]
     for row in rows[1:]:
         span = _row_span(row)
@@ -256,31 +299,15 @@ def _merge_micro_boundaries(
             and prev_spk == row_spk
             and 0 <= pause_ms <= same_speaker_pause_ms
         )
-        # Never merge into a bed that would exceed the max-duration policy —
-        # otherwise enforce_max_segment_duration splits get immediately undone.
-        if same_speaker_small_pause and max_ms and prev is not None:
-            try:
-                combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
-                    prev.get("start_ms") or 0
-                )
-            except (TypeError, ValueError):
-                combined = 0
-            if combined > max_ms:
-                same_speaker_small_pause = False
         if granularity == "fine" and span >= min_segment_duration_ms and not same_speaker_small_pause:
             merged.append(dict(row))
             continue
+        if prev is not None and _finished_sentence_gap(
+            words, int(prev.get("end_ms") or 0), int(row.get("start_ms") or 0)
+        ):
+            merged.append(dict(row))
+            continue
         if merged and (span < merge_threshold_ms or same_speaker_small_pause):
-            if max_ms and prev is not None:
-                try:
-                    combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
-                        prev.get("start_ms") or 0
-                    )
-                except (TypeError, ValueError):
-                    combined = 0
-                if combined > max_ms:
-                    merged.append(dict(row))
-                    continue
             prev = merged[-1]
             prev["end_ms"] = max(int(prev.get("end_ms", 0)), int(row.get("end_ms", 0)))
             applied.append(
@@ -532,6 +559,7 @@ def normalize_boundary_timeline(
     rows: list[dict[str, Any]],
     *,
     cfg: dict[str, Any] | None = None,
+    words: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Force a monotonic boundary timeline, tolerating small timestamp drift."""
     settings = boundary_collate_cfg(cfg)
@@ -574,7 +602,9 @@ def normalize_boundary_timeline(
     )
     applied.extend(dominated_actions)
 
-    snapped, snap_actions = _snap_monotonic_timeline(filtered, snap_tolerance_ms=snap_tol)
+    snapped, snap_actions = _snap_monotonic_timeline(
+        filtered, snap_tolerance_ms=snap_tol, words=words
+    )
     applied.extend(snap_actions)
 
     merged, merge_actions = _merge_micro_boundaries(
@@ -583,6 +613,7 @@ def normalize_boundary_timeline(
         min_segment_duration_ms=min_seg_ms,
         granularity=granularity,
         max_segment_duration_ms=int(settings.get("max_segment_duration_ms") or 0) or None,
+        words=words,
     )
     applied.extend(merge_actions)
 

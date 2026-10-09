@@ -149,7 +149,11 @@ def apply_split_plan(
         content_brief=brief if isinstance(brief, dict) else None,
         manifest=manifest if isinstance(manifest, dict) else None,
     )
-    normalized, _ = normalize_boundary_timeline(enriched)
+    raw_words = transcript.get("words") if isinstance(transcript, dict) else None
+    timeline_words = (
+        [w for w in raw_words if isinstance(w, dict)] if isinstance(raw_words, list) else None
+    )
+    normalized, _ = normalize_boundary_timeline(enriched, words=timeline_words)
     out = dict(boundaries)
     out["boundaries"] = normalized
     publish_boundary_contract(out)

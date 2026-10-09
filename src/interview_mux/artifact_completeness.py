@@ -713,6 +713,232 @@ def _split_child_row_from_parent(
     }
 
 
+def aligned_manifest_segments(
+    boundary_rows: list[dict[str, Any]],
+    existing_segments: list[Any],
+) -> list[dict[str, Any]]:
+    """Manifest rows in boundary order. Keep a saved row when its id still exists."""
+    existing: dict[str, dict[str, Any]] = {}
+    for seg in existing_segments:
+        if isinstance(seg, dict) and seg.get("segment_id"):
+            existing[str(seg["segment_id"])] = dict(seg)
+    aligned: list[dict[str, Any]] = []
+    for row in boundary_rows:
+        if not isinstance(row, dict) or not row.get("segment_id"):
+            continue
+        sid = str(row["segment_id"])
+        seg = dict(existing.get(sid) or {"segment_id": sid})
+        seg["segment_id"] = sid
+        if row.get("start_ms") is not None:
+            seg["start_ms"] = int(row["start_ms"])
+        if row.get("end_ms") is not None:
+            seg["end_ms"] = int(row["end_ms"])
+        if row.get("speaker_id"):
+            seg["speaker_id"] = str(row["speaker_id"])
+        aligned.append(seg)
+    return aligned
+
+
+def align_manifest_ids_to_boundaries(ctx: RunContext) -> bool:
+    """Rewrite the manifest so its ids are exactly the saved boundary ids.
+
+    A renumber that leaves the old manifest makes the classification check
+    refuse the stage. Missing manifest with boundaries on disk is the same
+    repair: build the rows from the boundaries.
+    """
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return False
+    raw = ctx.read_json("segments/boundaries.json")
+    if not isinstance(raw, dict):
+        return False
+    rows = [r for r in (raw.get("boundaries") or []) if isinstance(r, dict)]
+    if not rows:
+        return False
+    manifest: dict[str, Any] = {"version": 1, "segments": []}
+    if ctx.artifact_exists("segments/manifest.json"):
+        loaded = ctx.read_json("segments/manifest.json")
+        if isinstance(loaded, dict):
+            manifest = dict(loaded)
+    existing = manifest.get("segments") if isinstance(manifest.get("segments"), list) else []
+    aligned = aligned_manifest_segments(rows, existing)
+    old_ids = {
+        str(s.get("segment_id"))
+        for s in existing
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    new_ids = {str(s.get("segment_id")) for s in aligned if s.get("segment_id")}
+    if old_ids == new_ids and existing:
+        return False
+    if existing and len(aligned) < len(existing):
+        def _mid_covered(seg: dict[str, Any]) -> bool:
+            try:
+                mid = (int(seg.get("start_ms") or 0) + int(seg.get("end_ms") or 0)) // 2
+            except (TypeError, ValueError):
+                return True
+            for row in rows:
+                try:
+                    if int(row.get("start_ms") or 0) <= mid <= int(row.get("end_ms") or 0):
+                        return True
+                except (TypeError, ValueError):
+                    continue
+            return False
+
+        uncovered = [
+            seg
+            for seg in existing
+            if isinstance(seg, dict)
+            and seg.get("segment_id")
+            and str(seg.get("segment_id")) not in new_ids
+            and not _mid_covered(seg)
+        ]
+        if uncovered:
+            return False
+        def _span(rows: list[Any]) -> tuple[int, int] | None:
+            starts: list[int] = []
+            ends: list[int] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    starts.append(int(row.get("start_ms") or 0))
+                    ends.append(int(row.get("end_ms") or 0))
+                except (TypeError, ValueError):
+                    continue
+            if not starts:
+                return None
+            return min(starts), max(ends)
+
+        boundary_span = _span(rows)
+        manifest_span = _span(existing)
+        if boundary_span and manifest_span:
+            if boundary_span[1] < manifest_span[1] - 2000 or boundary_span[0] > manifest_span[0] + 2000:
+                return False
+    manifest["segments"] = aligned
+    from interview_mux.artifact_repairs import repair_manifest_segments
+    from interview_mux.write_staging import write_committed_json
+
+    repaired, _notes = repair_manifest_segments(ctx, manifest)
+    write_committed_json(
+        ctx,
+        "segments/manifest.json",
+        repaired,
+        stage_key="segment_classification",
+    )
+    return True
+
+
+_RETIRED_LIST_KEYS = frozenset(
+    {
+        "segment_ids",
+        "evidence_segment_ids",
+        "bound_segment_ids",
+        "segment_order",
+    }
+)
+
+
+def _segment_token(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("seg_")
+
+
+def strip_retired_segment_ids(node: Any, manifest_ids: set[str]) -> Any:
+    """Drop segment ids that are not on the saved manifest. Leave other fields."""
+    if isinstance(node, list):
+        kept: list[Any] = []
+        for item in node:
+            if (
+                isinstance(item, dict)
+                and _segment_token(item.get("segment_id"))
+                and str(item.get("segment_id")) not in manifest_ids
+            ):
+                continue
+            kept.append(strip_retired_segment_ids(item, manifest_ids))
+        return kept
+    if not isinstance(node, dict):
+        return node
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "cue_slots" and isinstance(value, list):
+            kept = []
+            for slot in value:
+                if (
+                    isinstance(slot, dict)
+                    and _segment_token(slot.get("segment_id"))
+                    and str(slot.get("segment_id")) not in manifest_ids
+                ):
+                    continue
+                kept.append(strip_retired_segment_ids(slot, manifest_ids))
+            out[key] = kept
+            continue
+        if key in _RETIRED_LIST_KEYS and isinstance(value, list):
+            out[key] = [
+                item
+                for item in value
+                if not _segment_token(item) or str(item) in manifest_ids
+            ]
+            continue
+        if key == "segment_id" and _segment_token(value) and str(value) not in manifest_ids:
+            out[key] = ""
+            continue
+        if isinstance(value, (dict, list)):
+            out[key] = strip_retired_segment_ids(value, manifest_ids)
+        else:
+            out[key] = value
+    return out
+
+
+def drop_retired_segment_refs(ctx: RunContext) -> list[str]:
+    """Remove retired segment ids from the files a flush compares to the manifest."""
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return []
+    manifest = ctx.read_json("segments/manifest.json")
+    if not isinstance(manifest, dict):
+        return []
+    manifest_ids = {
+        str(s.get("segment_id"))
+        for s in (manifest.get("segments") or [])
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    if not manifest_ids:
+        return []
+    targets = (
+        ("understanding/content_brief.json", "content_brief_reanchor"),
+        ("master/narrative_plan.json", "narrative_arc_plan"),
+        ("understanding/soundscape_policy.json", "soundscape_policy_build"),
+        ("understanding/episode_structure.json", "episode_structure_compose"),
+        ("understanding/gap_evaluations.json", "missing_framing"),
+        ("master/coverage_audit.json", "topic_coverage_audit"),
+    )
+    from interview_mux.write_staging import write_committed_json
+
+    updated: list[str] = []
+    for rel, stage_key in targets:
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        stripped = strip_retired_segment_ids(doc, manifest_ids)
+        if stripped == doc:
+            continue
+        try:
+            write_committed_json(ctx, rel, stripped, stage_key=stage_key)
+            updated.append(rel)
+        except Exception:
+            try:
+                ctx.log(
+                    f"retired segment ids left in {rel}",
+                    level="warning",
+                    stage=stage_key,
+                )
+            except Exception:
+                pass
+    return updated
+
+
 def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
     """Fill timeline fields on manifest segments from segments/boundaries.json."""
     if not isinstance(manifest, dict):

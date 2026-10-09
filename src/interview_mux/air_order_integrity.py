@@ -1504,6 +1504,7 @@ def on_selection_order_changed(
     source: str,
     previous: dict[str, Any] | None = None,
     current: dict[str, Any] | None = None,
+    id_fold: bool = False,
 ) -> list[str]:
     """Invalidate stale transitions/EDL when air order changes."""
     notes: list[str] = []
@@ -1627,7 +1628,15 @@ def on_selection_order_changed(
             notes.append("assembly_seating_stale")
         except Exception:
             pass
+        # An id fold, and junction's own exclude, keep junction's done marker.
+        # Clearing it reopens the exclude and burns the invoke cap. EDL and
+        # mix still rebuild from the new order.
+        keep_junction = id_fold or str(source or "").startswith("junction_snip_qa")
+        fold_keep = {"junction_snip_qa"} if keep_junction else set()
         for sid in ("mix", "assembly_preview", "junction_snip_qa"):
+            if sid in fold_keep:
+                notes.append(f"kept_stage_done:{sid}")
+                continue
             marker = ctx.final_path(".stage_done", sid)
             if marker.is_file():
                 marker.unlink()
@@ -1643,7 +1652,7 @@ def on_selection_order_changed(
                 notes.append("cleared_transitions_pair_freeze")
         except Exception:
             pass
-    if prev_ids != cur_ids:
+    if prev_ids != cur_ids and not id_fold:
         try:
             from interview_mux.delivery_guardrails import fingerprints_match_checkpoint
 

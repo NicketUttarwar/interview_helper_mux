@@ -85,7 +85,7 @@ def detect_speaker_flips(
         before = [
             w
             for w in ordered[: i + 1]
-            if int(w.get("end_ms") or 0) >= a_end - 12_000
+            if int(w.get("end_ms") or 0) >= a_end - 30_000
         ]
         close = " ".join(_word_text(w) for w in before[-24:])
         out.append(

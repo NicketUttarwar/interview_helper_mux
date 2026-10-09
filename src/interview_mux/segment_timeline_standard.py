@@ -109,10 +109,11 @@ def normalize_boundary_rows(
     rows: list[dict[str, Any]],
     *,
     cfg: dict[str, Any] | None = None,
+    words: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     from interview_mux.boundary_collate import normalize_boundary_timeline
 
-    return normalize_boundary_timeline(rows, cfg=cfg)
+    return normalize_boundary_timeline(rows, cfg=cfg, words=words)
 
 
 def validate_boundary_timeline(

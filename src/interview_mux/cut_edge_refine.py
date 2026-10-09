@@ -135,23 +135,38 @@ def lift_end_for_outgoing_last_word(
     )
     from interview_mux.gap_vo_prior_context import end_is_hard_hang
 
+    cap = None
+    if next_keeper_start_ms is not None:
+        cap = int(next_keeper_start_ms)
+
+    def _fit(value: int) -> int:
+        if cap is None:
+            return value
+        return min(value, cap)
+
     target = int(owned) if owned is not None else end
     if owned is not None and owned > end and not end_is_hard_hang(words, target):
-        return target, True
+        fitted = _fit(target)
+        if fitted > end:
+            return fitted, True
+        return end, False
     # Already at/past owned, or owned is a hard hang — heal weak tails.
     hang_from = target if end_is_hard_hang(words, target) else (
         end if end_is_hard_hang(words, end) else None
     )
     if hang_from is None:
         if owned is not None and owned > end:
-            return int(owned), True
+            fitted = _fit(int(owned))
+            if fitted > end:
+                return fitted, True
+            return end, False
         return end, False
     try:
         from interview_mux.thought_complete_recut import complete_thought_candidates
 
-        horizon = int(hang_from) + 8_000
+        horizon = int(hang_from) + 30_000
         if next_keeper_start_ms is not None:
-            horizon = max(horizon, int(next_keeper_start_ms) + 8_000)
+            horizon = min(horizon, int(next_keeper_start_ms))
         cands = complete_thought_candidates(
             words, int(hang_from), horizon_ms=horizon, speaker=""
         )
@@ -163,7 +178,9 @@ def lift_end_for_outgoing_last_word(
         for cut in cands:
             cut_i = int(cut)
             if cut_i > end and not end_is_hard_hang(words, cut_i):
-                return cut_i, True
+                fitted = _fit(cut_i)
+                if fitted > end:
+                    return fitted, True
     except Exception:
         pass
     return end, False
@@ -172,6 +189,9 @@ def lift_end_for_outgoing_last_word(
 def words_in_span(
     words: list[dict[str, Any]], start_ms: int, end_ms: int
 ) -> list[dict[str, Any]]:
+    from interview_mux.gap_vo_prior_context import coerce_word_times
+
+    words = coerce_word_times(words)
     out: list[dict[str, Any]] = []
     for w in words:
         if not isinstance(w, dict) or not _tok(w):
@@ -219,6 +239,9 @@ def resolve_ms_from_anchor_text(
     window_ms: int = 8_000,
 ) -> int | None:
     """Match a short quoted phrase near ``approx_ms``; return word start or end."""
+    from interview_mux.gap_vo_prior_context import coerce_word_times
+
+    words = coerce_word_times(words)
     phrase = " ".join(_norm(t) for t in (anchor or "").split() if _norm(t))
     if not phrase or not words:
         return None

@@ -400,6 +400,27 @@ def test_selection_edl_narrative_co_producer_is_paid_land(ctx: RunContext) -> No
     assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
 
 
+def test_junction_exclude_stamp_is_paid_land(ctx: RunContext) -> None:
+    """A junction chapter-bleed exclude must not send sanitize back to the cap."""
+    import json
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get("selection_order_sanitize")
+    assert rel
+    path = ctx.path(*str(rel).split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": ["seg_050"],
+                "_meta": {"producer_stage": "junction_snip_qa"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert unpaid_land_reason(ctx, "selection_order_sanitize") is None
+
+
 def test_selection_alias_producer_stage_is_paid_land(ctx: RunContext) -> None:
     """Alias producer_stage='selection' must not unpaid-thrash sanitize (exec_13198)."""
     import json

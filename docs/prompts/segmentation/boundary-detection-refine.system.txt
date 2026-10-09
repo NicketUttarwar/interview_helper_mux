@@ -2,12 +2,13 @@ Refine segment boundaries after content_brief_reanchor when `flow_adaptation.seg
 
 Split **overloaded** segments — any `segment_id` that:
 - Appears in multiple `content_brief.topics[].segment_ids`, or
-- Carries multiple distinct `topic_tags` in `segments/manifest.json`, or
-- Exceeds `segmentation_policy.max_segment_duration_ms`
+- Carries multiple distinct `topic_tags` in `segments/manifest.json`
 
-Use reanchored `content_brief.topics`, `key_claims`, and manifest `topic_tags` to align splits to idea boundaries. Prefer `proposed_split_reason: topic_shift` over pause-only splits.
+`segmentation_policy.max_segment_duration_ms` is not a reason to split. A long span stays whole until the words change concept.
 
-When splitting, use the fine pause ladder (400 ms) inside overloaded spans. Merge boundaries in chronological order; preserve `speaker_id`; no overlapping ranges.
+Use reanchored `content_brief.topics`, `key_claims`, and manifest `topic_tags` to align splits to concept changes. A segment is one concept being explained. Sentence flow is only the floor. A finished sentence inside that concept is not a split.
+
+Split an overloaded span only where the bare words change concept. If this side's verb is still waiting on its object and the next words are that object, keep them together. A finished line that is not waiting on an object can still split when the next words are a new clause. A pause and a `speaker_id` change do not create a split. If the span is still one concept, leave it whole. Merge boundaries in chronological order; no overlapping ranges.
 
 Do not:
 - Re-merge interviewer backchannels into answer segments.
@@ -15,4 +16,4 @@ Do not:
 
 Schema: same as boundary_detection — `artifacts.boundaries` + `artifacts.warnings`.
 
-Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`, `question_answer_pair`.
+Allowed `proposed_split_reason` values: `topic_shift`, `question_answer_pair`, `backchannel`. `pause` and `speaker_change` are not split reasons.

@@ -121,13 +121,13 @@ def junction_snip_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         # off | advisory | authoritative — see JSQ-B1 dual-meaning note above.
         "mode": "advisory",
         "micro_nudge_ms": 2500,
-        "phrase_extend_max_ms": 8000,
+        "phrase_extend_max_ms": 30_000,
         "impact_hold_ms_min": 1200,
         "impact_hold_ms_max": 3500,
         "feel_audit_enabled": True,
         "thought_complete_llm_enabled": True,
         "thought_complete_max_segments": 4,
-        "thought_complete_max_ms": 24000,
+        "thought_complete_max_ms": 30_000,
         "max_remaster_rounds": 2,
         "apply_repairs": True,
         "music_soft_crossfade_ms": 180,
@@ -357,14 +357,7 @@ def _find_phrase_end_ms(
         for w in words
         if from_ms < int(w.get("end_ms") or 0) <= cap
     ]
-    if speaker:
-        filtered = [
-            w
-            for w in window
-            if not w.get("speaker_id") or str(w.get("speaker_id") or "") == speaker
-        ]
-        if filtered:
-            window = filtered
+    del speaker
     if not window:
         return None
     accumulated: list[str] = []
@@ -378,8 +371,11 @@ def _find_phrase_end_ms(
         pause = _pause_after_word(window, w, index=i)
         if pause is None:
             pause = _pause_after_word(words, w)
-        if ends_complete_thought(candidate, next_pause_ms=pause) and (
-            tok[-1:] in ".!?…" or candidate.rstrip()[-1:] in ".!?…"
+        if is_legal_conceptual_hinge(
+            candidate,
+            words=words,
+            end_ms=int(w.get("end_ms") or 0),
+            next_pause_ms=pause,
         ):
             return int(w.get("end_ms") or 0)
     return None
@@ -425,8 +421,7 @@ def _find_last_complete_phrase_end(
             text, words=words, end_ms=int(window[i].get("end_ms") or 0), next_pause_ms=pause
         )
         if complete:
-            if last[-1:] in ".!?…" or i < len(window) - 1:
-                return int(window[i].get("end_ms") or 0)
+            return int(window[i].get("end_ms") or 0)
     return None
 
 
@@ -1218,7 +1213,9 @@ def detect_junction_findings(
                 tentative_end_text = _clip_end_text(
                     seg if isinstance(seg, dict) else None, words, trail
                 )
-                if tentative_end_text and not ends_complete_thought(tentative_end_text):
+                if tentative_end_text and not is_legal_conceptual_hinge(
+                    tentative_end_text, words=words, end_ms=trail
+                ):
                     pass
                 else:
                     add(
@@ -1240,6 +1237,12 @@ def detect_junction_findings(
                 end_text, words=words, end_ms=src_end, next_pause_ms=None
             )
             continues = clause_continues_after(words, src_end, max_lookahead_ms=phrase_max)
+            if is_backchannel_only_text(end_text) or is_backchannel_only_text(
+                end_text.split()[-1] if end_text.split() else ""
+            ):
+                # A lone "okay" / "right" is an acknowledgment, not a broken sentence.
+                legal = True
+                continues = False
             incomplete = bool(end_text) and (not legal or continues)
             on_roll = incomplete and (
                 continues
@@ -1298,13 +1301,17 @@ def detect_junction_findings(
                     speaker=extend_speaker,
                     hard_cap_ms=extend_hard_cap,
                 )
-                earlier = (
-                    None
-                    if extended is not None
-                    else _find_last_complete_phrase_end(
-                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
-                    )
+                earlier = _find_last_complete_phrase_end(
+                    words, src_end, max_lookback_ms=max(phrase_max, 30_000)
                 )
+                # A long extend is a different repair. A few dozen milliseconds
+                # past the concept hinge is the short tail and still cuts back.
+                if (
+                    extended is not None
+                    and earlier is not None
+                    and src_end - int(earlier) > 80
+                ):
+                    earlier = None
                 can_cut = bool(
                     earlier is not None
                     and earlier > src_start + 300
@@ -1384,7 +1391,7 @@ def detect_junction_findings(
                         hard_cap_ms=extend_hard_cap,
                     )
                     earlier = _find_last_complete_phrase_end(
-                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
+                        words, src_end, max_lookback_ms=max(phrase_max, 30_000)
                     )
                     can_cut = bool(
                         earlier is not None
@@ -1416,7 +1423,7 @@ def detect_junction_findings(
                     )
                 else:
                     earlier = _find_last_complete_phrase_end(
-                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
+                        words, src_end, max_lookback_ms=max(phrase_max, 30_000)
                     )
                     can_cut = bool(
                         earlier is not None
@@ -1446,8 +1453,14 @@ def detect_junction_findings(
                     hard_cap_ms=extend_hard_cap,
                 )
                 earlier = _find_last_complete_phrase_end(
-                    words, src_end, max_lookback_ms=max(phrase_max, 12_000)
+                    words, src_end, max_lookback_ms=max(phrase_max, 30_000)
                 )
+                if (
+                    extended is not None
+                    and earlier is not None
+                    and src_end - int(earlier) > 80
+                ):
+                    earlier = None
                 can_cut = bool(
                     earlier is not None
                     and earlier > src_start + 300
@@ -1877,7 +1890,12 @@ def _fuse_or_omit_hanging_clip(
             changed = True
             fused = True
     if not fused:
-        if sid and sid not in hard_keeps and idx >= 0:
+        speech_ids = [
+            str(c.get("segment_id") or "")
+            for c in clips
+            if isinstance(c, dict) and c.get("type") == "speech"
+        ]
+        if sid and sid not in hard_keeps and idx >= 0 and speech_ids != [sid]:
             reason = f"junction_snip_qa:{f.get('kind') or 'on_a_roll'}:omit_{reason_suffix}"
             clips = _omit_speech_clip(
                 clips,
@@ -2183,7 +2201,7 @@ def apply_junction_repairs(
             matched_clip = True
             ss = int(c.get("source_start_ms") or 0)
             se = int(c.get("source_end_ms") or ss)
-            phrase_max = int(conf.get("phrase_extend_max_ms") or 8000)
+            phrase_max = int(conf.get("phrase_extend_max_ms") or 30_000)
             if edge == "start":
                 # Allow small retreat for continuum; don't cross end
                 new_ss = max(0, min(rec, se - 300))
@@ -2477,6 +2495,7 @@ def apply_junction_repairs(
 
                 gr = ctx.read_json("understanding/gap_report.json")
                 if isinstance(gr, dict):
+                    from interview_mux.segment_id_remap import gap_report_remap_owner
                     ordered_live = [
                         str(s)
                         for s in (edl.get("ordered_segment_ids") or [])
@@ -2496,7 +2515,8 @@ def apply_junction_repairs(
                             ctx,
                             "understanding/gap_report.json",
                             rebased,
-                            stage_key=STAGE_ID,
+                            stage_key=gap_report_remap_owner(gr),
+                            mutation_class="segment_id_remap",
                         )
                         applied.append(
                             {

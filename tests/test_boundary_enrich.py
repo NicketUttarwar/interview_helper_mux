@@ -85,36 +85,41 @@ def test_split_backchannel_turns_skips_nested_um():
     assert len(out) == 1
 
 
-def test_enforce_max_segment_duration_splits_long_span():
-    # Long pauses after complete sentences so splits stay sentence-safe.
+def test_enforce_max_segment_duration_leaves_a_long_span_whole():
+    # Length never places a cut, even when the words change concept inside the span.
+    concepts = [
+        "the company shipped the snack bar in june",
+        "what happened after that launch in stores",
+        "then we started a second company in austin",
+        "well the portfolio moved into a new market",
+        "next the team built the plant protein line",
+    ]
     words = []
     t = 0
-    i = 0
-    while t < 120_000:
-        words.append(
-            {
-                "text": f"word{i}.",
-                "speaker_id": "spk_1",
-                "start_ms": t,
-                "end_ms": t + 400,
-            }
-        )
-        t += 400
-        # ≥1s pause between sentences → complete-thought hinge
-        t += 1200
-        i += 1
+    for phrase in concepts:
+        for tok in phrase.split():
+            words.append(
+                {
+                    "text": tok,
+                    "speaker_id": "spk_1",
+                    "start_ms": t,
+                    "end_ms": t + 400,
+                }
+            )
+            t += 500
+        t += 20_000
     transcript = {"words": words}
     rows = [{"start_ms": 0, "end_ms": 120_000, "speaker_id": "spk_1"}]
     cfg = {"max_segment_duration_ms": 30_000, "min_segment_duration_ms": 4000}
     out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
-    assert len(out) >= 3
-    assert all(int(r["end_ms"]) - int(r["start_ms"]) <= 30_000 for r in out)
-    assert any(a.get("action") == "enforce_max_duration" for a in actions)
-    assert not any(a.get("action") == "force_split_midpoint" for a in actions)
+    assert len(out) == 1
+    assert int(out[0]["end_ms"]) - int(out[0]["start_ms"]) == 120_000
+    assert out[0].get("airable") is not False
+    assert actions == []
 
 
-def test_enforce_max_skips_midpoint_when_no_complete_hinge():
-    # Continuous speech with sub-pause gaps — must not invent a midpoint cut.
+def test_enforce_max_does_not_cut_continuous_speech():
+    # No concept change and no breath. Leave the explanation whole.
     transcript = {
         "words": [
             {
@@ -130,9 +135,10 @@ def test_enforce_max_skips_midpoint_when_no_complete_hinge():
     cfg = {"max_segment_duration_ms": 20_000, "min_segment_duration_ms": 4000}
     out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
     assert len(out) == 1
-    assert out[0].get("airable") is False
-    assert out[0].get("overlong_unsplit") is True
-    assert any(a.get("action") == "skip_midpoint_split" for a in actions)
+    assert int(out[0]["end_ms"]) - int(out[0]["start_ms"]) == 80_000
+    assert out[0].get("airable") is not False
+    assert out[0].get("overlong_unsplit") is not True
+    assert actions == []
 
 
 def test_detect_overloaded_segment_ids_by_duration_and_topics():
@@ -201,6 +207,36 @@ def test_same_speaker_small_pause_merges_in_fine_mode():
     normalized, applied = normalize_boundary_timeline(rows, cfg=cfg)
     assert len(normalized) == 1
     assert any(a.get("action") == "merge_same_speaker_boundary" for a in applied)
+
+
+def test_finished_sentence_keeps_the_80ms_gap():
+    rows = [
+        {"start_ms": 0, "end_ms": 2800, "speaker_id": "spk_0", "segment_id": "seg_a"},
+        {"start_ms": 2880, "end_ms": 6800, "speaker_id": "spk_0", "segment_id": "seg_b"},
+    ]
+    words = [
+        {"text": "We", "start_ms": 0, "end_ms": 200},
+        {"text": "shipped", "start_ms": 200, "end_ms": 600},
+        {"text": "the", "start_ms": 600, "end_ms": 800},
+        {"text": "bar.", "start_ms": 800, "end_ms": 2800},
+        {"text": "That", "start_ms": 2880, "end_ms": 3200},
+        {"text": "is", "start_ms": 3200, "end_ms": 3600},
+        {"text": "better.", "start_ms": 3600, "end_ms": 6800},
+    ]
+    cfg = {
+        "analysis": {
+            "segmentation": {
+                "default_granularity": "fine",
+                "min_segment_duration_ms": 4000,
+                "boundary_merge_threshold_ms": 200,
+            },
+        }
+    }
+    normalized, applied = normalize_boundary_timeline(rows, cfg=cfg, words=words)
+    assert len(normalized) == 2
+    assert normalized[1]["start_ms"] == 2880
+    assert not any(a.get("action") == "merge_same_speaker_boundary" for a in applied)
+    assert not any(a.get("action") == "snap_start_to_prev_end" for a in applied)
 
 
 def test_enrich_boundary_rows_respects_min_duration_floor():

@@ -83,6 +83,10 @@ _SHARED_PATH_LAND_CO_PRODUCERS: dict[str, frozenset[str]] = {
             # Legacy/alias stamps from sanitize commit paths (exec_13198).
             "selection",
             "artifact_sanitize.selection",
+            # A chapter-bleed exclude after sanitize restamps this producer.
+            # Leaving it unpaid re-dispatches sanitize until the invoke cap
+            # and the walk never reaches finalize (exec_029).
+            "junction_snip_qa",
         }
     ),
     # IPP / layup may rewrite mastering_plan after a clean air-contract sync

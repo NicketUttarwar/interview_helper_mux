@@ -369,6 +369,7 @@ def commit(
     source: str = "air_order",
     exclude_unseated: bool = True,
     snapshot_first: bool = True,
+    mutation_class: str | None = None,
 ) -> dict[str, Any]:
     """Write a sealed generation. On failure the caller should ``rollback``."""
     if (
@@ -435,7 +436,13 @@ def commit(
                 skip_checkpoint=False,
             )
         if isinstance(edl_out, dict):
-            ctx.write_json(EDL_REL, edl_out, skip_handoff=True, stage_key="edl")
+            ctx.write_json(
+                EDL_REL,
+                edl_out,
+                skip_handoff=True,
+                stage_key=source if mutation_class else "edl",
+                mutation_class=mutation_class,
+            )
         air_sk = source if source in {"edl", "mix", "junction_snip_qa"} else "edl"
         ctx.write_json(AIR_ORDER_REL, bundle, skip_handoff=True, stage_key=air_sk)
     finally:
@@ -625,6 +632,7 @@ def write_live_edl(
     edl: dict[str, Any],
     *,
     source: str = "edl",
+    mutation_class: str | None = None,
 ) -> dict[str, Any]:
     """Production EDL persist — bumps generation (or no-ops while already committing)."""
     from interview_mux.artifact_sanitize.one_writer import (
@@ -661,9 +669,9 @@ def write_live_edl(
         except Exception:
             pass
         if _committing(ctx):
-            ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
+            ctx.write_json(EDL_REL, edl_out, skip_handoff=True, mutation_class=mutation_class)
             return read_live(ctx)
-        live = commit(ctx, edl=edl_out, source=source)
+        live = commit(ctx, edl=edl_out, source=source, mutation_class=mutation_class)
         # EDL rewrite without content change must not look unseated / force remaster.
         src_l = str(source or "").lower()
         if src_l not in {"mix", "stamp_after_mix", "master_finalize"}:

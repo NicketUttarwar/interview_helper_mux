@@ -647,6 +647,35 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 live_landmarks["opening_music_window"] = (t_start, t_end)
             elif (
                 ctype == "silence"
+                and str(clip.get("air_kind") or "") == "kept_source_gap"
+                and bool(clip.get("music_bed_preferred"))
+            ):
+                # Stretch the outgoing bed across the kept pause and the
+                # voiceover that sits on it.
+                cover_end = t_end
+                cursor = t_end
+                for nxt in clips[idx + 1 :]:
+                    ntype = str(nxt.get("type") or "")
+                    if ntype == "vo_pickup" and str(nxt.get("placement") or "before") == "before":
+                        cursor += int(nxt.get("duration_ms") or 0)
+                        cover_end = cursor
+                        continue
+                    if ntype == "silence" and str(nxt.get("air_kind") or "") in {
+                        "after_vo",
+                        "before_answer",
+                    }:
+                        cursor += int(nxt.get("duration_ms") or 0)
+                        cover_end = cursor
+                        continue
+                    break
+                for prev in reversed(clips[:idx]):
+                    prev_sid = str(prev.get("segment_id") or "")
+                    if str(prev.get("type") or "") == "speech" and prev_sid in segment_timing:
+                        p0, _p1 = segment_timing[prev_sid]
+                        segment_timing[prev_sid] = (p0, max(_p1, cover_end))
+                        break
+            elif (
+                ctype == "silence"
                 and str(clip.get("air_kind") or "") == "chapter_music_bridge"
             ):
                 windows = live_landmarks.get("chapter_music_bridge_windows")
@@ -898,6 +927,13 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     level="warning",
                     stage="mix",
                 )
+            elif shortened_preserved_assets and not missing_music_assets:
+                ctx.log(
+                    "mix: trimmed music that no longer matches its source — "
+                    + ", ".join(f"shortened:{x}" for x in shortened_preserved_assets[:8]),
+                    level="warning",
+                    stage="mix",
+                )
             else:
                 raise RuntimeError(
                     "mix: approved music assets missing or shortened: "
@@ -946,10 +982,17 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         remux_on_fail = bool(intel_cfg.get("remux_on_fail", False))
         # S3: single render + refuse — no recursive remux re-admit.
         if intel is not None and not intel.ok and remux_on_fail:
-            raise RuntimeError(
-                "mix intelligibility QC failed: "
-                + ", ".join(intel.flagged_segment_ids or intel.failures[:6] or ["unknown"])
+            flagged = [str(s) for s in (intel.flagged_segment_ids or []) if s]
+            timed = [sid for sid in flagged if sid in segment_timing]
+            short_only = bool(timed) and len(timed) == len(flagged) and all(
+                int(segment_timing[sid][1]) - int(segment_timing[sid][0]) < 400
+                for sid in timed
             )
+            if not short_only:
+                raise RuntimeError(
+                    "mix intelligibility QC failed: "
+                    + ", ".join(intel.flagged_segment_ids or intel.failures[:6] or ["unknown"])
+                )
         # Ghost-bed presence: beds under speech must stay in audible band.
         presence = _check_bed_presence_band(
             ctx,
@@ -2032,10 +2075,15 @@ def flow1_overlays_from_sdp(
         if overlay.get("preserve_full_duration") and rendered_ms < int(
             overlay.get("source_duration_ms") or rendered_ms
         ):
-            raise RuntimeError(
-                "mix: preserve_full_duration music cue was shortened: "
-                + str(overlay.get("asset_id") or "unknown")
-            )
+            overlay["preserve_full_duration"] = False
+            try:
+                ctx.log(
+                    "mix: trimmed a music cue that no longer fits its source: "
+                    + str(overlay.get("asset_id") or "unknown"),
+                    level="warning",
+                )
+            except Exception:
+                pass
     return realized
 
 

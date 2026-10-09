@@ -764,8 +764,26 @@ def commit_selection_mutation(
             prev_producer = ""
             if isinstance(prev_meta, dict):
                 prev_producer = str(prev_meta.get("producer_stage") or "").strip()
+            # An id fold (fuse, hitch, overlap) removes absorbed ids and
+            # leaves the surviving order. It must not replace a paid sanitize
+            # stamp with the mover, or sanitize is re-dispatched until the cap.
+            id_fold = (mut or "") == "segment_id_remap"
             if sk_stamp == "selection_order_sanitize":
                 meta["producer_stage"] = sk_stamp
+            elif id_fold and prev_producer:
+                meta["producer_stage"] = prev_producer
+            elif id_fold and not prev_producer:
+                # A missing stamp after sanitize has already paid must not be
+                # replaced by the fuse/hitch stage. That stage is not a
+                # co-producer, so sanitize would be dispatched until the cap.
+                sanitize_paid = False
+                try:
+                    sanitize_paid = bool(ctx.is_done("selection_order_sanitize"))
+                except Exception:
+                    sanitize_paid = False
+                meta["producer_stage"] = (
+                    "selection_order_sanitize" if sanitize_paid else sk_stamp
+                )
             elif (
                 prev_ids_stamp
                 and prev_ids_stamp == cur_ids_stamp
@@ -845,6 +863,7 @@ def commit_selection_mutation(
             source=producer,
             previous=previous,
             current=out,
+            id_fold=(mut or "") == "segment_id_remap",
         )
         # The documents derived from the selection follow it here, under their
         # owners' keys, whoever moved it (ISSUES 113). A removal the
@@ -988,6 +1007,11 @@ def commit_selection_via(
     from interview_mux.air_order_integrity import on_selection_order_changed
 
     on_selection_order_changed(
-        ctx, source=producer, previous=previous, current=out
+        ctx,
+        source=producer,
+        previous=previous,
+        current=out,
+        id_fold=str((writer_kwargs or {}).get("mutation_class") or "")
+        == "segment_id_remap",
     )
     return out

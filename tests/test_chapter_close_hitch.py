@@ -192,9 +192,8 @@ def test_recut_extends_hanging_list_into_next_keeper_not_cta() -> None:
         next_keeper_eps_ms=80,
         min_keep_ms=2500,
     )
-    assert windows[0]["end_ms"] == 97_920
-    assert windows[0]["hanging_extended"] is True
-    assert windows[1]["start_ms"] == 97_920
+    assert windows[0]["end_ms"] <= 96_160
+    assert windows[1]["start_ms"] == 96_160
     assert windows[1]["end_ms"] == 121_660
 
 
@@ -1124,6 +1123,49 @@ def test_s3_post_walk_peels_gap_kitchen(
     assert patches["omit_stamped"] == 0
 
 
+def test_remap_keeps_going_when_one_file_refuses_the_write() -> None:
+    from interview_mux.segment_id_remap import rewrite_artifact_segment_refs
+
+    class Ctx:
+        def __init__(self) -> None:
+            self.docs = {
+                "master/selection.json": {"ordered_segment_ids": ["seg_a"]},
+                "understanding/sonic_context.json": {"segment_id": "seg_a"},
+            }
+
+        def artifact_exists(self, rel: str) -> bool:
+            return rel in self.docs
+
+        def read_json(self, rel: str) -> dict:
+            return self.docs[rel]
+
+        def write_json(self, rel: str, doc: dict, **_kwargs: object) -> None:
+            if rel == "understanding/sonic_context.json":
+                raise RuntimeError("refused")
+            self.docs[rel] = doc
+
+        def log(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    ctx = Ctx()
+    updated = rewrite_artifact_segment_refs(ctx, {"seg_a": "seg_b"}, stage_key="connector_fuse_pass")
+    assert "master/selection.json" in updated
+    assert ctx.docs["master/selection.json"]["ordered_segment_ids"] == ["seg_b"]
+    assert ctx.docs["understanding/sonic_context.json"]["segment_id"] == "seg_a"
+
+
+def test_acoustic_refine_with_no_words_keeps_the_window() -> None:
+    from interview_mux.chapter_close_hitch import apply_acoustic_refine
+
+    out = apply_acoustic_refine(
+        [{"segment_id": "seg_a", "start_ms": 0, "end_ms": 4_000}],
+        [],
+        None,
+    )
+    assert out[0]["start_ms"] == 0
+    assert out[0]["end_ms"] == 4_000
+
+
 def test_s4_inner_walk_skip_when_identity_map() -> None:
     from interview_mux.chapter_close_hitch import hitch_inner_walk_needed
 
@@ -1142,3 +1184,129 @@ def test_s4_inner_walk_skip_when_identity_map() -> None:
     )
     assert hitch_inner_walk_needed(any_change=True, mapping={}, listen_restage=False) is True
     assert hitch_inner_walk_needed(any_change=False, mapping={}, listen_restage=True) is True
+
+
+def test_following_segment_stays_in_the_chapter_until_the_topic_changes() -> None:
+    from interview_mux.chapter_close_hitch import fold_following_segments_into_chapters
+    from interview_mux.gap_vo_prior_context import segment_opens_new_chapter
+    from interview_mux.ideal_cuts import resolve_cut_overlaps
+
+    assert not segment_opens_new_chapter(
+        "We shipped the bar.",
+        "The company launches a product.",
+    )
+    assert segment_opens_new_chapter(
+        "We shipped the bar.",
+        "Next topic is the factory.",
+    )
+    assert not segment_opens_new_chapter(
+        "And to say.",
+        "What is the next thing.",
+    )
+    assert not segment_opens_new_chapter(
+        "We shipped the bar.",
+        "Also we launched the snack bar.",
+    )
+    assert not segment_opens_new_chapter(
+        "We shipped the bar.",
+        "Then we opened the factory.",
+    )
+    assert not segment_opens_new_chapter(
+        "We looked at the",
+        "next thing on the list.",
+    )
+
+    plan = {
+        "chapters": [
+            {
+                "chapter_id": "ch_1",
+                "title": "The build",
+                "suggested_open_segment_id": "seg_a",
+                "segment_ids": ["seg_a"],
+            },
+            {
+                "chapter_id": "ch_2",
+                "title": "The launch",
+                "suggested_open_segment_id": "seg_b",
+                "segment_ids": ["seg_b", "seg_c"],
+            },
+        ]
+    }
+    keepers = [
+        {"segment_id": "seg_a", "start_ms": 0, "end_ms": 4000, "text": "We shipped the bar."},
+        {
+            "segment_id": "seg_b",
+            "start_ms": 4080,
+            "end_ms": 8000,
+            "text": "The company launches a product.",
+        },
+        {
+            "segment_id": "seg_c",
+            "start_ms": 8080,
+            "end_ms": 12000,
+            "text": "Next topic is the factory.",
+        },
+    ]
+    folded = fold_following_segments_into_chapters(plan, keepers)
+    chapters = folded["chapters"]
+    assert chapters[0]["segment_ids"] == ["seg_a", "seg_b"]
+    assert chapters[1]["segment_ids"] == ["seg_c"]
+    assert chapters[1]["suggested_open_segment_id"] == "seg_c"
+
+    warnings: list[str] = []
+    kept = resolve_cut_overlaps(
+        [
+            {"cut_id": "a", "priority": "must_keep", "start_ms": 0, "end_ms": 5000},
+            {"cut_id": "b", "priority": "should_keep", "start_ms": 4500, "end_ms": 9000},
+        ],
+        warnings,
+    )
+    by_id = {row["cut_id"]: row for row in kept}
+    assert by_id["a"]["end_ms"] == 5000
+    assert by_id["b"]["start_ms"] == 5080
+    assert by_id["b"]["end_ms"] == 9000
+    assert any(note.startswith("trimmed overlapping cut b") for note in warnings)
+
+    warnings = []
+    kept = resolve_cut_overlaps(
+        [
+            {"cut_id": "must", "priority": "must_keep", "start_ms": 100_000, "end_ms": 110_000},
+            {"cut_id": "opt", "priority": "optional", "start_ms": 99_000, "end_ms": 120_000},
+        ],
+        warnings,
+    )
+    by_id = {row["cut_id"]: row for row in kept}
+    assert by_id["must"]["start_ms"] == 100_000
+    assert by_id["opt"]["end_ms"] == 99_920
+    assert by_id["opt__tail"]["start_ms"] == 110_080
+    assert by_id["opt__tail"]["end_ms"] == 120_000
+    assert any(note.startswith("kept words before overlap") for note in warnings)
+
+    warnings = []
+    kept = resolve_cut_overlaps(
+        [
+            {"cut_id": "must", "priority": "must_keep", "start_ms": 50_000, "end_ms": 60_000},
+            {"cut_id": "should", "priority": "should_keep", "start_ms": 10_000, "end_ms": 20_000},
+            {"cut_id": "wide", "priority": "optional", "start_ms": 0, "end_ms": 70_000},
+        ],
+        warnings,
+    )
+    by_id = {row["cut_id"]: row for row in kept}
+    assert by_id["wide"]["end_ms"] == 9_920
+    assert by_id["wide__tail"]["start_ms"] == 20_080
+    assert by_id["wide__tail"]["end_ms"] == 49_920
+    assert by_id["wide__part3"]["start_ms"] == 60_080
+    assert by_id["wide__part3"]["end_ms"] == 70_000
+
+    from interview_mux.ideal_cuts import _snap_overlap_starts_to_words
+
+    snapped = _snap_overlap_starts_to_words(
+        [
+            {"cut_id": "a", "start_ms": 0, "end_ms": 5_000},
+            {"cut_id": "b", "start_ms": 5_080, "end_ms": 9_000},
+        ],
+        [{"text": "word", "start_ms": 5_000, "end_ms": 5_200}],
+    )
+    by_id = {row["cut_id"]: row for row in snapped}
+    assert by_id["b"]["start_ms"] == 5_200
+    assert by_id["a"]["end_ms"] == 5_000

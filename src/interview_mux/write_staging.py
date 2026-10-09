@@ -1844,6 +1844,16 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
         from interview_mux.artifact_lifecycle import apply_fingerprints_on_flush, post_commit_validate
 
         apply_fingerprints_on_flush(ctx, stage_id, flushed)
+        try:
+            from interview_mux.artifact_completeness import (
+                align_manifest_ids_to_boundaries,
+                drop_retired_segment_refs,
+            )
+
+            align_manifest_ids_to_boundaries(ctx)
+            drop_retired_segment_refs(ctx)
+        except Exception:
+            pass
         post_errors = post_commit_validate(ctx, stage_id)
         if post_errors:
             raise ValueError(

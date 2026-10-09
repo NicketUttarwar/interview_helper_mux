@@ -390,8 +390,9 @@ def test_unfinished_nominal_novel_is_hang_not_evaluative_close() -> None:
     assert ends_complete_thought("that's novel", next_pause_ms=1120)
 
 
-def test_novel_1080_continues_at_1120_and_3900_not_4100() -> None:
+def test_novel_1080_continues_inside_thirty_seconds() -> None:
     from interview_mux.gap_vo_prior_context import (
+        CONCEPT_EDGE_MS,
         clause_continues_after,
         is_legal_conceptual_hinge,
     )
@@ -401,11 +402,15 @@ def test_novel_1080_continues_at_1120_and_3900_not_4100() -> None:
         words, cut = _novel_1080_words(gap_ms=gap)
         assert clause_continues_after(words, cut), gap
         assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=gap)
+    for gap in (4100, 20_000):
+        words, cut = _novel_1080_words(gap_ms=gap)
+        assert clause_continues_after(words, cut, max_lookahead_ms=CONCEPT_EDGE_MS), gap
+        assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=gap)
 
-    words, cut = _novel_1080_words(gap_ms=4100)
-    assert not clause_continues_after(words, cut)
+    words, cut = _novel_1080_words(gap_ms=31_000)
+    assert not clause_continues_after(words, cut, max_lookahead_ms=CONCEPT_EDGE_MS)
     # Still not a legal hinge: unfinished nominal even when lookahead misses the complement.
-    assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=4100)
+    assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=31_000)
 
     # Non-hang close + 4.1s pause is a real split.
     done = "the treatment is ready"
@@ -473,3 +478,380 @@ def test_abutting_clinical_trials_is_not_a_hinge() -> None:
         next_pause_ms=0,
     )
     assert not clause_continues_after(words, marks["diagnostics"])
+
+
+def _timed(tokens: list[str], *, start: int, speaker: str, gap_before: int = 0) -> tuple[list[dict], int]:
+    words: list[dict] = []
+    t = start + gap_before
+    for tok in tokens:
+        words.append({"text": tok, "speaker_id": speaker, "start_ms": t, "end_ms": t + 180})
+        t += 220
+    return words, words[-1]["end_ms"] if words else start
+
+
+def test_say_what_inside_thirty_seconds_is_one_concept() -> None:
+    """The continuation can sit well past a breath and still finish the same concept."""
+    from interview_mux.gap_vo_prior_context import (
+        CONCEPT_EDGE_MS,
+        clause_continues_after,
+        is_legal_conceptual_hinge,
+    )
+
+    left, cut = _timed("We looked at it. And to say.".split(), start=1_520_840, speaker="spk_1")
+    right, _end = _timed(
+        "What is the next thing. We build the business.".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=20_000,
+    )
+    words = left + right
+    assert clause_continues_after(words, cut, max_lookahead_ms=CONCEPT_EDGE_MS)
+    assert not is_legal_conceptual_hinge(
+        "We looked at it. And to say.",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=20_000,
+    )
+
+
+def test_new_question_inside_thirty_seconds_still_cuts() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    left, cut = _timed(
+        "the company shipped the snack bar in june".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    right, _end = _timed(
+        "what happened after that launch".split(),
+        start=cut,
+        speaker="spk_1",
+        gap_before=20_000,
+    )
+    words = left + right
+    assert is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=20_000,
+    )
+
+
+def test_say_what_we_build_is_one_concept() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        is_legal_conceptual_hinge,
+    )
+
+    left, cut = _timed("We looked at it. And to say.".split(), start=0, speaker="spk_1")
+    right, _end = _timed(
+        "What is the next thing. We build the business.".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=1000,
+    )
+    words = left + right
+    assert clause_continues_after(words, cut)
+    assert not is_legal_conceptual_hinge(
+        "We looked at it. And to say.",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=1000,
+    )
+
+
+def test_verb_without_object_stays_with_the_object() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        concept_cut_allowed,
+        next_starts_new_clause,
+        sentence_still_flowing,
+        verb_waiting_on_object,
+    )
+
+    assert verb_waiting_on_object("we build")
+    assert not verb_waiting_on_object("we build the business")
+    assert not verb_waiting_on_object("we shipped it.")
+    assert not verb_waiting_on_object("That was it.")
+    assert not next_starts_new_clause("the business in public")
+    assert next_starts_new_clause("What happened after that")
+    assert next_starts_new_clause("The treatment is ready")
+    assert sentence_still_flowing("we build", "the business in public")
+    assert sentence_still_flowing("we build", "the snack bar")
+    assert not concept_cut_allowed("we build", "the business in public")
+    assert not concept_cut_allowed("we build", "the snack bar")
+    assert concept_cut_allowed("we build the business.", "What happened after that")
+    assert concept_cut_allowed("we left.", "The company launched a product.")
+    assert concept_cut_allowed("we agreed.", "The treatment is ready.")
+    assert not sentence_still_flowing("we left.", "The company launched a product.")
+
+
+def _words_at(pairs: list[tuple[str, int]]) -> list[dict]:
+    out = []
+    for text, start in pairs:
+        out.append({"text": text, "start_ms": start, "end_ms": start + 180})
+    return out
+
+
+def test_forward_30s_investigation_reads_each_word() -> None:
+    from interview_mux.gap_vo_prior_context import investigate_forward_cut
+
+    words = _words_at(
+        [
+            ("we", 0),
+            ("build", 200),
+            ("the", 8_000),
+            ("business", 8_200),
+            ("in", 8_400),
+            ("public.", 8_600),
+            ("What", 20_000),
+            ("happened", 20_200),
+            ("after", 20_400),
+            ("that", 20_600),
+        ]
+    )
+    # The clock cut lands on the bare verb. The 30s pass moves it to the object.
+    assert investigate_forward_cut(words, 380) == 8_780
+    # A finished line in front of a new sentence stays put.
+    left = _words_at(
+        [
+            ("we", 0),
+            ("left.", 200),
+            ("The", 5_000),
+            ("company", 5_200),
+            ("launched", 5_400),
+            ("a", 5_600),
+            ("product.", 5_800),
+        ]
+    )
+    assert investigate_forward_cut(left, 380) == 380
+    ready = _words_at(
+        [
+            ("the", 0),
+            ("treatment", 200),
+            ("is", 400),
+            ("ready.", 600),
+            ("Next", 4_700),
+            ("chapter", 4_900),
+            ("starts", 5_100),
+        ]
+    )
+    assert investigate_forward_cut(ready, 780) == 780
+    launches = _words_at(
+        [
+            ("we", 0),
+            ("left.", 200),
+            ("The", 5_000),
+            ("company", 5_200),
+            ("launches", 5_400),
+            ("a", 5_600),
+            ("product.", 5_800),
+        ]
+    )
+    assert investigate_forward_cut(launches, 380) == 380
+    joined = _words_at(
+        [
+            ("we", 0),
+            ("left.", 200),
+            ("and", 8_000),
+            ("the", 8_200),
+            ("company", 8_400),
+            ("launched", 8_600),
+            ("a", 8_800),
+            ("product.", 9_000),
+        ]
+    )
+    assert investigate_forward_cut(joined, 380) == 380
+    longer = _words_at(
+        [
+            ("so", 0),
+            ("today", 200),
+            ("we", 400),
+            ("build", 600),
+            ("the", 8_000),
+            ("business", 8_200),
+            ("in", 8_400),
+            ("public.", 8_600),
+            ("What", 12_000),
+            ("happened", 12_200),
+        ]
+    )
+    assert investigate_forward_cut(longer, 780) == 8_780
+    new_beat = _words_at(
+        [
+            ("we", 0),
+            ("were", 200),
+            ("going", 400),
+            ("to", 600),
+            ("So", 2_000),
+            ("next", 2_200),
+            ("question.", 2_400),
+        ]
+    )
+    assert investigate_forward_cut(new_beat, 780) == 780
+
+
+def test_keeper_air_bounds_use_the_30s_word_investigation() -> None:
+    from interview_mux.ideal_cuts import resolve_keeper_air_bounds
+
+    words = _words_at(
+        [
+            ("we", 0),
+            ("build", 200),
+            ("the", 8_000),
+            ("business", 8_200),
+            ("in", 8_400),
+            ("public.", 8_600),
+            ("What", 20_000),
+            ("happened", 20_200),
+        ]
+    )
+    meta: dict = {}
+    _start, end = resolve_keeper_air_bounds(
+        source_start_ms=0,
+        source_end_ms=380,
+        words=words,
+        min_keep_ms=200,
+        meta_out=meta,
+    )
+    # The concept closes on "public." The existing silence pad may add up to 1s.
+    assert 8_780 <= end <= 8_780 + 1_000
+    assert str(meta["air_bound_reason"]).startswith("forward_window_30s")
+    assert end < 20_000
+
+
+def test_parallel_platform_examples_stay_one_concept() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        is_legal_conceptual_hinge,
+    )
+
+    left, cut = _timed(
+        "We have granola. We have peanut butter.".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    right, _end = _timed(
+        "We have plant protein.".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=400,
+    )
+    words = left + right
+    assert clause_continues_after(words, cut)
+    assert not is_legal_conceptual_hinge(
+        "We have granola. We have peanut butter.",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=400,
+    )
+
+
+def test_new_question_is_a_concept_cut_without_period_or_speaker_flip() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    left, cut = _timed(
+        "the company shipped the snack bar in june".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    right, _end = _timed(
+        "what happened after that launch".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=80,
+    )
+    words = left + right
+    assert is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=80,
+    )
+
+
+def test_tell_me_opens_a_new_question() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    left, cut = _timed(
+        "the company shipped the snack bar in june".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    right, _end = _timed(
+        "tell me about the factory".split(),
+        start=cut,
+        speaker="spk_1",
+        gap_before=200,
+    )
+    words = left + right
+    assert is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=200,
+    )
+
+
+def test_walk_me_through_opens_a_new_question() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    left, cut = _timed(
+        "the company shipped the snack bar in june".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    right, _end = _timed(
+        "walk me through the factory".split(),
+        start=cut,
+        speaker="spk_1",
+        gap_before=200,
+    )
+    words = left + right
+    assert is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=words,
+        end_ms=cut,
+        next_pause_ms=200,
+    )
+
+
+def test_and_opens_a_segment_only_for_a_new_thought() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    left, cut = _timed(
+        "the company shipped the snack bar in june".split(),
+        start=0,
+        speaker="spk_0",
+    )
+    same, _end = _timed(
+        "and we have the peanut butter line".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=400,
+    )
+    assert not is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=left + same,
+        end_ms=cut,
+        next_pause_ms=400,
+    )
+    new, _end = _timed(
+        "and then we started a second company".split(),
+        start=cut,
+        speaker="spk_0",
+        gap_before=400,
+    )
+    assert is_legal_conceptual_hinge(
+        "the company shipped the snack bar in june",
+        words=left + new,
+        end_ms=cut,
+        next_pause_ms=400,
+    )
+
+
+def test_density_drop_ranks_above_a_dense_concept_change() -> None:
+    from interview_mux.gap_vo_prior_context import concept_boundary_rank
+
+    dense = concept_boundary_rank(gap_ms=80, density_before=3.0, density_after=3.2)
+    breath = concept_boundary_rank(gap_ms=1200, density_before=3.0, density_after=1.0)
+    assert breath > dense

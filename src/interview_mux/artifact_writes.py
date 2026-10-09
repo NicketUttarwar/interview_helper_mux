@@ -23,6 +23,17 @@ def _prepare_for_disk_validation(
     return omit_nullable_null_leaves_for_disk(sk, out)
 
 
+def _transcript_words(ctx: RunContext) -> list[dict[str, Any]]:
+    if not ctx.artifact_exists("transcript/full.json"):
+        return []
+    try:
+        doc = ctx.read_json("transcript/full.json")
+    except Exception:
+        return []
+    raw = doc.get("words") if isinstance(doc, dict) else []
+    return [w for w in raw if isinstance(w, dict)] if isinstance(raw, list) else []
+
+
 def _prepare_segment_artifact(
     ctx: RunContext,
     rel_path: str,
@@ -46,7 +57,8 @@ def _prepare_segment_artifact(
             out, _repair_actions = repair_boundaries(ctx, out)
             boundaries = out.get("boundaries") or []
             repaired_rows, _actions = normalize_boundary_rows(
-                [row for row in boundaries if isinstance(row, dict)]
+                [row for row in boundaries if isinstance(row, dict)],
+                words=_transcript_words(ctx),
             )
             if repaired_rows:
                 out = {**out, "boundaries": repaired_rows}

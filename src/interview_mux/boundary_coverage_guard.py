@@ -143,7 +143,13 @@ def preserve_speech_coverage(
         if side == "start":
             row["start_ms"] = max(gap_lo, min(int(row["start_ms"]), run_start))
         else:
-            row["end_ms"] = min(gap_hi, max(int(row["end_ms"]), run_end))
+            later_starts = [
+                sp[0] for sp, _row in spans if sp[0] > int(row.get("start_ms") or 0)
+            ]
+            cap = (min(later_starts) - 80) if later_starts else gap_hi
+            proposed = min(cap, gap_hi, max(int(row["end_ms"]), run_end))
+            if proposed > int(row.get("start_ms") or 0):
+                row["end_ms"] = proposed
         restored.append(
             {
                 "segment_id": row.get("segment_id"),

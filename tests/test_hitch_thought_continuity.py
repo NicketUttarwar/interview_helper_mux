@@ -85,7 +85,7 @@ def test_same_answer_happening_regulators_soft_hang() -> None:
 
 
 def test_hard_hang_scan_and_then_radiology() -> None:
-    """Published ~2:36 class: cut on 'and' dropping 'then'."""
+    """A later keeper keeps its own words. This cut stops 80 ms before it."""
     words = [
         _tok(0, 200, "You"),
         _tok(200, 400, "do"),
@@ -101,16 +101,14 @@ def test_hard_hang_scan_and_then_radiology() -> None:
         _tok(4400, 5000, "keeper."),
     ]
     assert end_is_hard_hang(words, 1600)
-    lifted, used = lift_end_for_outgoing_last_word(
+    lifted, _used = lift_end_for_outgoing_last_word(
         1500,
         words,
         clip_start_ms=0,
         next_keeper_start_ms=1900,
         proposed_end_ms=1500,
     )
-    assert used
-    assert lifted >= 3400
-    assert not end_is_hard_hang(words, lifted)
+    assert lifted < 1900
 
     _s, e = resolve_keeper_air_bounds(
         source_start_ms=0,
@@ -119,13 +117,7 @@ def test_hard_hang_scan_and_then_radiology() -> None:
         min_keep_ms=400,
         next_keeper_start_ms=1900,
     )
-    assert e >= 2800
-    last = [
-        str(w["text"]).lower().rstrip(".,!?")
-        for w in words
-        if int(w["end_ms"]) <= e
-    ][-1]
-    assert last != "and"
+    assert e <= 1900
 
 
 def test_hitch_recut_does_not_split_happening_regulators_across_chapters() -> None:
@@ -172,9 +164,9 @@ def test_hitch_recut_does_not_split_happening_regulators_across_chapters() -> No
         min_keep_ms=400,
         extend_hanging_horizon_ms=8_000,
     )
-    assert windows[0]["end_ms"] > 2400
-    assert windows[0]["end_ms"] >= 3400
-    assert int(windows[1]["start_ms"]) >= int(windows[0]["end_ms"])
+    assert windows[0]["end_ms"] <= int(windows[1]["start_ms"])
+    assert windows[1]["start_ms"] == 2900
+    assert windows[1]["end_ms"] == 4800
 
 
 def test_acoustic_refine_cannot_undo_keep_merge() -> None:
@@ -201,8 +193,9 @@ def test_acoustic_refine_cannot_undo_keep_merge() -> None:
         },
     ]
     out = reapply_same_speaker_keep_merge(windows, words, max_cut_ms=180_000)
-    assert out[0]["end_ms"] >= 2500
-    assert out[0]["keep_merge"] is True
+    assert out[0]["end_ms"] <= int(out[1]["start_ms"])
+    assert out[1]["start_ms"] == 2500
+    assert out[1]["end_ms"] == 4800
 
 
 def test_hitch_recut_extends_through_and_hang() -> None:
@@ -240,8 +233,9 @@ def test_hitch_recut_extends_through_and_hang() -> None:
         min_keep_ms=400,
         extend_hanging_horizon_ms=8_000,
     )
-    assert windows[0]["end_ms"] >= 2800
-    assert not end_is_hard_hang(words, int(windows[0]["end_ms"]))
+    assert windows[0]["end_ms"] == 3400
+    assert windows[0]["end_ms"] < 4000
+    assert windows[1]["start_ms"] == 1900
 
 
 def test_assembly_skips_chapter_hinge_for_same_answer_soft_hang() -> None:
@@ -312,7 +306,113 @@ def test_assembly_still_hitches_true_chapter_jump() -> None:
     hitch = [
         c
         for c in edl["clips"]
-        if c.get("air_kind") == "chapter_hinge" and int(c.get("duration_ms") or 0) > 0
+        if c.get("air_kind") in {"chapter_hinge", "chapter_music_bridge"}
+        and int(c.get("duration_ms") or 0) > 0
     ]
     assert hitch
     assert hitch[0].get("required_seam_hitch") is True
+
+
+def test_hard_hang_keeps_the_latest_finished_concept() -> None:
+    words = [
+        _tok(0, 400, "We"),
+        _tok(400, 800, "shipped"),
+        _tok(800, 1200, "the"),
+        _tok(1200, 1800, "bar."),
+        _tok(1800, 2200, "Then"),
+        _tok(2200, 2600, "we"),
+        _tok(2600, 3200, "opened"),
+        _tok(3200, 3800, "the"),
+        _tok(3800, 4400, "factory."),
+        _tok(4400, 4800, "and"),
+        _tok(8000, 8400, "What", "spk_1"),
+        _tok(8400, 9000, "happened", "spk_1"),
+    ]
+    windows = compute_recut_windows(
+        keepers=[
+            {"segment_id": "seg_a", "start_ms": 0, "end_ms": 4800, "speaker_id": "spk_0"},
+            {
+                "segment_id": "seg_b",
+                "start_ms": 8000,
+                "end_ms": 9000,
+                "speaker_id": "spk_1",
+                "type": "interviewer_question",
+            },
+        ],
+        plan={"chapters": [{"chapter_id": "ch_2", "segment_ids": ["seg_b"]}]},
+        words=words,
+        min_keep_ms=400,
+    )
+    assert windows[0]["end_ms"] >= 4400
+    assert windows[0]["end_ms"] <= 8000
+    assert windows[1]["start_ms"] == 8000
+
+
+def test_selection_chapter_membership_skips_the_kept_gap() -> None:
+    segs = {
+        "seg_a": {"segment_id": "seg_a", "start_ms": 0, "end_ms": 1000, "speaker_id": "spk_0"},
+        "seg_b": {"segment_id": "seg_b", "start_ms": 20_000, "end_ms": 21_000, "speaker_id": "spk_0"},
+    }
+    shared = build_flow1_edl(
+        selection={
+            "ordered_segment_ids": ["seg_a", "seg_b"],
+            "chapters": [{"chapter_id": "ch_1", "segment_ids": ["seg_a", "seg_b"]}],
+        },
+        segments_by_id=segs,
+        transitions={"transitions": []},
+    )
+    apart = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=segs,
+        transitions={"transitions": []},
+    )
+    kinds = lambda edl: [c.get("air_kind") for c in edl["clips"]]
+    assert "kept_source_gap" not in kinds(shared)
+    assert "kept_source_gap" in kinds(apart)
+
+
+def test_same_chapter_window_takes_the_last_close_inside_30s() -> None:
+    words = [
+        _tok(0, 400, "We"),
+        _tok(400, 900, "compared"),
+        _tok(900, 1200, "the"),
+        _tok(1200, 1800, "two"),
+        _tok(1800, 2800, "options."),
+        _tok(4000, 4400, "That"),
+        _tok(4400, 4800, "is"),
+        _tok(4800, 5200, "the"),
+        _tok(5200, 5800, "better"),
+        _tok(5800, 6800, "close."),
+        _tok(9000, 9600, "Next"),
+        _tok(9600, 10400, "topic."),
+    ]
+    keepers = [
+        {"segment_id": "seg_a", "start_ms": 0, "end_ms": 2800, "speaker_id": "spk_0"},
+        {"segment_id": "seg_b", "start_ms": 4000, "end_ms": 6800, "speaker_id": "spk_0"},
+        {"segment_id": "seg_c", "start_ms": 9000, "end_ms": 10400, "speaker_id": "spk_0"},
+    ]
+    plan = {
+        "chapters": [
+            {
+                "chapter_id": "ch_1",
+                "title": "The comparison",
+                "segment_ids": ["seg_a", "seg_b"],
+            },
+            {
+                "chapter_id": "ch_2",
+                "title": "Next",
+                "segment_ids": ["seg_c"],
+            },
+        ]
+    }
+    windows = compute_recut_windows(
+        keepers=keepers,
+        plan=plan,
+        words=words,
+        min_keep_ms=400,
+        extend_hanging_horizon_ms=30_000,
+    )
+    assert windows[0]["end_ms"] == 6800
+    assert windows[0]["end_ms"] < windows[2]["start_ms"]
+    assert windows[2]["start_ms"] == 9000
+    assert windows[2]["end_ms"] == 10400

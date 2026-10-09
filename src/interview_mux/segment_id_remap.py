@@ -42,6 +42,7 @@ SEGMENT_ID_LIST_KEYS = frozenset(
         "segment_ids_touched",
         "split_into",
         "sequence_order",
+        "segment_order",
     }
 )
 
@@ -64,15 +65,26 @@ SHARED_REMAP_RELS = (
     "understanding/omit_ledger.json",
     "understanding/gap_report.json",
     "understanding/gap_evaluations.json",
+    "master/selection.json",
     "understanding/nugget_layup_plan.json",
     "understanding/episode_structure.json",
     "vo_pickup/synthesis_report.json",
-    "master/selection.json",
     "master/narrative_plan.json",
     "master/transitions.json",
     "master/coverage_audit.json",
     "master/edl.json",
     "transcripts/index.json",
+    "analysis/low_conf_islands.json",
+    "analysis/low_conf_density_ranking.json",
+    "analysis/high_value_island_clusters.json",
+    "analysis/vernacular_must_keep.json",
+    "vernacular/resplit_report.json",
+    "transcript/protected_zones.json",
+    "understanding/sonic_context.json",
+    "understanding/soundscape_policy.json",
+    "understanding/gap_framing_plan.json",
+    "understanding/sound_design_plan.json",
+    "mastering/mastering_plan.json",
 )
 
 
@@ -139,6 +151,39 @@ def apply_segment_id_map(value: Any, mapping: dict[str, str]) -> Any:
                 out[k] = apply_segment_id_map(v, mapping)
         return out
     return value
+
+
+def _copy_renamed_transition_wavs(
+    ctx: RunContext,
+    prior: dict[str, Any],
+    rewritten: dict[str, Any],
+) -> None:
+    """Copy an existing transition wav onto the renamed pair. Do not synthesize."""
+    prior_clips = [c for c in (prior.get("clips") or []) if isinstance(c, dict)]
+    new_clips = [c for c in (rewritten.get("clips") or []) if isinstance(c, dict)]
+    for old, new in zip(prior_clips, new_clips):
+        if str(new.get("type") or "") != "transition":
+            continue
+        source = str(old.get("source_path") or "")
+        if not source:
+            continue
+        src = ctx.final_path(*source.replace("\\", "/").split("/"))
+        if not src.is_file():
+            continue
+        after_id = str(new.get("after_segment_id") or "")
+        before_id = str(new.get("before_segment_id") or "")
+        if not after_id or not before_id:
+            continue
+        dest = ctx.final_path("master", "transitions", f"tr_{after_id}_{before_id}.wav")
+        if dest.is_file():
+            continue
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+
+            shutil.copy2(src, dest)
+        except OSError:
+            continue
 
 
 def _pop_transition_source_paths(edl: dict[str, Any]) -> dict[str, Any]:
@@ -230,6 +275,16 @@ def rewrite_artifact_segment_refs(
     updated: list[str] = []
     if not mapping:
         return updated
+    pair = ("understanding/gap_report.json", "mastering/mastering_plan.json")
+    pair_before: dict[str, Any] = {}
+    for rel_name in pair:
+        if ctx.artifact_exists(rel_name):
+            try:
+                prior_doc = ctx.read_json(rel_name)
+            except Exception:
+                prior_doc = None
+            if isinstance(prior_doc, dict):
+                pair_before[rel_name] = prior_doc
     seen: set[str] = set()
     rels = list(SHARED_REMAP_RELS) + [str(r) for r in extra_rels]
     for rel in rels:
@@ -244,13 +299,20 @@ def rewrite_artifact_segment_refs(
             continue
         rewritten = apply_segment_id_map(doc, mapping)
         rewritten = _preserve_prior_producer_stage(doc, rewritten)
-        if rel == "master/edl.json" and isinstance(rewritten, dict):
-            rewritten = _pop_transition_source_paths(rewritten)
-        if rewritten != doc:
+        if rewritten == doc:
+            continue
+        try:
             if rel == "master/edl.json" and isinstance(rewritten, dict):
+                _copy_renamed_transition_wavs(ctx, doc if isinstance(doc, dict) else {}, rewritten)
+                rewritten = _pop_transition_source_paths(rewritten)
                 from interview_mux.air_order import write_live_edl
 
-                write_live_edl(ctx, rewritten, source=stage_key or "segment_id_remap")
+                write_live_edl(
+                    ctx,
+                    rewritten,
+                    source=stage_key or "segment_id_remap",
+                    mutation_class="segment_id_remap",
+                )
                 updated.append(rel)
                 continue
             kwargs: dict[str, Any] = {
@@ -270,7 +332,76 @@ def rewrite_artifact_segment_refs(
                 kwargs["stage_key"] = gap_report_remap_owner(doc)
             ctx.write_json(rel, rewritten, **kwargs)
             updated.append(rel)
+        except Exception as exc:
+            # One refused file must not stop the rest of the id rewrite.
+            # The on-disk copy of this file stays as it was.
+            try:
+                if hasattr(ctx, "log"):
+                    ctx.log(
+                        f"segment id remap left {rel} unchanged: {exc}",
+                        level="warning",
+                        stage=stage_key or "segment_id_remap",
+                    )
+            except Exception:
+                pass
+    _restore_vo_pair(ctx, mapping, pair_before, updated, stage_key=stage_key)
     return updated
+
+
+def _restore_vo_pair(
+    ctx: RunContext,
+    mapping: dict[str, str],
+    before: dict[str, Any],
+    updated: list[str],
+    *,
+    stage_key: str | None,
+) -> None:
+    """If only one of the mastering plan and the gap report moved, put it back.
+
+    A later voiceover check raises when those two files name different segment ids.
+    """
+    gap = "understanding/gap_report.json"
+    plan = "mastering/mastering_plan.json"
+
+    def needed(rel: str) -> bool:
+        prior = before.get(rel)
+        if not isinstance(prior, dict):
+            return False
+        return apply_segment_id_map(prior, mapping) != prior
+
+    landed = set(updated)
+    gap_landed = gap in landed
+    plan_landed = plan in landed
+    if gap_landed == plan_landed:
+        return
+    if not (needed(gap) and needed(plan)):
+        return
+    revert = gap if gap_landed else plan
+    prior = before.get(revert)
+    if not isinstance(prior, dict):
+        return
+    try:
+        kwargs: dict[str, Any] = {
+            "skip_handoff": True,
+            "mutation_class": "segment_id_remap",
+        }
+        if revert == gap:
+            kwargs["stage_key"] = gap_report_remap_owner(prior)
+        elif stage_key:
+            kwargs["stage_key"] = stage_key
+        ctx.write_json(revert, prior, **kwargs)
+        if revert in updated:
+            updated.remove(revert)
+    except Exception:
+        try:
+            if hasattr(ctx, "log"):
+                ctx.log(
+                    f"segment id remap could not restore {revert} after its pair failed",
+                    level="warning",
+                    stage=stage_key or "segment_id_remap",
+                )
+        except Exception:
+            pass
 
 
 def gap_report_remap_owner(prior: Any) -> str:
@@ -302,10 +433,32 @@ def apply_full_segment_id_remap(
         skip_handoff=skip_handoff,
         stage_key=stage_key,
     )
+    try:
+        from interview_mux.segment_fuse import remap_fused_ids
+        from interview_mux.timeline_optimizer.state import load_best, save_best
+
+        best = load_best(ctx)
+        if isinstance(best, dict) and ctx.artifact_exists("master/selection.json"):
+            selection = ctx.read_json("master/selection.json")
+            live = [
+                str(s)
+                for s in ((selection or {}).get("ordered_segment_ids") or [])
+                if s
+            ]
+            relabeled = remap_fused_ids(list(best.get("ordered_segment_ids") or []), mapping)
+            if relabeled and relabeled == live:
+                saved = dict(best)
+                saved["ordered_segment_ids"] = relabeled
+                save_best(ctx, saved)
+    except Exception:
+        pass
     if rebind_vo and mapping and hasattr(ctx, "final_path"):
         from interview_mux.chapter_close_hitch import rebind_vo_pickup_files
 
-        updated.extend(rebind_vo_pickup_files(ctx, mapping))
+        try:
+            updated.extend(rebind_vo_pickup_files(ctx, mapping))
+        except OSError:
+            pass
     vo_artifacts = {"master/transitions.json", "master/edl.json"}
     if mapping and vo_artifacts.intersection(updated):
         _resync_current_transition_audio(ctx)

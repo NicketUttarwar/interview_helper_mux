@@ -837,6 +837,8 @@ def frozen_seat_write_allowed(
             return True
     except Exception:
         pass
+    if "segment_id_remap" in str(reason or ""):
+        return True
     if hard_freeze_action_permitted(reason, ctx):
         return True
     # The plan's own producer re-deriving a plan that no longer matches the

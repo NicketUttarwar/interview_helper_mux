@@ -444,7 +444,9 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     )
     applied.extend(enrich_actions)
 
-    normalized_rows, timeline_actions = normalize_boundary_timeline(enriched)
+    raw_words = transcript.get("words") if isinstance(transcript, dict) else None
+    timeline_words = [w for w in raw_words if isinstance(w, dict)] if isinstance(raw_words, list) else None
+    normalized_rows, timeline_actions = normalize_boundary_timeline(enriched, words=timeline_words)
     applied.extend(timeline_actions)
     out["boundaries"] = normalized_rows
     for entry in applied:

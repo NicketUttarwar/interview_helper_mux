@@ -218,7 +218,16 @@ def _validate_speech_clips(
     valid_segment_ids: set[str],
 ) -> list[str]:
     errors: list[str] = []
-    ordered = [str(s) for s in (edl.get("ordered_segment_ids") or [])]
+    omitted = {
+        str(s)
+        for s in (edl.get("omitted_unplayable_segment_ids") or [])
+        if s
+    }
+    ordered = [
+        str(s)
+        for s in (edl.get("ordered_segment_ids") or [])
+        if s and str(s) not in omitted
+    ]
     speech_order: list[str] = []
 
     for index, clip in enumerate(clips):

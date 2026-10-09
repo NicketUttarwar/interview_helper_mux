@@ -173,3 +173,43 @@ def test_commit_selection_mutation_detect_producer(tmp_path: Path) -> None:
         write_committed=True,
     )
     assert out.get("ordered_segment_ids") == ["seg_a", "seg_b"]
+
+
+def test_junction_exclude_keeps_its_own_done_marker(tmp_path: Path) -> None:
+    ctx = _Ctx(tmp_path)
+    done = ctx.final_path(".stage_done", "junction_snip_qa")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("1")
+    prev = {"ordered_segment_ids": ["seg_050", "seg_054"]}
+    cur = {"ordered_segment_ids": ["seg_050"]}
+    notes = on_selection_order_changed(
+        ctx, source="junction_snip_qa", previous=prev, current=cur
+    )
+    assert done.is_file()
+    assert "kept_stage_done:junction_snip_qa" in notes
+
+
+def test_id_fold_keeps_paid_stamp_and_junction_done(tmp_path: Path) -> None:
+    ctx = _Ctx(tmp_path)
+    _write_starts(ctx, {"seg_050": 1_520_840, "seg_054": 1_605_180})
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_050", "seg_054"],
+            "_meta": {"producer_stage": "selection_order_sanitize"},
+        },
+    )
+    junction_done = ctx.final_path(".stage_done", "junction_snip_qa")
+    junction_done.parent.mkdir(parents=True, exist_ok=True)
+    junction_done.write_text("1")
+    out = commit_selection_mutation(
+        ctx,
+        {"ordered_segment_ids": ["seg_050"], "excluded_segment_ids": []},
+        producer="connector_fuse_pass",
+        stage_key="connector_fuse_pass",
+        checkpoint_mode="detect",
+        write_committed=True,
+        mutation_class="segment_id_remap",
+    )
+    assert out["_meta"]["producer_stage"] == "selection_order_sanitize"
+    assert junction_done.is_file()

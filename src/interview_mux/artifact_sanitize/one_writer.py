@@ -192,6 +192,7 @@ def _admit_impl(
             write_committed=False,
             refuse_if_unsanitary=False,
             action_class=reason or "one_writer_edl",
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*EDL_REL.split("/"))
 
@@ -202,6 +203,7 @@ def _admit_impl(
             stage_key=stage_key,
             skip_handoff=skip_handoff,
             reason=reason,
+            mutation_class=mutation_class,
         )
 
     if rel == SDP_REL:
@@ -211,6 +213,7 @@ def _admit_impl(
             stage_key=stage_key,
             skip_handoff=skip_handoff,
             reason=reason,
+            mutation_class=mutation_class,
         )
 
     if rel == LAYUP_REL:
@@ -233,6 +236,7 @@ def commit_transitions_doc(
     stage_key: str | None = None,
     skip_handoff: bool = False,
     reason: str = "",
+    mutation_class: str | None = None,
 ) -> Path:
     """Sole transitions persist: retain pairs → sanitize → one write (+ cascade)."""
     from interview_mux.artifact_sanitize.admit import admit_sanitized
@@ -245,7 +249,9 @@ def commit_transitions_doc(
     try:
         from interview_mux.seat_authority import frozen_seat_write_allowed
 
-        if not frozen_seat_write_allowed(ctx, TRANSITIONS_REL, reason=enda_reason):
+        if not frozen_seat_write_allowed(
+            ctx, TRANSITIONS_REL, reason=f"{enda_reason}:{mutation_class or ''}"
+        ):
             return ctx.final_path(*TRANSITIONS_REL.split("/"))
     except ImportError:
         pass
@@ -294,6 +300,7 @@ def commit_transitions_doc(
             write_committed=False,
             refuse_if_unsanitary=False,
             action_class=reason or "commit_transitions_doc",
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*TRANSITIONS_REL.split("/"))
     finally:
@@ -307,6 +314,7 @@ def commit_sound_design_plan_doc(
     stage_key: str | None = None,
     skip_handoff: bool = False,
     reason: str = "",
+    mutation_class: str | None = None,
 ) -> Path:
     """Sole SDP persist: harden when schema-invalid → sanitize → stamp → one write."""
     from interview_mux.analysis_memory import default_sound_design_plan
@@ -320,7 +328,9 @@ def commit_sound_design_plan_doc(
     try:
         from interview_mux.seat_authority import frozen_seat_write_allowed
 
-        if not frozen_seat_write_allowed(ctx, SDP_REL, reason=enda_reason):
+        if not frozen_seat_write_allowed(
+            ctx, SDP_REL, reason=f"{enda_reason}:{mutation_class or ''}"
+        ):
             return ctx.final_path(*SDP_REL.split("/"))
     except ImportError:
         pass
@@ -335,6 +345,8 @@ def commit_sound_design_plan_doc(
         # still refuses). Valid thin/custom plans must stay intact.
         required = ("coherence", "palettes", "assets", "flow_plans", "generated")
         needs_harden = any(k not in base for k in required) or int(base.get("version") or 0) != 1
+        if mutation_class == "segment_id_remap":
+            needs_harden = False
         if not needs_harden:
             schema_errors = validate_artifact_write(SDP_REL, base)
             needs_harden = bool(schema_errors)
@@ -407,6 +419,7 @@ def commit_sound_design_plan_doc(
             write_committed=False,
             refuse_if_unsanitary=False,
             action_class="sound_design_plan",
+            mutation_class=mutation_class,
         )
         return ctx.final_path(*SDP_REL.split("/"))
     finally:

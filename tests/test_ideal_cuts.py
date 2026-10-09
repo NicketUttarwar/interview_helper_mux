@@ -11,12 +11,11 @@ from interview_mux.ideal_cuts import (
 
 
 def _words() -> list[dict]:
-    # Two listen-complete spans with a pause between them.
+    # Two concepts with a pause between them. The second opens a new question.
+    first = "the company shipped snack june".split()
+    second = "what happened after that launch in the market today".split()
     out = []
-    for i in range(10):
-        tok = f"a{i}"
-        if i == 4:
-            tok = f"a{i}."
+    for i, tok in enumerate(first):
         out.append(
             {
                 "word": tok,
@@ -25,12 +24,8 @@ def _words() -> list[dict]:
                 "speaker_id": "spk_0",
             }
         )
-    # 1.2s pause then second span
     base = 3700
-    for i in range(10):
-        tok = f"b{i}"
-        if i == 9:
-            tok = f"b{i}."
+    for i, tok in enumerate(second):
         out.append(
             {
                 "word": tok,
@@ -511,3 +506,42 @@ def test_icp_b2_defaults_expose_min_span_coverage_ratio():
     block = (defaults.get("analysis") or {}).get("ideal_cuts") or {}
     assert block.get("min_span_coverage_ratio") == 0.45
     assert float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0) == 0.45
+
+
+def test_snap_keeps_the_chosen_end_when_no_later_hinge_exists():
+    from interview_mux.ideal_cuts import snap_ideal_cuts
+
+    out = snap_ideal_cuts(
+        {
+            "cuts": [
+                {
+                    "cut_id": "a",
+                    "talking_point_id": "tp",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "priority": "should_keep",
+                    "rationale": "keep the line we already chose",
+                }
+            ]
+        },
+        {
+            "words": [
+                {"text": "we", "start_ms": 100, "end_ms": 300},
+                {"text": "launched", "start_ms": 300, "end_ms": 800},
+                {"text": "the", "start_ms": 800, "end_ms": 1100},
+            ]
+        },
+        cfg={
+            "analysis": {
+                "ideal_cuts": {
+                    "acoustic_edge_refine": False,
+                    "pause_midpoint_end": False,
+                }
+            }
+        },
+    )
+    cuts = out.get("cuts") or []
+    assert len(cuts) == 1
+    assert int(cuts[0]["end_ms"]) > int(cuts[0]["start_ms"])
+    assert any("kept prior end" in str(w) for w in (out.get("snap_warnings") or []))
+

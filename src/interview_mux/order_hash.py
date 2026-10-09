@@ -192,7 +192,16 @@ def order_drift_heal_action(
     """
     if not isinstance(selection, dict) or not isinstance(edl, dict):
         return "rebuild"
-    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    omitted = {
+        str(s)
+        for s in (edl.get("omitted_unplayable_segment_ids") or [])
+        if s
+    }
+    sel_ids = [
+        str(s)
+        for s in (selection.get("ordered_segment_ids") or [])
+        if s and str(s) not in omitted
+    ]
     clip_ids = edl_speech_clip_ids(edl)
     if clip_ids and clip_ids != sel_ids:
         clip_set = set(clip_ids)
@@ -212,7 +221,14 @@ def copy_order_lock_if_clips_match(
     edl: dict[str, Any],
 ) -> dict[str, Any]:
     """Copy selection lock onto EDL only when speech clips already equal selection ids."""
-    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    omitted = {
+        str(s) for s in (edl.get("omitted_unplayable_segment_ids") or []) if s
+    }
+    sel_ids = [
+        str(s)
+        for s in (selection.get("ordered_segment_ids") or [])
+        if s and str(s) not in omitted
+    ]
     clip_ids = edl_speech_clip_ids(edl)
     if clip_ids and clip_ids != sel_ids:
         raise ValueError(
@@ -230,7 +246,14 @@ def assert_selection_leads_edl(
     edl: dict[str, Any],
 ) -> None:
     """Fail closed when EDL diverges from selection — never rewrite selection from EDL."""
-    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    omitted = {
+        str(s) for s in (edl.get("omitted_unplayable_segment_ids") or []) if s
+    }
+    sel_ids = [
+        str(s)
+        for s in (selection.get("ordered_segment_ids") or [])
+        if s and str(s) not in omitted
+    ]
     clip_ids = edl_speech_clip_ids(edl)
     if clip_ids and clip_ids != sel_ids:
         raise ValueError(

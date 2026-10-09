@@ -90,6 +90,17 @@ SEGMENT_ID_REMAP_PATHS: frozenset[str] = frozenset(
         "master/coverage_audit.json",
         "master/edl.json",
         "transcripts/index.json",
+        "analysis/low_conf_islands.json",
+        "analysis/low_conf_density_ranking.json",
+        "analysis/high_value_island_clusters.json",
+        "analysis/vernacular_must_keep.json",
+        "vernacular/resplit_report.json",
+        "transcript/protected_zones.json",
+        "understanding/sonic_context.json",
+        "understanding/soundscape_policy.json",
+        "understanding/gap_framing_plan.json",
+        "understanding/sound_design_plan.json",
+        "mastering/mastering_plan.json",
     }
 )
 # Fuse + overlap repair + chapter-close hitch all retire absorbed seg_* ids

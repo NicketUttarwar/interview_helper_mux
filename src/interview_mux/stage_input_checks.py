@@ -415,6 +415,15 @@ def _check_interview_spine_build(ctx: RunContext) -> list[StageInputIssue]:
 
 def _check_sonic_context_build(ctx: RunContext) -> list[StageInputIssue]:
     issues = _analysis_gate_issues(ctx)
+    if not ctx.artifact_exists("segments/manifest.json") and ctx.artifact_exists(
+        "segments/boundaries.json"
+    ):
+        try:
+            from interview_mux.artifact_completeness import align_manifest_ids_to_boundaries
+
+            align_manifest_ids_to_boundaries(ctx)
+        except Exception:
+            pass
     for rel, remediation in (
         ("understanding/content_brief.json", "Run content_context and content_brief_reanchor."),
         ("segments/manifest.json", "Run boundary_detection and segment_classification."),

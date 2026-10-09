@@ -904,22 +904,28 @@ def trim_residual_source_overlaps(
     ]
     speech.sort(key=lambda ic: _source_span(ic[1])[0])
     actions: list[dict[str, Any]] = []
+    just_short: list[dict[str, Any]] = []
     for (ia, a), (ib, b) in zip(speech, speech[1:]):
         sa, ea = _source_span(a)
         sb, eb = _source_span(b)
         if not (sa < eb and sb < ea):
             continue
         overlap = min(ea, eb) - max(sa, sb)
+        trimmed_clip = None
         if sb - sa >= MIN_TRIMMED_CLIP_MS and ea > sb:
             a["source_end_ms"] = sb
             a["duration_ms"] = max(0, sb - sa)
+            trimmed_clip = a
             trimmed, side = str(a.get("segment_id") or f"clips[{ia}]"), "end"
         elif eb - ea >= MIN_TRIMMED_CLIP_MS:
             b["source_start_ms"] = ea
             b["duration_ms"] = max(0, eb - ea)
+            trimmed_clip = b
             trimmed, side = str(b.get("segment_id") or f"clips[{ib}]"), "start"
         else:
             continue
+        if trimmed_clip is not None and int(trimmed_clip.get("duration_ms") or 0) < 400:
+            just_short.append(trimmed_clip)
         actions.append(
             {
                 "action": "trim_residual_source_overlap",
@@ -931,6 +937,69 @@ def trim_residual_source_overlaps(
         )
     if not actions:
         return []
+    speech_now = [
+        c for c in clips if isinstance(c, dict) and c.get("type") == "speech"
+    ]
+
+    def _dur(clip: dict[str, Any]) -> int:
+        try:
+            return int(clip.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    shorts = [c for c in just_short if 0 < _dur(c) < 400]
+    playable = [c for c in speech_now if c not in shorts and _dur(c) >= 400]
+    if shorts and playable:
+        short_ids = {str(c.get("segment_id") or "") for c in shorts if c.get("segment_id")}
+        clips = [c for c in clips if c not in shorts]
+        edl["clips"] = clips
+        edl["ordered_segment_ids"] = [
+            str(s)
+            for s in (edl.get("ordered_segment_ids") or [])
+            if str(s) not in short_ids
+        ]
+        omitted = [
+            str(s) for s in (edl.get("omitted_unplayable_segment_ids") or []) if s
+        ]
+        edl["omitted_unplayable_segment_ids"] = omitted + [
+            sid for sid in short_ids if sid not in omitted
+        ]
+    elif len(speech_now) == 1 and shorts:
+        only = shorts[0]
+        try:
+            start = int(only.get("source_start_ms") or 0)
+        except (TypeError, ValueError):
+            start = 0
+        room = start + 400
+        for other in speech_now:
+            if other is only:
+                continue
+        nxt = None
+        for clip in clips:
+            if not isinstance(clip, dict) or clip is only:
+                continue
+            try:
+                other_start = int(clip.get("source_start_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            if other_start > start:
+                nxt = other_start if nxt is None else min(nxt, other_start)
+        if nxt is not None:
+            room = min(room, nxt - 80)
+        blocked = False
+        try:
+            from interview_mux.media_ip_cta import never_touch_source_intervals
+
+            for interval in never_touch_source_intervals(ctx):
+                nt0 = int(interval[0])
+                if start < nt0 < room:
+                    room = nt0
+                    blocked = room - start < 400
+        except Exception:
+            blocked = False
+        if not blocked and room - start >= 400:
+            only["source_end_ms"] = start + 400
+            only["duration_ms"] = 400
     edl["timeline_duration_ms"] = _retime_clips([c for c in clips if isinstance(c, dict)])
     try:
         ctx.log(
@@ -994,6 +1063,15 @@ def repair_overlapping_source_ranges(
             union_start=union_start,
             union_end=union_end,
         )
+        fused_from = [survivor, *consumed]
+        _update_boundaries(
+            ctx,
+            survivor=survivor,
+            consumed=set(consumed),
+            union_start=union_start,
+            union_end=union_end,
+            fused_from=fused_from,
+        )
         _update_manifest(
             ctx,
             survivor=survivor,
@@ -1009,15 +1087,6 @@ def repair_overlapping_source_ranges(
             union_start=union_start,
             union_end=union_end,
             segs=segs,
-        )
-        fused_from = [survivor, *consumed]
-        _update_boundaries(
-            ctx,
-            survivor=survivor,
-            consumed=set(consumed),
-            union_start=union_start,
-            union_end=union_end,
-            fused_from=fused_from,
         )
         for cid in consumed:
             remap[cid] = survivor
